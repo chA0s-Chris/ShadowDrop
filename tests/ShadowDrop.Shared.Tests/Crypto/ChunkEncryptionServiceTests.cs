@@ -272,7 +272,7 @@ public sealed class ChunkEncryptionServiceTests
     private static (ShareSecret Secret, FileEncryptionContext Context) CreateTestFixture()
     {
         var secret = ShareSecret.Generate();
-        var context = FileEncryptionContext.Generate(Guid.NewGuid(), Guid.NewGuid());
+        var context = new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
         return (secret, context);
     }
 

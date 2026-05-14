@@ -14,3 +14,8 @@
 - Test projects use NUnit 4 + FluentAssertions. Prefer sociable unit tests. No Moq/NSubstitute — manual test doubles only.
 - No `dev` branch in this repo; issue branches are `squad/{issue}-{slug}` from `main`.
 - Key file paths for crypto spike: `src/ShadowDrop.Shared/Crypto/` (production), `tests/ShadowDrop.Shared.Tests/Crypto/` (tests).
+- 2026-05-14T23:46:26.915+02:00 — PR #6 code review completed. Three substantive issues found:
+  1. **KdfSalt mutability:** `FileEncryptionContext.KdfSalt` property returns mutable array reference → encapsulation breach. Fix: defensive copy in getter.
+  2. **KDF salt per-file design violation:** `Generate()` factory creates new salt per invocation, violates per-share design. Fix: remove or restrict to tests; enforce explicit salt reuse.
+  3. **Temporary key material cleanup:** `DeriveContentKey()` leaves intermediate key buffer uncleared. Fix: explicit zeroing in finally or use crypto pool.
+  All three are actionable and architectural/security-relevant, not style. PR needs changes before merge.

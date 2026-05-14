@@ -79,8 +79,15 @@ public static class ChunkEncryptionService
         BuildInfoBlob(context, info);
 
         var keyMaterial = new Byte[AesKeyLength];
-        HKDF.DeriveKey(HashAlgorithmName.SHA256, secret.KeyMaterial, keyMaterial, context.KdfSalt, info);
-        return new(keyMaterial);
+        try
+        {
+            HKDF.DeriveKey(HashAlgorithmName.SHA256, secret.KeyMaterial, keyMaterial, context.KdfSaltBytes, info);
+            return new(keyMaterial);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(keyMaterial);
+        }
     }
 
     /// <summary>
