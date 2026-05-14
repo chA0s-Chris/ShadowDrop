@@ -34,13 +34,13 @@ public static class ChunkEncryptionService
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        if (chunk.Ciphertext.Length < AesGcmTagLength)
+        if (chunk.CiphertextBytes.Length < AesGcmTagLength)
         {
             throw new CryptographicException("Encrypted chunks must include a 16-byte authentication tag.");
         }
 
-        var ciphertextBytes = chunk.Ciphertext.AsSpan(0, chunk.Ciphertext.Length - AesGcmTagLength);
-        var tagBytes = chunk.Ciphertext.AsSpan(chunk.Ciphertext.Length - AesGcmTagLength);
+        var ciphertextBytes = chunk.CiphertextBytes[..^AesGcmTagLength];
+        var tagBytes = chunk.CiphertextBytes[^AesGcmTagLength..];
 
         if (ciphertextBytes.Length != metadata.PlaintextChunkLength)
         {
@@ -130,7 +130,7 @@ public static class ChunkEncryptionService
         var output = new Byte[ciphertext.Length + AesGcmTagLength];
         ciphertext.CopyTo(output, 0);
         tag.CopyTo(output, ciphertext.Length);
-        return new(output);
+        return new(output, true);
     }
 
     /// <summary>

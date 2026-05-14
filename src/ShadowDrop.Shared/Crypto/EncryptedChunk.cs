@@ -8,6 +8,7 @@ namespace ShadowDrop.Crypto;
 public sealed record EncryptedChunk
 {
     private const Int32 TagLength = 16;
+    private readonly Byte[] _ciphertext;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="EncryptedChunk"/> record.
@@ -16,6 +17,9 @@ public sealed record EncryptedChunk
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="ciphertext"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="ciphertext"/> is shorter than the authentication tag.</exception>
     public EncryptedChunk(Byte[] ciphertext)
+        : this(ciphertext, false) { }
+
+    internal EncryptedChunk(Byte[] ciphertext, Boolean takeOwnership)
     {
         ArgumentNullException.ThrowIfNull(ciphertext);
 
@@ -24,11 +28,13 @@ public sealed record EncryptedChunk
             throw new ArgumentException("Encrypted chunks must include a 16-byte authentication tag.", nameof(ciphertext));
         }
 
-        Ciphertext = ciphertext.ToArray();
+        _ciphertext = takeOwnership ? ciphertext : ciphertext.ToArray();
     }
 
     /// <summary>
     /// Gets the ciphertext bytes with the 16-byte GCM tag appended.
     /// </summary>
-    public Byte[] Ciphertext { get; }
+    public Byte[] Ciphertext => _ciphertext.ToArray();
+
+    internal ReadOnlySpan<Byte> CiphertextBytes => _ciphertext;
 }

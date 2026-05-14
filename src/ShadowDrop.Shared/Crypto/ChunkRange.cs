@@ -24,6 +24,13 @@ public sealed record ChunkRange
         ArgumentOutOfRangeException.ThrowIfLessThan(endOffsetInLastChunk, 0);
         ArgumentOutOfRangeException.ThrowIfLessThan(lastChunkIndex, firstChunkIndex);
 
+        if (firstChunkIndex == lastChunkIndex && offsetInFirstChunk > endOffsetInLastChunk)
+        {
+            throw new ArgumentException(
+                "For single-chunk ranges, the starting offset must not exceed the ending offset.",
+                nameof(offsetInFirstChunk));
+        }
+
         FirstChunkIndex = firstChunkIndex;
         LastChunkIndex = lastChunkIndex;
         OffsetInFirstChunk = offsetInFirstChunk;

@@ -8,6 +8,16 @@ using ShadowDrop.Crypto;
 
 public sealed class ChunkRangeMappingTests
 {
+    [Test]
+    public void ChunkRange_ShouldThrowArgumentException_WhenSingleChunkOffsetsAreInconsistent()
+    {
+        var act = () => new ChunkRange(0, 0, 10, 5);
+
+        act.Should()
+           .Throw<ArgumentException>()
+           .WithParameterName("offsetInFirstChunk");
+    }
+
     [TestCase(0L, 64L, 64, 0L, 0L, 0, 63, TestName = "GetChunkRange_MapsSingleFullChunk")]
     [TestCase(0L, 192L, 64, 0L, 2L, 0, 63, TestName = "GetChunkRange_MapsThreeFullChunks")]
     [TestCase(11L, 13L, 64, 0L, 0L, 11, 23, TestName = "GetChunkRange_MapsSubChunkRangeWithinSingleChunk")]

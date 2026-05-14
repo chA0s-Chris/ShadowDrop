@@ -176,8 +176,9 @@ public sealed class ChunkEncryptionServiceTests
     public void DeriveContentKey_ShouldRemainUsable_AfterShareSecretIsDisposed()
     {
         var fixture = CreateTestFixture();
-        using var secret = fixture.Secret;
+        var secret = fixture.Secret;
         using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        secret.Dispose();
         var plaintext = CreatePlaintext(32);
         var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length);
 
@@ -216,6 +217,37 @@ public sealed class ChunkEncryptionServiceTests
         var act = () => ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
 
         act.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Test]
+    public void EncryptedChunk_Ciphertext_ShouldReturnDefensiveCopy()
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length);
+        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+
+        var exposedCiphertext = encryptedChunk.Ciphertext;
+        exposedCiphertext[0] ^= Byte.MaxValue;
+
+        var decryptedPlaintext = ChunkEncryptionService.DecryptChunk(encryptedChunk, key, metadata);
+
+        decryptedPlaintext.Should().Equal(plaintext);
+    }
+
+    [Test]
+    public void EncryptedChunk_ShouldCopyCiphertextPassedToConstructor()
+    {
+        var ciphertext = Enumerable.Range(0, 32)
+                                   .Select(index => (Byte)index)
+                                   .ToArray();
+        var chunk = new EncryptedChunk(ciphertext);
+
+        ciphertext[0] ^= Byte.MaxValue;
+
+        chunk.Ciphertext[0].Should().Be(0);
     }
 
     [TestCaseSource(nameof(FullFileRoundTripCases))]
