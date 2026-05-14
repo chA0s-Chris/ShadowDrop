@@ -4,17 +4,17 @@ Validate the core encryption format before building upload and download workflow
 
 ## Acceptance Criteria
 
-- [ ] A shared crypto component can encrypt plaintext into independently decryptable AES-256-GCM chunks.
-- [ ] A shared crypto component can decrypt full files from encrypted chunks.
-- [ ] A shared crypto component can decrypt only the chunks needed for a plaintext byte range.
-- [ ] One share-level encryption secret with at least 256 bits of randomness can be used to derive per-file AES-256-GCM content keys.
-- [ ] Per-file AES-256-GCM content keys are derived with HKDF-SHA-256 using the share secret, a non-secret per-share KDF salt, and file-specific context.
-- [ ] Each chunk uses a unique 96-bit nonce under its derived file content key.
-- [ ] Chunk authentication includes relevant metadata such as encryption version, algorithm, share id, file id, chunk size, chunk index, and plaintext chunk length.
-- [ ] Tampered ciphertext, tampered metadata, mismatched nonce metadata, wrong share secrets, and wrong file derivation context fail decryption.
-- [ ] The encryption format includes an algorithm/version marker so future formats can coexist.
-- [ ] Automated tests cover full-file round trips, range-oriented decryption, mid-chunk ranges, multi-chunk ranges, and failure cases.
-- [ ] The shared crypto code remains compatible with Native AOT usage from the CLI.
+- [x] A shared crypto component can encrypt plaintext into independently decryptable AES-256-GCM chunks.
+- [x] A shared crypto component can decrypt full files from encrypted chunks.
+- [x] A shared crypto component can decrypt only the chunks needed for a plaintext byte range.
+- [x] One share-level encryption secret with at least 256 bits of randomness can be used to derive per-file AES-256-GCM content keys.
+- [x] Per-file AES-256-GCM content keys are derived with HKDF-SHA-256 using the share secret, a non-secret per-share KDF salt, and file-specific context.
+- [x] Each chunk uses a unique 96-bit nonce under its derived file content key.
+- [x] Chunk authentication includes relevant metadata such as encryption version, algorithm, share id, file id, chunk size, chunk index, and plaintext chunk length.
+- [x] Tampered ciphertext, tampered metadata, mismatched nonce metadata, wrong share secrets, and wrong file derivation context fail decryption.
+- [x] The encryption format includes an algorithm/version marker so future formats can coexist.
+- [x] Automated tests cover full-file round trips, range-oriented decryption, mid-chunk ranges, multi-chunk ranges, and failure cases.
+- [x] The shared crypto code remains compatible with Native AOT usage from the CLI.
 
 ## Technical Details
 

@@ -9,6 +9,8 @@
 
 - Initial role seeded as Tester for ShadowDrop.
 - The concept puts special emphasis on resumable downloads, token expiry, revocation, and multi-file share behavior.
+- 2026-05-14T23:22:54.266+02:00: The chunked AES-256-GCM spike lives in `src/ShadowDrop.Shared/Crypto/` and its acceptance coverage lives in `tests/ShadowDrop.Shared.Tests/Crypto/`.
+- 2026-05-14T23:22:54.266+02:00: Current crypto acceptance evidence is implementation-plus-tests: 26 shared crypto tests pass, and `dotnet publish src/ShadowDrop.Cli/ShadowDrop.Cli.csproj -c Release -r linux-x64 --self-contained true` succeeds for Native AOT validation.
 
 ## Cross-Agent Updates — 2026-05-14T18:43:13Z
 
