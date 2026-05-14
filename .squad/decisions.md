@@ -26,3 +26,8 @@
 - All meaningful changes require team consensus
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
+
+### 2026-05-14T22:52:54.277+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Do not commit codebase changes unless explicitly asked; it is okay to commit squad-related changes inside `./.squad/`; do not push any commit to the remote; do not create a PR unless explicitly asked.
+**Why:** User request — captured for team memory
