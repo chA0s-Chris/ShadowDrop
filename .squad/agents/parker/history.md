@@ -11,6 +11,9 @@
 - The concept puts special emphasis on resumable downloads, token expiry, revocation, and multi-file share behavior.
 - 2026-05-14T23:22:54.266+02:00: The chunked AES-256-GCM spike lives in `src/ShadowDrop.Shared/Crypto/` and its acceptance coverage lives in `tests/ShadowDrop.Shared.Tests/Crypto/`.
 - 2026-05-14T23:22:54.266+02:00: Current crypto acceptance evidence is implementation-plus-tests: 26 shared crypto tests pass, and `dotnet publish src/ShadowDrop.Cli/ShadowDrop.Cli.csproj -c Release -r linux-x64 --self-contained true` succeeds for Native AOT validation.
+- 2026-05-14T23:26:13.429+02:00: Crypto review found the biggest remaining test gaps in `ShareSecret.FromBytes`, `ChunkEncryptionService.GetChunkRange` guard rails, and secret/key disposal behavior; current coverage is measured with `dotnet test tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj --collect:"XPlat Code Coverage"`.
+- 2026-05-14T23:28:54.563+02:00: Added targeted crypto regression tests in `tests/ShadowDrop.Shared.Tests/Crypto/` for `ShareSecret.FromBytes`, disposed secret/content-key behavior, `GetChunkRange` invalid inputs, and constructor validation on `FileEncryptionContext`/`ChunkMetadata`.
+- 2026-05-14T23:28:54.563+02:00: After the new tests, shared crypto coverage shows `ShareSecret.cs`, `FileEncryptionContext.cs`, and `ChunkMetadata.cs` at 100% line/branch coverage; `ChunkEncryptionService.cs` and `ContentKey.cs` still retain a few uncovered defensive branches.
 
 ## Cross-Agent Updates — 2026-05-14T18:43:13Z
 

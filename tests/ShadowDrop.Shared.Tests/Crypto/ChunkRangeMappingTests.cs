@@ -24,13 +24,53 @@ public sealed class ChunkRangeMappingTests
         Int32 expectedOffsetInFirstChunk,
         Int32 expectedEndOffsetInLastChunk)
     {
-        var service = new ChunkEncryptionService();
-
         var chunkRange = ChunkEncryptionService.GetChunkRange(plaintextOffset, plaintextLength, chunkSize);
 
         chunkRange.FirstChunkIndex.Should().Be(expectedFirstChunkIndex);
         chunkRange.LastChunkIndex.Should().Be(expectedLastChunkIndex);
         chunkRange.OffsetInFirstChunk.Should().Be(expectedOffsetInFirstChunk);
         chunkRange.EndOffsetInLastChunk.Should().Be(expectedEndOffsetInLastChunk);
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void GetChunkRange_ShouldThrowArgumentOutOfRangeException_WhenChunkSizeIsNotPositive(Int32 chunkSize)
+    {
+        var act = () => ChunkEncryptionService.GetChunkRange(0, 1, chunkSize);
+
+        act.Should()
+           .Throw<ArgumentOutOfRangeException>()
+           .WithParameterName(nameof(chunkSize));
+    }
+
+    [TestCase(0L)]
+    [TestCase(-1L)]
+    public void GetChunkRange_ShouldThrowArgumentOutOfRangeException_WhenPlaintextLengthIsNotPositive(Int64 plaintextLength)
+    {
+        var act = () => ChunkEncryptionService.GetChunkRange(0, plaintextLength, 64);
+
+        act.Should()
+           .Throw<ArgumentOutOfRangeException>()
+           .WithParameterName(nameof(plaintextLength));
+    }
+
+    [Test]
+    public void GetChunkRange_ShouldThrowArgumentOutOfRangeException_WhenPlaintextOffsetIsNegative()
+    {
+        var act = () => ChunkEncryptionService.GetChunkRange(-1, 1, 64);
+
+        act.Should()
+           .Throw<ArgumentOutOfRangeException>()
+           .WithParameterName("plaintextOffset");
+    }
+
+    [Test]
+    public void GetChunkRange_ShouldThrowArgumentOutOfRangeException_WhenRequestedRangeOverflowsInt64()
+    {
+        var act = () => ChunkEncryptionService.GetChunkRange(Int64.MaxValue - 1, 3, 64);
+
+        act.Should()
+           .Throw<ArgumentOutOfRangeException>()
+           .WithParameterName("plaintextLength");
     }
 }

@@ -8,7 +8,7 @@ using System.Security.Cryptography;
 /// <summary>
 /// Provides chunk key derivation, authenticated encryption, authenticated decryption, and plaintext range mapping.
 /// </summary>
-public sealed class ChunkEncryptionService
+public static class ChunkEncryptionService
 {
     private const Int32 AadLength = 50;
     private const Int32 AesGcmTagLength = 16;

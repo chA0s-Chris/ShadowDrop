@@ -155,6 +155,52 @@ public sealed class ChunkEncryptionServiceTests
         act.Should().Throw<CryptographicException>();
     }
 
+    [Test]
+    public void DeriveContentKey_ShouldRemainUsable_AfterShareSecretIsDisposed()
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length);
+
+        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+        var decryptedPlaintext = ChunkEncryptionService.DecryptChunk(encryptedChunk, key, metadata);
+
+        decryptedPlaintext.Should().Equal(plaintext);
+    }
+
+    [Test]
+    public void EncryptChunk_ShouldThrowArgumentException_WhenMetadataLengthDoesNotMatchPlaintext()
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length - 1);
+
+        var act = () => ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+
+        act.Should()
+           .Throw<ArgumentException>()
+           .WithParameterName("metadata");
+    }
+
+    [Test]
+    public void EncryptChunk_ShouldThrowObjectDisposedException_WhenContentKeyIsDisposed()
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length);
+        key.Dispose();
+
+        var act = () => ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+
+        act.Should().Throw<ObjectDisposedException>();
+    }
+
     [TestCaseSource(nameof(FullFileRoundTripCases))]
     public void FullFileRoundTrip_ShouldReturnOriginalPlaintext(Int32 chunkSize, Int32 plaintextLength)
     {
@@ -163,9 +209,9 @@ public sealed class ChunkEncryptionServiceTests
         using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
 
         var plaintext = CreatePlaintext(plaintextLength);
-        var encryptedChunks = EncryptChunks(plaintext, chunkSize, fixture.Service, key, fixture.Context);
+        var encryptedChunks = EncryptChunks(plaintext, chunkSize, key, fixture.Context);
 
-        var decryptedPlaintext = DecryptAllChunks(encryptedChunks, fixture.Service, key);
+        var decryptedPlaintext = DecryptAllChunks(encryptedChunks, key);
 
         decryptedPlaintext.Should().Equal(plaintext);
     }
@@ -182,14 +228,13 @@ public sealed class ChunkEncryptionServiceTests
         using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
 
         var plaintext = CreatePlaintext(plaintextLength);
-        var encryptedChunks = EncryptChunks(plaintext, chunkSize, fixture.Service, key, fixture.Context);
+        var encryptedChunks = EncryptChunks(plaintext, chunkSize, key, fixture.Context);
 
         var decryptedRange = DecryptRange(
             encryptedChunks,
             plaintextOffset,
             rangeLength,
             chunkSize,
-            fixture.Service,
             key);
 
         var expectedPlaintext = plaintext.AsSpan((Int32)plaintextOffset, (Int32)rangeLength).ToArray();
@@ -224,17 +269,15 @@ public sealed class ChunkEncryptionServiceTests
         return plaintext;
     }
 
-    private static (ShareSecret Secret, FileEncryptionContext Context, ChunkEncryptionService Service) CreateTestFixture()
+    private static (ShareSecret Secret, FileEncryptionContext Context) CreateTestFixture()
     {
-        var service = new ChunkEncryptionService();
         var secret = ShareSecret.Generate();
         var context = FileEncryptionContext.Generate(Guid.NewGuid(), Guid.NewGuid());
-        return (secret, context, service);
+        return (secret, context);
     }
 
     private static Byte[] DecryptAllChunks(
         IReadOnlyList<(ChunkMetadata Metadata, EncryptedChunk Chunk)> encryptedChunks,
-        ChunkEncryptionService service,
         ContentKey key)
     {
         var totalLength = encryptedChunks.Sum(chunk => chunk.Metadata.PlaintextChunkLength);
@@ -256,7 +299,6 @@ public sealed class ChunkEncryptionServiceTests
         Int64 plaintextOffset,
         Int64 rangeLength,
         Int32 chunkSize,
-        ChunkEncryptionService service,
         ContentKey key)
     {
         var chunkRange = ChunkEncryptionService.GetChunkRange(plaintextOffset, rangeLength, chunkSize);
@@ -284,7 +326,6 @@ public sealed class ChunkEncryptionServiceTests
     private static List<(ChunkMetadata Metadata, EncryptedChunk Chunk)> EncryptChunks(
         Byte[] plaintext,
         Int32 chunkSize,
-        ChunkEncryptionService service,
         ContentKey key,
         FileEncryptionContext context)
     {
