@@ -10,6 +10,10 @@ Plans typically have acceptance criteria with check boxes. Check each box when y
 
 TBD
 
+### Code Style
+
+For the project's code style, refer to `CODESTYLE.md`.
+
 ## Production Code Rules
 
 Read ./src/AGENTS.md for details about the production code.
