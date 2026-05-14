@@ -1,7 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <RootNamespace>ShadowDrop</RootNamespace>
-  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />
   </ItemGroup>
