@@ -5,6 +5,7 @@
     <RootNamespace>ShadowDrop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="LiteDB" />
     <ProjectReference Include="..\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />
   </ItemGroup>
 </Project>

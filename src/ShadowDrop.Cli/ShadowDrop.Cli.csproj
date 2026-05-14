@@ -1,9 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <IsAotCompatible>true</IsAotCompatible>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
     <RootNamespace>ShadowDrop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.CommandLine" />
     <ProjectReference Include="..\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />
   </ItemGroup>
 </Project>

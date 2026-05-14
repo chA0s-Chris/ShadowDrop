@@ -4,14 +4,14 @@ Establish the baseline solution wiring so the API, CLI, shared library, and test
 
 ## Acceptance Criteria
 
-- [ ] Existing project references are verified and preserved.
-- [ ] Production and test projects are included in `ShadowDrop.slnx`.
-- [ ] Central package versions are added for LiteDB, System.CommandLine, and Spectre.Console.
-- [ ] Required package references are added to the API and CLI projects.
-- [ ] The CLI project configuration supports Native AOT publishing.
-- [ ] A Native AOT smoke publish succeeds for the `linux-x64` CLI runtime identifier.
-- [ ] The solution builds successfully with `dotnet build`.
-- [ ] The test suite runs successfully with `dotnet test`.
+- [x] Existing project references are verified and preserved.
+- [x] Production and test projects are included in `ShadowDrop.slnx`.
+- [x] Central package versions are added for LiteDB, System.CommandLine, and Spectre.Console.
+- [x] Required package references are added to the API and CLI projects.
+- [x] The CLI project configuration supports Native AOT publishing.
+- [x] A Native AOT smoke publish succeeds for the `linux-x64` CLI runtime identifier.
+- [x] The solution builds successfully with `dotnet build`.
+- [x] The test suite runs successfully with `dotnet test`.
 
 ## Technical Details
 
