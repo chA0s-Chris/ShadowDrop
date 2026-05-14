@@ -5,6 +5,10 @@
     <NoWarn>$(NoWarn);CS0618;NU1701</NoWarn>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <RootNamespace>ShadowDrop.Tests</RootNamespace>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="JUnitTestLogger" />
