@@ -11,9 +11,15 @@
   <Folder Name="/src/">
     <File Path="src/AGENTS.md" />
     <File Path="src/Directory.Build.props" />
+    <Project Path="src/ShadowDrop.Api/ShadowDrop.Api.csproj" />
+    <Project Path="src/ShadowDrop.Cli/ShadowDrop.Cli.csproj" />
+    <Project Path="src/ShadowDrop.Shared/ShadowDrop.Shared.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <File Path="tests/AGENTS.md" />
     <File Path="tests/Directory.Build.props" />
+    <Project Path="tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj" />
+    <Project Path="tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj" />
+    <Project Path="tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj" />
   </Folder>
 </Solution>
