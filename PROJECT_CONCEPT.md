@@ -50,6 +50,7 @@ Examples:
 - **Client-side upload encryption:** Files should be encrypted by the sending client before being written to the storage backend.
 - **Temporary access:** Shares should expire by time or explicit revocation. Access-count-based limits can be added later.
 - **Token-only authorization:** Access should be controlled with bearer tokens, without introducing users, accounts, or identity management.
+- **Separable API exposure:** Download endpoints and upload/management endpoints should be independently exposable so operators can keep management APIs off the public internet.
 - **Automation-friendly:** Uploading, sharing, and downloading should work from scripts and CLI tools.
 - **Guided when useful:** The CLI should support an interactive terminal UI for users who prefer a wizard-like flow.
 - **Backend-flexible:** Blob storage and metadata persistence should both be abstracted so different backends can be supported over time.
@@ -68,6 +69,7 @@ Included:
 - Docker image distribution with a one-container default deployment for x64 and arm64.
 - Admin bearer token required for uploads and share management.
 - Bootstrap admin token through `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`.
+- Configuration to limit exposure of upload and management APIs separately from public download endpoints.
 - Password-protected links using optional download bearer tokens.
 - Creation of opaque, high-entropy download links.
 - Shares containing one or more files.
@@ -305,6 +307,7 @@ Each slice should own the endpoint, request and response contracts, validation, 
 The system still needs a few clear capabilities:
 
 - **API service:** Upload, share creation, revocation, and download endpoints.
+- **API exposure configuration:** Independent exposure controls for public download endpoints and protected upload/management endpoints.
 - **Blob storage abstraction:** Local filesystem first, S3-compatible later.
 - **Metadata persistence abstraction:** LiteDB first, MongoDB or SQLite later.
 - **Crypto capability:** Chunked AES-256-GCM MVP encryption, versioned encryption formats for future algorithms, client-side upload encryption, server-side direct-download decryption when key material is supplied, and CLI-side recipient decryption.
@@ -327,6 +330,8 @@ POST /api/files
 POST /api/files/{fileId}/shares
 DELETE /api/shares/{shareId}
 ```
+
+The upload and management API should be configurable separately from the download API. Many deployments should expose only download endpoints publicly, while upload and management endpoints remain available only on a private network, VPN, reverse-proxy route, internal listener, or disabled public listener. Admin bearer tokens are still required, but network exposure should be an additional deployment control.
 
 Potential CLI/API direct-download key transport:
 
@@ -553,3 +558,4 @@ ShadowDrop should not become:
 - [x] The concept bootstraps admin access through `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`.
 - [x] The concept defines a minimal operational and audit metadata model.
 - [x] The concept defines the initial CLI command shape, including `put` as the combined upload-and-share command.
+- [x] The concept lets operators limit public exposure of upload and management APIs separately from download endpoints.
