@@ -176,8 +176,8 @@ public static class ChunkEncryptionService
     {
         destination[0] = (Byte)metadata.Version;
         destination[1] = (Byte)metadata.Algorithm;
-        metadata.ShareId.ToByteArray().CopyTo(destination[2..18]);
-        metadata.FileId.ToByteArray().CopyTo(destination[18..34]);
+        WriteGuid(metadata.ShareId, destination[2..18]);
+        WriteGuid(metadata.FileId, destination[18..34]);
         BinaryPrimitives.WriteInt32BigEndian(destination[34..38], metadata.ChunkSize);
         BinaryPrimitives.WriteInt64BigEndian(destination[38..46], metadata.ChunkIndex);
         BinaryPrimitives.WriteInt32BigEndian(destination[46..50], metadata.PlaintextChunkLength);
@@ -187,13 +187,21 @@ public static class ChunkEncryptionService
     {
         destination[0] = (Byte)CryptoVersion.V1;
         destination[1] = (Byte)CryptoAlgorithm.Aes256Gcm;
-        context.ShareId.ToByteArray().CopyTo(destination[2..18]);
-        context.FileId.ToByteArray().CopyTo(destination[18..34]);
+        WriteGuid(context.ShareId, destination[2..18]);
+        WriteGuid(context.FileId, destination[18..34]);
     }
 
     private static void FillNonce(Int64 chunkIndex, Span<Byte> nonce)
     {
         nonce.Clear();
         BinaryPrimitives.WriteInt64BigEndian(nonce[4..], chunkIndex);
+    }
+
+    private static void WriteGuid(Guid value, Span<Byte> destination)
+    {
+        if (!value.TryWriteBytes(destination))
+        {
+            throw new ArgumentException("The destination span must be at least 16 bytes long.", nameof(destination));
+        }
     }
 }

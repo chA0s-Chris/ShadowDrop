@@ -14,6 +14,7 @@
 - 2026-05-14T20:06:45.536+02:00: Native AOT visibility for the CLI lives in `src/ShadowDrop.Cli/ShadowDrop.Cli.csproj` via `IsAotCompatible`, `PublishAot`, and `InvariantGlobalization`, with `linux-x64` smoke publish as the baseline validation path.
 - 2026-05-14T20:21:46.760+02:00: Created PR #5 for issue #1 targeting `main` (no `dev` branch in this repo). PR body mirrors acceptance criteria with validation checklist; linked and closes issue #1.
 - 2026-05-14T22:55:52.308+02:00: For local history surgery on `squad/2-chunked-aes-gcm-crypto-spike`, the safe path was to rebase the trailing `.squad/` docs commit onto `afb29a7` and then restore `src/ShadowDrop.Shared/Crypto/*` plus `tests/ShadowDrop.Shared.Tests/Crypto/*` with `git cherry-pick --no-commit`, leaving the code/test changes staged for review while removing commits `ff9b8ff` and `546e543` from branch history.
+- 2026-05-15T00:01:13.117+02:00: The crypto hot path in `src/ShadowDrop.Shared/Crypto/ChunkEncryptionService.cs` serializes `Guid` values into stackalloc buffers for AAD/HKDF info; use `Guid.TryWriteBytes` instead of `Guid.ToByteArray()` there to avoid per-call heap allocations. Regression coverage for derived-key context mismatches lives in `tests/ShadowDrop.Shared.Tests/Crypto/ChunkEncryptionServiceTests.cs`.
 
 ## Squad Transition — 2026-05-14T18:13:02Z
 

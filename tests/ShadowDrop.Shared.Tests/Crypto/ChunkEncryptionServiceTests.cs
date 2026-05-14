@@ -116,6 +116,23 @@ public sealed class ChunkEncryptionServiceTests
     }
 
     [Test]
+    public void DecryptChunk_ShouldThrowCryptographicException_WhenShareIdInFileEncryptionContextIsWrong()
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var wrongContext = new FileEncryptionContext(Guid.NewGuid(), fixture.Context.FileId, fixture.Context.KdfSalt);
+        using var wrongKey = ChunkEncryptionService.DeriveContentKey(secret, wrongContext);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
+        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+
+        var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, wrongKey, metadata);
+
+        act.Should().Throw<CryptographicException>();
+    }
+
+    [Test]
     public void DecryptChunk_ShouldThrowCryptographicException_WhenShareIdIsTampered()
     {
         var fixture = CreateTestFixture();
