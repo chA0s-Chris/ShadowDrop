@@ -1,0 +1,60 @@
+{
+  "agents": {
+    "lead": {
+      "persistent_name": "Nate",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "backend-dev": {
+      "persistent_name": "Eliot",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "cli-dev": {
+      "persistent_name": "Sophie",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "security-engineer": {
+      "persistent_name": "Alec",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "platform-dev": {
+      "persistent_name": "Tara",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "tester": {
+      "persistent_name": "Parker",
+      "universe": "User-defined",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": true,
+      "status": "active"
+    },
+    "scribe": {
+      "persistent_name": "Scribe",
+      "universe": "Exempt",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "ralph": {
+      "persistent_name": "Ralph",
+      "universe": "Exempt",
+      "created_at": "2026-05-14T19:56:06.275+02:00",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}
