@@ -269,22 +269,23 @@ The MVP should use strong random tokens with enough entropy to make guessing imp
 
 The initial encryption model should use client-side encryption during upload:
 
-- Generate a random data encryption key per file on the sending client.
+- Generate one random share encryption secret on the sending client.
+- Derive per-file AES-256-GCM content keys from the share encryption secret and file-specific context.
 - Encrypt file content before or while uploading it.
 - Use AES-256-GCM as the MVP encryption algorithm.
 - Encrypt files in fixed-size chunks so range requests can be served without decrypting the entire file.
 - Use a unique nonce per chunk and authenticate chunk metadata such as encryption version, file id, chunk index, and plaintext chunk length.
 - Store an encryption format version and algorithm identifier with each encrypted file so additional formats can be supported later.
 - Store only encrypted blobs in the storage backend.
-- Do not require the server to persist plaintext file keys.
-- Allow the sender to choose whether the key is embedded in the download link or delivered separately.
+- Do not require the server to persist plaintext share secrets or derived file keys.
+- Allow the sender to choose whether the share encryption secret is embedded in the download link or delivered separately.
 
 This protects against exposure of the storage backend contents and reduces the amount of secret material the server needs to store.
 
 There are two important download modes:
 
-- **Link-carried key mode:** The request includes the file key or enough key material to derive it. This supports ordinary HTTP clients such as `curl` and browser downloads, but the server receives the key during download if it must decrypt the response. This mode must be explicit opt-in per share.
-- **Separate-key mode:** The share link does not include the file key. The recipient receives the key through a separate channel and uses the CLI to decrypt locally. This avoids exposing the key to the server during download, but requires recipient tooling. This should be the default mode because tech-oriented users are expected to prefer the CLI, while browser or plain `curl` sharing is a compatibility choice for recipients who need it.
+- **Link-carried key mode:** The request includes the share encryption secret or enough key material to derive it. This supports ordinary HTTP clients such as `curl` and browser downloads, but the server receives the key material during download if it must decrypt the response. This mode must be explicit opt-in per share.
+- **Separate-key mode:** The share link does not include the share encryption secret. The recipient receives the secret through a separate channel and uses the CLI to decrypt locally. This avoids exposing the secret to the server during download, but requires recipient tooling. This should be the default mode because tech-oriented users are expected to prefer the CLI, while browser or plain `curl` sharing is a compatibility choice for recipients who need it.
 
 If the server is expected to decrypt and stream plaintext to `curl`, the key cannot live only in a URL fragment because fragments are not sent in HTTP requests. Direct HTTP mode should support key material in the `ShadowDrop-Key` HTTP header for CLI and script usage, and in the `sd-key` query parameter for browser download support. Query parameters have stronger logging and sharing exposure risks, so this mode should be documented clearly and handled carefully.
 
