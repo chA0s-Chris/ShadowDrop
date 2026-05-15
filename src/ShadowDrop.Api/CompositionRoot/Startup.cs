@@ -3,6 +3,7 @@
 namespace ShadowDrop.Api.CompositionRoot;
 
 using Serilog;
+using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 
 public static class Startup
@@ -10,7 +11,12 @@ public static class Startup
     public static WebApplication PrepareStartup(this WebApplication app, ILogger logger)
     {
         logger.Information("Resolving startup services...");
-        _ = app.Services.GetRequiredService<AdminTokenService>();
+
+        var options = app.Services.GetRequiredService<ShadowDropOptions>();
+        if (options.ApiExposure.EnableAdminOperations)
+        {
+            _ = app.Services.GetRequiredService<AdminTokenService>();
+        }
 
         return app;
     }

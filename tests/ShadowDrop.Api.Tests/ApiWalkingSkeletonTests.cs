@@ -4,9 +4,12 @@ namespace ShadowDrop.Tests;
 
 using FluentAssertions;
 using LiteDB;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ShadowDrop.Api;
+using ShadowDrop.Api.Configuration;
 using System.Net;
 
 [TestFixture]
@@ -131,6 +134,53 @@ public sealed class ApiWalkingSkeletonTests
         act.Should().Throw<InvalidOperationException>();
     }
 
+    [Test]
+    public async Task Config_RelativePaths_ShouldBeResolvedToAbsolutePathsUnderContentRoot()
+    {
+        await using var fixture = new TestApiFactory(useRelativePaths: true);
+        using var client = fixture.CreateClient();
+
+        _ = await client.GetAsync("/health");
+
+        var options = fixture.Services.GetRequiredService<ShadowDropOptions>();
+        var contentRoot = fixture.Services.GetRequiredService<IWebHostEnvironment>().ContentRootPath;
+
+        Path.IsPathRooted(options.Metadata.LiteDbPath).Should().BeTrue("a relative metadata path must be resolved to an absolute path");
+        Path.IsPathRooted(options.Storage.LocalRoot).Should().BeTrue("a relative storage path must be resolved to an absolute path");
+        options.Metadata.LiteDbPath.Should().StartWith(contentRoot, "the resolved metadata path must be anchored to the content root");
+        options.Storage.LocalRoot.Should().StartWith(contentRoot, "the resolved storage path must be anchored to the content root");
+        Directory.Exists(Path.GetDirectoryName(options.Metadata.LiteDbPath)!).Should().BeTrue();
+        Directory.Exists(options.Storage.LocalRoot).Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Startup_ShouldSucceed_WhenAdminOperationsAreDisabled_EvenWithoutBootstrapToken()
+    {
+        await using var fixture = new TestApiFactory(false, withBootstrapToken: false);
+        using var client = fixture.CreateClient();
+
+        var response = await client.GetAsync("/health");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+                                        "when admin operations are disabled, AdminTokenService is never initialized so no bootstrap token is required");
+    }
+
+    [Test]
+    public async Task Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup()
+    {
+        var failedFixture = new TestApiFactory(withBootstrapToken: false);
+        Action act = () => failedFixture.CreateClient();
+        act.Should().Throw<InvalidOperationException>();
+        await failedFixture.DisposeAsync();
+
+        await using var healthyFixture = new TestApiFactory();
+        using var client = healthyFixture.CreateClient();
+        var response = await client.GetAsync("/health");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+                                        "disposal of a failed factory must restore environment variables so subsequent factories can start");
+    }
+
     private sealed class AdminTokenCredentialDocument
     {
         public Int32 Id { get; set; }
@@ -154,17 +204,32 @@ public sealed class ApiWalkingSkeletonTests
         private readonly String? _previousMetadataPath;
         private readonly String? _previousPublicDownloadsExposure;
         private readonly String? _previousStorageRoot;
+        private readonly String? _relativePathPrefix;
         private readonly String _temporaryRootDirectory;
+        private readonly Boolean _useRelativePaths;
+        private String? _resolvedRelativeRoot;
 
-        public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true)
+        public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true,
+                              Boolean useRelativePaths = false)
         {
-            _temporaryRootDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-api-tests-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(_temporaryRootDirectory);
-
-            MetadataDatabasePath = Path.Combine(_temporaryRootDirectory, "metadata", "shadowdrop.db");
-            LocalStorageRoot = Path.Combine(_temporaryRootDirectory, "storage");
+            _useRelativePaths = useRelativePaths;
             BootstrapToken = "test-bootstrap-token";
             EnableAdminOperations = enableAdminOperations;
+
+            if (useRelativePaths)
+            {
+                _relativePathPrefix = $"reltest-{Guid.NewGuid():N}";
+                _temporaryRootDirectory = String.Empty;
+                MetadataDatabasePath = Path.Combine(_relativePathPrefix, "metadata", "shadowdrop.db");
+                LocalStorageRoot = Path.Combine(_relativePathPrefix, "storage");
+            }
+            else
+            {
+                _temporaryRootDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-api-tests-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(_temporaryRootDirectory);
+                MetadataDatabasePath = Path.Combine(_temporaryRootDirectory, "metadata", "shadowdrop.db");
+                LocalStorageRoot = Path.Combine(_temporaryRootDirectory, "storage");
+            }
 
             _previousBootstrapToken = Environment.GetEnvironmentVariable(BootstrapTokenEnvironmentVariable);
             _previousMetadataPath = Environment.GetEnvironmentVariable(MetadataPathEnvironmentVariable);
@@ -191,6 +256,19 @@ public sealed class ApiWalkingSkeletonTests
         {
             if (disposing)
             {
+                if (_useRelativePaths && _relativePathPrefix is not null)
+                {
+                    try
+                    {
+                        var contentRoot = Services.GetRequiredService<IWebHostEnvironment>().ContentRootPath;
+                        _resolvedRelativeRoot = Path.Combine(contentRoot, _relativePathPrefix);
+                    }
+                    catch
+                    {
+                        // best-effort: Services may be inaccessible if startup failed
+                    }
+                }
+
                 Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, _previousBootstrapToken);
                 Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, _previousMetadataPath);
                 Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, _previousStorageRoot);
@@ -200,9 +278,14 @@ public sealed class ApiWalkingSkeletonTests
 
             base.Dispose(disposing);
 
-            if (Directory.Exists(_temporaryRootDirectory))
+            if (!String.IsNullOrEmpty(_temporaryRootDirectory) && Directory.Exists(_temporaryRootDirectory))
             {
                 Directory.Delete(_temporaryRootDirectory, true);
+            }
+
+            if (_resolvedRelativeRoot is not null && Directory.Exists(_resolvedRelativeRoot))
+            {
+                Directory.Delete(_resolvedRelativeRoot, true);
             }
         }
     }

@@ -26,7 +26,16 @@ public sealed class AdminTokenService : IDisposable
         });
         _credentials = _database.GetCollection<AdminTokenCredential>("admin_tokens");
         _credentials.EnsureIndex(credential => credential.Id, true);
-        EnsureBootstrapCredential(logger);
+
+        try
+        {
+            EnsureBootstrapCredential(logger);
+        }
+        catch
+        {
+            _database.Dispose();
+            throw;
+        }
     }
 
     public Boolean IsValidToken(String token)

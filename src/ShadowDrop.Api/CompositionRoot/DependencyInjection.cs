@@ -16,7 +16,11 @@ public static class DependencyInjection
         var shadowDropOptions = ShadowDropOptionsBinding.BindAndValidate(builder.Configuration, builder.Environment.ContentRootPath);
 
         builder.Services.AddSingleton(shadowDropOptions);
-        builder.Services.AddSingleton<AdminTokenService>();
+
+        if (shadowDropOptions.ApiExposure.EnableAdminOperations)
+        {
+            builder.Services.AddSingleton<AdminTokenService>();
+        }
 
         return builder;
     }
