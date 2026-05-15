@@ -32,3 +32,13 @@ Two crypto hot-path decisions merged into `decisions.md`:
 Optimizations preserve allocation-free behavior and maintain trust boundaries. Merged with full context into canonical decisions.
 
 - **Status:** Merged; part of pre-user review gate security scope
+- 2026-05-15T16:17:18.120+02:00: `tests/ShadowDrop.Shared.Tests/Contracts/FileMetadataContractTests.cs` should cover both full JSON round-trip for `FileMetadataContract` and deserialization when optional `plaintextSha256` is omitted; property-name-only coverage was not enough for reviewer expectations on issue #4.
+
+## 2026-05-15: Issue #4 Pre-Review Gate Cycle
+
+**Session:** Scribe (2026-05-15T14:31:20.000Z)
+
+Assigned to revise Eliot's Issue #4 implementation after Parker rejected for missing FileMetadataContract coverage. Added round-trip and optional-field test cases per rejection criteria. Revision passed Parker re-review.
+
+- **Status:** Gate PASSED; shared contract design finalized and merged to `decisions.md`
+- **Next:** PR #4 ready for user review

@@ -138,3 +138,18 @@ Two surgical fixes applied to `AdminTokenService`:
 The `try/catch { _database.Dispose(); throw; }` block now wraps `GetCollection` and `EnsureIndex` as well as `EnsureBootstrapCredential`. Previously, exception during index creation (schema conflict on existing DB) would leave handle open with no cleanup.
 
 **No behavior change** for the happy path.
+
+## Shared Contracts & Constants
+
+### 2026-05-15T16:17:18.120+02:00: Shared Queue Contract Shape
+**By:** Eliot (Backend Engineer)
+**Area:** Shared API/CLI contracts
+
+For issue #4, the shared queue format in `ShadowDrop.Shared` uses simple JSON-bound models plus an explicit parser/validator instead of baking hard validation into constructors or deserialization callbacks.
+
+- Queue ids remain opaque `string` values.
+- `target` must validate as an absolute HTTP or HTTPS URL.
+- `plaintextSha256` is optional, but when present must be a 64-character lowercase hexadecimal digest.
+- Shared file metadata is wire-oriented only and carries `kdfSalt` as Base64 text, never secrets or token-bearing values.
+
+**Rationale:** Keeps the queue format stable across CLI and API, lets the CLI show precise validation errors, and avoids leaking server persistence concerns into `ShadowDrop.Shared`.

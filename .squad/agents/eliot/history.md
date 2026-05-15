@@ -54,3 +54,22 @@ Two backend decisions merged into `decisions.md`:
 Relative path resolution test gap documented. Merged with full context into canonical decisions.
 
 - **Status:** Merged; ready for enforcement
+
+## Learnings — 2026-05-15T16:17:18.120+02:00
+
+### Shared queue and metadata contracts in ShadowDrop.Shared
+
+**Files touched:** `src/ShadowDrop.Shared/Contracts/*.cs`, `src/ShadowDrop.Shared/Queue/*.cs`, `tests/ShadowDrop.Shared.Tests/Queue/QueueFileParserTests.cs`, `tests/ShadowDrop.Shared.Tests/Contracts/FileMetadataContractTests.cs`
+
+- Shared protocol constants now live in `ShadowDrop.Contracts` and cover the direct-download header/query names, CLI config path segments, format versions, and the stable AES-256-GCM algorithm id.
+- Queue contracts use nullable JSON-bound models plus an explicit `QueueFileParser.Validate` pass instead of constructor-only invariants; this keeps deserialization stable while still surfacing CLI-friendly validation errors for missing fields, empty file lists, invalid HTTP(S) targets, negative lengths, and malformed lowercase SHA-256 digests.
+- Shared file metadata stays persistence-neutral: ids are strings, KDF salt is serialized as Base64 text, and no bearer tokens, decryption keys, or other plaintext secrets are represented in `ShadowDrop.Shared`.
+
+## 2026-05-15: Issue #4 Pre-Review Gate Cycle
+
+**Session:** Scribe (2026-05-15T14:31:20.000Z)
+
+Initial implementation of shared contracts completed. Parker (default reviewer) rejected due to missing FileMetadataContract coverage (round-trip / optional-field tests). Per lockout semantics, Eliot locked from next revision; Tara assigned to revise. Tara's revision passed Parker re-review.
+
+- **Status:** Gate PASSED; PR #4 ready for user review
+- **Decision merged:** Shared queue contracts + file metadata design finalized in `decisions.md`

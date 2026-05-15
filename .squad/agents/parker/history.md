@@ -46,3 +46,12 @@ Silent bug fixed (relative metadata path cleanup scope). TestApiFactory construc
 
 - **Status:** Merged; part of default review pair role
 - **Note:** Default reviewer with Nate on all future pre-user review gate work
+
+## 2026-05-15: Issue #4 Pre-Review Gate Cycle
+
+**Session:** Scribe (2026-05-15T14:31:20.000Z)
+
+Default reviewer on Issue #4 (Nate + Parker pair per pre-user review gate policy). Rejected Eliot's initial implementation for missing FileMetadataContract coverage (round-trip / optional-field test cases). Assigned Tara to revise (per lockout semantics). Re-reviewed Tara's revision; coverage gap closed and signed off.
+
+- **Status:** Gate PASSED; decision design merged to `decisions.md`
+- **Next:** PR #4 ready for user review
