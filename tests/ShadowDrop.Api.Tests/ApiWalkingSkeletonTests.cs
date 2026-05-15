@@ -114,6 +114,17 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn200_WhenPublicDownloadsAreEnabled()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+
+        var response = await client.GetAsync($"/api/downloads/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldReturn404_WhenPublicDownloadsAreDisabled()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: false);
@@ -168,10 +179,15 @@ public sealed class ApiWalkingSkeletonTests
     [Test]
     public async Task Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup()
     {
+        var tokenBefore = Environment.GetEnvironmentVariable(TestApiFactory.BootstrapTokenEnvironmentVariable);
+
         var failedFixture = new TestApiFactory(withBootstrapToken: false);
         Action act = () => failedFixture.CreateClient();
         act.Should().Throw<InvalidOperationException>();
         await failedFixture.DisposeAsync();
+
+        Environment.GetEnvironmentVariable(TestApiFactory.BootstrapTokenEnvironmentVariable).Should().Be(tokenBefore,
+                                                                                                         "disposal of a failed factory must restore the bootstrap token environment variable to its pre-test state");
 
         await using var healthyFixture = new TestApiFactory();
         using var client = healthyFixture.CreateClient();
@@ -194,8 +210,8 @@ public sealed class ApiWalkingSkeletonTests
 
     private sealed class TestApiFactory : WebApplicationFactory<Program>
     {
+        public const String BootstrapTokenEnvironmentVariable = "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN";
         private const String AdminOperationsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnableAdminOperations";
-        private const String BootstrapTokenEnvironmentVariable = "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN";
         private const String MetadataPathEnvironmentVariable = "ShadowDrop__Metadata__LiteDbPath";
         private const String PublicDownloadsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnablePublicDownloads";
         private const String StorageRootEnvironmentVariable = "ShadowDrop__Storage__LocalRoot";

@@ -24,11 +24,11 @@ public sealed class AdminTokenService : IDisposable
             Filename = options.Metadata.LiteDbPath,
             Connection = ConnectionType.Shared
         });
-        _credentials = _database.GetCollection<AdminTokenCredential>("admin_tokens");
-        _credentials.EnsureIndex(credential => credential.Id, true);
 
         try
         {
+            _credentials = _database.GetCollection<AdminTokenCredential>("admin_tokens");
+            _credentials.EnsureIndex(credential => credential.Id, true);
             EnsureBootstrapCredential(logger);
         }
         catch
@@ -72,7 +72,7 @@ public sealed class AdminTokenService : IDisposable
             return;
         }
 
-        var bootstrapToken = Environment.GetEnvironmentVariable(BootstrapTokenEnvironmentVariable);
+        var bootstrapToken = Environment.GetEnvironmentVariable(BootstrapTokenEnvironmentVariable)?.Trim();
         if (String.IsNullOrWhiteSpace(bootstrapToken))
         {
             throw new InvalidOperationException(
