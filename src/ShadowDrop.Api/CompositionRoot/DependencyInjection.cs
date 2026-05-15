@@ -12,6 +12,7 @@ public static class DependencyInjection
     {
         builder.ConfigureDefaultLogging();
 
+        logger.Information("Configuring services...");
         var shadowDropOptions = ShadowDropOptionsBinding.BindAndValidate(builder.Configuration, builder.Environment.ContentRootPath);
 
         builder.Services.AddSingleton(shadowDropOptions);

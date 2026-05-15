@@ -9,7 +9,8 @@ public static class Startup
 {
     public static WebApplication PrepareStartup(this WebApplication app, ILogger logger)
     {
-        app.Services.GetRequiredService<AdminTokenService>();
+        logger.Information("Resolving startup services...");
+        _ = app.Services.GetRequiredService<AdminTokenService>();
 
         return app;
     }

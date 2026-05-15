@@ -12,6 +12,8 @@ public static class Middleware
 {
     public static WebApplication ConfigureMiddleware(this WebApplication app, ILogger logger)
     {
+        logger.Information("Configuring middleware...");
+
         var options = app.Services.GetRequiredService<ShadowDropOptions>();
 
         app.MapHealthEndpoints()
