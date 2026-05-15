@@ -5,9 +5,9 @@ The code style rules are described in the `.editorconfig` file.
 ### General
 - Follow the [.NET Coding Conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions)
 - Use `PascalCase` for class names, method names, and public members
-- Use `camelCase` for local variables and parameters
+- Use `camelCase` for local variables, constants, and parameters
 - Use `_camelCase` for private fields
-- Use `PascalCase` for constants and static readonly fields
+- Use `PascalCase` for constant members and static readonly fields
 - Use `IPascalCase` for interfaces
 - Use meaningful and descriptive names
 - Keep methods small and focused (ideally < 30 lines)
