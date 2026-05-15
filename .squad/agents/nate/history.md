@@ -74,3 +74,23 @@ Decision written to `.squad/decisions/inbox/nate-upload-plan-refinement.md`. Sco
 **Session:** Scribe (merge and team context sync)
 
 Nate's upload plan refinement decision merged from inbox into canonical `decisions.md` under "Upload API & Intake" section. Inbox file deleted. Orchestration and session logs written. Cross-team notification delivered (history.md updated).
+
+## 2026-05-15T22:48:25+02:00: Upload Plan Clarifications — Request from Christian Flessa
+
+**Session:** Nate (current)
+
+Applied two agreed clarifications to `ai-plans/0011-upload-api-and-encrypted-file-intake.md` in the Technical Details section:
+
+1. **Metadata validation upfront:** Reject malformed envelope metadata (invalid lengths, inconsistent format, missing required fields) **before starting to consume the request body stream**. Prevents wasting bandwidth on invalid uploads and enforces strict parsing contract.
+
+2. **Cross-layer cleanup semantics:** Clarified that all-or-nothing rollback must span **every persistence layer** in the upload path: if blob content is written before metadata commit succeeds, that content must be deleted. No orphaned state may remain in any storage layer (database, filesystem, or other persistence backend).
+
+**Rationale:** Both clarifications tighten the contract for implementation without expanding slice scope. Metadata validation gates the streaming pipeline; cross-layer cleanup prevents silent failures and audit inconsistencies. Decision documented for team reference.
+
+Slice boundary remains tight: upload is intake-only. Share creation, download setup, and token refresh belong in later slices.
+
+## 2026-05-15T20:49:08Z: Upload Plan — Streaming-Gate & Cross-Store Rollback Clarifications
+
+**Session:** Scribe (orchestration log capture)
+
+Manifest note: Nate updated `ai-plans/0011-upload-api-and-encrypted-file-intake.md` with final streaming-gate and cross-store rollback clarifications. Ensures plan integration points are explicit and implementation team has clear boundaries on failure handling semantics.
