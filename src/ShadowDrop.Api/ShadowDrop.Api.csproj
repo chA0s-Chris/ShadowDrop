@@ -9,4 +9,7 @@
     <PackageReference Include="Serilog.Sinks.Console" />
     <ProjectReference Include="..\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Remove="data\**" />
+  </ItemGroup>
 </Project>
