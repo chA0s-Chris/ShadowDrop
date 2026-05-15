@@ -33,3 +33,16 @@ Crypto spike complete. Handoff: implement 26 test cases in `tests/ShadowDrop.Sha
 - **AdminTokenService is conditional on EnableAdminOperations:** `PrepareStartup` only resolves `AdminTokenService` when `options.ApiExposure.EnableAdminOperations` is `true`. When admin operations are disabled, the service is never instantiated, `EnsureBootstrapCredential` is never called, and startup succeeds without a bootstrap token. This is intentional — no admin token is needed if the admin API surface is not exposed.
 - **Coverage gaps addressed (2026-05-15, second pass):** Relative-path config binding (`Config_RelativePaths_ShouldBeResolvedToAbsolutePathsUnderContentRoot`); startup succeeds without bootstrap token when admin ops disabled (`Startup_ShouldSucceed_WhenAdminOperationsAreDisabled_EvenWithoutBootstrapToken`); bootstrap failure leaves env clean for subsequent startup (`Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup`). Test count: 9 → 12, all passing.
 - **TestApiFactory useRelativePaths support:** Added `useRelativePaths` constructor parameter; sets relative path strings for env vars, sets `_temporaryRootDirectory = String.Empty` so base cleanup is skipped, captures content root via `IWebHostEnvironment` in `Dispose` before `base.Dispose()`, then cleans up the relative test directory by absolute path after `base.Dispose()`.
+
+## 2026-05-15: Test Coverage & Quality Decisions Merged
+
+**Session:** Scribe (2026-05-15T14:11:44.855Z)
+
+Two test quality decisions merged into `decisions.md`:
+1. API test coverage gaps closed (4 scenarios: public download enabled, relative-path cleanup, startup failure, bootstrap env restoration)
+2. WebApplicationFactory startup exception behavior documented (startup failure test semantics on .NET 10)
+
+Silent bug fixed (relative metadata path cleanup scope). TestApiFactory constructor extended with conditional flags. Merged with full context into canonical decisions.
+
+- **Status:** Merged; part of default review pair role
+- **Note:** Default reviewer with Nate on all future pre-user review gate work

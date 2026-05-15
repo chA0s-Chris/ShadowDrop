@@ -23,3 +23,13 @@
 - 2026-05-15T00:12:35.582+02:00 — Assessed three unresolved Copilot review notes on PR #6. Note 3 (test doesn't exercise the behavior it claims) is a must-fix — the secret is never disposed before the crypto ops, so the test gives false confidence. Note 1 (ChunkRange single-chunk offset validation gap) and Note 2 (EncryptedChunk.Ciphertext mutable getter) are both should-fix — real correctness/encapsulation issues, not style. All three recommended for fixing before merge.
 - 2026-05-15T00:16:55.489+02:00 — Re-reviewed PR #6 after Tara's revision request. The earlier KDF-salt and temporary-key-material findings are fixed in `FileEncryptionContext` and `ChunkEncryptionService`, but the three open notes remain unresolved in `ChunkRange`, `EncryptedChunk`, and `ChunkEncryptionServiceTests`. Reviewer outcome: PR still not ready to merge until those three blockers are actually addressed and covered by tests.
 - 2026-05-15T00:16:55.489+02:00 — Re-reviewed Tara’s follow-up on PR #6. The three open blockers are now actually fixed: `ChunkRange` rejects inconsistent single-chunk offsets, `EncryptedChunk` exposes defensive copies while keeping an internal zero-copy `ReadOnlySpan` path for crypto operations, and the disposed-share-secret test now disposes the secret before encrypt/decrypt. Targeted verification: `dotnet test tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj --filter "FullyQualifiedName~ShadowDrop.Tests.Crypto"` passed with 51 tests.
+- 2026-05-15T16:11:44.855+02:00 — Implemented pre-user review gate policy: formalized in `.squad/routing.md` under "Review Gate (Pre-User Review)" section. Default pair is Nate + Parker. Alec escalates automatically for security-sensitive work (auth, tokens, crypto, secrets, permissions). Follows strict lockout semantics from reviewer-protocol SKILL. Decision documented in `.squad/decisions/inbox/nate-pre-user-review-gate.md`.
+
+## 2026-05-15: Review Gate Formalization & Inbox Merge
+
+**Session:** Scribe (2026-05-15T14:11:44.855Z)
+
+Nate's pre-user review gate policy and test coverage gap work merged into canonical `decisions.md`. All 9 inbox entries (Nate, Alec, Eliot, Tara, Parker) now formalized in team memory. Review gate enforcement routed to Coordinator for all future work.
+
+- **Status:** Merged; ready for enforcement
+- **Next:** Coordinator applies gate on all future work

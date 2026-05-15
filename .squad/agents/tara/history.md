@@ -20,3 +20,15 @@
 ## Squad Transition — 2026-05-14T18:13:02Z
 
 Issue #1 decision (dependency & AOT strategy) merged to team decisions by Scribe.
+
+## 2026-05-15: Cryptographic Optimization Decisions Merged
+
+**Session:** Scribe (2026-05-15T14:11:44.855Z)
+
+Two crypto hot-path decisions merged into `decisions.md`:
+1. Direct Guid span writes (allocation-free AAD/HKDF blobs, matches existing span style)
+2. Encrypted chunk buffer ownership (copy at boundary, internal span for no-copy path)
+
+Optimizations preserve allocation-free behavior and maintain trust boundaries. Merged with full context into canonical decisions.
+
+- **Status:** Merged; part of pre-user review gate security scope

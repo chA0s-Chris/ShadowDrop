@@ -31,3 +31,110 @@
 **By:** Christian Flessa (via Copilot)
 **What:** Do not commit codebase changes unless explicitly asked; it is okay to commit squad-related changes inside `./.squad/`; do not push any commit to the remote; do not create a PR unless explicitly asked.
 **Why:** User request — captured for team memory
+
+## Review Gate & Process
+
+### 2026-05-15T16:11:44.855+02:00: Pre-User Review Gate Policy
+**By:** Nate (Lead)
+**Area:** Process and Governance
+
+Establish a mandatory internal review gate before any production changes reach the user for final approval.
+
+- **Default review pair:** Nate (Lead) + Parker (Tester)
+- **Security-sensitive escalation:** Alec (Security Engineer) joins for changes touching auth, tokens, crypto, secret handling, or permission boundaries.
+
+**Rationale:** Fixed review pair ensures consistency, uses existing agent expertise without adding a dedicated role, reduces user time by catching issues early, and prevents security boundaries from slipping through.
+
+**Implementation:** Review gate documented in `.squad/routing.md`; rejection follows strict lockout semantics with reassignment or escalation (never original author); Coordinator enforces on all future work.
+
+## Test Coverage & Quality
+
+### 2026-05-15: Walking Skeleton API Tests — Coverage Gaps Closed
+**By:** Nate (Lead)
+
+Four review gaps identified and closed in `ApiWalkingSkeletonTests.cs`:
+
+1. **Public download enabled → 200**: Added `PublicDownloadEndpoint_ShouldReturn200_WhenPublicDownloadsAreEnabled` (enabled/200 path was untested).
+2. **Failed-startup env cleanup**: Updated `Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup` to directly assert `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` restoration.
+3. **Relative-path cleanup junk**: Fixed silent bug where metadata path layout fell outside cleanup scope; now `{prefix}/metadata/shadowdrop.db`.
+4. **Bootstrap startup failure**: `Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot` asserts `InvalidOperationException` when token is missing.
+
+**TestApiFactory signature extended:** `TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true)`.
+
+### 2026-05-15T12:47:15.427+02:00: API Test Coverage Gaps — Addressed
+**By:** Parker (Tester)
+
+Four missing coverage scenarios added to `ApiWalkingSkeletonTests`:
+
+| Scenario | Test |
+|---|---|
+| Wrong bearer token → 401 | `ManagementEndpoint_ShouldReturn401_ForWrongBearerToken` |
+| Public downloads disabled → 404 | `PublicDownloadEndpoint_ShouldReturn404_WhenPublicDownloadsAreDisabled` |
+| Upload route requires valid token | `UploadRoute_ShouldRequireValidAdminBearerToken` |
+| Startup fails without bootstrap token | `Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot` |
+
+**WebApplicationFactory behavior note:** On .NET 10, startup exceptions are caught internally; `CreateClient()` throws `InvalidOperationException`; diagnostic message verified through code review and logged output.
+
+## Cryptography & Buffer Management
+
+### 2026-05-14T23:49:15.783+02:00: Share Salt Encapsulation & Derivation Cleanup
+**By:** Alec (Security Engineer)
+
+`FileEncryptionContext` must not generate a new salt as part of creation. Callers must pass the share-level KDF salt explicitly; `GenerateKdfSalt()` returns raw 32-byte only. `KdfSalt` now returns defensive copy (no mutations after construction); `ChunkEncryptionService.DeriveContentKey()` zeroes temporary buffers.
+
+**Rationale:** Matches trust boundary design where one KDF salt is stored with share metadata and reused across all files; prevents silent violations from fresh-salt-per-invocation.
+
+### 2026-05-15T00:01:13.117+02:00: Direct Guid Span Writes in Crypto Hot Paths
+**By:** Tara (Platform Engineer)
+
+When a hot path writes into a caller-provided `Span<byte>`, serialize `Guid` with `Guid.TryWriteBytes` instead of allocating temporary arrays via `ToByteArray()`.
+
+**Context:** `src/ShadowDrop.Shared/Crypto/ChunkEncryptionService.cs` builds AAD and HKDF info blobs for every chunk/key derivation.
+
+**Impact:** Keeps chunk encryption/decryption and key derivation closer to allocation-free behavior; preserves byte layout and matches stackalloc/span style already in use.
+
+### 2026-05-15T00:16:55.489+02:00: Encrypted Chunk Buffer Ownership
+**By:** Tara (Platform Engineer)
+
+Treat `EncryptedChunk` like other crypto-adjacent buffers: copy inbound/publicly exposed `byte[]` at API boundary, keep internal `ReadOnlySpan<byte>` view for `ChunkEncryptionService`.
+
+**Why:** Record-shaped API returning stored ciphertext array becomes silently mutable after validation; internal span keeps encrypt/decrypt on the no-extra-copy path the crypto code expects.
+
+## Persistence & Storage
+
+### 2026-05-15T12:58:42.780+02:00: LiteDB Shared Connection Mode for AdminTokenService
+**By:** Eliot (Backend Engineer)
+
+`AdminTokenService` opens LiteDB with `ConnectionType.Shared` (not default `Direct`).
+
+**Reason:** In-process tests (WebApplicationFactory) open a second `LiteDatabase` connection to the same file while the service singleton is alive. `Direct` mode is exclusive, causing file-lock conflicts. `Shared` mode removes this constraint and makes the service safe for concurrent in-process access.
+
+**Scope:** Any future singleton LiteDB repository read from tests during the same process lifetime should follow this pattern.
+
+### 2026-05-15T13:34:42.045+02:00: AdminTokenService Conditional Initialization
+**By:** Eliot (Backend Engineer)
+
+`AdminTokenService` and its LiteDB handle + bootstrap credential check are only wired up when `ShadowDrop:ApiExposure:EnableAdminOperations` is `true`. When `false`, service is neither registered in DI nor resolved at startup.
+
+**Previous issue:** Unconditional registration forced bootstrap env-var read, DB file open, and credential upsert to run regardless of whether admin endpoints were exposed — a leaky dependency requiring `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` and writable metadata path even on admin-disabled deployments.
+
+**Side effect fixed:** `LiteDatabase` is now disposed in `AdminTokenService` constructor if `EnsureBootstrapCredential` throws, preventing file-handle leaks on first-boot failures (e.g. missing token).
+
+**Test coverage gap:** `ShadowDropOptionsBinding.ResolvePath` handles relative paths but lacks dedicated test; recommended to add unit test for `BindAndValidate` with relative `LiteDbPath`.
+
+## Security
+
+### 2026-05-15: Bootstrap Token Normalization & Disposal Guard
+**By:** Alec (Security Engineer)
+
+Two surgical fixes applied to `AdminTokenService`:
+
+**1. Bootstrap token whitespace normalization**  
+`SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` is now `.Trim()`-ed before hashing at bootstrap time, matching normalization in `TryReadBearerToken`. Without this, trailing newline or leading space in env var would produce permanent mismatch hash.
+
+**Trust boundary:** Token comparison uses `CryptographicOperations.FixedTimeEquals`; normalization happens before hashing (not before comparison), so no timing channel introduced.
+
+**2. Disposal guard extended to collection/index setup**  
+The `try/catch { _database.Dispose(); throw; }` block now wraps `GetCollection` and `EnsureIndex` as well as `EnsureBootstrapCredential`. Previously, exception during index creation (schema conflict on existing DB) would leave handle open with no cleanup.
+
+**No behavior change** for the happy path.

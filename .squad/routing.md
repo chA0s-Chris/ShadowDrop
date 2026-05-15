@@ -31,6 +31,26 @@ How to decide who handles what.
 3. Members can reassign by removing their label and adding another member's label.
 4. The `squad` label is the "inbox" — untriaged issues waiting for Lead review.
 
+## Review Gate (Pre-User Review)
+
+All changes to production code or significant feature work must pass an internal review gate before reaching the user for final approval.
+
+**Default Review Pair:** Nate (Lead) + Parker (Tester)
+
+**Security-Sensitive Review:** When work touches any of the following areas, Alec (Security Engineer) **must** also review before user approval:
+- Authentication and token handling
+- Encryption and cryptographic operations
+- Secret storage, derivation, or cleanup
+- Permission boundaries and access control
+- Threat-relevant design or data flow
+
+**Process:**
+1. Developer completes work and stages for review.
+2. Nate performs architecture and quality review. Parker performs test coverage and correctness review.
+3. If security-sensitive: Alec performs threat and boundary review.
+4. Only after all reviewers approve does the work proceed to user review.
+5. Reviewer rejection follows the `reviewer-protocol` SKILL: lockout of the original author, reassignment to a different agent, or escalation.
+
 ## Rules
 
 1. **Eager by default** — spawn all agents who could usefully start work, including anticipatory downstream work.

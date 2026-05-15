@@ -42,3 +42,15 @@ Crypto design finalized. Handoff: implement production code in `src/ShadowDrop.S
 - **LiteDB handle on constructor failure:** Wrapped `EnsureBootstrapCredential` in a try/catch in the `AdminTokenService` constructor. On any exception `_database.Dispose()` is called before rethrowing. This prevents the file handle from leaking on first-boot failure (e.g., missing env var), which was previously causing `Cannot open file` errors in retried or parallel test runs.
 
 - **Test gap noted (not added to prod code):** `ShadowDropOptionsBinding.ResolvePath` supports both absolute and relative `LiteDbPath`/`LocalRoot` config values, but there is no test asserting that a relative path is correctly resolved against `ContentRootPath`. A unit test for `BindAndValidate` covering this case would make the contract explicit and protect against future regressions.
+
+## 2026-05-15: Storage & Initialization Decisions Merged
+
+**Session:** Scribe (2026-05-15T14:11:44.855Z)
+
+Two backend decisions merged into `decisions.md`:
+1. LiteDB shared connection mode for `AdminTokenService` (concurrent test safety)
+2. Conditional admin service initialization (lean deployment mode, file-handle leak fix)
+
+Relative path resolution test gap documented. Merged with full context into canonical decisions.
+
+- **Status:** Merged; ready for enforcement
