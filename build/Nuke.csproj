@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ShadowDrop.CI</RootNamespace>
+    <NoWarn>CS0649;CS0169</NoWarn>
+    <NukeRootDirectory>..</NukeRootDirectory>
+    <NukeScriptDirectory>..</NukeScriptDirectory>
+    <NukeTelemetryVersion>1</NukeTelemetryVersion>
+    <NukeDefaultExcludes>true</NukeDefaultExcludes>
+    <NukeExcludeBoot>true</NukeExcludeBoot>
+    <NukeExcludeConfig>true</NukeExcludeConfig>
+    <NukeExcludeLogs>true</NukeExcludeLogs>
+    <NukeExcludeDirectoryBuild>true</NukeExcludeDirectoryBuild>
+    <NukeExcludeCi>true</NukeExcludeCi>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nuke.Common" />
+    <PackageReference Include="SemanticVersioning" />
+  </ItemGroup>
+
+</Project>
