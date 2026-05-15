@@ -12,7 +12,7 @@ using System.Text.RegularExpressions;
 /// </summary>
 public static partial class QueueFileParser
 {
-    private static readonly JsonSerializerOptions _serializerOptions = new()
+    private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true
@@ -32,7 +32,7 @@ public static partial class QueueFileParser
             throw new ArgumentException("The queue file JSON must not be empty.", nameof(json));
         }
 
-        var queueFile = JsonSerializer.Deserialize<QueueFile>(json, _serializerOptions);
+        var queueFile = JsonSerializer.Deserialize<QueueFile>(json, SerializerOptions);
         return queueFile ?? throw new JsonException("The queue file JSON produced no payload.");
     }
 
@@ -61,7 +61,7 @@ public static partial class QueueFileParser
     public static String Serialize(QueueFile queueFile)
     {
         ArgumentNullException.ThrowIfNull(queueFile);
-        return JsonSerializer.Serialize(queueFile, _serializerOptions);
+        return JsonSerializer.Serialize(queueFile, SerializerOptions);
     }
 
     /// <summary>

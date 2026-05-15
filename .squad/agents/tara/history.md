@@ -42,3 +42,7 @@ Assigned to revise Eliot's Issue #4 implementation after Parker rejected for mis
 
 - **Status:** Gate PASSED; shared contract design finalized and merged to `decisions.md`
 - **Next:** PR #4 ready for user review
+
+## 2026-05-15T17:20:32.944+02:00: PR #10 Created for Issue #4
+
+Created GitHub PR #10 targeting `main` for branch `squad/4-define-shared-contracts-and-constants`. PR title/body mirrors issue #4 context with implementation summary and design notes. Branch verified clean; no duplicate PR existed prior.
