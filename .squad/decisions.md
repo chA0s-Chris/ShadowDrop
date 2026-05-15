@@ -32,6 +32,16 @@
 **What:** Do not commit codebase changes unless explicitly asked; it is okay to commit squad-related changes inside `./.squad/`; do not push any commit to the remote; do not create a PR unless explicitly asked.
 **Why:** User request — captured for team memory
 
+### 2026-05-15T21:48:38.895+02:00: User directive — PR Review Resolution
+**By:** Christian Flessa (via Copilot)
+**What:** When addressing review findings from a PR, always add a small comment to each addressed conversation and then resolve it.
+**Why:** User request — captured for team memory
+
+### 2026-05-15T21:53:13.266+02:00: User directive — Plan Synchronization
+**By:** Christian Flessa (via Copilot)
+**What:** When implementing an issue that has a corresponding plan in `./ai-plans/`, always update the plan and check all acceptance criteria met by the implementation.
+**Why:** User request — captured for team memory
+
 ## Review Gate & Process
 
 ### 2026-05-15T16:11:44.855+02:00: Pre-User Review Gate Policy
