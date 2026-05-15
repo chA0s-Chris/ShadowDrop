@@ -19,3 +19,11 @@
 
 **From Nate (Issue #2 Crypto Spike):**  
 Crypto spike complete. Handoff: implement 26 test cases in `tests/ShadowDrop.Shared.Tests/Crypto/` per spec in `.squad/decisions.md` (Encryption section). Happy-path: 14 cases (single/multi-chunk round-trips, range alignment, sub-chunk). Failure-path: 12 cases (tamper ciphertext, metadata fields, wrong key/context). Use NUnit 4 + FluentAssertions. No mocks. Branch `squad/2-chunked-aes-gcm-crypto-spike` ready.
+
+## Learnings — 2026-05-15T12:47:15.427+02:00
+
+- **Key test file:** `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` — all API walking skeleton tests live here.
+- **TestApiFactory pattern:** The factory accepts `enableAdminOperations`, `enablePublicDownloads`, and `withBootstrapToken` boolean params; env vars are saved/restored per-instance. Tests must remain `[NonParallelizable]` because env vars are process-wide.
+- **WebApplicationFactory startup exception behavior (.NET 10):** When `PrepareStartup` throws (e.g., missing bootstrap token), `WebApplicationFactory` catches the startup exception internally. `CreateClient()` subsequently throws `InvalidOperationException: "The server has not been started…"` (not the original startup exception). `DisposeAsync()` does NOT rethrow the startup exception when assertions have already passed. The startup exception surfaces as an unobserved background task warning in the test output. Tests should assert `Throw<InvalidOperationException>()` without a message check for this scenario.
+- **Coverage gaps addressed (2026-05-15):** Wrong bearer token → 401 (`ManagementEndpoint_ShouldReturn401_ForWrongBearerToken`); public downloads disabled → 404 (`PublicDownloadEndpoint_ShouldReturn404_WhenPublicDownloadsAreDisabled`); upload route auth (`UploadRoute_ShouldRequireValidAdminBearerToken`); startup failure without bootstrap token (`Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot`).
+- **Build+test command:** `dotnet build tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj && dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-build`

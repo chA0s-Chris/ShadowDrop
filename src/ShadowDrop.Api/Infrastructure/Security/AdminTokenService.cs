@@ -19,7 +19,11 @@ public sealed class AdminTokenService : IDisposable
 
     public AdminTokenService(ShadowDropOptions options, ILogger<AdminTokenService> logger)
     {
-        _database = new(options.Metadata.LiteDbPath);
+        _database = new(new ConnectionString
+        {
+            Filename = options.Metadata.LiteDbPath,
+            Connection = ConnectionType.Shared
+        });
         _credentials = _database.GetCollection<AdminTokenCredential>("admin_tokens");
         _credentials.EnsureIndex(credential => credential.Id, true);
         EnsureBootstrapCredential(logger);
@@ -54,7 +58,7 @@ public sealed class AdminTokenService : IDisposable
 
     private void EnsureBootstrapCredential(ILogger<AdminTokenService> logger)
     {
-        if (_credentials.Exists(Query.EQ(nameof(AdminTokenCredential.Id), BootstrapCredentialId)))
+        if (_credentials.FindById(BootstrapCredentialId) is not null)
         {
             return;
         }

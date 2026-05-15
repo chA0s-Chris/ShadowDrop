@@ -23,9 +23,9 @@ public class Program
             await app.RunAsync();
             return 0;
         }
-        catch (HostAbortedException e)
+        catch (OperationCanceledException e)
         {
-            Log.Information(e, "The host was aborted");
+            Log.Information(e, "The host was stopped");
             return 0;
         }
         catch (Exception e)
