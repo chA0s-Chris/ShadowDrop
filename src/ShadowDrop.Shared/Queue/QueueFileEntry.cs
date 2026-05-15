@@ -28,7 +28,7 @@ public sealed record QueueFileEntry
     /// </summary>
     [JsonPropertyName("length")]
     [JsonPropertyOrder(2)]
-    public Int64 Length { get; init; }
+    public Int64? Length { get; init; }
 
     /// <summary>
     /// Gets or sets the optional lowercase hexadecimal plaintext SHA-256 digest.

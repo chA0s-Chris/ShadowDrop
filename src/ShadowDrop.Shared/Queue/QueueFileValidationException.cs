@@ -11,6 +11,7 @@ public sealed class QueueFileValidationException : Exception
     /// Initializes a new instance of the <see cref="QueueFileValidationException"/> class.
     /// </summary>
     /// <param name="errors">The validation errors.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="errors"/> is <see langword="null"/>.</exception>
     public QueueFileValidationException(IReadOnlyList<QueueFileValidationError> errors)
         : base("The queue file is invalid.")
     {

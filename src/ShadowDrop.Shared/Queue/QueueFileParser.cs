@@ -123,7 +123,11 @@ public static partial class QueueFileParser
         ValidateRequiredString(entry.FileId, $"{prefix}.fileId", errors);
         ValidateRequiredString(entry.FileName, $"{prefix}.fileName", errors);
 
-        if (entry.Length < 0)
+        if (entry.Length is null)
+        {
+            errors.Add(new($"{prefix}.length", "The length value is required."));
+        }
+        else if (entry.Length < 0)
         {
             errors.Add(new($"{prefix}.length", "The file length must be zero or greater."));
         }
@@ -161,11 +165,19 @@ public static partial class QueueFileParser
         }
 
         var isAbsoluteHttpUrl = Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
+                                uri is not null &&
                                 (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
         if (!isAbsoluteHttpUrl)
         {
             errors.Add(new("target", "The target value must be an absolute HTTP or HTTPS URL."));
+            return;
+        }
+
+        var validatedUri = uri!;
+        if (!String.IsNullOrEmpty(validatedUri.Query) || !String.IsNullOrEmpty(validatedUri.Fragment))
+        {
+            errors.Add(new("target", "The target value must not include query string or fragment components."));
         }
     }
 }

@@ -36,6 +36,33 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Parse_ShouldRejectFileEntryWithoutLength()
+    {
+        const String json = """
+                            {
+                              "shadowDrop": "1.0",
+                              "queueVersion": "1.0",
+                              "target": "https://example.com/upload",
+                              "shareId": "share-123",
+                              "files": [
+                                {
+                                  "fileId": "file-1",
+                                  "fileName": "report.txt"
+                                }
+                              ]
+                            }
+                            """;
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "files[0].length" &&
+                                                    error.Message == "The length value is required.");
+    }
+
+    [Test]
     public void Parse_ShouldRejectInvalidQueueFile()
     {
         const String json = """
@@ -46,10 +73,10 @@ public sealed class QueueFileParserTests
                               "shareId": "",
                               "files": [
                                 {
-                                  "fileId": "",
-                                  "fileName": "",
-                                  "length": -1,
-                                  "plaintextSha256": "nope"
+                                 "fileId": "",
+                                 "fileName": "",
+                                 "length": -1,
+                                 "plaintextSha256": "nope"
                                 }
                               ]
                             }
@@ -71,6 +98,26 @@ public sealed class QueueFileParserTests
                                                 "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.")
                ],
                options => options.WithoutStrictOrdering());
+    }
+
+    [TestCase("https://example.com/upload?sd-key=secret")]
+    [TestCase("https://example.com/upload?foo=bar")]
+    [TestCase("https://example.com/upload#fragment")]
+    public void Parse_ShouldRejectTargetWithQueryOrFragment(String target)
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Target = target
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "target" &&
+                                                    error.Message == "The target value must not include query string or fragment components.");
     }
 
     [Test]
