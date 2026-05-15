@@ -220,7 +220,7 @@ public sealed class ApiWalkingSkeletonTests
             {
                 _relativePathPrefix = $"reltest-{Guid.NewGuid():N}";
                 _temporaryRootDirectory = String.Empty;
-                MetadataDatabasePath = Path.Combine(_relativePathPrefix, "metadata", "shadowdrop.db");
+                MetadataDatabasePath = Path.Combine("data", _relativePathPrefix, "metadata", "shadowdrop.db");
                 LocalStorageRoot = Path.Combine(_relativePathPrefix, "storage");
             }
             else
