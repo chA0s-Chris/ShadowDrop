@@ -72,3 +72,4 @@ nunit-*.xml
 .squad-workstream
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/.scratch/
+/src/ShadowDrop.Api/data/
