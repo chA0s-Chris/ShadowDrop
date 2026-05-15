@@ -81,6 +81,56 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Test]
+    public async Task ManagementEndpoint_ShouldReturn401_ForWrongBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "definitely-not-the-right-token");
+
+        var response = await client.GetAsync("/api/admin/management/ping");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldRequireValidAdminBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+
+        var noAuthResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        var wrongTokenResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var validTokenResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+
+        noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenPublicDownloadsAreDisabled()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: false);
+        using var client = fixture.CreateClient();
+
+        var response = await client.GetAsync($"/api/downloads/{Guid.NewGuid()}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public void Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot()
+    {
+        using var fixture = new TestApiFactory(withBootstrapToken: false);
+
+        Action act = () => fixture.CreateClient();
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
     private sealed class AdminTokenCredentialDocument
     {
         public Int32 Id { get; set; }
@@ -106,7 +156,7 @@ public sealed class ApiWalkingSkeletonTests
         private readonly String? _previousStorageRoot;
         private readonly String _temporaryRootDirectory;
 
-        public TestApiFactory(Boolean enableAdminOperations = true)
+        public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true)
         {
             _temporaryRootDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-api-tests-{Guid.NewGuid():N}");
             Directory.CreateDirectory(_temporaryRootDirectory);
@@ -122,11 +172,11 @@ public sealed class ApiWalkingSkeletonTests
             _previousPublicDownloadsExposure = Environment.GetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable);
             _previousAdminOperationsExposure = Environment.GetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable);
 
-            Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, BootstrapToken);
+            Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, withBootstrapToken ? BootstrapToken : null);
             Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, MetadataDatabasePath);
             Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, LocalStorageRoot);
-            Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, "true");
-            Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, EnableAdminOperations ? "true" : "false");
+            Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, enablePublicDownloads ? "true" : "false");
+            Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, enableAdminOperations ? "true" : "false");
         }
 
         public String BootstrapToken { get; }
