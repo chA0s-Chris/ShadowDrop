@@ -107,7 +107,7 @@ public static partial class QueueFileParser
         return errors;
     }
 
-    [GeneratedRegex("^[a-f0-9]{64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: -1)]
     private static partial Regex Sha256Regex();
 
     private static void ValidateEntry(QueueFileEntry? entry, Int32 index, List<QueueFileValidationError> errors)
@@ -142,7 +142,8 @@ public static partial class QueueFileParser
             return;
         }
 
-        if (!Sha256Regex().IsMatch(value))
+        var match = Sha256Regex().Match(value);
+        if ((!match.Success) || (match.Index != 0) || (match.Length != value.Length))
         {
             errors.Add(new(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
         }
@@ -175,6 +176,11 @@ public static partial class QueueFileParser
         }
 
         var validatedUri = uri!;
+        if (!String.IsNullOrEmpty(validatedUri.UserInfo))
+        {
+            errors.Add(new("target", "The target value must not include user information."));
+        }
+
         if (!String.IsNullOrEmpty(validatedUri.Query) || !String.IsNullOrEmpty(validatedUri.Fragment))
         {
             errors.Add(new("target", "The target value must not include query string or fragment components."));

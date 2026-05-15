@@ -36,6 +36,50 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Deserialize_ShouldSetPlaintextSha256ToNull_WhenItIsOmitted()
+    {
+        const String json = """
+                            {
+                              "shadowDrop": "1.0",
+                              "queueVersion": "1.0",
+                              "target": "https://example.com/upload",
+                              "shareId": "share-123",
+                              "files": [
+                                {
+                                  "fileId": "file-1",
+                                  "fileName": "report.txt",
+                                  "length": 4096
+                                }
+                              ]
+                            }
+                            """;
+
+        var queueFile = QueueFileParser.Deserialize(json);
+
+        queueFile.Files.Should().ContainSingle();
+        queueFile.Files[0].PlaintextSha256.Should().BeNull();
+    }
+
+    [TestCase("ftp://example.com/upload")]
+    [TestCase("file:///tmp/report.txt")]
+    public void Parse_ShouldRejectAbsoluteTargetWithNonHttpScheme(String target)
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Target = target
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "target" &&
+                                                    error.Message == "The target value must be an absolute HTTP or HTTPS URL.");
+    }
+
+    [Test]
     public void Parse_ShouldRejectFileEntryWithoutLength()
     {
         const String json = """
@@ -100,6 +144,49 @@ public sealed class QueueFileParserTests
                options => options.WithoutStrictOrdering());
     }
 
+    [Test]
+    public void Parse_ShouldRejectPlaintextSha256WithTrailingNewline()
+    {
+        var file = CreateValidQueueFile().Files!.Single();
+        var queueFile = CreateValidQueueFile() with
+        {
+            Files =
+            [
+                file with
+                {
+                    PlaintextSha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+                }
+            ]
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "files[0].plaintextSha256" &&
+                                                    error.Message == "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.");
+    }
+
+    [Test]
+    public void Parse_ShouldRejectQueueFileWithQueueVersionMismatch()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            QueueVersion = "2.0"
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "queueVersion" &&
+                                                    error.Message == "The queueVersion value must be '1.0'.");
+    }
+
     [TestCase("https://example.com/upload?sd-key=secret")]
     [TestCase("https://example.com/upload?foo=bar")]
     [TestCase("https://example.com/upload#fragment")]
@@ -118,6 +205,24 @@ public sealed class QueueFileParserTests
            .Which.Errors.Should().ContainSingle(error =>
                                                     error.Path == "target" &&
                                                     error.Message == "The target value must not include query string or fragment components.");
+    }
+
+    [Test]
+    public void Parse_ShouldRejectTargetWithUserInfo()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Target = "https://user:pass@example.com/upload"
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "target" &&
+                                                    error.Message == "The target value must not include user information.");
     }
 
     [Test]

@@ -14,8 +14,9 @@ Define the shared contracts needed by both the API and CLI before implementing t
 - [x] Shared wire/file metadata contracts exist for share id, file id, encryption format version, algorithm id, chunk
   size, chunk count, KDF salt, and optional plaintext SHA-256.
 - [x] Shared API DTOs exist only where both API and CLI need the same wire contract.
-- [ ] Server-only persistence entities such as token records and audit records are not added to `ShadowDrop.Shared`.
-- [ ] Shared contracts avoid storing plaintext secrets such as admin tokens, download bearer tokens, decryption keys, or `sd-key` values.
+- [x] Server-only persistence entities such as token records and audit records are not added to `ShadowDrop.Shared`.
+- [x] Shared contracts avoid storing plaintext secrets such as admin tokens, download bearer tokens, decryption keys, or
+  `sd-key` values.
 - [x] Queue file validation rejects missing required fields, empty file lists, invalid URLs, invalid lengths, and
   malformed SHA-256 values.
 - [x] Automated tests cover JSON serialization and deserialization of the queue format, including omitted optional
