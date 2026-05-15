@@ -52,3 +52,25 @@ Parker re-reviewed post-implementation and signed off. Orchestration logs writte
 
 - **Status:** Complete; PR #10 ready for merge
 - **Decision:** "Shared Queue Contract Shape" formalized in `decisions.md`
+
+## 2026-05-15T22:41:03.231+02:00: Upload Plan Refinement — Four Accepted Suggestions Applied
+
+**Session:** Nate
+
+Applied four substantive refinements to `ai-plans/0011-upload-api-and-encrypted-file-intake.md`:
+
+1. **Upload response contract tightened:** Response now explicitly returns **only** file id and downstream-safe metadata (plaintext length, encrypted length, chunk count, encryption format version, algorithm id, chunk size) with no secrets, derived keys, or internal state. Prevents accidental `KdfSalt` or `ShadowDrop-Key` exposure.
+
+2. **Error response safety requirement:** Error responses must not expose secrets, key material, system paths, or internal validation details. Errors use generic HTTP codes (400, 401, 413, 429) with minimal public message surface. Removes attacker inference surface.
+
+3. **Abuse protection gate:** Upload endpoint enforces rate limiting or equivalent abuse protection to prevent high-volume upload spam. Adds security boundary beyond operational polish.
+
+4. **All-or-nothing upload semantics:** Failed uploads must roll back partially committed metadata and file content. No orphaned records remain in store. Keeps audit trail clean and prevents blocking on retry.
+
+Decision written to `.squad/decisions/inbox/nate-upload-plan-refinement.md`. Scope boundary reinforced: plan does not expand into share creation or download. Acceptance criteria are now binding for implementation team.
+
+## 2026-05-15T20:41:03Z: Inbox Merge — Upload Plan Refinement
+
+**Session:** Scribe (merge and team context sync)
+
+Nate's upload plan refinement decision merged from inbox into canonical `decisions.md` under "Upload API & Intake" section. Inbox file deleted. Orchestration and session logs written. Cross-team notification delivered (history.md updated).

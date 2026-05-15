@@ -163,3 +163,32 @@ For issue #4, the shared queue format in `ShadowDrop.Shared` uses simple JSON-bo
 - Shared file metadata is wire-oriented only and carries `kdfSalt` as Base64 text, never secrets or token-bearing values.
 
 **Rationale:** Keeps the queue format stable across CLI and API, lets the CLI show precise validation errors, and avoids leaking server persistence concerns into `ShadowDrop.Shared`.
+
+## Upload API & Intake
+
+### 2026-05-15T22:41:03.231+02:00: Upload API Plan Refinement — Accepted Suggestions Applied
+**By:** Nate (Lead)
+**Area:** Plan refinement and slice scoping
+
+Applied four substantive refinements to `ai-plans/0011-upload-api-and-encrypted-file-intake.md` based on accepted review feedback:
+
+**1. Upload Response Contract Tightened**  
+Upload response now explicitly returns **only** file id and downstream-safe metadata (plaintext length, encrypted length, chunk count, encryption format version, algorithm id, chunk size) with **no secrets, derived keys, or internal state**. Prevents accidental exposure of `KdfSalt`, `ShadowDrop-Key`, or session tokens.
+
+**2. Error Response Safety Requirement**  
+Error responses must not expose secrets, key material, system paths, or internal validation details. Errors are generic HTTP status codes (400, 401, 413, 429) with minimal public message surface. Attackers use validation error messages to infer presence of files, guess metadata structure, or detect side-channel information leaks.
+
+**3. Abuse Protection Gate**  
+Upload endpoint enforces rate limiting or equivalent abuse protection to prevent high-volume upload spam. Without rate limits, a malicious client can fill storage or exhaust I/O with concurrent/sequential uploads.
+
+**4. All-or-Nothing Upload Semantics**  
+Failed uploads must use all-or-nothing / cleanup semantics. If validation fails after metadata is accepted, or if streaming fails mid-upload, all partially committed metadata and file content must be rolled back. No orphaned or partial records remain in the store.
+
+**Scope Boundary Reinforced:** The plan explicitly does **not** expand into share creation, download setup, or authentication token refresh. Upload is intake-only. Later slices own the contracts for sharing and retrieval.
+
+**Implementation Guidance:**
+- Tests verify error responses do not leak file structure or secrets in HTTP headers, body, or status messages.
+- Rate limiting can be achieved via middleware, endpoint-level guards, or token bucket.
+- Cleanup/rollback on failed metadata commit should use database transactions or equivalent; test surfaces verify the invariant directly.
+
+**Next Steps:** Implementation team (Eliot or assigned backend) owns the vertical slice. Acceptance criteria are binding. Review gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR.
