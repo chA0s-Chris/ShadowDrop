@@ -73,3 +73,25 @@ Initial implementation of shared contracts completed. Parker (default reviewer) 
 
 - **Status:** Gate PASSED; PR #4 ready for user review
 - **Decision merged:** Shared queue contracts + file metadata design finalized in `decisions.md`
+
+## 2026-05-15: PR #10 Review-Note Follow-Up Implementation
+
+**Session:** Scribe (2026-05-15T19:44:15.000Z)
+
+Nate + Parker joint assessment of remaining Copilot review notes on PR #10 identified three critical fixes:
+1. Missing queue-file length validation (bounds checking in parser validator, not constructor)
+2. Insufficient target URL validation (must be absolute HTTP(S) only)
+3. Incomplete XML documentation on shared contracts
+
+Eliot implemented all three fixes on current branch:
+- Modified `QueueFileParser.Validate` to check length bounds
+- Tightened `QueueFileContract.target` URI validation to reject relative URLs
+- Added XML docs to public API surface on all shared contract types
+- Added targeted test cases for length bounds and URL validation
+
+Parker re-reviewed post-implementation; all items verified and signed off.
+
+Orchestration logs written. Decision "Shared Queue Contract Shape" documented in `decisions.md`.
+
+- **Status:** Complete; PR #10 ready for merge
+- **Next:** Awaiting user review
