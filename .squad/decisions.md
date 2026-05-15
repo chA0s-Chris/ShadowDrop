@@ -32,6 +32,16 @@
 **What:** Do not commit codebase changes unless explicitly asked; it is okay to commit squad-related changes inside `./.squad/`; do not push any commit to the remote; do not create a PR unless explicitly asked.
 **Why:** User request — captured for team memory
 
+### 2026-05-15T21:48:38.895+02:00: User directive — PR Review Resolution
+**By:** Christian Flessa (via Copilot)
+**What:** When addressing review findings from a PR, always add a small comment to each addressed conversation and then resolve it.
+**Why:** User request — captured for team memory
+
+### 2026-05-15T21:53:13.266+02:00: User directive — Plan Synchronization
+**By:** Christian Flessa (via Copilot)
+**What:** When implementing an issue that has a corresponding plan in `./ai-plans/`, always update the plan and check all acceptance criteria met by the implementation.
+**Why:** User request — captured for team memory
+
 ## Review Gate & Process
 
 ### 2026-05-15T16:11:44.855+02:00: Pre-User Review Gate Policy
@@ -138,3 +148,18 @@ Two surgical fixes applied to `AdminTokenService`:
 The `try/catch { _database.Dispose(); throw; }` block now wraps `GetCollection` and `EnsureIndex` as well as `EnsureBootstrapCredential`. Previously, exception during index creation (schema conflict on existing DB) would leave handle open with no cleanup.
 
 **No behavior change** for the happy path.
+
+## Shared Contracts & Constants
+
+### 2026-05-15T16:17:18.120+02:00: Shared Queue Contract Shape
+**By:** Eliot (Backend Engineer)
+**Area:** Shared API/CLI contracts
+
+For issue #4, the shared queue format in `ShadowDrop.Shared` uses simple JSON-bound models plus an explicit parser/validator instead of baking hard validation into constructors or deserialization callbacks.
+
+- Queue ids remain opaque `string` values.
+- `target` must validate as an absolute HTTP or HTTPS URL.
+- `plaintextSha256` is optional, but when present must be a 64-character lowercase hexadecimal digest.
+- Shared file metadata is wire-oriented only and carries `kdfSalt` as Base64 text, never secrets or token-bearing values.
+
+**Rationale:** Keeps the queue format stable across CLI and API, lets the CLI show precise validation errors, and avoids leaking server persistence concerns into `ShadowDrop.Shared`.

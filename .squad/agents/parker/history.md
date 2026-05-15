@@ -46,3 +46,31 @@ Silent bug fixed (relative metadata path cleanup scope). TestApiFactory construc
 
 - **Status:** Merged; part of default review pair role
 - **Note:** Default reviewer with Nate on all future pre-user review gate work
+
+## 2026-05-15: Issue #4 Pre-Review Gate Cycle
+
+**Session:** Scribe (2026-05-15T14:31:20.000Z)
+
+Default reviewer on Issue #4 (Nate + Parker pair per pre-user review gate policy). Rejected Eliot's initial implementation for missing FileMetadataContract coverage (round-trip / optional-field test cases). Assigned Tara to revise (per lockout semantics). Re-reviewed Tara's revision; coverage gap closed and signed off.
+
+- **Status:** Gate PASSED; decision design merged to `decisions.md`
+- **Next:** PR #4 ready for user review
+
+## 2026-05-15: PR #10 Review-Note Follow-Up Assessment & Re-Review
+
+**Session:** Scribe (2026-05-15T19:44:15.000Z)
+
+Parker + Nate joint assessment of remaining Copilot review notes on PR #10. Identified three critical fixes needed:
+1. Missing queue-file length validation (bounds checking in parser validator)
+2. Insufficient target URL validation (must be absolute HTTP(S) only)
+3. Incomplete XML documentation on shared contracts
+
+Assessment passed to Eliot for implementation. After Eliot completed fixes on current branch:
+- Re-reviewed implementation against identified items
+- All three items verified: length validation ✓, URL validation ✓, XML docs ✓
+- Signed off on implementation completeness
+
+Orchestration logs written. Decision "Shared Queue Contract Shape" documented in `decisions.md`.
+
+- **Status:** Gate PASSED; PR #10 ready for merge
+- **Role:** Secondary reviewer on Nate + Parker pair assessment

@@ -4,20 +4,25 @@ Define the shared contracts needed by both the API and CLI before implementing t
 
 ## Acceptance Criteria
 
-- [ ] Shared constants exist for `ShadowDrop-Key` and `sd-key`.
-- [ ] Shared constants exist for the CLI config path components `.config`, `shadowdrop`, and `config.json`.
-- [ ] Shared constants exist for known version strings, including queue format version `1.0` and the initial encryption format version.
-- [ ] Queue file models represent the agreed JSON format.
-- [ ] Queue file models support `shadowDrop`, `queueVersion`, `target`, `shareId`, and file entries.
-- [ ] Queue file entries support `fileId`, `fileName`, `length`, and optional `plaintextSha256`.
-- [ ] Shared wire/file metadata contracts exist for share id, file id, encryption format version, algorithm id, chunk size, chunk count, KDF salt, and optional plaintext SHA-256.
-- [ ] Shared API DTOs exist only where both API and CLI need the same wire contract.
-- [ ] Server-only persistence entities such as token records and audit records are not added to `ShadowDrop.Shared`.
-- [ ] Shared contracts avoid storing plaintext secrets such as admin tokens, download bearer tokens, decryption keys, or `sd-key` values.
-- [ ] Queue file validation rejects missing required fields, empty file lists, invalid URLs, invalid lengths, and malformed SHA-256 values.
-- [ ] Automated tests cover JSON serialization and deserialization of the queue format, including omitted optional `plaintextSha256`.
-- [ ] Automated tests cover queue file validation failures.
-- [ ] Automated tests verify that JSON property names match the queue file format exactly.
+- [x] Shared constants exist for `ShadowDrop-Key` and `sd-key`.
+- [x] Shared constants exist for the CLI config path components `.config`, `shadowdrop`, and `config.json`.
+- [x] Shared constants exist for known version strings, including queue format version `1.0` and the initial encryption
+  format version.
+- [x] Queue file models represent the agreed JSON format.
+- [x] Queue file models support `shadowDrop`, `queueVersion`, `target`, `shareId`, and file entries.
+- [x] Queue file entries support `fileId`, `fileName`, `length`, and optional `plaintextSha256`.
+- [x] Shared wire/file metadata contracts exist for share id, file id, encryption format version, algorithm id, chunk
+  size, chunk count, KDF salt, and optional plaintext SHA-256.
+- [x] Shared API DTOs exist only where both API and CLI need the same wire contract.
+- [x] Server-only persistence entities such as token records and audit records are not added to `ShadowDrop.Shared`.
+- [x] Shared contracts avoid storing plaintext secrets such as admin tokens, download bearer tokens, decryption keys, or
+  `sd-key` values.
+- [x] Queue file validation rejects missing required fields, empty file lists, invalid URLs, invalid lengths, and
+  malformed SHA-256 values.
+- [x] Automated tests cover JSON serialization and deserialization of the queue format, including omitted optional
+  `plaintextSha256`.
+- [x] Automated tests cover queue file validation failures.
+- [x] Automated tests verify that JSON property names match the queue file format exactly.
 
 ## Technical Details
 

@@ -33,3 +33,22 @@ Nate's pre-user review gate policy and test coverage gap work merged into canoni
 
 - **Status:** Merged; ready for enforcement
 - **Next:** Coordinator applies gate on all future work
+
+## 2026-05-15: PR #10 Review-Note Follow-Up Assessment & Implementation Verification
+
+**Session:** Scribe (2026-05-15T19:44:15.000Z)
+
+Nate + Parker joint assessment of remaining Copilot review notes on PR #10. Identified three critical fixes:
+1. Missing queue-file length validation (bounds checking in parser validator, not constructor)
+2. Insufficient target URL validation (must be absolute HTTP(S) only)
+3. Incomplete XML documentation on shared contracts
+
+Recommendation passed to Eliot for implementation. Eliot completed all three fixes on current branch:
+- `QueueFileParser` validates length bounds
+- `QueueFileContract.target` rejects relative URLs
+- XML docs added to `FileMetadataContract`, `QueueFileContract`, shared surface
+
+Parker re-reviewed post-implementation and signed off. Orchestration logs written for all three agents. Decision "Shared Queue Contract Shape" documented in `decisions.md`.
+
+- **Status:** Complete; PR #10 ready for merge
+- **Decision:** "Shared Queue Contract Shape" formalized in `decisions.md`
