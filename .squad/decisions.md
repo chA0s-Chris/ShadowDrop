@@ -192,3 +192,22 @@ Failed uploads must use all-or-nothing / cleanup semantics. If validation fails 
 - Cleanup/rollback on failed metadata commit should use database transactions or equivalent; test surfaces verify the invariant directly.
 
 **Next Steps:** Implementation team (Eliot or assigned backend) owns the vertical slice. Acceptance criteria are binding. Review gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR.
+
+## Upload Plan Clarifications — Metadata Validation & Cross-Layer Cleanup
+
+### 2026-05-15T22:48:25+02:00: Upload Plan Clarifications
+**By:** Nate (Lead)  
+**Request:** Christian Flessa  
+**Area:** `ai-plans/0011-upload-api-and-encrypted-file-intake.md` Technical Details section
+
+Two clarifications tighten the upload implementation contract:
+
+**1. Metadata Validation Before Stream Consumption**  
+Reject malformed envelope metadata (invalid lengths, inconsistent format, missing required fields) **before starting to consume the request body stream**. Metadata parsing is synchronous and complete before any I/O begins; prevents wasting bandwidth on format errors and establishes a clear validation gate.
+
+**2. Cross-Layer Cleanup Semantics**  
+All-or-nothing rollback must span **every persistence layer** in the upload path. If blob content is written before metadata commit succeeds, or if streaming fails mid-upload, that content must be deleted and no orphaned state may remain (database, filesystem, or other persistence backend). Use database transactions with deferred writes or multi-phase commit; test surfaces verify the invariant directly by simulating failure at each boundary.
+
+**Scope Boundary:** Neither clarification expands into share creation, download setup, token refresh, or other downstream concerns. Upload remains intake-only; implementation team owns the vertical slice with binding acceptance criteria.
+
+**Next Steps:** Implementation team uses clarifications as validation checklist during code review. Reviewer gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR. Test surfaces must verify both constraints directly.

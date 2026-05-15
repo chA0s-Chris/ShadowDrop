@@ -94,3 +94,18 @@ Slice boundary remains tight: upload is intake-only. Share creation, download se
 **Session:** Scribe (orchestration log capture)
 
 Manifest note: Nate updated `ai-plans/0011-upload-api-and-encrypted-file-intake.md` with final streaming-gate and cross-store rollback clarifications. Ensures plan integration points are explicit and implementation team has clear boundaries on failure handling semantics.
+
+## 2026-05-15T20:54:05Z: Upload Plan Clarifications — Inbox Merge & Decision Formalization
+
+**Session:** Scribe (team coordination)
+
+Nate's upload plan clarifications decision successfully merged from `.squad/decisions/inbox/` into canonical `decisions.md`. Two critical technical clarifications now formally documented for team reference:
+
+1. **Metadata validation gate:** Metadata envelope must be fully validated and parsed before consuming request body stream. Prevents wasting bandwidth on malformed uploads and establishes clear synchronous parsing contract.
+
+2. **Cross-layer cleanup semantics:** All-or-nothing rollback must span database, filesystem, and all other persistence layers. If blob write succeeds but metadata commit fails (or vice versa), both must be rolled back atomically. No orphaned state permitted.
+
+Decision now appears in canonical `decisions.md` under "Upload API & Intake" → "Upload Plan Clarifications" (2026-05-15T22:48:25+02:00 entry). Inbox file deleted. Status: **Formalized and ready for implementation team review gate.** 
+
+Cross-team notification: History updated for Scribe, Nate, and implementation contacts (Eliot/backend).
+
