@@ -2,10 +2,11 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    <RootNamespace>ShadowDrop</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LiteDB" />
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.Console" />
     <ProjectReference Include="..\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />
   </ItemGroup>
 </Project>
