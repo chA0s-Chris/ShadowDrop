@@ -12,10 +12,13 @@ repository without leaking backend details into higher-level workflows.
 - [ ] A LiteDB-backed metadata implementation persists uploaded-file records.
 - [ ] Uploaded-file metadata includes file id, storage path or blob key, original file name, plaintext length, encrypted
   length, content type if known, encryption format version, algorithm id, chunk size, chunk count, per-share KDF salt,
-  and optional plaintext SHA-256.
+  and optional plaintext SHA-256. Metadata may store non-secret encryption descriptors and salts (treated as contract
+  data whose actual use belongs to later share creation), but never actual file encryption keys.
 - [ ] Storage and metadata writes are coordinated so failed uploads do not leave committed metadata pointing to missing
   blobs.
 - [ ] Stored blob content is encrypted content only.
+- [ ] Local blob files and the LiteDB metadata file are stored with restrictive filesystem permissions (0600 or
+  equivalent) appropriate for server-only access.
 - [ ] Storage paths do not trust user-supplied file names for filesystem layout.
 - [ ] Automated tests cover successful persistence, retrieval of uploaded-file metadata, and failure handling around
   partial writes.
@@ -35,5 +38,9 @@ entities inside the API project rather than moving them into `ShadowDrop.Shared`
 share creation and download; do not introduce share, token, or audit persistence beyond what this slice directly needs.
 
 The upload slice from the previous plan should use these abstractions rather than writing directly to LiteDB or the
-filesystem. Failure handling should prefer not committing metadata when blob persistence fails, and should clean up
-partially written local files where practical. Tests may use isolated on-disk paths and dedicated LiteDB files per run.
+filesystem. Failure handling should prefer not committing metadata when blob persistence fails, and should
+deterministically delete or quarantine partially written local files rather than cleaning them up only where practical.
+Tests may use isolated on-disk paths and dedicated LiteDB files per run.
+
+**Intentional Deferral:** Blob-level integrity verification (e.g., checksum validation on read) is deferred from this
+slice and should be added in a separate initiative.
