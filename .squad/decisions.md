@@ -211,3 +211,8 @@ All-or-nothing rollback must span **every persistence layer** in the upload path
 **Scope Boundary:** Neither clarification expands into share creation, download setup, token refresh, or other downstream concerns. Upload remains intake-only; implementation team owns the vertical slice with binding acceptance criteria.
 
 **Next Steps:** Implementation team uses clarifications as validation checklist during code review. Reviewer gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR. Test surfaces must verify both constraints directly.
+
+### 2026-05-16T08:44:15.662+02:00: User directive — Defer Integrity Verification
+**By:** Christian Flessa (via Copilot)
+**What:** Defer integrity verification in plan 0012 rather than adding it to this slice.
+**Why:** User request — captured for team memory
