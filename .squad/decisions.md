@@ -216,3 +216,13 @@ All-or-nothing rollback must span **every persistence layer** in the upload path
 **By:** Christian Flessa (via Copilot)
 **What:** Defer integrity verification in plan 0012 rather than adding it to this slice.
 **Why:** User request — captured for team memory
+
+### 2026-05-16T09:15:58.247+02:00: User directive — Model Availability
+**By:** Christian Flessa (via Copilot)
+**What:** `claude-opus-4.5` and `gemini-3-pro-preview` are no longer available.
+**Why:** User request — captured for team memory
+
+### 2026-05-16T09:21:58.062+02:00: User directive — Available Models & Cost Multipliers
+**By:** Christian Flessa (via Copilot)
+**What:** Available models are `gpt-5.5` (7.5x), `gpt-5.4` (1x), `gpt-5.3-codex` (1x), `gpt-5.2-codex` (1x), `gpt-5.4-mini` (0.33x), `gpt-5-mini` (free), `gpt-4.1` (free), `claude-sonnet-4.5` (1x), `claude-sonnet-4.6` (1x), `claude-haiku-4.5` (0.33x), and `claude-opus-4.7` (15x). Ask before using `claude-opus-4.7`. For tasks that previously would have used Claude Opus 4.5 or 4.6, use `gpt-5.5` instead.
+**Why:** User request — captured for team memory

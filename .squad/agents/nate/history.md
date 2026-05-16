@@ -109,3 +109,17 @@ Decision now appears in canonical `decisions.md` under "Upload API & Intake" →
 
 Cross-team notification: History updated for Scribe, Nate, and implementation contacts (Eliot/backend).
 
+## 2026-05-16T08:57:46.959+02:00: Issue Bodies Updated with Plan Content
+
+**Session:** Nate
+
+Updated GitHub issue bodies with plan content to close out documentation gap:
+
+- **Issue #11** (Upload API + encrypted file intake): Body replaced with full content from `ai-plans/0011-upload-api-and-encrypted-file-intake.md`. Title preserved. Rationale, all acceptance criteria, and technical details now visible on issue page for implementation team.
+
+- **Issue #12** (Local blob storage + metadata persistence): Body replaced with full content from `ai-plans/0012-local-blob-storage-and-metadata-persistence.md`. Title preserved. Includes intentional deferral note on blob-level integrity verification.
+
+**Rationale:** Issue bodies serve as the contract for implementation; linking them to plans ensures team always has the authoritative scope in one place. Reduces context-switching and prevents plan divergence during review gate.
+
+**Verified:** Both issues show updated bodies via `gh issue view` with plan content intact and titles preserved. Ready for implementation team to reference during coding and PR reviews.
+
