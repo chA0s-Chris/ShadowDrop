@@ -72,5 +72,22 @@ Assessment passed to Eliot for implementation. After Eliot completed fixes on cu
 
 Orchestration logs written. Decision "Shared Queue Contract Shape" documented in `decisions.md`.
 
-- **Status:** Gate PASSED; PR #10 ready for merge
 - **Role:** Secondary reviewer on Nate + Parker pair assessment
+
+## 2026-05-16T07:31:13Z: Plan 0013 Security Review — Ready for Implementation Gate
+
+**Session:** Scribe (cross-agent notification)
+
+Plan 0013 (share creation, expiration, hashed bearer tokens) has all Nate and Alec review feedback formalized. Five surgical clarifications now binding:
+
+1. Token entropy: 32 bytes minimum
+2. Plaintext confidentiality: returned once, never logged/cached server-side
+3. Expiration: soft validation, deferred to later slices
+4. Revocation/cleanup fields: initialized at creation
+5. Mode/token combinations: explicit rejection rules
+
+**Review gate application:** As default reviewer pair (Nate + Parker), will assess implementation against all criteria. Alec escalation required for token generation, hashing, and confidentiality verification.
+
+**Plan boundaries:** Slice owns creation + persistence. Does NOT include download endpoint, validation, revocation, or cleanup. All belong to later slices.
+
+**Status:** Plan ready for backend team (Eliot or assigned) implementation. Gate will apply on PR submission.

@@ -226,3 +226,51 @@ All-or-nothing rollback must span **every persistence layer** in the upload path
 **By:** Christian Flessa (via Copilot)
 **What:** Available models are `gpt-5.5` (7.5x), `gpt-5.4` (1x), `gpt-5.3-codex` (1x), `gpt-5.2-codex` (1x), `gpt-5.4-mini` (0.33x), `gpt-5-mini` (free), `gpt-4.1` (free), `claude-sonnet-4.5` (1x), `claude-sonnet-4.6` (1x), `claude-haiku-4.5` (0.33x), and `claude-opus-4.7` (15x). Ask before using `claude-opus-4.7`. For tasks that previously would have used Claude Opus 4.5 or 4.6, use `gpt-5.5` instead.
 **Why:** User request — captured for team memory
+
+## Share Creation, Expiration & Hashed Bearer Tokens
+
+### 2026-05-16T09:28:05.383+02:00: Security Review — Plan 0013 Approved with Surgical Clarifications
+**By:** Alec (Security Engineer)
+**Area:** Plan 0013 — share creation, expiration, hashed bearer tokens
+
+Plan 0013 is **sound in trust architecture**. Token handling follows established pattern (hash-on-store, FixedTimeEquals on validate), expiration semantics explicit, direct-HTTP mode opt-in. Five surgical clarifications locked down secret lifecycle, HTTP boundaries, expiration semantics, schema initialization, and token-mode combinations:
+
+1. **Bearer-Token Entropy Requirement:** Both share tokens and download bearer tokens must use `RandomNumberGenerator.GetBytes()` with minimum 32 bytes (256 bits) entropy. Implementers cannot substitute weaker RNGs or reduce byte length.
+
+2. **Plaintext-Token Lifetime Boundary:** Plaintext tokens returned in creation response are volatile secrets existing only during request handling and in HTTP response. After transmission, only hash persists. Do not log, cache, or commit plaintext to server-side logs, metrics, or audit trail; log token hash or metadata fingerprint instead.
+
+3. **Download Bearer-Token Expiration Atomicity:** Expiration checked at validation time only during download request. Shares do not actively revoke download tokens; expired token simply rejected on next use. Soft expiration (checked at use) is simpler and requires no cleanup jobs.
+
+4. **Revocation & Cleanup State Field Semantics:** `optional_revocation_timestamp` and `cleanup_state` must be explicitly initialized at share creation (not left null): `optional_revocation_timestamp = NULL` (not revoked), `cleanup_state = "PENDING"` (shares start unrevoked). Future-proofing for revocation/cleanup endpoints without implementing them here.
+
+5. **Direct-HTTP & Bearer-Token Combination Validation:** Explicitly reject invalid combinations: forbidden are (direct-HTTP + bearer-token requirement) and (direct-HTTP + separate-key mode simultaneously). Allowed: separate-key mode + optional bearer token, direct-HTTP mode + no bearer token. Test coverage: at least three rejected combinations.
+
+**Review Gate Implications:**
+- Default pair: Nate (Lead) + Parker (Tester)
+- Alec escalation required (token generation, hashing, confidentiality)
+- Criteria: atomic persistence, token entropy, plaintext handling, error response safety, invalid-combination validation
+
+**Next Steps:** Implementation team (Eliot or assigned backend) owns vertical slice with binding acceptance criteria.
+
+### 2026-05-16T09:31:13.101+02:00: Plan 0013 — All Review Suggestions Applied
+**By:** Nate (Lead)
+**Request:** Christian Flessa ("Please apply all suggestions")
+**Artifact:** `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md`
+
+Eight substantive refinements applied; all now formalized as binding acceptance criteria:
+
+**Material Changes:**
+1. **Token Entropy Floor Specified** — 256 bits (32 bytes) minimum for share tokens and optional download bearer tokens. Binding criterion.
+2. **Plaintext Token Confidentiality Enforced** — Returned only once at creation; never persisted, logged, or server-side recorded. Three new acceptance criteria spanning hash persistence, plaintext handling, log confidentiality.
+3. **Expiration Validation Deferred** — Expiration checking belongs entirely to later slices. This slice only persists expiration timestamps as metadata.
+4. **Revocation and Cleanup Fields Initialized** — Both fields persisted at share creation time (revocation_timestamp = NULL, cleanup_state = false) without implementing revocation/cleanup endpoints.
+5. **Invalid Mode/Token Combinations Spelled Out** — Direct-HTTP + bearer token, and separate-key without bearer configuration explicitly rejected with clear rationale.
+6. **Error Response Safety Tightened** — Generic HTTP 400 with minimal public message; never expose constraint logic or token-shape details.
+7. **Atomic Persistence Required** — Share metadata, file entries, token hashes persist atomically; partial failures trigger full rollback.
+8. **Scope Boundaries Reinforced** — Does not implement revocation endpoints, cleanup jobs, download endpoint, or download token validation. All belong to later slices.
+
+**Acceptance Criteria Status:**
+- Explicit, binding, testable, focused
+- No scope creep into download, validation, or cleanup endpoints
+- Plan ready for implementation
+- Review gate applies on PR submission

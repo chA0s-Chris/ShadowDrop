@@ -24,3 +24,31 @@ Two security decisions merged into `decisions.md`:
 Trust boundary implications documented; timing properties preserved. Merged with full context into canonical decisions.
 
 - **Status:** Merged; part of formalized review gate escalation criteria
+
+## 2026-05-16: Plan 0013 Review — Share Creation & Hashed Bearer Tokens
+
+**Session:** Alec review session  
+**Request:** Christian Flessa  
+
+Plan 0013 reviewed for token handling, expiration semantics, trust boundaries, and HTTP interaction safety. Verdict: **Proceed with surgical clarifications**.
+
+**Findings:**
+- Trust architecture is sound: hash-on-store (PBKDF2 implied), FixedTimeEquals on validate, plaintext returned once.
+- Direct-HTTP opt-in boundary correctly protects against accidental plaintext transport.
+- Expiration model correctly separates share and download bearer token lifecycles.
+- Three clarifications recommended: (1) Bearer-token entropy floor (32 bytes minimum), (2) Plaintext-token lifetime boundary (volatile, never persisted), (3) Download bearer-token expiration semantics (soft/lazy validation, not active revocation).
+- Scope boundary correct; no changes to acceptance criteria or response contract.
+
+**Key insight:** Share-token model mirrors established `AdminTokenService` pattern. If share tokens or bearer tokens are exposed as `byte[]` to public API, apply `crypto-buffer-encapsulation` skill (defensive-copy getter, internal span).
+
+**Status:** Formalized in `decisions.md` under "Share Creation, Expiration & Hashed Bearer Tokens" section. All clarifications now part of binding acceptance criteria for implementation team.
+
+## 2026-05-16T07:31:13Z: Plan 0013 — Security Review Merged & Implementation Ready
+
+**Session:** Scribe (cross-agent notification)
+
+Alec's security review of plan 0013 has been merged into canonical `decisions.md`. Five surgical clarifications (token entropy, plaintext handling, expiration atomicity, revocation field init, mode/token combinations) are now binding acceptance criteria.
+
+**Implementation gate:** Default pair Nate + Parker. Alec escalation required for token generation, hashing, and confidentiality criteria verification. 
+
+**Next step:** Backend team (Eliot or assigned) implements vertical slice with all criteria enforced. Review gate applies on PR.

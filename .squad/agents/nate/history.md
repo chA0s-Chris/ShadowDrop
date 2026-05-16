@@ -123,3 +123,30 @@ Updated GitHub issue bodies with plan content to close out documentation gap:
 
 **Verified:** Both issues show updated bodies via `gh issue view` with plan content intact and titles preserved. Ready for implementation team to reference during coding and PR reviews.
 
+## 2026-05-16T09:31:13.101+02:00: Share-Creation Plan — Eight Review Suggestions Applied
+
+**Session:** Nate
+
+Applied eight substantive refinements to `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md` based on accepted Nate and Alec review feedback:
+
+1. **Token entropy floor specified:** Both share tokens and optional download bearer tokens must have minimum 256 bits of cryptographic entropy (32 bytes of random data). Acceptance criterion now binding for implementation.
+
+2. **Plaintext token confidentiality enforced:** Added explicit criteria that plaintext tokens are returned only once at creation time and must never be persisted, logged, or included in any server-side record thereafter. Prevents accidental exposure or trace leaks.
+
+3. **Expiration validation deferred:** Clarified that expiration checking (validation at token use-time) belongs entirely to later slices. This slice only persists expiration timestamps as metadata. Prevents scope creep into download/validation endpoints.
+
+4. **Revocation and cleanup fields initialized:** Added acceptance criterion that revocation timestamp (nullable) and cleanup state flag (false at creation) are persisted at share creation time, establishing the foundation for later revocation and cleanup endpoints without implementing them here.
+
+5. **Invalid mode/token combinations spelled out:** Explicitly rejected two invalid configurations with clear rationale:
+   - Direct HTTP mode + optional bearer token (invalid: no authentication in direct mode)
+   - Separate-key mode without bearer token setup (invalid: separate-key requires optional token configuration)
+
+6. **Error response safety tightened:** Clarified that error responses for invalid mode/token combinations must use generic HTTP 400 with minimal public message, never exposing constraint logic or token-shape details. Prevents attacker inference.
+
+7. **Atomic persistence required:** Added binding criterion that share metadata, file entries, and token hashes must persist atomically; partial failures in any layer trigger full rollback with no orphaned state. Matches cross-layer rollback pattern from upload plan.
+
+8. **Scope boundaries reinforced:** Explicitly stated that this slice does not implement revocation endpoints, background cleanup jobs, download endpoint, or download token validation. All belong to later slices.
+
+**Decision:** Formalized in `decisions.md` under "Share Creation, Expiration & Hashed Bearer Tokens" section. Acceptance criteria now binding for implementation team. Review gate (Nate + Parker, escalate Alec for token/security) applies on PR.
+
+**Status:** Cross-agent context delivered to Alec, Eliot, and Parker via orchestration logs and history updates. Plan ready for backend implementation.

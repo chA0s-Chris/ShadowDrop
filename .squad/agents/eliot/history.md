@@ -55,6 +55,22 @@ Relative path resolution test gap documented. Merged with full context into cano
 
 - **Status:** Merged; ready for enforcement
 
+## 2026-05-16T07:31:13Z: Plan 0013 Ready for Implementation — Eliot Handoff
+
+**Session:** Scribe (cross-agent notification)
+
+Plan 0013 (share creation, expiration, hashed bearer tokens) now has all security clarifications and binding acceptance criteria formalized in canonical `decisions.md`. Nate (Lead) and Alec (Security) have finalized five surgical refinements:
+
+1. Token entropy floor: 32 bytes minimum
+2. Plaintext token lifecycle: volatile, never persisted server-side
+3. Expiration validation: deferred to later slices (soft/lazy validation)
+4. Revocation/cleanup fields: initialized at creation (no lazy init)
+5. Mode/token combinations: explicit rejection rules with tests
+
+**Handoff:** Backend team (Eliot or assigned) owns implementation with binding acceptance criteria. Vertical slice scope: share creation + token persistence only. Does NOT include download, validation, revocation, or cleanup endpoints.
+
+**Review gate:** Nate + Parker (default), Alec escalation required. Implementation gate enforced on PR submission.
+
 ## Learnings — 2026-05-15T16:17:18.120+02:00
 
 ### Shared queue and metadata contracts in ShadowDrop.Shared
