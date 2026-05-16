@@ -7,7 +7,8 @@ initial version should validate share access rules and stream a full-file respon
 
 - [ ] A public download endpoint exists for share files.
 - [ ] The endpoint can resolve a share by presented share token and file id.
-- [ ] The endpoint denies expired or revoked shares.
+- [ ] The endpoint denies expired shares by validating `expiration_timestamp < now` at download time. Expiration is
+  soft (checked on each request); no cleanup jobs or active background revocation required.
 - [ ] The endpoint validates an optional download bearer token from `Authorization: Bearer <token>` when required.
 - [ ] The endpoint does not accept download bearer tokens through query parameters.
 - [ ] The endpoint supports both direct-HTTP mode and CLI decrypt mode at the contract level.
@@ -31,5 +32,7 @@ encrypted bytes and the client will decrypt later. Keep these modes explicit in 
 them rather than retrofitting behavior.
 
 Do not add range processing in this plan. Whole-file responses are enough here as long as the code structure leaves room
-for later byte-range handling. Logging and audit metadata must not include plaintext keys, query strings, or bearer
-tokens. If audit events are added, keep them minimal and aligned with the concept.
+for later byte-range handling. Audit and logging metadata may include safe identifiers (share id, file id, request
+outcome) and high-level success/failure results, but must not include token hashes, Authorization header content,
+ShadowDrop-Key header content, or plaintext key material. If audit events are added, keep them minimal and aligned with
+the concept.
