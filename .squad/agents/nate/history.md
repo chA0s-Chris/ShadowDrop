@@ -150,3 +150,11 @@ Applied eight substantive refinements to `ai-plans/0013-share-creation-expiratio
 **Decision:** Formalized in `decisions.md` under "Share Creation, Expiration & Hashed Bearer Tokens" section. Acceptance criteria now binding for implementation team. Review gate (Nate + Parker, escalate Alec for token/security) applies on PR.
 
 **Status:** Cross-agent context delivered to Alec, Eliot, and Parker via orchestration logs and history updates. Plan ready for backend implementation.
+
+## 2026-05-16T07:44:19Z: Plan 0013 Algorithm Clarification
+
+**Session:** Scribe (team coordination)
+
+Updated `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md` per Christian Flessa request to pin SHA-256 as the canonical token hashing algorithm. Removed remaining algorithm ambiguity without broadening slice scope. All acceptance criteria remain binding for implementation team.
+
+**Outcome:** Plan ready for implementation with explicit hash algorithm + entropy requirements formalized. Review gate applies on PR submission.
