@@ -89,10 +89,10 @@ public sealed class DownloadFileService
         if (mode == DownloadMode.DirectHttp)
         {
             var presentedKeyMaterial = !String.IsNullOrWhiteSpace(headerKeyMaterial) ? headerKeyMaterial : queryKeyMaterial;
-            var decryptedContent = await TryDecryptDirectHttpContentAsync(share.ShareId,
-                                                                          uploadedFile,
-                                                                          presentedKeyMaterial!,
-                                                                          cancellationToken);
+            var decryptedContent = await TryOpenDirectHttpContentAsync(share.ShareId,
+                                                                       uploadedFile,
+                                                                       presentedKeyMaterial!,
+                                                                       cancellationToken);
             if (decryptedContent is null)
             {
                 return new(DownloadLookupStatus.InvalidRequest);
@@ -119,48 +119,20 @@ public sealed class DownloadFileService
                        encryptedContent));
     }
 
-    private async Task<MemoryStream?> TryDecryptDirectHttpContentAsync(Guid shareId,
-                                                                       UploadedFileRecord uploadedFile,
-                                                                       String keyMaterial,
-                                                                       CancellationToken cancellationToken)
+    private async Task<Stream?> TryOpenDirectHttpContentAsync(Guid shareId,
+                                                              UploadedFileRecord uploadedFile,
+                                                              String keyMaterial,
+                                                              CancellationToken cancellationToken)
     {
         try
         {
             var secretBytes = Convert.FromBase64String(keyMaterial);
-            var kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
-            await using var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
-            using var shareSecret = ShareSecret.FromBytes(secretBytes);
-            var context = new FileEncryptionContext(shareId, uploadedFile.FileId, kdfSalt);
-            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
-            var plaintext = new MemoryStream(uploadedFile.PlaintextLength <= Int32.MaxValue ? (Int32)uploadedFile.PlaintextLength : 0);
-            var remainingPlaintextLength = uploadedFile.PlaintextLength;
-
-            for (var chunkIndex = 0L; chunkIndex < uploadedFile.ChunkCount; chunkIndex++)
-            {
-                var plaintextChunkLength = (Int32)Math.Min(remainingPlaintextLength, uploadedFile.ChunkSize);
-                var encryptedChunkLength = checked(plaintextChunkLength + 16);
-                var encryptedChunkBytes = new Byte[encryptedChunkLength];
-                await encryptedContent.ReadExactlyAsync(encryptedChunkBytes, cancellationToken);
-
-                var metadata = new ChunkMetadata(CryptoVersion.V1,
-                                                 CryptoAlgorithm.Aes256Gcm,
-                                                 shareId,
-                                                 uploadedFile.FileId,
-                                                 uploadedFile.ChunkSize,
-                                                 chunkIndex,
-                                                 plaintextChunkLength);
-                var decryptedChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), contentKey, metadata);
-                await plaintext.WriteAsync(decryptedChunk, cancellationToken);
-                remainingPlaintextLength -= plaintextChunkLength;
-            }
-
-            if (remainingPlaintextLength != 0 || encryptedContent.ReadByte() != -1)
-            {
-                return null;
-            }
-
-            plaintext.Position = 0;
-            return plaintext;
+            var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+            return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
+                                                                shareId,
+                                                                uploadedFile,
+                                                                secretBytes,
+                                                                cancellationToken);
         }
         catch (Exception exception) when (exception is ArgumentException
                                                        or CryptographicException
@@ -169,6 +141,166 @@ public sealed class DownloadFileService
                                                        or OverflowException)
         {
             return null;
+        }
+    }
+
+    private sealed class DirectHttpDecryptingStream : Stream
+    {
+        private readonly Stream _encryptedContent;
+        private readonly Byte[] _kdfSalt;
+        private readonly Guid _shareId;
+        private readonly Byte[] _shareSecret;
+        private readonly UploadedFileRecord _uploadedFile;
+        private Byte[] _currentChunk = [];
+        private Int32 _currentChunkOffset;
+        private Boolean _disposed;
+        private Int64 _nextChunkIndex;
+        private Int64 _remainingPlaintextLength;
+
+        private DirectHttpDecryptingStream(Stream encryptedContent,
+                                           Guid shareId,
+                                           UploadedFileRecord uploadedFile,
+                                           Byte[] shareSecret)
+        {
+            _encryptedContent = encryptedContent;
+            _kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
+            _shareId = shareId;
+            _uploadedFile = uploadedFile;
+            _shareSecret = shareSecret;
+            _remainingPlaintextLength = uploadedFile.PlaintextLength;
+        }
+
+        public override Boolean CanRead => !_disposed;
+
+        public override Boolean CanSeek => false;
+
+        public override Boolean CanWrite => false;
+
+        public override Int64 Length => _uploadedFile.PlaintextLength;
+
+        public override Int64 Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
+                                                                         Guid shareId,
+                                                                         UploadedFileRecord uploadedFile,
+                                                                         Byte[] shareSecret,
+                                                                         CancellationToken cancellationToken)
+        {
+            var stream = new DirectHttpDecryptingStream(encryptedContent, shareId, uploadedFile, shareSecret);
+            if (uploadedFile.ChunkCount > 0)
+            {
+                await stream.LoadNextChunkAsync(cancellationToken);
+            }
+            else if (stream._encryptedContent.ReadByte() != -1)
+            {
+                await stream.DisposeAsync();
+                throw new EndOfStreamException("Encrypted stream contained unexpected trailing data.");
+            }
+
+            return stream;
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            CryptographicOperations.ZeroMemory(_kdfSalt);
+            CryptographicOperations.ZeroMemory(_shareSecret);
+            await _encryptedContent.DisposeAsync();
+            await base.DisposeAsync();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
+            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+        public override Int32 Read(Span<Byte> buffer)
+        {
+            var destination = new Byte[buffer.Length];
+            var bytesRead = Read(destination, 0, destination.Length);
+            destination.AsSpan(0, bytesRead).CopyTo(buffer);
+            return bytesRead;
+        }
+
+        public override async Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
+            await ReadAsync(buffer.AsMemory(offset, count), cancellationToken);
+
+        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (buffer.Length == 0 || (_nextChunkIndex >= _uploadedFile.ChunkCount && _currentChunkOffset >= _currentChunk.Length))
+            {
+                return 0;
+            }
+
+            var bytesRead = 0;
+            while (bytesRead < buffer.Length)
+            {
+                if (_currentChunkOffset >= _currentChunk.Length)
+                {
+                    if (_nextChunkIndex >= _uploadedFile.ChunkCount)
+                    {
+                        break;
+                    }
+
+                    await LoadNextChunkAsync(cancellationToken);
+                }
+
+                var bytesToCopy = Math.Min(buffer.Length - bytesRead, _currentChunk.Length - _currentChunkOffset);
+                _currentChunk.AsSpan(_currentChunkOffset, bytesToCopy).CopyTo(buffer.Span[bytesRead..]);
+                _currentChunkOffset += bytesToCopy;
+                bytesRead += bytesToCopy;
+            }
+
+            return bytesRead;
+        }
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        private async Task LoadNextChunkAsync(CancellationToken cancellationToken)
+        {
+            var plaintextChunkLength = (Int32)Math.Min(_remainingPlaintextLength, _uploadedFile.ChunkSize);
+            var encryptedChunkLength = checked(plaintextChunkLength + 16);
+            var encryptedChunkBytes = new Byte[encryptedChunkLength];
+            await _encryptedContent.ReadExactlyAsync(encryptedChunkBytes, cancellationToken);
+
+            var metadata = new ChunkMetadata(CryptoVersion.V1,
+                                             CryptoAlgorithm.Aes256Gcm,
+                                             _shareId,
+                                             _uploadedFile.FileId,
+                                             _uploadedFile.ChunkSize,
+                                             _nextChunkIndex,
+                                             plaintextChunkLength);
+            using var shareSecret = ShareSecret.FromBytes(_shareSecret);
+            var context = new FileEncryptionContext(_shareId, _uploadedFile.FileId, _kdfSalt);
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
+            _currentChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), contentKey, metadata);
+            _currentChunkOffset = 0;
+            _remainingPlaintextLength -= plaintextChunkLength;
+            _nextChunkIndex++;
+
+            if (_nextChunkIndex == _uploadedFile.ChunkCount)
+            {
+                var trailingByte = _encryptedContent.ReadByte();
+                if (_remainingPlaintextLength != 0 || trailingByte != -1)
+                {
+                    throw new EndOfStreamException("Encrypted stream length did not match metadata.");
+                }
+            }
         }
     }
 }
