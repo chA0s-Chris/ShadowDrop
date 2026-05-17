@@ -124,10 +124,11 @@ public sealed class DownloadFileService
                                                               String keyMaterial,
                                                               CancellationToken cancellationToken)
     {
+        Stream? encryptedContent = null;
         try
         {
             var secretBytes = Convert.FromBase64String(keyMaterial);
-            var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+            encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
             return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
                                                                 shareId,
                                                                 uploadedFile,
@@ -140,6 +141,11 @@ public sealed class DownloadFileService
                                                        or FormatException
                                                        or OverflowException)
         {
+            if (encryptedContent is not null)
+            {
+                await encryptedContent.DisposeAsync();
+            }
+
             return null;
         }
     }

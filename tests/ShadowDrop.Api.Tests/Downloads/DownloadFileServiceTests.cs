@@ -75,6 +75,56 @@ public sealed class DownloadFileServiceTests
 
         plaintext.ToArray().Should().Equal(payload.Plaintext);
         encryptedStream.Position.Should().Be(payload.Ciphertext.LongLength);
+        await plaintextStream.DisposeAsync();
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldDisposeEncryptedStreamWhenDirectHttpStreamCreationFails()
+    {
+        var shareId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(shareId, fileId);
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var shareRepository = new StubShareMetadataRepository(
+            new(shareId,
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "cipher.bin",
+                payload.Plaintext.LongLength,
+                payload.Ciphertext.LongLength,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                payload.ChunkSize,
+                payload.ChunkCount,
+                payload.KdfSaltBase64,
+                payload.PlaintextSha256));
+        var blobStorage = new StubBlobStorage(encryptedStream);
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            Convert.ToBase64String(Enumerable.Repeat((Byte)42, 32).ToArray()),
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
     }
 
     private static DirectHttpPayload CreateDirectHttpPayload(Guid shareId, Guid fileId)
@@ -151,8 +201,34 @@ public sealed class DownloadFileServiceTests
 
     private sealed class TrackingReadStream(Byte[] content) : MemoryStream(content, false)
     {
-        public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        private Boolean _disposeTracked;
 
-        protected override void Dispose(Boolean disposing) { }
+        public Int32 DisposeCount { get; private set; }
+
+        public Boolean WasDisposed { get; private set; }
+
+        public override async ValueTask DisposeAsync()
+        {
+            TrackDispose();
+            await base.DisposeAsync();
+        }
+
+        protected override void Dispose(Boolean disposing)
+        {
+            TrackDispose();
+            base.Dispose(disposing);
+        }
+
+        private void TrackDispose()
+        {
+            if (_disposeTracked)
+            {
+                return;
+            }
+
+            _disposeTracked = true;
+            DisposeCount++;
+            WasDisposed = true;
+        }
     }
 }
