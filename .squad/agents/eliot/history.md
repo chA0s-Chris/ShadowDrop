@@ -91,6 +91,16 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) now has all securit
 - This preserves existing malformed-key and invalid-request behavior while covering the previously unprotected path where blob opening or other pre-transfer work can throw after Base64 decode.
 - Focused coverage lives in `DownloadFileServiceTests.WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer`, alongside the existing stream-creation cleanup tests.
 
+## Learnings — 2026-05-17T23:22:19.313+02:00
+
+### Direct HTTP decrypting streams should retain invariant file keys
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+
+- `DirectHttpDecryptingStream` now derives the file-scoped `ContentKey` exactly once during `CreateAsync`, transfers ownership into the stream, and disposes that retained key together with `_shareSecret` and `_kdfSalt`.
+- Per-chunk decryption now reuses the retained `ContentKey` instead of recreating `ShareSecret` and repeating HKDF work inside `LoadNextChunkAsync`, which removes redundant allocations and derivations for large downloads.
+- Regression coverage verifies the retained content key buffer is non-zero while the stream is active and is zeroed when the stream is disposed, alongside the existing failure-path cleanup assertions.
+
 ## 2026-05-15: Issue #4 Pre-Review Gate Cycle
 
 **Session:** Scribe (2026-05-15T14:31:20.000Z)
