@@ -24,7 +24,7 @@ public static class AdminEndpoints
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
             uploadRoutes.MapPost("/", UploadAsync)
-                        .RequireRateLimiting(DependencyInjection.UploadRateLimitPolicyName)
+                        .RequireRateLimiting(RateLimiting.UploadRateLimitPolicyName)
                         .DisableAntiforgery();
             uploadRoutes.MapGet("/{fileId:guid}", GetUploadedFileMetadataAsync);
         }
