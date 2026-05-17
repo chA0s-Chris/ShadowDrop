@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.CompositionRoot;
 using Serilog;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
+using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 
 public static class DependencyInjection
@@ -17,6 +18,7 @@ public static class DependencyInjection
         var shadowDropOptions = ShadowDropOptionsBinding.BindAndValidate(builder.Configuration, builder.Environment.ContentRootPath);
 
         builder.Services.AddSingleton(shadowDropOptions);
+        builder.Services.AddSingleton(TimeProvider.System);
         builder.ConfigureRateLimiter();
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)
@@ -24,6 +26,8 @@ public static class DependencyInjection
             builder.Services.AddSingleton<AdminTokenService>();
             builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
             builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
+            builder.Services.AddSingleton<IShareMetadataRepository, LiteDbShareMetadataRepository>();
+            builder.Services.AddSingleton<CreateShareService>();
             builder.Services.AddSingleton<UploadPersistenceService>();
         }
 

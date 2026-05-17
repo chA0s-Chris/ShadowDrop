@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 using System.Net;
@@ -103,6 +104,91 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync("/api/admin/management/ping");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task ShareRoute_ShouldRequireValidAdminBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var request = CreateValidShareRequest(fileId, generateDownloadBearerToken: false);
+        client.DefaultRequestHeaders.Authorization = null;
+
+        var noAuthResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        var wrongTokenResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var validTokenResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+
+        noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Test]
+    public async Task ShareRoute_ShouldPersistHashedTokensAndNeverReturnHashes()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var request = CreateValidShareRequest(fileId, generateDownloadBearerToken: true);
+
+        var response = await client.PostAsJsonAsync("/api/admin/shares", request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var responsePayload = await response.Content.ReadAsStringAsync();
+        var createShareResult = JsonSerializer.Deserialize<CreateShareResult>(responsePayload, JsonOptions);
+        createShareResult.Should().NotBeNull();
+        createShareResult!.ShareToken.Should().NotBeNullOrWhiteSpace();
+        createShareResult.DownloadBearerToken.Should().NotBeNullOrWhiteSpace();
+
+        using var responseDocument = JsonDocument.Parse(responsePayload);
+        responseDocument.RootElement.TryGetProperty("shareTokenHashBase64", out _).Should().BeFalse();
+        responseDocument.RootElement.TryGetProperty("downloadBearerTokenHashBase64", out _).Should().BeFalse();
+
+        var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
+        var storedShare = await repository.GetAsync(createShareResult.ShareId, CancellationToken.None);
+        storedShare.Should().NotBeNull();
+        storedShare!.ShareTokenHashBase64.Should().NotBe(createShareResult.ShareToken);
+        storedShare.DownloadBearerToken.Should().NotBeNull();
+        storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(createShareResult.DownloadBearerToken);
+        storedShare.ExpiresAtUtc.Should().Be(request.ExpiresAtUtc);
+        storedShare.RevokedAtUtc.Should().BeNull();
+        storedShare.CleanupState.Should().Be(ShareCleanupState.Pending);
+        storedShare.DirectHttpEnabled.Should().BeFalse();
+        storedShare.Files.Should().ContainSingle();
+        storedShare.Files[0].FileId.Should().Be(fileId);
+        storedShare.Files[0].DisplayName.Should().Be("renamed.bin");
+    }
+
+    [Test]
+    public async Task ShareRoute_ShouldReturn400_ForInvalidRequests()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var duplicateFileResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                                     [new CreateShareFileRequest(fileId), new CreateShareFileRequest(fileId)],
+                                                                     GenerateDownloadBearerToken: false));
+        var missingFileResponse =
+            await client.PostAsJsonAsync("/api/admin/shares", CreateValidShareRequest(Guid.NewGuid(), generateDownloadBearerToken: false));
+        var invalidModeResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                                   [new CreateShareFileRequest(fileId)],
+                                                                   DirectHttpEnabled: true,
+                                                                   GenerateDownloadBearerToken: true,
+                                                                   DownloadBearerTokenExpiresAtUtc: DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
+        var missingTokenSetupResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                                         [new CreateShareFileRequest(fileId)]));
+
+        duplicateFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        missingFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        invalidModeResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        missingTokenSetupResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await invalidModeResponse.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid share request."}""");
     }
 
     [Test]
@@ -347,6 +433,23 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK,
                                         "disposal of a failed factory must restore environment variables so subsequent factories can start");
+    }
+
+
+    private static CreateShareRequest CreateValidShareRequest(Guid fileId, Boolean generateDownloadBearerToken) =>
+        new(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+            [new CreateShareFileRequest(fileId, "renamed.bin")],
+            GenerateDownloadBearerToken: generateDownloadBearerToken,
+            DownloadBearerTokenExpiresAtUtc: generateDownloadBearerToken ? DateTimeOffset.Parse("2026-05-30T00:00:00Z") : null);
+
+    private static async Task<Guid> UploadValidFileAsync(HttpClient client, String bootstrapToken)
+    {
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
+        using var requestContent = CreateValidUploadContent();
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var payload = await response.Content.ReadAsStringAsync();
+        return JsonSerializer.Deserialize<UploadResult>(payload, JsonOptions)!.FileId;
     }
 
     private sealed class AdminTokenCredentialDocument

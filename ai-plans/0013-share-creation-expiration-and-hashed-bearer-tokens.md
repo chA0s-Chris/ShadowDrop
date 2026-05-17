@@ -6,34 +6,34 @@ tokens without yet implementing the download endpoint itself.
 
 ## Acceptance Criteria
 
-- [ ] A protected share-creation endpoint exists.
-- [ ] Share creation requires `Authorization: Bearer <admin-token>`.
-- [ ] A share can reference one or more previously uploaded files.
-- [ ] A share stores creation timestamp, expiration timestamp, optional revocation timestamp, cleanup state, direct-HTTP
+- [x] A protected share-creation endpoint exists.
+- [x] Share creation requires `Authorization: Bearer <admin-token>`.
+- [x] A share can reference one or more previously uploaded files.
+- [x] A share stores creation timestamp, expiration timestamp, optional revocation timestamp, cleanup state, direct-HTTP
   mode flag, and file entries.
-- [ ] Share creation generates an opaque high-entropy share token with at least 256 bits of entropy (32 bytes).
-- [ ] The metadata store persists only a cryptographic hash of the share token, not the plaintext token.
-- [ ] Plaintext share tokens are returned only once in the creation response and never logged or persisted server-side
+- [x] Share creation generates an opaque high-entropy share token with at least 256 bits of entropy (32 bytes).
+- [x] The metadata store persists only a cryptographic hash of the share token, not the plaintext token.
+- [x] Plaintext share tokens are returned only once in the creation response and never logged or persisted server-side
   thereafter.
-- [ ] Share creation can optionally require a download bearer token, also with at least 256 bits of entropy.
-- [ ] Optional download bearer tokens are stored only as cryptographic hashes with their own expiration timestamp.
-- [ ] Download bearer token hashes must never be persisted in plaintext form or included in any server log.
-- [ ] Direct HTTP mode is explicit opt-in per share and defaults to disabled.
-- [ ] Share creation supports uploader-controlled display name overrides per file.
-- [ ] Share creation rejects missing files, duplicate file ids, invalid expiration values, and invalid direct-HTTP or
+- [x] Share creation can optionally require a download bearer token, also with at least 256 bits of entropy.
+- [x] Optional download bearer tokens are stored only as cryptographic hashes with their own expiration timestamp.
+- [x] Download bearer token hashes must never be persisted in plaintext form or included in any server log.
+- [x] Direct HTTP mode is explicit opt-in per share and defaults to disabled.
+- [x] Share creation supports uploader-controlled display name overrides per file.
+- [x] Share creation rejects missing files, duplicate file ids, invalid expiration values, and invalid direct-HTTP or
   token combinations without exposing token-shape details in error responses.
-- [ ] Invalid mode/token combinations are explicitly rejected: direct HTTP mode with a download bearer token, or
+- [x] Invalid mode/token combinations are explicitly rejected: direct HTTP mode with a download bearer token, or
   separate-key mode without optional token setup.
-- [ ] The response returns the share id and the plaintext tokens only at creation time; client must store tokens as they
+- [x] The response returns the share id and the plaintext tokens only at creation time; client must store tokens as they
   are never retrievable afterward.
-- [ ] All share metadata, file entries, and token hashes are persisted atomically; partial failures in any persistence
+- [x] All share metadata, file entries, and token hashes are persisted atomically; partial failures in any persistence
   layer trigger full rollback with no orphaned state.
-- [ ] Revocation-related and cleanup-state fields (revocation timestamp, cleanup state) are initialized at creation time
+- [x] Revocation-related and cleanup-state fields (revocation timestamp, cleanup state) are initialized at creation time
   and persisted, though revocation enforcement belongs to later slices. Cleanup state is a named enum value, not a
   boolean flag: initialized to `"PENDING"` (awaiting cleanup), not a boolean default.
-- [ ] Expiration validation is deferred to token-validation time (later slices); this slice only persists expiration
+- [x] Expiration validation is deferred to token-validation time (later slices); this slice only persists expiration
   timestamps as part of share metadata.
-- [ ] Automated tests cover share creation success, hashed token persistence, expiration timestamp storage,
+- [x] Automated tests cover share creation success, hashed token persistence, expiration timestamp storage,
   invalid-request rejection, atomic persistence, and plaintext token confidentiality.
 
 ## Technical Details
