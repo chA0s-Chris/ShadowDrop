@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Admin;
 using ShadowDrop.Api.CompositionRoot;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
+using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 
 public static class AdminEndpoints
@@ -22,6 +23,9 @@ public static class AdminEndpoints
                 Status = "management-skeleton"
             }));
 
+            var shareRoutes = adminRoutes.MapGroup("/shares");
+            shareRoutes.MapPost("/", CreateShareAsync);
+
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
             uploadRoutes.MapPost("/", UploadAsync)
                         .RequireRateLimiting(RateLimiting.UploadRateLimitPolicyName)
@@ -30,6 +34,36 @@ public static class AdminEndpoints
         }
 
         return app;
+    }
+
+
+    private static async Task<IResult> CreateShareAsync(CreateShareRequest? request,
+                                                        CreateShareService createShareService,
+                                                        ILoggerFactory loggerFactory,
+                                                        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Results.BadRequest(new
+            {
+                Error = "Invalid share request."
+            });
+        }
+
+        try
+        {
+            var result = await createShareService.CreateAsync(request, cancellationToken);
+            return Results.Created($"/api/admin/shares/{result.ShareId}", result);
+        }
+        catch (CreateShareValidationException exception)
+        {
+            loggerFactory.CreateLogger(typeof(AdminEndpoints))
+                         .LogWarning(exception, "Share request validation failed.");
+            return Results.BadRequest(new
+            {
+                Error = "Invalid share request."
+            });
+        }
     }
 
     private static async Task<IResult> GetUploadedFileMetadataAsync(Guid fileId,
