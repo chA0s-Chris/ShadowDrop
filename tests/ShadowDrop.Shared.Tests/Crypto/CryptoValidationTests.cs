@@ -15,7 +15,6 @@ public sealed class CryptoValidationTests
             CryptoVersion.V1,
             (CryptoAlgorithm)99,
             Guid.NewGuid(),
-            Guid.NewGuid(),
             64,
             0,
             32);
@@ -31,7 +30,6 @@ public sealed class CryptoValidationTests
         var act = () => new ChunkMetadata(
             (CryptoVersion)99,
             CryptoAlgorithm.Aes256Gcm,
-            Guid.NewGuid(),
             Guid.NewGuid(),
             64,
             0,
@@ -49,7 +47,6 @@ public sealed class CryptoValidationTests
             CryptoVersion.V1,
             CryptoAlgorithm.Aes256Gcm,
             Guid.NewGuid(),
-            Guid.NewGuid(),
             64,
             0,
             65);
@@ -65,7 +62,7 @@ public sealed class CryptoValidationTests
     {
         var salt = new Byte[saltLength];
 
-        var act = () => new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), salt);
+        var act = () => new FileEncryptionContext(Guid.NewGuid(), salt);
 
         act.Should()
            .Throw<ArgumentException>()

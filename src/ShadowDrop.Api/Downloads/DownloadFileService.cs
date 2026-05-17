@@ -89,8 +89,7 @@ public sealed class DownloadFileService
         if (mode == DownloadMode.DirectHttp)
         {
             var presentedKeyMaterial = !String.IsNullOrWhiteSpace(headerKeyMaterial) ? headerKeyMaterial : queryKeyMaterial;
-            var decryptedContent = await TryOpenDirectHttpContentAsync(share.ShareId,
-                                                                       uploadedFile,
+            var decryptedContent = await TryOpenDirectHttpContentAsync(uploadedFile,
                                                                        presentedKeyMaterial!,
                                                                        cancellationToken);
             if (decryptedContent is null)
@@ -119,8 +118,7 @@ public sealed class DownloadFileService
                        encryptedContent));
     }
 
-    private async Task<Stream?> TryOpenDirectHttpContentAsync(Guid shareId,
-                                                              UploadedFileRecord uploadedFile,
+    private async Task<Stream?> TryOpenDirectHttpContentAsync(UploadedFileRecord uploadedFile,
                                                               String keyMaterial,
                                                               CancellationToken cancellationToken)
     {
@@ -130,7 +128,6 @@ public sealed class DownloadFileService
             var secretBytes = Convert.FromBase64String(keyMaterial);
             encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
             return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
-                                                                shareId,
                                                                 uploadedFile,
                                                                 secretBytes,
                                                                 cancellationToken);
@@ -154,7 +151,6 @@ public sealed class DownloadFileService
     {
         private readonly Stream _encryptedContent;
         private readonly Byte[] _kdfSalt;
-        private readonly Guid _shareId;
         private readonly Byte[] _shareSecret;
         private readonly UploadedFileRecord _uploadedFile;
         private Byte[] _currentChunk = [];
@@ -164,13 +160,12 @@ public sealed class DownloadFileService
         private Int64 _remainingPlaintextLength;
 
         private DirectHttpDecryptingStream(Stream encryptedContent,
-                                           Guid shareId,
+                                           Byte[] kdfSalt,
                                            UploadedFileRecord uploadedFile,
                                            Byte[] shareSecret)
         {
             _encryptedContent = encryptedContent;
-            _kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
-            _shareId = shareId;
+            _kdfSalt = kdfSalt;
             _uploadedFile = uploadedFile;
             _shareSecret = shareSecret;
             _remainingPlaintextLength = uploadedFile.PlaintextLength;
@@ -191,23 +186,46 @@ public sealed class DownloadFileService
         }
 
         public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
-                                                                         Guid shareId,
                                                                          UploadedFileRecord uploadedFile,
                                                                          Byte[] shareSecret,
                                                                          CancellationToken cancellationToken)
         {
-            var stream = new DirectHttpDecryptingStream(encryptedContent, shareId, uploadedFile, shareSecret);
-            if (uploadedFile.ChunkCount > 0)
+            Byte[]? kdfSalt = null;
+            DirectHttpDecryptingStream? stream = null;
+            try
             {
-                await stream.LoadNextChunkAsync(cancellationToken);
-            }
-            else if (stream._encryptedContent.ReadByte() != -1)
-            {
-                await stream.DisposeAsync();
-                throw new EndOfStreamException("Encrypted stream contained unexpected trailing data.");
-            }
+                kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
+                stream = new DirectHttpDecryptingStream(encryptedContent, kdfSalt, uploadedFile, shareSecret);
+                if (uploadedFile.ChunkCount > 0)
+                {
+                    await stream.LoadNextChunkAsync(cancellationToken);
+                }
+                else if (stream._encryptedContent.ReadByte() != -1)
+                {
+                    throw new EndOfStreamException("Encrypted stream contained unexpected trailing data.");
+                }
 
-            return stream;
+                return stream;
+            }
+            catch
+            {
+                if (stream is not null)
+                {
+                    await stream.DisposeAsync();
+                }
+                else
+                {
+                    if (kdfSalt is not null)
+                    {
+                        CryptographicOperations.ZeroMemory(kdfSalt);
+                    }
+
+                    CryptographicOperations.ZeroMemory(shareSecret);
+                    await encryptedContent.DisposeAsync();
+                }
+
+                throw;
+            }
         }
 
         public override async ValueTask DisposeAsync()
@@ -286,13 +304,12 @@ public sealed class DownloadFileService
 
             var metadata = new ChunkMetadata(CryptoVersion.V1,
                                              CryptoAlgorithm.Aes256Gcm,
-                                             _shareId,
                                              _uploadedFile.FileId,
                                              _uploadedFile.ChunkSize,
                                              _nextChunkIndex,
                                              plaintextChunkLength);
             using var shareSecret = ShareSecret.FromBytes(_shareSecret);
-            var context = new FileEncryptionContext(_shareId, _uploadedFile.FileId, _kdfSalt);
+            var context = new FileEncryptionContext(_uploadedFile.FileId, _kdfSalt);
             using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
             _currentChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), contentKey, metadata);
             _currentChunkOffset = 0;

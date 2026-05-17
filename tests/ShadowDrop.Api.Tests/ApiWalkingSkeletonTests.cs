@@ -632,7 +632,7 @@ public sealed class ApiWalkingSkeletonTests
         var shareId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
         var shareToken = "direct-http-share-token";
-        var payload = CreateDirectHttpPayload(shareId, fileId);
+        var payload = CreateDirectHttpPayload(fileId);
         await using var encryptedContent = new MemoryStream(payload.Ciphertext, false);
         var blob = await blobStorage.SaveAsync(fileId, encryptedContent, CancellationToken.None);
         await uploadedFileMetadataRepository.SaveAsync(
@@ -774,14 +774,14 @@ public sealed class ApiWalkingSkeletonTests
 
     private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
 
-    private static DirectHttpPayload CreateDirectHttpPayload(Guid shareId, Guid fileId)
+    private static DirectHttpPayload CreateDirectHttpPayload(Guid fileId)
     {
         var plaintext = Enumerable.Range(0, 128).Select(value => (Byte)(255 - value)).ToArray();
         var keyMaterial = Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray();
         var wrongKeyMaterial = Enumerable.Range(65, 32).Select(value => (Byte)value).ToArray();
         var kdfSalt = Enumerable.Range(129, 32).Select(value => (Byte)value).ToArray();
         using var shareSecret = ShareSecret.FromBytes(keyMaterial);
-        var context = new FileEncryptionContext(shareId, fileId, kdfSalt);
+        var context = new FileEncryptionContext(fileId, kdfSalt);
         using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
         using var ciphertext = new MemoryStream();
         const Int32 chunkSize = 64;
@@ -792,7 +792,6 @@ public sealed class ApiWalkingSkeletonTests
             var chunkPlaintext = plaintext.Skip((Int32)(chunkIndex * chunkSize)).Take(chunkSize).ToArray();
             var metadata = new ChunkMetadata(CryptoVersion.V1,
                                              CryptoAlgorithm.Aes256Gcm,
-                                             shareId,
                                              fileId,
                                              chunkSize,
                                              chunkIndex,

@@ -12,7 +12,7 @@ public sealed class ShareSecretTests
     public void DeriveContentKey_ShouldThrowObjectDisposedException_WhenShareSecretIsDisposed()
     {
         using var secret = ShareSecret.Generate();
-        var context = new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
+        var context = new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
         secret.Dispose();
 
         var act = () => ChunkEncryptionService.DeriveContentKey(secret, context);
