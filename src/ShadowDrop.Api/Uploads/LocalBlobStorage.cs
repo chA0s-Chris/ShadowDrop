@@ -50,6 +50,20 @@ public sealed class LocalBlobStorage : IBlobStorage
         return Task.CompletedTask;
     }
 
+    public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(blobKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Stream stream = new FileStream(ResolveBlobPath(blobKey),
+                                       FileMode.Open,
+                                       FileAccess.Read,
+                                       FileShare.Read,
+                                       81_920,
+                                       FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult(stream);
+    }
+
     public async Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(encryptedContent);

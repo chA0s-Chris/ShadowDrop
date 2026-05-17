@@ -15,6 +15,7 @@ internal static partial class MultipartUploadRequestReader
     private const Int32 AesGcmTagLength = 16;
     private const Int32 DefaultMaxMetadataBytes = 64 * 1024;
     private const Int64 DefaultMaxUploadBodyBytes = 512L * 1024 * 1024;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow

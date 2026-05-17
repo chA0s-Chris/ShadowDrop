@@ -11,6 +11,7 @@ public static class CliConfigPathConstants
     /// The ShadowDrop application directory name below the user config directory.
     /// </summary>
     public const String ApplicationDirectoryName = "shadowdrop";
+
     /// <summary>
     /// The user-scoped configuration directory name.
     /// </summary>

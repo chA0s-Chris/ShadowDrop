@@ -6,5 +6,7 @@ public interface IBlobStorage
 {
     Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken);
 
+    Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken);
+
     Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken);
 }

@@ -23,7 +23,7 @@ public sealed class CreateShareServiceTests
         await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId, "Display.bin")],
+                                             [new(fileId, "Display.bin")],
                                              GenerateDownloadBearerToken: true,
                                              DownloadBearerTokenExpiresAtUtc: DateTimeOffset.Parse("2026-05-30T00:00:00Z"));
 
@@ -58,10 +58,10 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         var fileId = Guid.NewGuid();
         await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
-        var sut = new CreateShareService(uploadedFileMetadataRepository: uploadedFileRepository, shareMetadataRepository: shareRepository,
-                                         timeProvider: TimeProvider.System);
+        var sut = new CreateShareService(uploadedFileRepository, shareRepository,
+                                         TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId), new CreateShareFileRequest(fileId)],
+                                             [new(fileId), new(fileId)],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -85,7 +85,7 @@ public sealed class CreateShareServiceTests
         await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId)],
+                                             [new(fileId)],
                                              directHttpEnabled,
                                              generateDownloadBearerToken,
                                              includeDownloadTokenExpiration ? DateTimeOffset.Parse("2026-05-30T00:00:00Z") : null);
@@ -104,7 +104,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(Guid.NewGuid())],
+                                             [new(Guid.NewGuid())],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -123,7 +123,7 @@ public sealed class CreateShareServiceTests
         var failingShareRepository = new LiteDbShareMetadataRepository(options, () => throw new InvalidOperationException("Simulated transaction failure."));
         var sut = new CreateShareService(uploadedFileRepository, failingShareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId)],
+                                             [new(fileId)],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -146,7 +146,7 @@ public sealed class CreateShareServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new String('a', 64));
+            new('a', 64));
 
     private sealed class SharePersistenceFixture : IAsyncDisposable
     {
@@ -163,11 +163,11 @@ public sealed class CreateShareServiceTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new MetadataOptions
+                Metadata = new()
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new StorageOptions
+                Storage = new()
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

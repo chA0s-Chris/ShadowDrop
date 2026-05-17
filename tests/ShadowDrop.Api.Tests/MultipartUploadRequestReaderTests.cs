@@ -20,8 +20,8 @@ public sealed class MultipartUploadRequestReaderTests
     [Test]
     public async Task ReadAsync_ShouldRejectOversizedMetadataWhileReading()
     {
-        var metadata = CreateValidMetadataPayload(originalFileName: new('a', 200));
-        var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], contentLength: null);
+        var metadata = CreateValidMetadataPayload(new('a', 200));
+        var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 64);
 
@@ -37,7 +37,7 @@ public sealed class MultipartUploadRequestReaderTests
                                                   encryptedLength: encryptedContent.LongLength,
                                                   chunkSize: 80,
                                                   chunkCount: 1);
-        var request = await CreateRequestAsync(metadata, encryptedContent, contentLength: null);
+        var request = await CreateRequestAsync(metadata, encryptedContent, null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 128, 4096);
 
@@ -51,7 +51,7 @@ public sealed class MultipartUploadRequestReaderTests
                                                   encryptedLength: Int64.MaxValue,
                                                   chunkSize: 1,
                                                   chunkCount: Int64.MaxValue);
-        var request = await CreateRequestAsync(metadata, [1], contentLength: null);
+        var request = await CreateRequestAsync(metadata, [1], null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 4096);
 

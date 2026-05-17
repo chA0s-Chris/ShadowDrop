@@ -5,20 +5,20 @@ initial version should validate share access rules and stream a full-file respon
 
 ## Acceptance Criteria
 
-- [ ] A public download endpoint exists for share files.
-- [ ] The endpoint can resolve a share by presented share token and file id.
-- [ ] The endpoint denies expired shares by validating `expiration_timestamp < now` at download time. Expiration is
+- [x] A public download endpoint exists for share files.
+- [x] The endpoint can resolve a share by presented share token and file id.
+- [x] The endpoint denies expired shares by validating `expiration_timestamp < now` at download time. Expiration is
   soft (checked on each request); no cleanup jobs or active background revocation required.
-- [ ] The endpoint validates an optional download bearer token from `Authorization: Bearer <token>` when required.
-- [ ] The endpoint does not accept download bearer tokens through query parameters.
-- [ ] The endpoint supports both direct-HTTP mode and CLI decrypt mode at the contract level.
-- [ ] In direct-HTTP mode, the endpoint accepts key material through the `ShadowDrop-Key` header and `sd-key` query
+- [x] The endpoint validates an optional download bearer token from `Authorization: Bearer <token>` when required.
+- [x] The endpoint does not accept download bearer tokens through query parameters.
+- [x] The endpoint supports both direct-HTTP mode and CLI decrypt mode at the contract level.
+- [x] In direct-HTTP mode, the endpoint accepts key material through the `ShadowDrop-Key` header and `sd-key` query
   parameter.
-- [ ] In CLI decrypt mode, the endpoint streams encrypted content without requiring the server to receive the decryption
+- [x] In CLI decrypt mode, the endpoint streams encrypted content without requiring the server to receive the decryption
   key.
-- [ ] Successful responses include appropriate filename and content-length headers for the selected file.
-- [ ] The endpoint streams responses instead of buffering the full file in memory.
-- [ ] Automated tests cover full-file download success, missing token rejection, expired share rejection, and required
+- [x] Successful responses include appropriate filename and content-length headers for the selected file.
+- [x] The endpoint streams responses instead of buffering the full file in memory.
+- [x] Automated tests cover full-file download success, missing token rejection, expired share rejection, and required
   download-token rejection.
 
 ## Technical Details

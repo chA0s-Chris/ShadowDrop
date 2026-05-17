@@ -112,7 +112,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        var request = CreateValidShareRequest(fileId, generateDownloadBearerToken: false);
+        var request = CreateValidShareRequest(fileId, false);
         client.DefaultRequestHeaders.Authorization = null;
 
         var noAuthResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
@@ -133,7 +133,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        var request = CreateValidShareRequest(fileId, generateDownloadBearerToken: true);
+        var request = CreateValidShareRequest(fileId, true);
 
         var response = await client.PostAsJsonAsync("/api/admin/shares", request);
 
@@ -154,7 +154,7 @@ public sealed class ApiWalkingSkeletonTests
         storedShare!.ShareTokenHashBase64.Should().NotBe(createShareResult.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
         storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(createShareResult.DownloadBearerToken);
-        storedShare.ExpiresAtUtc.Should().Be(request.ExpiresAtUtc);
+        storedShare.ExpiresAtUtc.Should().BeCloseTo(request.ExpiresAtUtc, TimeSpan.FromSeconds(1));
         storedShare.RevokedAtUtc.Should().BeNull();
         storedShare.CleanupState.Should().Be(ShareCleanupState.Pending);
         storedShare.DirectHttpEnabled.Should().BeFalse();
@@ -172,17 +172,17 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
 
         var duplicateFileResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                     [new CreateShareFileRequest(fileId), new CreateShareFileRequest(fileId)],
+                                                                     [new(fileId), new(fileId)],
                                                                      GenerateDownloadBearerToken: false));
         var missingFileResponse =
-            await client.PostAsJsonAsync("/api/admin/shares", CreateValidShareRequest(Guid.NewGuid(), generateDownloadBearerToken: false));
+            await client.PostAsJsonAsync("/api/admin/shares", CreateValidShareRequest(Guid.NewGuid(), false));
         var invalidModeResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                   [new CreateShareFileRequest(fileId)],
-                                                                   DirectHttpEnabled: true,
-                                                                   GenerateDownloadBearerToken: true,
-                                                                   DownloadBearerTokenExpiresAtUtc: DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
+                                                                   [new(fileId)],
+                                                                   true,
+                                                                   true,
+                                                                   DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
         var missingTokenSetupResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                         [new CreateShareFileRequest(fileId)]));
+                                                                         [new(fileId)]));
 
         duplicateFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         missingFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -352,14 +352,154 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldReturn200_WhenPublicDownloadsAreEnabled()
+    public async Task PublicDownloadEndpoint_ShouldStreamEncryptedFile_WithHeaders_ForCliDecryptMode()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
 
-        var response = await client.GetAsync($"/api/downloads/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentLength.Should().Be(CreateCiphertext().LongLength);
+        response.Content.Headers.ContentDisposition!.FileNameStar.Should().Be("renamed.bin");
+        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("cli-decrypt");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn401_WhenShareIsExpired()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   expiresAtUtc: DateTimeOffset.UtcNow.AddMinutes(-5)));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn403_WhenRequiredDownloadBearerTokenIsMissing()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldIgnoreBearerTokenQueryParameter()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?access_token={share.DownloadBearerToken}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldAcceptRequiredDownloadBearerToken_FromAuthorizationHeader()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/d/{share.ShareToken}/files/{fileId}");
+        request.Headers.Authorization = new("Bearer", share.DownloadBearerToken);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("cli-decrypt");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldAcceptDirectHttpKeyMaterial_FromHeader()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   true));
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, "header-key-material");
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn400_WhenDirectHttpKeyMaterialIsProvidedInHeaderAndQuery()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   true));
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, "header-key-material");
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?{DownloadKeyConstants.QueryParameterName}=query-key-material");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn400_WhenDirectHttpKeyMaterialIsMissingFromHeaderAndQuery()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   true));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldAcceptDirectHttpKeyMaterial_FromQueryParameter()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   true));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?{DownloadKeyConstants.QueryParameterName}=query-key-material");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
 
     [Test]
@@ -368,7 +508,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory(enablePublicDownloads: false);
         using var client = fixture.CreateClient();
 
-        var response = await client.GetAsync($"/api/downloads/{Guid.NewGuid()}");
+        var response = await client.GetAsync($"/d/{Guid.NewGuid():N}/files/{Guid.NewGuid()}");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -436,15 +576,27 @@ public sealed class ApiWalkingSkeletonTests
     }
 
 
-    private static CreateShareRequest CreateValidShareRequest(Guid fileId, Boolean generateDownloadBearerToken) =>
-        new(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-            [new CreateShareFileRequest(fileId, "renamed.bin")],
-            GenerateDownloadBearerToken: generateDownloadBearerToken,
-            DownloadBearerTokenExpiresAtUtc: generateDownloadBearerToken ? DateTimeOffset.Parse("2026-05-30T00:00:00Z") : null);
+    private static CreateShareRequest CreateValidShareRequest(Guid fileId,
+                                                              Boolean generateDownloadBearerToken,
+                                                              Boolean directHttpEnabled = false,
+                                                              DateTimeOffset? expiresAtUtc = null) =>
+        new(expiresAtUtc ?? DateTimeOffset.UtcNow.AddDays(1),
+            [new(fileId, "renamed.bin")],
+            directHttpEnabled,
+            generateDownloadBearerToken,
+            generateDownloadBearerToken ? DateTimeOffset.UtcNow.AddHours(12) : null);
+
+    private static async Task<CreateShareResult> CreateShareAsync(HttpClient client, String bootstrapToken, CreateShareRequest request)
+    {
+        client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+        var response = await client.PostAsJsonAsync("/api/admin/shares", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
+    }
 
     private static async Task<Guid> UploadValidFileAsync(HttpClient client, String bootstrapToken)
     {
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
         using var requestContent = CreateValidUploadContent();
         var response = await client.PostAsync("/api/admin/uploads", requestContent);
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -458,9 +610,9 @@ public sealed class ApiWalkingSkeletonTests
 
         public Int32 Iterations { get; set; }
 
-        public String SaltBase64 { get; set; } = String.Empty;
+        public String SaltBase64 { get; } = String.Empty;
 
-        public String TokenHashBase64 { get; set; } = String.Empty;
+        public String TokenHashBase64 { get; } = String.Empty;
     }
 
     private sealed class TestApiFactory : WebApplicationFactory<Program>
