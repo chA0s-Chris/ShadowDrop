@@ -59,6 +59,21 @@ public sealed class MultipartUploadRequestReaderTests
         exceptionAssertion.Which.Message.Should().Be("Upload metadata is internally inconsistent.");
     }
 
+    [Test]
+    public async Task ReadAsync_ShouldRejectMissingReservedFileId()
+    {
+        var metadata = CreateValidMetadataPayload() with
+        {
+            FileId = Guid.Empty
+        };
+        var request = await CreateRequestAsync(metadata, Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray(), null);
+
+        var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 4096);
+
+        var exceptionAssertion = await action.Should().ThrowAsync<UploadValidationException>();
+        exceptionAssertion.Which.Message.Should().Be("The reserved file id is required.");
+    }
+
     private static async Task<HttpRequest> CreateRequestAsync(UploadMetadataPayload metadata,
                                                               Byte[] encryptedContent,
                                                               Int64? contentLength)
@@ -85,7 +100,8 @@ public sealed class MultipartUploadRequestReaderTests
                                                                     Int64 encryptedLength = 32,
                                                                     Int32 chunkSize = 16,
                                                                     Int64 chunkCount = 1)
-        => new(originalFileName ?? "cipher.bin",
+        => new(Guid.NewGuid(),
+               originalFileName ?? "cipher.bin",
                plaintextLength,
                encryptedLength,
                "application/octet-stream",
@@ -97,6 +113,7 @@ public sealed class MultipartUploadRequestReaderTests
                new('a', 64));
 
     private sealed record UploadMetadataPayload(
+        Guid FileId,
         String OriginalFileName,
         Int64 PlaintextLength,
         Int64 EncryptedLength,

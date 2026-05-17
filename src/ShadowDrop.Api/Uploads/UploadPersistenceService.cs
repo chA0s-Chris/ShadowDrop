@@ -18,18 +18,17 @@ public sealed class UploadPersistenceService
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(encryptedContent);
 
-        var fileId = Guid.NewGuid();
         UploadBlobDescriptor? blob = null;
 
         try
         {
-            blob = await _blobStorage.SaveAsync(fileId, encryptedContent, cancellationToken);
+            blob = await _blobStorage.SaveAsync(request.FileId, encryptedContent, cancellationToken);
             if (blob.WrittenLength != request.EncryptedLength)
             {
                 throw new UploadValidationException("The encrypted content length does not match the declared metadata.");
             }
 
-            var record = new UploadedFileRecord(fileId,
+            var record = new UploadedFileRecord(request.FileId,
                                                 blob.BlobKey,
                                                 request.OriginalFileName,
                                                 request.PlaintextLength,
@@ -42,15 +41,18 @@ public sealed class UploadPersistenceService
                                                 request.KdfSaltBase64,
                                                 request.PlaintextSha256);
 
-            await _metadataRepository.SaveAsync(record, cancellationToken);
+            if (!await _metadataRepository.TryCompleteReservationAsync(record, cancellationToken))
+            {
+                throw new UploadValidationException("The file id is invalid or no longer available.");
+            }
 
-            return new UploadResult(record.FileId,
-                                    record.PlaintextLength,
-                                    record.EncryptedLength,
-                                    record.ChunkSize,
-                                    record.ChunkCount,
-                                    record.EncryptionFormatVersion,
-                                    record.AlgorithmId);
+            return new(record.FileId,
+                       record.PlaintextLength,
+                       record.EncryptedLength,
+                       record.ChunkSize,
+                       record.ChunkCount,
+                       record.EncryptionFormatVersion,
+                       record.AlgorithmId);
         }
         catch
         {

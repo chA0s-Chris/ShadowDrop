@@ -11,7 +11,7 @@ repository without leaking backend details into higher-level workflows.
 - [x] A metadata persistence abstraction exists for uploaded-file records.
 - [x] A LiteDB-backed metadata implementation persists uploaded-file records.
 - [x] Uploaded-file metadata includes file id, storage path or blob key, original file name, plaintext length, encrypted
-  length, content type if known, encryption format version, algorithm id, chunk size, chunk count, per-share KDF salt,
+  length, content type if known, encryption format version, algorithm id, chunk size, chunk count, file-level KDF salt,
   and optional plaintext SHA-256. Metadata may store non-secret encryption descriptors and salts (treated as contract
   data whose actual use belongs to later share creation), but never actual file encryption keys.
 - [x] Storage and metadata writes are coordinated so failed uploads do not leave committed metadata pointing to missing

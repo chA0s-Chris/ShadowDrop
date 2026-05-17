@@ -352,7 +352,12 @@ public sealed class DownloadFileServiceTests
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
             Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
 
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
+
         public Task SaveAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class TrackingReadStream(Byte[] content) : MemoryStream(content, false)

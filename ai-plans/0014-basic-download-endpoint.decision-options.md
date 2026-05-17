@@ -18,11 +18,12 @@ Current state before the fix:
 ## Option 1: File-Scoped Context (Selected)
 
 **What changes:** Remove `shareId` from the direct-HTTP cryptographic binding. Use only `(fileId, kdfSalt)` for HKDF
-derivation, and bind chunk authentication to file-scoped metadata only.
+derivation, and bind chunk authentication to file-scoped metadata only. In practice, the server must reserve the
+opaque `fileId` before the client encrypts so the file-scoped context exists at upload time.
 
 **Pros:**
 
-- Simplest: no new storage, no new generation steps
+- Simplest crypto shape: file context is stable and available before upload once the server reserves the file id
 - File context is inherently known at upload time
 - Any share can decrypt the file without re-encryption
 - Direct-HTTP becomes compatible with normal uploads
@@ -114,10 +115,11 @@ If stronger per-share isolation becomes necessary later, revisit Option 2 after 
 ## Decision Record
 
 - **Issue:** `#14`
-- **Decision:** Use **file-scoped context** for the MVP.
+- **Decision:** Use **file-scoped context** for the MVP, with a server-reserved upload file id.
 - **Recorded in:** `docs/ARCHITECTURE_DECISIONS.md`
 - **Why:** Direct-HTTP must work for normal uploads, and the cryptographic binding must only depend on values available
-  when the file is encrypted.
+  when the file is encrypted. Reserving the file id before upload gives the client that file-scoped context without
+  reintroducing share-derived binding.
 - **Deviation from earlier plan/concept:** The original direct-HTTP shape effectively assumed share-scoped crypto
   binding. The implemented MVP instead binds direct-HTTP decryption to file-scoped values so uploads do not depend on
   future share creation.

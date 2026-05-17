@@ -141,6 +141,11 @@ internal static partial class MultipartUploadRequestReader
 
     private static UploadPersistenceRequest Validate(MultipartUploadRequest request)
     {
+        if (request.FileId == Guid.Empty)
+        {
+            throw new UploadValidationException("The reserved file id is required.");
+        }
+
         if (String.IsNullOrWhiteSpace(request.OriginalFileName))
         {
             throw new UploadValidationException("The original file name is required.");
@@ -214,7 +219,8 @@ internal static partial class MultipartUploadRequestReader
             throw new UploadValidationException("The plaintext SHA-256 must be a lowercase hexadecimal digest.");
         }
 
-        return new(request.OriginalFileName,
+        return new(request.FileId,
+                   request.OriginalFileName,
                    request.PlaintextLength,
                    request.EncryptedLength,
                    request.ContentType,
