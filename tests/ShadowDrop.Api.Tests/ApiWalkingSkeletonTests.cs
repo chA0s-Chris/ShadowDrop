@@ -16,12 +16,15 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
 [TestFixture]
 [NonParallelizable]
 public sealed class ApiWalkingSkeletonTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     [Test]
     public async Task HealthEndpoint_ShouldBeAvailableWithoutAuthentication()
     {
@@ -133,11 +136,17 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var uploadResult = await response.Content.ReadFromJsonAsync<UploadResult>();
         uploadResult.Should().NotBeNull();
+        using var uploadResponseDocument = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        uploadResponseDocument.RootElement.TryGetProperty("kdfSaltBase64", out _).Should().BeFalse();
+        uploadResponseDocument.RootElement.TryGetProperty("plaintextSha256", out _).Should().BeFalse();
+        uploadResponseDocument.RootElement.TryGetProperty("blobKey", out _).Should().BeFalse();
+        uploadResponseDocument.RootElement.TryGetProperty("originalFileName", out _).Should().BeFalse();
+        uploadResponseDocument.RootElement.TryGetProperty("contentType", out _).Should().BeFalse();
 
         var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
         var storedRecord = await repository.GetAsync(uploadResult!.FileId, CancellationToken.None);
         storedRecord.Should().NotBeNull();
-        storedRecord!.OriginalFileName.Should().Be("cipher.bin");
+        storedRecord.OriginalFileName.Should().Be("cipher.bin");
         storedRecord.ContentType.Should().Be("application/octet-stream");
 
         var blobPath = Path.Combine(fixture.LocalStorageRoot, storedRecord.BlobKey);
@@ -161,13 +170,98 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        using var requestContent = CreateValidUploadContent(CreateCiphertext().LongLength + 1);
+        using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(CreateCiphertext().LongLength + 1));
 
         var response = await client.PostAsync("/api/admin/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid upload request.");
         Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn400_ForNonMultipartRequests()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = JsonContent.Create(new
+        {
+            anything = "nope"
+        });
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn400_WhenMetadataPartUsesWrongContentType()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(metadataContentType: "text/plain");
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn400_WhenChunkMetadataIsInconsistent()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload() with
+        {
+            ChunkCount = 3
+        });
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn400_WhenMultipartEnvelopeContainsUnexpectedSections()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(includeUnexpectedSection: true);
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn429_WhenRateLimitIsExceeded()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            using var successfulRequest = CreateValidUploadContent();
+            var successfulResponse = await client.PostAsync("/api/admin/uploads", successfulRequest);
+            successfulResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        using var throttledRequest = CreateValidUploadContent();
+        var throttledResponse = await client.PostAsync("/api/admin/uploads", throttledRequest);
+
+        throttledResponse.StatusCode.Should().Be((HttpStatusCode)429);
+        (await throttledResponse.Content.ReadAsStringAsync()).Should().Be("""{"error":"Too many requests."}""");
     }
 
     [Test]
@@ -363,34 +457,57 @@ public sealed class ApiWalkingSkeletonTests
         }
     }
 
-    private static Byte[] CreateCiphertext() => Enumerable.Range(0, 256).Select(value => (Byte)value).ToArray();
+    private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
 
-    private static MultipartFormDataContent CreateValidUploadContent(Int64? encryptedLength = null)
+    private static UploadMetadataPayload CreateValidMetadataPayload(Int64? encryptedLength = null)
     {
         var ciphertext = CreateCiphertext();
-        var metadata = new
-        {
-            originalFileName = "cipher.bin",
-            plaintextLength = 128,
-            encryptedLength = encryptedLength ?? ciphertext.LongLength,
-            contentType = "application/octet-stream",
-            encryptionFormatVersion = FormatConstants.EncryptionFormatVersion,
-            algorithmId = FormatConstants.Aes256GcmAlgorithmId,
-            chunkSize = 64,
-            chunkCount = 2,
-            kdfSalt = Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            plaintextSha256 = new String('a', 64)
-        };
+        return new(
+            "cipher.bin",
+            128,
+            encryptedLength ?? ciphertext.LongLength,
+            "application/octet-stream",
+            FormatConstants.EncryptionFormatVersion,
+            FormatConstants.Aes256GcmAlgorithmId,
+            64,
+            2,
+            Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
+            new('a', 64));
+    }
+
+    private static MultipartFormDataContent CreateValidUploadContent(UploadMetadataPayload? metadata = null,
+                                                                     String metadataContentType = "application/json",
+                                                                     String contentContentType = "application/octet-stream",
+                                                                     Boolean includeUnexpectedSection = false)
+    {
+        metadata ??= CreateValidMetadataPayload();
 
         var content = new MultipartFormDataContent();
-        var metadataContent = new StringContent(JsonSerializer.Serialize(metadata), Encoding.UTF8);
-        metadataContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
+        var metadataContent = new StringContent(JsonSerializer.Serialize(metadata, JsonOptions), Encoding.UTF8);
+        metadataContent.Headers.ContentType = MediaTypeHeaderValue.Parse(metadataContentType);
         content.Add(metadataContent, "metadata");
 
-        var fileContent = new ByteArrayContent(ciphertext);
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/octet-stream");
+        var fileContent = new ByteArrayContent(CreateCiphertext());
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentContentType);
         content.Add(fileContent, "content", "cipher.bin");
+
+        if (includeUnexpectedSection)
+        {
+            content.Add(new StringContent("surprise", Encoding.UTF8), "unexpected");
+        }
 
         return content;
     }
+
+    private sealed record UploadMetadataPayload(
+        String OriginalFileName,
+        Int64 PlaintextLength,
+        Int64 EncryptedLength,
+        String ContentType,
+        String EncryptionFormatVersion,
+        String AlgorithmId,
+        Int32 ChunkSize,
+        Int64 ChunkCount,
+        String KdfSalt,
+        String? PlaintextSha256);
 }
