@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.CompositionRoot;
 using Serilog;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
+using ShadowDrop.Api.Uploads;
 
 public static class DependencyInjection
 {
@@ -20,6 +21,9 @@ public static class DependencyInjection
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)
         {
             builder.Services.AddSingleton<AdminTokenService>();
+            builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
+            builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
+            builder.Services.AddSingleton<UploadPersistenceService>();
         }
 
         return builder;
