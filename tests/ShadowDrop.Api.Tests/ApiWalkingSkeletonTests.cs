@@ -13,9 +13,11 @@ using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
+using ShadowDrop.Crypto;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using JsonSerializer = System.Text.Json.JsonSerializer;
@@ -392,6 +394,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+        client.DefaultRequestHeaders.Authorization.Should().BeNull();
 
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
 
@@ -405,6 +408,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+        client.DefaultRequestHeaders.Authorization.Should().BeNull();
 
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?access_token={share.DownloadBearerToken}");
 
@@ -433,19 +437,15 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
-        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        var share = await CreateShareAsync(client,
-                                           fixture.BootstrapToken,
-                                           CreateValidShareRequest(fileId,
-                                                                   false,
-                                                                   true));
-        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, "header-key-material");
+        var directHttpFixture = await SeedDirectHttpDownloadAsync(fixture);
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{directHttpFixture.ShareToken}/files/{directHttpFixture.FileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
         response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
-        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
     }
 
     [Test]
@@ -453,15 +453,11 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
-        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        var share = await CreateShareAsync(client,
-                                           fixture.BootstrapToken,
-                                           CreateValidShareRequest(fileId,
-                                                                   false,
-                                                                   true));
-        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, "header-key-material");
+        var directHttpFixture = await SeedDirectHttpDownloadAsync(fixture);
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?{DownloadKeyConstants.QueryParameterName}=query-key-material");
+        var response = await client.GetAsync(
+            $"/d/{directHttpFixture.ShareToken}/files/{directHttpFixture.FileId}?{DownloadKeyConstants.QueryParameterName}={directHttpFixture.KeyMaterialBase64}");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -471,14 +467,9 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
-        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        var share = await CreateShareAsync(client,
-                                           fixture.BootstrapToken,
-                                           CreateValidShareRequest(fileId,
-                                                                   false,
-                                                                   true));
+        var directHttpFixture = await SeedDirectHttpDownloadAsync(fixture);
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{directHttpFixture.ShareToken}/files/{directHttpFixture.FileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -488,18 +479,28 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
-        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        var share = await CreateShareAsync(client,
-                                           fixture.BootstrapToken,
-                                           CreateValidShareRequest(fileId,
-                                                                   false,
-                                                                   true));
+        var directHttpFixture = await SeedDirectHttpDownloadAsync(fixture);
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?{DownloadKeyConstants.QueryParameterName}=query-key-material");
+        var response = await client.GetAsync(
+            $"/d/{directHttpFixture.ShareToken}/files/{directHttpFixture.FileId}?{DownloadKeyConstants.QueryParameterName}={WebUtility.UrlEncode(directHttpFixture.KeyMaterialBase64)}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
         response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
-        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn400_WhenDirectHttpKeyMaterialIsWrong()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await SeedDirectHttpDownloadAsync(fixture);
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, directHttpFixture.WrongKeyMaterialBase64);
+
+        var response = await client.GetAsync($"/d/{directHttpFixture.ShareToken}/files/{directHttpFixture.FileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Test]
@@ -588,20 +589,78 @@ public sealed class ApiWalkingSkeletonTests
 
     private static async Task<CreateShareResult> CreateShareAsync(HttpClient client, String bootstrapToken, CreateShareRequest request)
     {
-        client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
-        var response = await client.PostAsJsonAsync("/api/admin/shares", request);
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
-        return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+
+        try
+        {
+            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            var response = await client.PostAsJsonAsync("/api/admin/shares", request);
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
+            return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        }
     }
 
     private static async Task<Guid> UploadValidFileAsync(HttpClient client, String bootstrapToken)
     {
-        client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
-        using var requestContent = CreateValidUploadContent();
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var payload = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<UploadResult>(payload, JsonOptions)!.FileId;
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+
+        try
+        {
+            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            using var requestContent = CreateValidUploadContent();
+            var response = await client.PostAsync("/api/admin/uploads", requestContent);
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
+            var payload = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<UploadResult>(payload, JsonOptions)!.FileId;
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        }
+    }
+
+    private static async Task<DirectHttpDownloadFixture> SeedDirectHttpDownloadAsync(TestApiFactory fixture)
+    {
+        using var scope = fixture.Services.CreateScope();
+        var blobStorage = scope.ServiceProvider.GetRequiredService<IBlobStorage>();
+        var shareMetadataRepository = scope.ServiceProvider.GetRequiredService<IShareMetadataRepository>();
+        var uploadedFileMetadataRepository = scope.ServiceProvider.GetRequiredService<IUploadedFileMetadataRepository>();
+        var shareId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(shareId, fileId);
+        await using var encryptedContent = new MemoryStream(payload.Ciphertext, false);
+        var blob = await blobStorage.SaveAsync(fileId, encryptedContent, CancellationToken.None);
+        await uploadedFileMetadataRepository.SaveAsync(
+            new(fileId,
+                blob.BlobKey,
+                "cipher.bin",
+                payload.Plaintext.LongLength,
+                payload.Ciphertext.LongLength,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                payload.ChunkSize,
+                payload.ChunkCount,
+                payload.KdfSaltBase64,
+                payload.PlaintextSha256),
+            CancellationToken.None);
+        await shareMetadataRepository.CreateAsync(
+            new(shareId,
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]),
+            CancellationToken.None);
+        return new(shareToken, fileId, payload.KeyMaterialBase64, payload.WrongKeyMaterialBase64, payload.Plaintext);
     }
 
     private sealed class AdminTokenCredentialDocument
@@ -715,6 +774,43 @@ public sealed class ApiWalkingSkeletonTests
 
     private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
 
+    private static DirectHttpPayload CreateDirectHttpPayload(Guid shareId, Guid fileId)
+    {
+        var plaintext = Enumerable.Range(0, 128).Select(value => (Byte)(255 - value)).ToArray();
+        var keyMaterial = Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray();
+        var wrongKeyMaterial = Enumerable.Range(65, 32).Select(value => (Byte)value).ToArray();
+        var kdfSalt = Enumerable.Range(129, 32).Select(value => (Byte)value).ToArray();
+        using var shareSecret = ShareSecret.FromBytes(keyMaterial);
+        var context = new FileEncryptionContext(shareId, fileId, kdfSalt);
+        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
+        using var ciphertext = new MemoryStream();
+        const Int32 chunkSize = 64;
+        var chunkCount = plaintext.LongLength / chunkSize;
+
+        for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var chunkPlaintext = plaintext.Skip((Int32)(chunkIndex * chunkSize)).Take(chunkSize).ToArray();
+            var metadata = new ChunkMetadata(CryptoVersion.V1,
+                                             CryptoAlgorithm.Aes256Gcm,
+                                             shareId,
+                                             fileId,
+                                             chunkSize,
+                                             chunkIndex,
+                                             chunkPlaintext.Length);
+            var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext, contentKey, metadata);
+            ciphertext.Write(encryptedChunk.Ciphertext);
+        }
+
+        return new(ciphertext.ToArray(),
+                   plaintext,
+                   chunkSize,
+                   chunkCount,
+                   Convert.ToBase64String(kdfSalt),
+                   Convert.ToBase64String(keyMaterial),
+                   Convert.ToBase64String(wrongKeyMaterial),
+                   Convert.ToHexStringLower(SHA256.HashData(plaintext)));
+    }
+
     private static UploadMetadataPayload CreateValidMetadataPayload(Int64? encryptedLength = null)
     {
         var ciphertext = CreateCiphertext();
@@ -766,4 +862,21 @@ public sealed class ApiWalkingSkeletonTests
         Int64 ChunkCount,
         String KdfSalt,
         String? PlaintextSha256);
+
+    private sealed record DirectHttpDownloadFixture(
+        String ShareToken,
+        Guid FileId,
+        String KeyMaterialBase64,
+        String WrongKeyMaterialBase64,
+        Byte[] Plaintext);
+
+    private sealed record DirectHttpPayload(
+        Byte[] Ciphertext,
+        Byte[] Plaintext,
+        Int32 ChunkSize,
+        Int64 ChunkCount,
+        String KdfSaltBase64,
+        String KeyMaterialBase64,
+        String WrongKeyMaterialBase64,
+        String PlaintextSha256);
 }

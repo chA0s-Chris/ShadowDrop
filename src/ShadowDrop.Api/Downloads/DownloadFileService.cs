@@ -4,6 +4,8 @@ namespace ShadowDrop.Api.Downloads;
 
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Crypto;
+using System.Security.Cryptography;
 
 public sealed class DownloadFileService
 {
@@ -84,7 +86,29 @@ public sealed class DownloadFileService
             }
         }
 
-        var stream = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+        if (mode == DownloadMode.DirectHttp)
+        {
+            var presentedKeyMaterial = !String.IsNullOrWhiteSpace(headerKeyMaterial) ? headerKeyMaterial : queryKeyMaterial;
+            var decryptedContent = await TryDecryptDirectHttpContentAsync(share.ShareId,
+                                                                          uploadedFile,
+                                                                          presentedKeyMaterial!,
+                                                                          cancellationToken);
+            if (decryptedContent is null)
+            {
+                return new(DownloadLookupStatus.InvalidRequest);
+            }
+
+            return new(DownloadLookupStatus.Success,
+                       new(mode,
+                           share.ShareId,
+                           fileId,
+                           fileEntry.DisplayName ?? fileEntry.OriginalFileName,
+                           uploadedFile.ContentType ?? "application/octet-stream",
+                           uploadedFile.PlaintextLength,
+                           decryptedContent));
+        }
+
+        var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
         return new(DownloadLookupStatus.Success,
                    new(mode,
                        share.ShareId,
@@ -92,6 +116,59 @@ public sealed class DownloadFileService
                        fileEntry.DisplayName ?? fileEntry.OriginalFileName,
                        uploadedFile.ContentType ?? "application/octet-stream",
                        uploadedFile.EncryptedLength,
-                       stream));
+                       encryptedContent));
+    }
+
+    private async Task<MemoryStream?> TryDecryptDirectHttpContentAsync(Guid shareId,
+                                                                       UploadedFileRecord uploadedFile,
+                                                                       String keyMaterial,
+                                                                       CancellationToken cancellationToken)
+    {
+        try
+        {
+            var secretBytes = Convert.FromBase64String(keyMaterial);
+            var kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
+            await using var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+            using var shareSecret = ShareSecret.FromBytes(secretBytes);
+            var context = new FileEncryptionContext(shareId, uploadedFile.FileId, kdfSalt);
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
+            var plaintext = new MemoryStream(uploadedFile.PlaintextLength <= Int32.MaxValue ? (Int32)uploadedFile.PlaintextLength : 0);
+            var remainingPlaintextLength = uploadedFile.PlaintextLength;
+
+            for (var chunkIndex = 0L; chunkIndex < uploadedFile.ChunkCount; chunkIndex++)
+            {
+                var plaintextChunkLength = (Int32)Math.Min(remainingPlaintextLength, uploadedFile.ChunkSize);
+                var encryptedChunkLength = checked(plaintextChunkLength + 16);
+                var encryptedChunkBytes = new Byte[encryptedChunkLength];
+                await encryptedContent.ReadExactlyAsync(encryptedChunkBytes, cancellationToken);
+
+                var metadata = new ChunkMetadata(CryptoVersion.V1,
+                                                 CryptoAlgorithm.Aes256Gcm,
+                                                 shareId,
+                                                 uploadedFile.FileId,
+                                                 uploadedFile.ChunkSize,
+                                                 chunkIndex,
+                                                 plaintextChunkLength);
+                var decryptedChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), contentKey, metadata);
+                await plaintext.WriteAsync(decryptedChunk, cancellationToken);
+                remainingPlaintextLength -= plaintextChunkLength;
+            }
+
+            if (remainingPlaintextLength != 0 || encryptedContent.ReadByte() != -1)
+            {
+                return null;
+            }
+
+            plaintext.Position = 0;
+            return plaintext;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                                       or CryptographicException
+                                                       or EndOfStreamException
+                                                       or FormatException
+                                                       or OverflowException)
+        {
+            return null;
+        }
     }
 }
