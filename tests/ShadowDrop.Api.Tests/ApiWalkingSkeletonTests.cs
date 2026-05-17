@@ -610,9 +610,9 @@ public sealed class ApiWalkingSkeletonTests
 
         public Int32 Iterations { get; set; }
 
-        public String SaltBase64 { get; } = String.Empty;
+        public String SaltBase64 { get; set; } = String.Empty;
 
-        public String TokenHashBase64 { get; } = String.Empty;
+        public String TokenHashBase64 { get; set; } = String.Empty;
     }
 
     private sealed class TestApiFactory : WebApplicationFactory<Program>
