@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Admin;
 
+using ShadowDrop.Api.CompositionRoot;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Uploads;
@@ -23,6 +24,7 @@ public static class AdminEndpoints
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
             uploadRoutes.MapPost("/", UploadAsync)
+                        .RequireRateLimiting(RateLimiting.UploadRateLimitPolicyName)
                         .DisableAntiforgery();
             uploadRoutes.MapGet("/{fileId:guid}", GetUploadedFileMetadataAsync);
         }
@@ -61,6 +63,15 @@ public static class AdminEndpoints
             {
                 Error = "Invalid upload request."
             });
+        }
+        catch (UploadPayloadTooLargeException exception)
+        {
+            loggerFactory.CreateLogger(typeof(AdminEndpoints))
+                         .LogWarning(exception, "Upload request exceeded the configured size limit.");
+            return Results.Json(new
+            {
+                Error = "Upload payload too large."
+            }, statusCode: StatusCodes.Status413PayloadTooLarge);
         }
     }
 }

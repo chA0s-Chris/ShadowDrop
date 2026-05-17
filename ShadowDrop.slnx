@@ -7,7 +7,9 @@
     <File Path="Directory.Packages.props" />
     <File Path="global.json" />
     <File Path="nuget.config" />
-    <Project Path="build/Nuke.csproj" />
+    <Project Path="build/Nuke.csproj">
+      <Build Project="false" />
+    </Project>
   </Folder>
   <Folder Name="/src/">
     <File Path="src/AGENTS.md" />

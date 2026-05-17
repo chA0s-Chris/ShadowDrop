@@ -17,6 +17,7 @@ public static class DependencyInjection
         var shadowDropOptions = ShadowDropOptionsBinding.BindAndValidate(builder.Configuration, builder.Environment.ContentRootPath);
 
         builder.Services.AddSingleton(shadowDropOptions);
+        builder.ConfigureRateLimiter();
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)
         {
