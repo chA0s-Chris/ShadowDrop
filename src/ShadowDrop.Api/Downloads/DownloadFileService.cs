@@ -89,10 +89,15 @@ public sealed class DownloadFileService
         if (mode == DownloadMode.DirectHttp)
         {
             var presentedKeyMaterial = !String.IsNullOrWhiteSpace(headerKeyMaterial) ? headerKeyMaterial : queryKeyMaterial;
-            var decryptedContent = await TryOpenDirectHttpContentAsync(uploadedFile,
-                                                                       presentedKeyMaterial!,
-                                                                       cancellationToken);
-            if (decryptedContent is null)
+            var directHttpOpenResult = await TryOpenDirectHttpContentAsync(uploadedFile,
+                                                                           presentedKeyMaterial!,
+                                                                           cancellationToken);
+            if (directHttpOpenResult.Status == DownloadLookupStatus.NotFound)
+            {
+                return new(DownloadLookupStatus.NotFound);
+            }
+
+            if (directHttpOpenResult.Content is null)
             {
                 return new(DownloadLookupStatus.InvalidRequest);
             }
@@ -104,10 +109,15 @@ public sealed class DownloadFileService
                            fileEntry.DisplayName ?? fileEntry.OriginalFileName,
                            uploadedFile.ContentType ?? "application/octet-stream",
                            uploadedFile.PlaintextLength,
-                           decryptedContent));
+                           directHttpOpenResult.Content));
         }
 
-        var encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+        var encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
+        if (encryptedContent is null)
+        {
+            return new(DownloadLookupStatus.NotFound);
+        }
+
         return new(DownloadLookupStatus.Success,
                    new(mode,
                        share.ShareId,
@@ -138,22 +148,29 @@ public sealed class DownloadFileService
         }
     }
 
-    private async Task<Stream?> TryOpenDirectHttpContentAsync(UploadedFileRecord uploadedFile,
-                                                              String keyMaterial,
-                                                              CancellationToken cancellationToken)
+    private async Task<DirectHttpOpenResult> TryOpenDirectHttpContentAsync(UploadedFileRecord uploadedFile,
+                                                                           String keyMaterial,
+                                                                           CancellationToken cancellationToken)
     {
         Stream? encryptedContent = null;
         try
         {
-            return await WithDecodedDirectHttpKeyMaterialAsync(keyMaterial,
-                                                               async secretBytes =>
-                                                               {
-                                                                   encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
-                                                                   return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
-                                                                       uploadedFile,
-                                                                       secretBytes,
-                                                                       cancellationToken);
-                                                               });
+            return await WithDecodedDirectHttpKeyMaterialAsync(
+                keyMaterial,
+                async secretBytes =>
+                {
+                    encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
+                    if (encryptedContent is null)
+                    {
+                        return new(DownloadLookupStatus.NotFound, null);
+                    }
+
+                    var decryptedContent = await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
+                                                                                        uploadedFile,
+                                                                                        secretBytes,
+                                                                                        cancellationToken);
+                    return new DirectHttpOpenResult(DownloadLookupStatus.Success, decryptedContent);
+                });
         }
         catch (Exception exception) when (exception is ArgumentException
                                                        or CryptographicException
@@ -166,6 +183,18 @@ public sealed class DownloadFileService
                 await encryptedContent.DisposeAsync();
             }
 
+            return new(DownloadLookupStatus.InvalidRequest, null);
+        }
+    }
+
+    private async Task<Stream?> TryOpenEncryptedContentAsync(String blobKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _blobStorage.OpenReadAsync(blobKey, cancellationToken);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
             return null;
         }
     }
@@ -356,4 +385,6 @@ public sealed class DownloadFileService
             }
         }
     }
+
+    private sealed record DirectHttpOpenResult(DownloadLookupStatus Status, Stream? Content);
 }

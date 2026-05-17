@@ -582,6 +582,37 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenCliDecryptBlobIsMissing()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        DeleteUploadedBlob(fixture, fileId);
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenDirectHttpBlobIsMissing()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        DeleteUploadedBlob(fixture, directHttpFixture.FileId);
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldReturn401_WhenShareTokenIsInvalid()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
@@ -764,6 +795,18 @@ public sealed class ApiWalkingSkeletonTests
         {
             client.DefaultRequestHeaders.Authorization = previousAuthorization;
         }
+    }
+
+    private static void DeleteUploadedBlob(TestApiFactory fixture, Guid fileId)
+    {
+        var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
+        var uploadedFile = repository.GetAsync(fileId, CancellationToken.None).GetAwaiter().GetResult();
+        uploadedFile.Should().NotBeNull();
+
+        var blobPath = Path.Combine(fixture.LocalStorageRoot, uploadedFile!.BlobKey);
+        File.Exists(blobPath).Should().BeTrue();
+        File.Delete(blobPath);
+        File.Exists(blobPath).Should().BeFalse();
     }
 
     private sealed class AdminTokenCredentialDocument

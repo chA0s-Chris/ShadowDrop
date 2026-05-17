@@ -220,6 +220,79 @@ public sealed class DownloadFileServiceTests
     }
 
     [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenCliDecryptMetadataExistsButBlobIsMissing()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "cli-share-token";
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "cipher.bin",
+                128,
+                160,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                64,
+                2,
+                Convert.ToBase64String(Enumerable.Range(0, 32).Select(static value => (Byte)value).ToArray()),
+                new('a', 64)));
+        var blobStorage = new MissingBlobStorage();
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.NotFound);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenDirectHttpMetadataExistsButBlobIsMissing()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new MissingBlobStorage();
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.NotFound);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
     public async Task WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer()
     {
         var keyMaterialBase64 = Convert.ToBase64String(Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray());
@@ -326,6 +399,17 @@ public sealed class DownloadFileServiceTests
         String KdfSaltBase64,
         String KeyMaterialBase64,
         String PlaintextSha256);
+
+    private sealed class MissingBlobStorage : IBlobStorage
+    {
+        public Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) =>
+            Task.FromException<Stream>(new FileNotFoundException("Blob file missing.", blobKey));
+
+        public Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
 
     private sealed class StubBlobStorage(TrackingReadStream stream) : IBlobStorage
     {
