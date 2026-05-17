@@ -134,9 +134,10 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.PostAsync("/api/admin/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
-        var uploadResult = await response.Content.ReadFromJsonAsync<UploadResult>();
+        var responsePayload = await response.Content.ReadAsStringAsync();
+        var uploadResult = JsonSerializer.Deserialize<UploadResult>(responsePayload, JsonOptions);
         uploadResult.Should().NotBeNull();
-        using var uploadResponseDocument = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var uploadResponseDocument = JsonDocument.Parse(responsePayload);
         uploadResponseDocument.RootElement.TryGetProperty("kdfSaltBase64", out _).Should().BeFalse();
         uploadResponseDocument.RootElement.TryGetProperty("plaintextSha256", out _).Should().BeFalse();
         uploadResponseDocument.RootElement.TryGetProperty("blobKey", out _).Should().BeFalse();
