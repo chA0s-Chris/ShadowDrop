@@ -15,6 +15,31 @@ using System.Security.Cryptography;
 public sealed class DownloadFileServiceTests
 {
     [Test]
+    public async Task DirectHttpDecryptingStream_ShouldReuseDerivedContentKeyAcrossChunks()
+    {
+        var fileId = Guid.NewGuid();
+        var payload = CreateDirectHttpPayload(fileId);
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
+
+        await using var decryptingStream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
+                                                                                       CreateUploadedFileRecord(fileId, payload),
+                                                                                       shareSecret,
+                                                                                       CancellationToken.None);
+        var initialContentKey = GetPrivateField<ContentKey>(decryptingStream, "_contentKey");
+
+        var firstReadBuffer = new Byte[payload.ChunkSize - 5];
+        var secondReadBuffer = new Byte[payload.ChunkSize];
+        var firstRead = await decryptingStream.ReadAsync(firstReadBuffer, CancellationToken.None);
+        var secondRead = await decryptingStream.ReadAsync(secondReadBuffer, CancellationToken.None);
+
+        firstRead.Should().Be(firstReadBuffer.Length);
+        secondRead.Should().Be(secondReadBuffer.Length);
+        GetPrivateField<ContentKey>(decryptingStream, "_contentKey").Should().BeSameAs(initialContentKey);
+        GetContentKeyBytes(initialContentKey).Should().Contain(value => value != 0);
+    }
+
+    [Test]
     public async Task DirectHttpDecryptingStreamCreateAsync_ShouldZeroShareSecretWhenInitializationFails()
     {
         var fileId = Guid.NewGuid();
@@ -41,6 +66,43 @@ public sealed class DownloadFileServiceTests
 
         await act.Should().ThrowAsync<CryptographicException>();
         wrongShareSecret.Should().OnlyContain(value => value == 0);
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task DirectHttpDecryptingStreamDisposeAsync_ShouldZeroRetainedContentKeyAndShareSecret()
+    {
+        var fileId = Guid.NewGuid();
+        var payload = CreateDirectHttpPayload(fileId);
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var uploadedFile = new UploadedFileRecord(fileId,
+                                                  "blob-key",
+                                                  "cipher.bin",
+                                                  payload.Plaintext.LongLength,
+                                                  payload.Ciphertext.LongLength,
+                                                  "application/octet-stream",
+                                                  FormatConstants.EncryptionFormatVersion,
+                                                  FormatConstants.Aes256GcmAlgorithmId,
+                                                  payload.ChunkSize,
+                                                  payload.ChunkCount,
+                                                  payload.KdfSaltBase64,
+                                                  payload.PlaintextSha256);
+        var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
+
+        var stream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
+                                                                 uploadedFile,
+                                                                 shareSecret,
+                                                                 CancellationToken.None);
+        var contentKey = GetPrivateField<ContentKey>(stream, "_contentKey");
+        var keyMaterial = GetContentKeyBytes(contentKey);
+
+        keyMaterial.Should().Contain(value => value != 0);
+
+        await stream.DisposeAsync();
+
+        shareSecret.Should().OnlyContain(value => value == 0);
+        keyMaterial.Should().OnlyContain(value => value == 0);
         encryptedStream.DisposeCount.Should().Be(1);
         encryptedStream.WasDisposed.Should().BeTrue();
     }
@@ -228,6 +290,32 @@ public sealed class DownloadFileServiceTests
                    Convert.ToBase64String(kdfSalt),
                    Convert.ToBase64String(keyMaterial),
                    Convert.ToHexStringLower(SHA256.HashData(plaintext)));
+    }
+
+
+    private static UploadedFileRecord CreateUploadedFileRecord(Guid fileId, DirectHttpPayload payload) =>
+        new(fileId,
+            "blob-key",
+            "cipher.bin",
+            payload.Plaintext.LongLength,
+            payload.Ciphertext.LongLength,
+            "application/octet-stream",
+            FormatConstants.EncryptionFormatVersion,
+            FormatConstants.Aes256GcmAlgorithmId,
+            payload.ChunkSize,
+            payload.ChunkCount,
+            payload.KdfSaltBase64,
+            payload.PlaintextSha256);
+
+    private static Byte[] GetContentKeyBytes(ContentKey contentKey) => GetPrivateField<Byte[]>(contentKey, "_keyMaterial");
+
+    private static T GetPrivateField<T>(Object instance, String fieldName) where T : class
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        field.Should().NotBeNull($"Expected private field '{fieldName}' on {instance.GetType().FullName}.");
+        var value = field!.GetValue(instance);
+        value.Should().BeOfType<T>();
+        return (T)value!;
     }
 
     private sealed record DirectHttpPayload(
