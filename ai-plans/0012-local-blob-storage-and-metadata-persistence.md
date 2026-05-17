@@ -6,21 +6,21 @@ repository without leaking backend details into higher-level workflows.
 
 ## Acceptance Criteria
 
-- [ ] A blob storage abstraction exists for encrypted file content.
-- [ ] A local filesystem blob storage implementation exists and uses the configured local storage root.
-- [ ] A metadata persistence abstraction exists for uploaded-file records.
-- [ ] A LiteDB-backed metadata implementation persists uploaded-file records.
-- [ ] Uploaded-file metadata includes file id, storage path or blob key, original file name, plaintext length, encrypted
+- [x] A blob storage abstraction exists for encrypted file content.
+- [x] A local filesystem blob storage implementation exists and uses the configured local storage root.
+- [x] A metadata persistence abstraction exists for uploaded-file records.
+- [x] A LiteDB-backed metadata implementation persists uploaded-file records.
+- [x] Uploaded-file metadata includes file id, storage path or blob key, original file name, plaintext length, encrypted
   length, content type if known, encryption format version, algorithm id, chunk size, chunk count, per-share KDF salt,
   and optional plaintext SHA-256. Metadata may store non-secret encryption descriptors and salts (treated as contract
   data whose actual use belongs to later share creation), but never actual file encryption keys.
-- [ ] Storage and metadata writes are coordinated so failed uploads do not leave committed metadata pointing to missing
+- [x] Storage and metadata writes are coordinated so failed uploads do not leave committed metadata pointing to missing
   blobs.
-- [ ] Stored blob content is encrypted content only.
-- [ ] Local blob files and the LiteDB metadata file are stored with restrictive filesystem permissions (0600 or
+- [x] Stored blob content is encrypted content only.
+- [x] Local blob files and the LiteDB metadata file are stored with restrictive filesystem permissions (0600 or
   equivalent) appropriate for server-only access.
-- [ ] Storage paths do not trust user-supplied file names for filesystem layout.
-- [ ] Automated tests cover successful persistence, retrieval of uploaded-file metadata, and failure handling around
+- [x] Storage paths do not trust user-supplied file names for filesystem layout.
+- [x] Automated tests cover successful persistence, retrieval of uploaded-file metadata, and failure handling around
   partial writes.
 
 ## Technical Details

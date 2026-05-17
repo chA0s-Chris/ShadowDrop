@@ -10,7 +10,13 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Uploads;
+using ShadowDrop.Contracts;
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text;
+using JsonSerializer = System.Text.Json.JsonSerializer;
 
 [TestFixture]
 [NonParallelizable]
@@ -101,16 +107,67 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
+        using var validRequestContent = CreateValidUploadContent();
 
-        var noAuthResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+        var noAuthResponse = await client.PostAsync("/api/admin/uploads", CreateValidUploadContent());
         client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
-        var wrongTokenResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+        var wrongTokenResponse = await client.PostAsync("/api/admin/uploads", CreateValidUploadContent());
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        var validTokenResponse = await client.PostAsync("/api/admin/uploads/placeholder", null);
+        var validTokenResponse = await client.PostAsync("/api/admin/uploads", validRequestContent);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldPersistEncryptedBlobAndMetadata()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent();
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var uploadResult = await response.Content.ReadFromJsonAsync<UploadResult>();
+        uploadResult.Should().NotBeNull();
+
+        var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
+        var storedRecord = await repository.GetAsync(uploadResult!.FileId, CancellationToken.None);
+        storedRecord.Should().NotBeNull();
+        storedRecord!.OriginalFileName.Should().Be("cipher.bin");
+        storedRecord.ContentType.Should().Be("application/octet-stream");
+
+        var blobPath = Path.Combine(fixture.LocalStorageRoot, storedRecord.BlobKey);
+        File.Exists(blobPath).Should().BeTrue();
+        var blobContent = await File.ReadAllBytesAsync(blobPath);
+        blobContent.Should().Equal(CreateCiphertext());
+
+        var metadataResponse = await client.GetAsync($"/api/admin/uploads/{uploadResult.FileId}");
+        metadataResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        if (!OperatingSystem.IsWindows())
+        {
+            File.GetUnixFileMode(blobPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.GetUnixFileMode(fixture.MetadataDatabasePath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn400_AndNotPersist_WhenEncryptedLengthIsInconsistent()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(CreateCiphertext().LongLength + 1);
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid upload request.");
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
     }
 
     [Test]
@@ -241,7 +298,7 @@ public sealed class ApiWalkingSkeletonTests
             }
             else
             {
-                _temporaryRootDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-api-tests-{Guid.NewGuid():N}");
+                _temporaryRootDirectory = Path.Combine(AppContext.BaseDirectory, "artifacts", $"shadowdrop-api-tests-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(_temporaryRootDirectory);
                 MetadataDatabasePath = Path.Combine(_temporaryRootDirectory, "metadata", "shadowdrop.db");
                 LocalStorageRoot = Path.Combine(_temporaryRootDirectory, "storage");
@@ -304,5 +361,36 @@ public sealed class ApiWalkingSkeletonTests
                 Directory.Delete(_resolvedRelativeRoot, true);
             }
         }
+    }
+
+    private static Byte[] CreateCiphertext() => Enumerable.Range(0, 256).Select(value => (Byte)value).ToArray();
+
+    private static MultipartFormDataContent CreateValidUploadContent(Int64? encryptedLength = null)
+    {
+        var ciphertext = CreateCiphertext();
+        var metadata = new
+        {
+            originalFileName = "cipher.bin",
+            plaintextLength = 128,
+            encryptedLength = encryptedLength ?? ciphertext.LongLength,
+            contentType = "application/octet-stream",
+            encryptionFormatVersion = FormatConstants.EncryptionFormatVersion,
+            algorithmId = FormatConstants.Aes256GcmAlgorithmId,
+            chunkSize = 64,
+            chunkCount = 2,
+            kdfSalt = Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
+            plaintextSha256 = new String('a', 64)
+        };
+
+        var content = new MultipartFormDataContent();
+        var metadataContent = new StringContent(JsonSerializer.Serialize(metadata), Encoding.UTF8);
+        metadataContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
+        content.Add(metadataContent, "metadata");
+
+        var fileContent = new ByteArrayContent(ciphertext);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/octet-stream");
+        content.Add(fileContent, "content", "cipher.bin");
+
+        return content;
     }
 }

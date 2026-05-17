@@ -4,6 +4,7 @@ namespace ShadowDrop.Api.Admin;
 
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
+using ShadowDrop.Api.Uploads;
 
 public static class AdminEndpoints
 {
@@ -21,12 +22,45 @@ public static class AdminEndpoints
             }));
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
-            uploadRoutes.MapPost("/placeholder", () => Results.Ok(new
-            {
-                Status = "upload-skeleton"
-            }));
+            uploadRoutes.MapPost("/", UploadAsync)
+                        .DisableAntiforgery();
+            uploadRoutes.MapGet("/{fileId:guid}", GetUploadedFileMetadataAsync);
         }
 
         return app;
+    }
+
+    private static async Task<IResult> GetUploadedFileMetadataAsync(Guid fileId,
+                                                                    IUploadedFileMetadataRepository repository,
+                                                                    CancellationToken cancellationToken)
+    {
+        var record = await repository.GetAsync(fileId, cancellationToken);
+        return record is null
+            ? Results.NotFound()
+            : Results.Ok(record);
+    }
+
+    private static async Task<IResult> UploadAsync(HttpRequest request,
+                                                   UploadPersistenceService uploadPersistenceService,
+                                                   ILoggerFactory loggerFactory,
+                                                   CancellationToken cancellationToken)
+    {
+        try
+        {
+            var uploadRequest = await MultipartUploadRequestReader.ReadAsync(request, cancellationToken);
+            await using var encryptedContent = uploadRequest.EncryptedContent;
+            var result = await uploadPersistenceService.PersistAsync(uploadRequest.Request, encryptedContent, cancellationToken);
+
+            return Results.Created($"/api/admin/uploads/{result.FileId}", result);
+        }
+        catch (UploadValidationException exception)
+        {
+            loggerFactory.CreateLogger(typeof(AdminEndpoints))
+                         .LogWarning(exception, "Upload request validation failed.");
+            return Results.BadRequest(new
+            {
+                Error = "Invalid upload request."
+            });
+        }
     }
 }

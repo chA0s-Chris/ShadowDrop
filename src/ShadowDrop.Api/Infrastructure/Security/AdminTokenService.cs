@@ -4,6 +4,7 @@ namespace ShadowDrop.Api.Infrastructure.Security;
 
 using LiteDB;
 using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Infrastructure.Storage;
 using System.Security.Cryptography;
 
 public sealed class AdminTokenService : IDisposable
@@ -14,11 +15,13 @@ public sealed class AdminTokenService : IDisposable
     private const Int32 TokenHashIterations = 100_000;
     private const Int32 TokenHashSize = 32;
     private readonly ILiteCollection<AdminTokenCredential> _credentials;
-
     private readonly LiteDatabase _database;
 
     public AdminTokenService(ShadowDropOptions options, ILogger<AdminTokenService> logger)
     {
+        var databaseDirectory = Path.GetDirectoryName(options.Metadata.LiteDbPath)
+                                ?? throw new InvalidOperationException("The metadata database path must include a directory.");
+        FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(databaseDirectory);
         _database = new(new ConnectionString
         {
             Filename = options.Metadata.LiteDbPath,
@@ -30,6 +33,7 @@ public sealed class AdminTokenService : IDisposable
             _credentials = _database.GetCollection<AdminTokenCredential>("admin_tokens");
             _credentials.EnsureIndex(credential => credential.Id, true);
             EnsureBootstrapCredential(logger);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(options.Metadata.LiteDbPath);
         }
         catch
         {
