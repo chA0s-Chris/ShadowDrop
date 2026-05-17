@@ -52,3 +52,24 @@ Alec's security review of plan 0013 has been merged into canonical `decisions.md
 **Implementation gate:** Default pair Nate + Parker. Alec escalation required for token generation, hashing, and confidentiality criteria verification. 
 
 **Next step:** Backend team (Eliot or assigned) implements vertical slice with all criteria enforced. Review gate applies on PR.
+
+## 2026-05-17T23:05:01Z: PR #24 Security Review — Direct-HTTP Key Material Cleanup
+
+**Session:** Alec security review gate
+
+**PR:** #24 Basic download endpoint
+
+**Verdict:** 🔴 **NOT READY** — One critical unresolved review comment blocks approval.
+
+**Summary:**
+- ✅ Resolved: `DirectHttpDecryptingStream.CreateAsync` properly zeroes secrets on failure (owned stream disposal through `DisposeAsync`)
+- 🔴 Unresolved: `TryOpenDirectHttpContentAsync` (lines 128-147) does not zero `secretBytes` if `OpenReadAsync` throws before stream ownership transfer
+- **Impact:** Decoded HTTP key material left in heap; plausible failure surface (blob storage timeout, network error, missing blob)
+- **Fix:** Add `CryptographicOperations.ZeroMemory(secretBytes)` in catch block + add test for OpenReadAsync failure path
+
+**Required before approval:**
+1. Zero `secretBytes` in the exception handler when `OpenReadAsync` throws
+2. Add test case simulating blob storage failure to verify secret is cleared
+3. Verify no other secret lifetime gaps exist (review all code paths from key decode to final cleanup)
+
+**Pattern applied:** `crypto-buffer-encapsulation` skill validates that all secret transfer points have explicit cleanup guards. This PR introduced an implicit transfer point (blob open before stream creation) that lacks guard.

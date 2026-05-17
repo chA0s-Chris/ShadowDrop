@@ -157,6 +157,25 @@ public sealed class DownloadFileServiceTests
         encryptedStream.WasDisposed.Should().BeTrue();
     }
 
+    [Test]
+    public async Task WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer()
+    {
+        var keyMaterialBase64 = Convert.ToBase64String(Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray());
+        Byte[]? capturedDecodedBytes = null;
+
+        var act = async () => await DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync<Int32>(
+            keyMaterialBase64,
+            secretBytes =>
+            {
+                capturedDecodedBytes = secretBytes;
+                throw new CryptographicException("Blob open failed before ownership transfer.");
+            });
+
+        await act.Should().ThrowAsync<CryptographicException>();
+        capturedDecodedBytes.Should().NotBeNull();
+        capturedDecodedBytes!.Should().OnlyContain(value => value == 0);
+    }
+
     private static async Task<Stream> CreateDirectHttpDecryptingStreamAsync(Stream encryptedContent,
                                                                             UploadedFileRecord uploadedFile,
                                                                             Byte[] shareSecret,

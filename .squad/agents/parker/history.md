@@ -91,3 +91,6 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) has all Nate and Al
 **Plan boundaries:** Slice owns creation + persistence. Does NOT include download endpoint, validation, revocation, or cleanup. All belong to later slices.
 
 **Status:** Plan ready for backend team (Eliot or assigned) implementation. Gate will apply on PR submission.
+
+- 2026-05-17T23:05:01.413+02:00: Direct-HTTP download key material now routes through `DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync`, so decoded base64 bytes are zeroed when blob open or other pre-transfer initialization fails.
+- 2026-05-17T23:05:01.413+02:00: Regression coverage for the pre-transfer zeroing path lives in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs` and the focused validation command is `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --filter DownloadFileServiceTests --no-restore`.

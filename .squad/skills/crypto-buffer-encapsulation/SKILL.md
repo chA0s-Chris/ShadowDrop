@@ -22,6 +22,7 @@ Use this pattern when a public API exposes cryptographic context or key-derivati
 - `src/ShadowDrop.Shared/Crypto/FileEncryptionContext.cs`: stores `_kdfSalt`, returns `KdfSalt => _kdfSalt.ToArray()`, and provides `internal ReadOnlySpan<byte> KdfSaltBytes` for derivation.
 - `src/ShadowDrop.Shared/Crypto/EncryptedChunk.cs`: stores `_ciphertext`, exposes `Ciphertext => _ciphertext.ToArray()`, and keeps `internal ReadOnlySpan<byte> CiphertextBytes` for decrypt/encrypt consumers in the same assembly.
 - `src/ShadowDrop.Shared/Crypto/ChunkEncryptionService.cs`: wraps HKDF output in `try/finally` and clears the temporary buffer with `CryptographicOperations.ZeroMemory`.
+- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`: `WithDecodedDirectHttpKeyMaterialAsync` decodes Base64 key material, transfers ownership only after stream construction succeeds, and zeroes the temporary buffer on any earlier exception path.
 
 ## Anti-Patterns
 

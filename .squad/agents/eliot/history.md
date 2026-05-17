@@ -81,6 +81,16 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) now has all securit
 - Queue contracts use nullable JSON-bound models plus an explicit `QueueFileParser.Validate` pass instead of constructor-only invariants; this keeps deserialization stable while still surfacing CLI-friendly validation errors for missing fields, empty file lists, invalid HTTP(S) targets, negative lengths, and malformed lowercase SHA-256 digests.
 - Shared file metadata stays persistence-neutral: ids are strings, KDF salt is serialized as Base64 text, and no bearer tokens, decryption keys, or other plaintext secrets are represented in `ShadowDrop.Shared`.
 
+## Learnings — 2026-05-17T23:05:01.413+02:00
+
+### Direct HTTP key cleanup on pre-transfer failures
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+
+- Direct HTTP key material now flows through `DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync`, which zeroes decoded `byte[]` buffers in a `finally` block unless ownership has already moved into `DirectHttpDecryptingStream`.
+- This preserves existing malformed-key and invalid-request behavior while covering the previously unprotected path where blob opening or other pre-transfer work can throw after Base64 decode.
+- Focused coverage lives in `DownloadFileServiceTests.WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer`, alongside the existing stream-creation cleanup tests.
+
 ## 2026-05-15: Issue #4 Pre-Review Gate Cycle
 
 **Session:** Scribe (2026-05-15T14:31:20.000Z)

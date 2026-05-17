@@ -118,6 +118,26 @@ public sealed class DownloadFileService
                        encryptedContent));
     }
 
+    internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(String keyMaterial, Func<Byte[], Task<T>> action)
+    {
+        Byte[]? secretBytes = null;
+        var ownershipTransferred = false;
+        try
+        {
+            secretBytes = Convert.FromBase64String(keyMaterial);
+            var result = await action(secretBytes);
+            ownershipTransferred = true;
+            return result;
+        }
+        finally
+        {
+            if (!ownershipTransferred && secretBytes is not null)
+            {
+                CryptographicOperations.ZeroMemory(secretBytes);
+            }
+        }
+    }
+
     private async Task<Stream?> TryOpenDirectHttpContentAsync(UploadedFileRecord uploadedFile,
                                                               String keyMaterial,
                                                               CancellationToken cancellationToken)
@@ -125,12 +145,15 @@ public sealed class DownloadFileService
         Stream? encryptedContent = null;
         try
         {
-            var secretBytes = Convert.FromBase64String(keyMaterial);
-            encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
-            return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
-                                                                uploadedFile,
-                                                                secretBytes,
-                                                                cancellationToken);
+            return await WithDecodedDirectHttpKeyMaterialAsync(keyMaterial,
+                                                               async secretBytes =>
+                                                               {
+                                                                   encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);
+                                                                   return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
+                                                                       uploadedFile,
+                                                                       secretBytes,
+                                                                       cancellationToken);
+                                                               });
         }
         catch (Exception exception) when (exception is ArgumentException
                                                        or CryptographicException
@@ -195,7 +218,7 @@ public sealed class DownloadFileService
             try
             {
                 kdfSalt = Convert.FromBase64String(uploadedFile.KdfSaltBase64);
-                stream = new DirectHttpDecryptingStream(encryptedContent, kdfSalt, uploadedFile, shareSecret);
+                stream = new(encryptedContent, kdfSalt, uploadedFile, shareSecret);
                 if (uploadedFile.ChunkCount > 0)
                 {
                     await stream.LoadNextChunkAsync(cancellationToken);
