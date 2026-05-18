@@ -131,3 +131,13 @@ Orchestration logs written. Decision "Shared Queue Contract Shape" documented in
 
 - **Status:** Complete; PR #10 ready for merge
 - **Next:** Awaiting user review
+
+## Learnings — 2026-05-18T08:27:12.481+02:00
+
+### Time-aware upload reservation validation
+
+**Files touched:** `src/ShadowDrop.Api/Uploads/LiteDbUploadedFileMetadataRepository.cs`, `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+- Active upload reservations must be validated against the retention cutoff everywhere they are consumed, not only when issuing a later reservation that triggers lazy pruning.
+- Centralizing reservation validity around the retention timestamp keeps `HasActiveReservationAsync` and `TryCompleteReservationAsync` consistent and prevents expired reservations from slipping through the upload completion path.
+- Lazy pruning can remain in place for `ReserveFileIdAsync`, but stale reservations should also be deleted opportunistically when active-check or completion discovers that they are expired.

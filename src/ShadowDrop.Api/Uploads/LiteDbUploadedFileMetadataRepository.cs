@@ -39,6 +39,13 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         }
     }
 
+    private static Int64 GetReservationCutoffUnixTimeMilliseconds(DateTimeOffset now) =>
+        now.Subtract(ReservationRetention).ToUnixTimeMilliseconds();
+
+    private static Boolean IsActiveReservation(UploadedFileDocument? document, DateTimeOffset now) =>
+        document is { IsReserved: true, ReservedAtUnixTimeMilliseconds: not null }
+        && document.ReservedAtUnixTimeMilliseconds.Value > GetReservationCutoffUnixTimeMilliseconds(now);
+
     private static UploadedFileRecord Map(UploadedFileDocument document) =>
         new(document.FileId,
             document.BlobKey,
@@ -53,13 +60,32 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             document.KdfSaltBase64,
             document.PlaintextSha256);
 
+    private Boolean DeleteExpiredReservation(UploadedFileDocument? document, DateTimeOffset now)
+    {
+        if (document is null
+            || !document.IsReserved
+            || !document.ReservedAtUnixTimeMilliseconds.HasValue
+            || document.ReservedAtUnixTimeMilliseconds.Value > GetReservationCutoffUnixTimeMilliseconds(now))
+        {
+            return false;
+        }
+
+        var deleted = _collection.Delete(document.FileId);
+        if (deleted)
+        {
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+        }
+
+        return deleted;
+    }
+
     private void DeleteExpiredReservations()
     {
         var deletedCount = _collection.DeleteMany(document =>
                                                       document.IsReserved
                                                       && document.ReservedAtUnixTimeMilliseconds.HasValue
                                                       && document.ReservedAtUnixTimeMilliseconds.Value <=
-                                                      DateTimeOffset.UtcNow.Subtract(ReservationRetention).ToUnixTimeMilliseconds());
+                                                      GetReservationCutoffUnixTimeMilliseconds(DateTimeOffset.UtcNow));
 
         if (deletedCount > 0)
         {
@@ -81,8 +107,15 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var now = DateTimeOffset.UtcNow;
         var document = _collection.FindById(fileId);
-        return Task.FromResult(document is not null && document.IsReserved);
+        if (IsActiveReservation(document, now))
+        {
+            return Task.FromResult(true);
+        }
+
+        DeleteExpiredReservation(document, now);
+        return Task.FromResult(false);
     }
 
     public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken)
@@ -140,9 +173,11 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         ArgumentNullException.ThrowIfNull(record);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var now = DateTimeOffset.UtcNow;
         var document = _collection.FindById(record.FileId);
-        if (document is null || !document.IsReserved)
+        if (!IsActiveReservation(document, now))
         {
+            DeleteExpiredReservation(document, now);
             return Task.FromResult(false);
         }
 

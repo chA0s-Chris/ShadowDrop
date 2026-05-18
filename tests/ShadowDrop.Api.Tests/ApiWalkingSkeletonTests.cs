@@ -360,6 +360,25 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task UploadRoute_ShouldReturn400_AndNotPersist_WhenFileIdReservationExpired()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        ExpireReservation(fixture.MetadataDatabasePath, reservedFileId);
+        using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+        using var verificationDatabase = new LiteDatabase(fixture.MetadataDatabasePath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(reservedFileId)).Should().BeNull();
+    }
+
+    [Test]
     public async Task UploadRoute_ShouldReturn400_AndPreserveExistingBlob_WhenCompletedFileIdIsReused()
     {
         await using var fixture = new TestApiFactory();
@@ -845,6 +864,16 @@ public sealed class ApiWalkingSkeletonTests
         File.Exists(blobPath).Should().BeTrue();
         File.Delete(blobPath);
         File.Exists(blobPath).Should().BeFalse();
+    }
+
+    private static void ExpireReservation(String databasePath, Guid fileId)
+    {
+        using var database = new LiteDatabase(databasePath);
+        var collection = database.GetCollection("uploaded_files");
+        var document = collection.FindById(fileId);
+        ((Object?)document).Should().NotBeNull();
+        document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        collection.Update(document);
     }
 
     private sealed class AdminTokenCredentialDocument

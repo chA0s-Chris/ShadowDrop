@@ -38,18 +38,44 @@ public sealed class UploadPersistenceServiceTests
 
         using var repository = new LiteDbUploadedFileMetadataRepository(options);
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
-
-        using (var database = new LiteDatabase(options.Metadata.LiteDbPath))
-        {
-            var collection = database.GetCollection("uploaded_files");
-            var document = collection.FindById(expiredReservationId);
-            ((Object?)document).Should().NotBeNull();
-            document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
-            collection.Update(document);
-        }
+        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
         await repository.ReserveFileIdAsync(CancellationToken.None);
 
+        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
+    }
+
+    [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectExpiredReservationCompletion_AndPruneItWithoutNewReservation()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
+
+        var completed = await repository.TryCompleteReservationAsync(CreateRecord(expiredReservationId, "metadata/expired.blob"), CancellationToken.None);
+
+        completed.Should().BeFalse();
+        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
+    }
+
+    [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldTreatExpiredReservationAsInactive_AndPruneItDuringActiveCheck()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
+
+        var hasActiveReservation = await repository.HasActiveReservationAsync(expiredReservationId, CancellationToken.None);
+
+        hasActiveReservation.Should().BeFalse();
         using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
         ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
     }
@@ -94,6 +120,26 @@ public sealed class UploadPersistenceServiceTests
         await act.Should().ThrowAsync<UploadValidationException>()
                  .WithMessage("The file id is invalid or no longer available.");
         (await File.ReadAllBytesAsync(blobPath)).Should().Equal(originalBlob);
+    }
+
+    [Test]
+    public async Task PersistAsync_ShouldRejectExpiredReservation_AndNotPersistBlob()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        await using var content = CreateCiphertextStream();
+        var options = fixture.CreateOptions();
+        var blobStorage = new LocalBlobStorage(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var sut = new UploadPersistenceService(blobStorage, repository);
+        var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
+
+        var act = async () => await sut.PersistAsync(CreateRequest(expiredReservationId), content, CancellationToken.None);
+
+        await act.Should().ThrowAsync<UploadValidationException>()
+                 .WithMessage("The file id is invalid or no longer available.");
+        Directory.EnumerateFiles(options.Storage.LocalRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+        (await repository.GetAsync(expiredReservationId, CancellationToken.None)).Should().BeNull();
     }
 
     [Test]
@@ -164,6 +210,16 @@ public sealed class UploadPersistenceServiceTests
     {
         var fileId = await repository.ReserveFileIdAsync(CancellationToken.None);
         return CreateRequest(fileId);
+    }
+
+    private static void ExpireReservation(String databasePath, Guid fileId)
+    {
+        using var database = new LiteDatabase(databasePath);
+        var collection = database.GetCollection("uploaded_files");
+        var document = collection.FindById(fileId);
+        ((Object?)document).Should().NotBeNull();
+        document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        collection.Update(document);
     }
 
     private static async Task<UploadedFileRecord> ReserveAndCompleteAsync(IUploadedFileMetadataRepository repository, UploadedFileRecord record)
