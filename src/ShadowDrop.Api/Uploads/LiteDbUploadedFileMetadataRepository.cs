@@ -202,6 +202,13 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 return Task.FromResult(false);
             }
 
+            if (document.ReservedAtUnixTimeMilliseconds.HasValue
+                && document.ReservedAtUnixTimeMilliseconds.Value <= GetReservationCutoffUnixTimeMilliseconds(now))
+            {
+                DeleteExpiredReservation(document, now);
+                return Task.FromResult(false);
+            }
+
             _collection.Update(new UploadedFileDocument
             {
                 FileId = record.FileId,

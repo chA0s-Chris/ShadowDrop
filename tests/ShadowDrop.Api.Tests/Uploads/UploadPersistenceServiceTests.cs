@@ -47,6 +47,44 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectClaimedReservationCompletion_WhenExpiredAfterClaim()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var reservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        var claimed = await repository.TryClaimReservationAsync(reservationId, CancellationToken.None);
+        claimed.Should().BeTrue();
+
+        ExpireReservation(options.Metadata.LiteDbPath, reservationId);
+
+        var completed = await repository.TryCompleteReservationAsync(CreateRecord(reservationId, "metadata/claimed-expired.blob"), CancellationToken.None);
+
+        completed.Should().BeFalse();
+        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(reservationId)).Should().BeNull();
+    }
+
+    [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectExpiredClaimedReservationCompletion_AndPruneIt()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var reservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        (await repository.TryClaimReservationAsync(reservationId, CancellationToken.None)).Should().BeTrue();
+        ExpireReservation(options.Metadata.LiteDbPath, reservationId);
+
+        var completed = await repository.TryCompleteReservationAsync(CreateRecord(reservationId, "metadata/expired.blob"), CancellationToken.None);
+
+        completed.Should().BeFalse();
+        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(reservationId)).Should().BeNull();
+    }
+
+    [Test]
     public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectExpiredReservationClaim_AndPruneIt()
     {
         await using var fixture = new UploadPersistenceFixture();
