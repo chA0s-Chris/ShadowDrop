@@ -133,3 +133,61 @@ Issue #15 review findings addressed across all layers:
 
 - Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
 - Orchestration Log: `2026-05-18T11:23:46.000Z-nate.md`
+
+## 2026-05-18T13:26:19.627+02:00: PR #28 Created — Issue #15 Implementation
+
+**User Request:** Create an appropriate PR for the current branch.
+
+**Task Completed:**
+
+1. Inspected current branch `squad/15-cli-resumable-download-contract` (ahead of origin by 1 commit)
+2. Pushed branch to origin successfully
+3. Created PR #28 targeting `main` branch
+
+**PR Details:**
+- **Number:** #28
+- **Title:** "feat: HTTP range requests with resumable downloads (issue #15)"
+- **Branch:** `squad/15-cli-resumable-download-contract`
+- **Base:** `main`
+- **URL:** https://github.com/chA0s-Chris/ShadowDrop/pull/28
+- **Status:** Open (not draft)
+- **Changes:** 3 commits, 26 files changed, +3180 -351 additions/deletions
+
+**PR Body Highlights:**
+- Closes #15 (range requests and resumable downloads)
+- Mentions follow-up issue #25 (future v2 streamed binary migration)
+- Documents three implementation slices: Direct-HTTP Range Infrastructure, CLI Resumable Contract, Security & Testing
+- Includes architecture notes on contracts and streaming-first design
+
+**Scope Note:** This PR represents the complete issue #15 work from Eliot, Parker, and Sophie's implementation sessions, including review-fix decisions and cross-layer regression coverage. Issue #25 (v2 migration) flagged as future work in PR body.
+
+## 2026-05-18T15:26:37.377+02:00: PR #28 Review Comments Resolved
+
+**Task:** Resolve 4 Copilot review threads on PR #28 with concrete fix explanations.
+
+**Threads Resolved:**
+
+1. **Header Sanitization (DownloadEndpoints.cs):**
+   - Added `SanitizeHeaderValue()` method (lines 92-102) that strips CR/LF control characters and enforces 500-char limit
+   - Validated content-type via `MediaTypeHeaderValue.TryParse()` (line 88)
+   - Both `FileName` and `FileContentType` now safely sanitized before response header assignment (lines 112-113)
+
+2. **O(1) Chunk-Span Length (DownloadFileService.cs):**
+   - `GetPlaintextLengthForChunkSpan()` (lines 296-312) now computes span length in O(1) arithmetic
+   - Formula: `(chunkCount - 1) * chunkSize + finalChunkLength` for spans ending at final chunk; otherwise `chunkCount * chunkSize`
+   - Eliminated per-chunk loop that was O(number of chunks) for large files/ranges
+
+3. **Non-Allocating Base64 Validation (CliResumableDownloadContractParser.cs):**
+   - Replaced `Convert.FromBase64String` with `IsValidBase64String()` (lines 81-110)
+   - Validates inline without allocating decoded payload
+   - Single-pass check: length divisibility, padding rules, character validity
+   - Actual decoding deferred to consumption point
+
+4. **Stale Plan Note (ai-plans/0015-range-requests-and-resumable-downloads.md):**
+   - Updated implementation notes (line 175) to reflect direct-HTTP 206/416 support now complete
+   - Timestamp updated to current session; confirmed working in ApiWalkingSkeletonTests
+
+**All threads resolved and marked as resolved on PR #28.**
+
+**Status:** Ready for user final review before merge. No commits made per instructions.
+

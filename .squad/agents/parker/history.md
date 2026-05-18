@@ -138,3 +138,28 @@ Issue #15 review findings addressed across all layers:
 
 - Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
 - Orchestration Log: `2026-05-18T11:23:46.000Z-parker.md`
+
+## 2026-05-18T15:26:37.377+02:00 — Issue #15 PR #28 Review Complete
+
+**Context:** Reviewed four Copilot PR review notes on PR #28 (issue #15 range requests) and verified all fixes landed correctly.
+
+**Four PR Notes Reviewed:**
+1. **Header injection security (DownloadEndpoints.cs:102)**: FileName and FileContentType written to headers without sanitization → fixed with `SanitizeHeaderValue` (strips CR/LF, truncates to 500 chars) and `GetResponseContentType` (validates media type, fallbacks to application/octet-stream)
+2. **O(n) performance bottleneck (DownloadFileService.cs:978)**: Chunk-span plaintext length computed with per-chunk loop → fixed with `GetPlaintextLengthForChunkSpan` using O(1) arithmetic
+3. **Base64 allocation waste (CliResumableDownloadContractParser.cs:75)**: `Convert.FromBase64String` allocated full decoded payload for validation → fixed with `IsValidBase64String` character-level validation without allocation
+4. **Outdated plan documentation (0015-range-requests-and-resumable-downloads.md:177)**: Plan said "Direct-HTTP Range / 206 Partial Content work remains outstanding" → updated to reflect completed implementation
+
+**Regression Coverage Added:**
+- `PublicDownloadEndpoint_ShouldSanitizeFileNameWithControlCharacters`: Proves CR/LF in filename does not allow header injection
+- `PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid`: Proves malformed content-type triggers safe fallback instead of 500 error
+
+**Verification Result:**
+- All 165 tests pass (91 API + 3 CLI + 71 Shared)
+- All four fixes confirmed in uncommitted changes (ready to commit)
+- No breaking changes detected
+- Issue #15 implementation is complete and ready for merge
+
+**Key File Paths:**
+- Implementation: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`
+- Tests: `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` (lines 813-883)
+- Plan: `ai-plans/0015-range-requests-and-resumable-downloads.md`
