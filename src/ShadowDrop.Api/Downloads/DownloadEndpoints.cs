@@ -69,9 +69,14 @@ public static class DownloadEndpoints
 
     private sealed class DownloadStreamResult(DownloadFileResolution resolution) : IResult
     {
+        private static String GetResponseContentType(String? contentType) =>
+            !String.IsNullOrWhiteSpace(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
+                ? contentType
+                : "application/octet-stream";
+
         public async Task ExecuteAsync(HttpContext httpContext)
         {
-            httpContext.Response.ContentType = resolution.ContentType;
+            httpContext.Response.ContentType = GetResponseContentType(resolution.ContentType);
             httpContext.Response.ContentLength = resolution.ContentLength;
             httpContext.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
             {

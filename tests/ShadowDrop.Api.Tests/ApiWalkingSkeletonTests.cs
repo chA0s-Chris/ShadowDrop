@@ -472,6 +472,24 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenStoredContentTypeIsMalformed()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        OverwriteStoredUploadContentType(fixture.MetadataDatabasePath, fileId, "not/a valid media type");
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType.Should().NotBeNull();
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream");
+        response.Content.Headers.ContentLength.Should().Be(CreateCiphertext().LongLength);
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldReturn401_WhenShareIsExpired()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
@@ -873,6 +891,16 @@ public sealed class ApiWalkingSkeletonTests
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
         document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        collection.Update(document);
+    }
+
+    private static void OverwriteStoredUploadContentType(String databasePath, Guid fileId, String contentType)
+    {
+        using var database = new LiteDatabase(databasePath);
+        var collection = database.GetCollection("uploaded_files");
+        var document = collection.FindById(fileId);
+        ((Object?)document).Should().NotBeNull();
+        document!["ContentType"] = contentType;
         collection.Update(document);
     }
 
