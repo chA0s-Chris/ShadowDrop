@@ -9,5 +9,7 @@ public enum DownloadLookupStatus
     ExpiredShare = 2,
     Forbidden = 3,
     NotFound = 4,
-    InvalidRequest = 5
+    InvalidRequest = 5,
+    InvalidRange = 6,
+    RangeNotSatisfiable = 7
 }

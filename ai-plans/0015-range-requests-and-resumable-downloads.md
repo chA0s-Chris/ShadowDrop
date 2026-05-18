@@ -5,23 +5,23 @@ the versioned chunked encryption format so interrupted downloads can continue wi
 
 ## Acceptance Criteria
 
-- [ ] The download endpoint supports single HTTP byte-range requests for file responses.
-- [ ] Successful range responses use appropriate HTTP status and headers, including `206 Partial Content` and
+- [x] The download endpoint supports single HTTP byte-range requests for file responses.
+- [x] Successful range responses use appropriate HTTP status and headers, including `206 Partial Content` and
   `Content-Range`.
-- [ ] Invalid or unsatisfiable ranges are rejected with the appropriate HTTP response.
-- [ ] **Range requests enforce the same share-token, optional download bearer-token, and expiration checks as full
+- [x] Invalid or unsatisfiable ranges are rejected with the appropriate HTTP response.
+- [x] **Range requests enforce the same share-token, optional download bearer-token, and expiration checks as full
   downloads.**
-- [ ] Direct-HTTP mode can decrypt and serve only the plaintext chunks needed for the requested range.
-- [ ] **CLI resumable-download contract locked:** The CLI receives a deterministic response shape that includes
+- [x] Direct-HTTP mode can decrypt and serve only the plaintext chunks needed for the requested range.
+- [x] **CLI resumable-download contract locked:** The CLI receives a deterministic response shape that includes
   encrypted chunk data, chunk span metadata (first/last chunk index), plaintext range boundaries, and total file
   size—sufficient for CLI to seek within chunks, decrypt locally, resume on interrupt, and avoid full-file transfer.
-- [ ] Range handling does not require loading the entire encrypted file into memory.
-- [ ] Range calculations respect chunk size, chunk count, and final-chunk plaintext length.
-- [ ] Automated tests cover full-file requests, aligned ranges, mid-chunk ranges, multi-chunk ranges, and unsatisfiable
+- [x] Range handling does not require loading the entire encrypted file into memory.
+- [x] Range calculations respect chunk size, chunk count, and final-chunk plaintext length.
+- [x] Automated tests cover full-file requests, aligned ranges, mid-chunk ranges, multi-chunk ranges, and unsatisfiable
   ranges.
-- [ ] **Security-focused tests prove that invalid, expired, or unauthorized range requests are rejected and do not
+- [x] **Security-focused tests prove that invalid, expired, or unauthorized range requests are rejected and do not
   return partial content.**
-- [ ] **Range-request error handling is explicitly non-leaky:** Invalid ranges, invalid/expired tokens, and
+- [x] **Range-request error handling is explicitly non-leaky:** Invalid ranges, invalid/expired tokens, and
   authorization failures all use generic HTTP status codes (400, 401, 403) without exposing range details, token
   validation logic, or file size information in error responses.
 
@@ -170,3 +170,8 @@ All error responses must omit:
 - Time information (current time, expiration time, time remaining)
 - Range validity hints or suggestions
 
+## Implementation Notes
+
+- 2026-05-18T11:19:54.273+02:00: The CLI-decrypt path now returns a deterministic JSON encrypted-subset contract and
+  accepts `plaintextStart` / `plaintextEndExclusive` query parameters for scriptable subset retrieval. Direct-HTTP
+  `Range` / `206 Partial Content` work remains outstanding for full issue completion.

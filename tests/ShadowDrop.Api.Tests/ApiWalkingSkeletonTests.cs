@@ -465,10 +465,19 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Content.Headers.ContentLength.Should().Be(CreateCiphertext().LongLength);
-        response.Content.Headers.ContentDisposition!.FileNameStar.Should().Be("renamed.bin");
-        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("cli-decrypt");
-        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli-decrypt");
+
+        var contract = await ReadCliResumableDownloadContractAsync(response);
+        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+        {
+            Start = 0,
+            End = 128
+        });
+        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
     }
 
     [Test]
@@ -484,9 +493,11 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType.Should().NotBeNull();
-        response.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream");
-        response.Content.Headers.ContentLength.Should().Be(CreateCiphertext().LongLength);
-        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+
+        var contract = await ReadCliResumableDownloadContractAsync(response);
+        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
     }
 
     [Test]
@@ -507,6 +518,37 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectRangeRequestWithoutPartialHeaders_WhenShareTokenIsInvalid()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        using var request = CreateByteRangeRequest($"/d/{Guid.NewGuid():N}/files/{fileId}", 0, 31);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectRangeRequestWithoutPartialHeaders_WhenShareIsExpired()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   expiresAtUtc: DateTimeOffset.UtcNow.AddMinutes(-5)));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}", 0, 31);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldReturn403_WhenRequiredDownloadBearerTokenIsMissing()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
@@ -518,6 +560,20 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectRangeRequestWithoutPartialHeaders_WhenDownloadBearerTokenIsMissing()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}", 0, 31);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.Forbidden);
     }
 
     [Test]
@@ -547,8 +603,68 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("cli-decrypt");
-        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli-decrypt");
+
+        var contract = await ReadCliResumableDownloadContractAsync(response);
+        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturnChunkSubsetContract_WhenCliRangeQueryIsProvided()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?plaintextStart=64&plaintextEndExclusive=120");
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Content.Headers.ContentRange.Should().NotBeNull();
+        response.Content.Headers.ContentRange!.Unit.Should().Be("bytes");
+        response.Content.Headers.ContentRange.From.Should().Be(64);
+        response.Content.Headers.ContentRange.To.Should().Be(119);
+        response.Content.Headers.ContentRange.Length.Should().Be(128);
+        var contract = await ReadCliResumableDownloadContractAsync(response);
+
+        contract.FirstChunkIndex.Should().Be(1);
+        contract.LastChunkIndex.Should().Be(1);
+        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+        {
+            Start = 64,
+            End = 120
+        });
+        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext().Skip(80).Take(80));
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturnChunkSubsetContract_WhenCliByteRangeHeaderIsProvided()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}", 64, 119);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Content.Headers.ContentRange.Should().NotBeNull();
+        response.Content.Headers.ContentRange!.From.Should().Be(64);
+        response.Content.Headers.ContentRange.To.Should().Be(119);
+        response.Content.Headers.ContentRange.Length.Should().Be(128);
+
+        var contract = await ReadCliResumableDownloadContractAsync(response);
+        contract.FirstChunkIndex.Should().Be(1);
+        contract.LastChunkIndex.Should().Be(1);
+        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+        {
+            Start = 64,
+            End = 120
+        });
+        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext().Skip(80).Take(80));
     }
 
     [Test]
@@ -566,8 +682,95 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
-        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn206_WithAlignedDirectHttpRange()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}", 64, 95);
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Content.Headers.ContentLength.Should().Be(32);
+        response.Content.Headers.ContentRange.Should().NotBeNull();
+        response.Content.Headers.ContentRange!.From.Should().Be(64);
+        response.Content.Headers.ContentRange.To.Should().Be(95);
+        response.Content.Headers.ContentRange.Length.Should().Be(directHttpFixture.Plaintext.LongLength);
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext.Skip(64).Take(32));
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn206_WithMidChunkDirectHttpRange()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}", 10, 25);
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentLength.Should().Be(16);
+        response.Content.Headers.ContentRange!.From.Should().Be(10);
+        response.Content.Headers.ContentRange.To.Should().Be(25);
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext.Skip(10).Take(16));
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn206_WithMultiChunkDirectHttpRange()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}", 40, 100);
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentLength.Should().Be(61);
+        response.Content.Headers.ContentRange!.From.Should().Be(40);
+        response.Content.Headers.ContentRange.To.Should().Be(100);
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext.Skip(40).Take(61));
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn416_WhenRangeIsUnsatisfiable()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}", 1024, 2048);
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be((HttpStatusCode)416);
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
     }
 
     [Test]
@@ -585,7 +788,7 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
-        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
     }
 
@@ -636,7 +839,7 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
-        response.Headers.GetValues("X-ShadowDrop-Download-Mode").Should().ContainSingle("direct-http");
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
     }
 
@@ -654,6 +857,23 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectRangeRequestWithoutPartialHeaders_WhenDirectHttpKeyMaterialIsInvalid()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}", 0, 31);
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.WrongKeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
     }
 
     [Test]
@@ -1011,6 +1231,31 @@ public sealed class ApiWalkingSkeletonTests
                 Directory.Delete(_resolvedRelativeRoot, true);
             }
         }
+    }
+
+    private static async Task AssertNonPartialErrorResponseAsync(HttpResponseMessage response, HttpStatusCode expectedStatusCode, String expectedBody = "")
+    {
+        response.StatusCode.Should().Be(expectedStatusCode);
+        response.StatusCode.Should().NotBe(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
+        (await response.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+    }
+
+    private static async Task<CliResumableDownloadContract> ReadCliResumableDownloadContractAsync(HttpResponseMessage response)
+    {
+        var json = await response.Content.ReadAsStringAsync();
+        var contract = JsonSerializer.Deserialize(json, ContractsJsonSerializerContext.Default.CliResumableDownloadContract);
+        contract.Should().NotBeNull();
+        return contract!;
+    }
+
+    private static HttpRequestMessage CreateByteRangeRequest(String requestUri, Int64 from, Int64 to)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Range = new(from, to);
+        return request;
     }
 
     private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
