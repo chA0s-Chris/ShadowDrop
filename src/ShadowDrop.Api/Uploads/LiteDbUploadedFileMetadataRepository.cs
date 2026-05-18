@@ -77,6 +77,14 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         return Task.FromResult(document is null || document.IsReserved ? null : Map(document));
     }
 
+    public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var document = _collection.FindById(fileId);
+        return Task.FromResult(document is not null && document.IsReserved);
+    }
+
     public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -303,10 +303,30 @@ public sealed class DownloadFileServiceTests
             secretBytes =>
             {
                 capturedDecodedBytes = secretBytes;
-                throw new CryptographicException("Blob open failed before ownership transfer.");
+                return Task.FromException<(Int32 Result, Boolean OwnershipTransferred)>(
+                    new CryptographicException("Blob open failed before ownership transfer."));
             });
 
         await act.Should().ThrowAsync<CryptographicException>();
+        capturedDecodedBytes.Should().NotBeNull();
+        capturedDecodedBytes!.Should().OnlyContain(value => value == 0);
+    }
+
+    [Test]
+    public async Task WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenResultDoesNotTakeOwnership()
+    {
+        var keyMaterialBase64 = Convert.ToBase64String(Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray());
+        Byte[]? capturedDecodedBytes = null;
+
+        var result = await DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync(
+            keyMaterialBase64,
+            secretBytes =>
+            {
+                capturedDecodedBytes = secretBytes;
+                return Task.FromResult((7, false));
+            });
+
+        result.Should().Be(7);
         capturedDecodedBytes.Should().NotBeNull();
         capturedDecodedBytes!.Should().OnlyContain(value => value == 0);
     }
@@ -435,6 +455,8 @@ public sealed class DownloadFileServiceTests
     {
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
             Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
+
+        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(false);
 
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
 

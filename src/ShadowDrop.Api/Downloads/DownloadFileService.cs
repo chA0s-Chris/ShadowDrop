@@ -128,16 +128,17 @@ public sealed class DownloadFileService
                        encryptedContent));
     }
 
-    internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(String keyMaterial, Func<Byte[], Task<T>> action)
+    internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(String keyMaterial,
+                                                                           Func<Byte[], Task<(T Result, Boolean OwnershipTransferred)>> action)
     {
         Byte[]? secretBytes = null;
         var ownershipTransferred = false;
         try
         {
             secretBytes = Convert.FromBase64String(keyMaterial);
-            var result = await action(secretBytes);
-            ownershipTransferred = true;
-            return result;
+            var actionResult = await action(secretBytes);
+            ownershipTransferred = actionResult.OwnershipTransferred;
+            return actionResult.Result;
         }
         finally
         {
@@ -162,14 +163,14 @@ public sealed class DownloadFileService
                     encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
                     if (encryptedContent is null)
                     {
-                        return new(DownloadLookupStatus.NotFound, null);
+                        return (new(DownloadLookupStatus.NotFound, null), false);
                     }
 
                     var decryptedContent = await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
                                                                                         uploadedFile,
                                                                                         secretBytes,
                                                                                         cancellationToken);
-                    return new DirectHttpOpenResult(DownloadLookupStatus.Success, decryptedContent);
+                    return (new DirectHttpOpenResult(DownloadLookupStatus.Success, decryptedContent), true);
                 });
         }
         catch (Exception exception) when (exception is ArgumentException

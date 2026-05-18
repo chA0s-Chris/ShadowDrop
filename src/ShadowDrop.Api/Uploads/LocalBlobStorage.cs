@@ -75,16 +75,18 @@ public sealed class LocalBlobStorage : IBlobStorage
 
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(blobDirectory);
 
+        var blobCreated = false;
         try
         {
             Int64 writtenLength;
             await using (var blobStream = new FileStream(blobPath,
-                                                         FileMode.Create,
+                                                         FileMode.CreateNew,
                                                          FileAccess.Write,
                                                          FileShare.None,
                                                          81_920,
                                                          FileOptions.Asynchronous))
             {
+                blobCreated = true;
                 await encryptedContent.CopyToAsync(blobStream, cancellationToken);
                 await blobStream.FlushAsync(cancellationToken);
                 writtenLength = blobStream.Length;
@@ -98,7 +100,10 @@ public sealed class LocalBlobStorage : IBlobStorage
         {
             try
             {
-                DeleteBlobFile(blobPath);
+                if (blobCreated && File.Exists(blobPath))
+                {
+                    DeleteBlobFile(blobPath);
+                }
             }
             catch
             {

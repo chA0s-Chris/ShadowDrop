@@ -360,6 +360,44 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task UploadRoute_ShouldReturn400_AndPreserveExistingBlob_WhenCompletedFileIdIsReused()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        using var initialRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
+
+        var initialResponse = await client.PostAsync("/api/admin/uploads", initialRequest);
+        initialResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
+        var storedRecord = await repository.GetAsync(reservedFileId, CancellationToken.None);
+        storedRecord.Should().NotBeNull();
+        var blobPath = Path.Combine(fixture.LocalStorageRoot, storedRecord!.BlobKey);
+        var originalBlob = await File.ReadAllBytesAsync(blobPath);
+
+        using var duplicateRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId),
+                                                              new Byte[]
+                                                              {
+                                                                  1,
+                                                                  2,
+                                                                  3,
+                                                                  4,
+                                                                  5,
+                                                                  6,
+                                                                  7,
+                                                                  8
+                                                              });
+
+        var duplicateResponse = await client.PostAsync("/api/admin/uploads", duplicateRequest);
+
+        duplicateResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await duplicateResponse.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
+        (await File.ReadAllBytesAsync(blobPath)).Should().Equal(originalBlob);
+    }
+
+    [Test]
     public async Task UploadRoute_ShouldReturn400_WhenMultipartEnvelopeContainsUnexpectedSections()
     {
         await using var fixture = new TestApiFactory();

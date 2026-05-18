@@ -72,6 +72,31 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task PersistAsync_ShouldRejectCompletedFileIdWithoutDeletingExistingBlob()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        await using var initialContent = CreateCiphertextStream();
+        await using var duplicateContent = new MemoryStream(Enumerable.Repeat((Byte)99, 32).ToArray(), false);
+        var options = fixture.CreateOptions();
+        var blobStorage = new LocalBlobStorage(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var sut = new UploadPersistenceService(blobStorage, repository);
+        var request = await CreateReservedRequestAsync(repository);
+
+        var initialResult = await sut.PersistAsync(request, initialContent, CancellationToken.None);
+        var storedRecord = await repository.GetAsync(initialResult.FileId, CancellationToken.None);
+        storedRecord.Should().NotBeNull();
+        var blobPath = Path.Combine(options.Storage.LocalRoot, storedRecord!.BlobKey);
+        var originalBlob = await File.ReadAllBytesAsync(blobPath);
+
+        var act = async () => await sut.PersistAsync(request, duplicateContent, CancellationToken.None);
+
+        await act.Should().ThrowAsync<UploadValidationException>()
+                 .WithMessage("The file id is invalid or no longer available.");
+        (await File.ReadAllBytesAsync(blobPath)).Should().Equal(originalBlob);
+    }
+
+    [Test]
     public async Task PersistAsync_ShouldWriteEncryptedBlobAndMetadata_WithRestrictivePermissions()
     {
         await using var fixture = new UploadPersistenceFixture();
@@ -156,6 +181,8 @@ public sealed class UploadPersistenceServiceTests
     private sealed class ThrowingMetadataRepository : IUploadedFileMetadataRepository
     {
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
+
+        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
 
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
 

@@ -22,6 +22,11 @@ public sealed class UploadPersistenceService
 
         try
         {
+            if (!await _metadataRepository.HasActiveReservationAsync(request.FileId, cancellationToken))
+            {
+                throw new UploadValidationException("The file id is invalid or no longer available.");
+            }
+
             blob = await _blobStorage.SaveAsync(request.FileId, encryptedContent, cancellationToken);
             if (blob.WrittenLength != request.EncryptedLength)
             {

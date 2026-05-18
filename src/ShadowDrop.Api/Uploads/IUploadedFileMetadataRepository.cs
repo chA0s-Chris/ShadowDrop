@@ -6,6 +6,8 @@ public interface IUploadedFileMetadataRepository
 {
     Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken);
 
+    Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken);
+
     Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken);
 
     Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken);
