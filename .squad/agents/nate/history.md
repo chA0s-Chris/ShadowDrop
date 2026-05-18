@@ -7,6 +7,21 @@
 
 ## Learnings
 
+- 2026-05-18T23:41:35.058+02:00: **Plan 0027 Final Review Tweaks Applied.** Two surgical edits tightened contract clarity:
+  1. **416 Response Tightening (Lines 93–97, 120–123):** 416 responses must have empty body and no metadata headers; failure must be indistinguishable from other safe error cases. Prevents accidental leakage of total file size or format hints.
+  2. **Metadata Header Decision Firmed (Lines 63–67):** Removed conditional "unless implementation review finds" language. `X-ShadowDrop-File-Name` and `X-ShadowDrop-File-Content-Type` are now binding parts of the CLI response contract, not optional pending review. Plan is ready for implementation.
+- 2026-05-18T23:37:08.168+02:00: **Plan 0027 Final Surgical Cleanup.** Removed two stray references to legacy paths that suggested parameter conversion or ambiguous routing:
+  1. **Line 44 (Legacy Parameter Sunset):** Changed "either reject them (if `?mode=cli`) or convert them to a plaintext range object for the legacy path" → "reject them on all requests". Eliminates false suggestion that legacy params could be converted for a legacy path; decision is immediate rejection everywhere.
+  2. **Line 135 (Mode Routing Decision):** Changed "route to the legacy/default path" → "route to the direct-HTTP plaintext-decryption path". Clarifies that omitted-mode requests go directly to HTTP plaintext decryption, not a vague "legacy" container. Confirmed internal consistency: `?mode=cli` = streamed binary contract, omitted mode = direct-HTTP plaintext decryption, unknown mode = 400, legacy query params = 400 everywhere (lines 76, 109, 112, 114 all reject). Plan now fully consistent with immediate-replacement decision (v1 JSON/Base64 removed completely, not preserved in parallel).
+- 2026-05-18T23:30:26.681+02:00: Plan 0027 clarified with five surgical refinements addressing backend/CLI impact findings:
+  1. **Decision Matrix Added:** Explicit request-validation table locked down all 10 scenarios (CLI binary with/without Range, omitted mode, legacy params, direct-HTTP key mixing, direct-HTTP-only shares). Implementers no longer guess across combinations.
+  2. **Legacy Parameter Retirement Explicit:** `plaintextStart`/`plaintextEndExclusive` fully retired for CLI mode (`?mode=cli` + legacy params = 400 Bad Request). Legacy params remain available only on omitted-mode default path for transitional compatibility.
+  3. **Mode Default Clarified:** Omitted `mode` parameter continues on existing default path (direct-HTTP or v1 CLI JSON/Base64 depending on share config). Plan does not remove legacy v1 path; both contracts coexist until future retirement plan.
+  4. **Validation/Routing Determinism:** All mode negotiation and request validation centralized in `DownloadEndpoints` before service calls, preventing behavior from being inferred across multiple handlers. Numbered sequence provided (endpoint parsing → mode routing → service call → response headers).
+  5. **Parameter Sprawl Mitigation:** Recommend single `CliDownloadRequest` consolidation object to encapsulate all validated inputs at endpoint boundary, eliminating ad-hoc parameter threading and making contradictions visible at construction time.
+- 2026-05-18T23:21:46.244+02:00: For issue #27, recommend replacing `plaintextStart` / `plaintextEndExclusive` query parameters with a single authoritative subset syntax for CLI mode: the standard `Range: bytes=...` request header used only when `?mode=cli` is present. Reasoning: it keeps the contract clean by separating mode negotiation from byte-window selection, avoids carrying bespoke query names into the new streaming contract, and gives the repo one subset grammar to document, validate, and test.
+- 2026-05-18T22:57:19.450+02:00: New sequencing call for issue #27: because the project has no external users yet, the backward-compatibility drag that justified delaying the CLI v2 contract is effectively gone. Best leverage is immediately after issue #15 while the range/resumable internals, tests, and contract context are still hot; redesign the CLI download contract now before more tooling calcifies around v1.
+- 2026-05-18T22:54:33.368+02:00: Issue #27 (streamed binary v2 CLI download contract) should be tackled soon but not immediately after issue #15. Range/resumable user value already shipped via direct HTTP plus stable v1 CLI JSON contract; next sequencing should first absorb real v1 usage and protect compatibility before adding an opt-in transport optimization.
 - 2026-05-18T22:34:05.735+02:00: PR #28 latest newly-open Copilot note targets `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` direct-HTTP stream creation. `TryOpenDirectHttpContentAsync()` currently maps `ArgumentException`, `CryptographicException`, `EndOfStreamException`, `FormatException`, and `OverflowException` to `InvalidRequest`, but not `InvalidDataException` or `IOException`, even though `DirectHttpDecryptingStream.CreateAsync()` can raise both during hostile-metadata validation or initial encrypted-stream reads.
 - Initial role seeded as Lead for ShadowDrop.
 - Project emphasis: secure temporary file handoff, vertical slices, and narrow MVP scope.
@@ -264,3 +279,55 @@ Issue #15 review findings addressed across all layers:
 **Outcome:** Both newest review conversations resolved. Parker's approval confirmed local fix set ready. No commits made per instructions. PR #28 prepared for user final review.
 
 - 2026-05-18T21:49:09.624+02:00: PR #28 latest Copilot note is valid and blocking; `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` sanitizes CR/LF only for `X-ShadowDrop-File-Content-Type`, so persisted non-CR/LF control characters still need stripping. Recommended regression coverage belongs in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
+
+- 2026-05-18T22:59:03.328+02:00: Issue #27 planning now assumes ShadowDrop can replace the current CLI JSON/Base64 resumable-download contract instead of preserving v1 compatibility. Preferred transport shape is a streamed binary response with explicit negotiation and deterministic metadata headers; likely implementation touchpoints are `ai-plans/0027-streamed-binary-v2-cli-download-contract.md`, `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, and `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`.
+- 2026-05-18T23:04:42.962+02:00: Issue #27 transport shape locked. Christian Flessa approved: raw encrypted bytes in response body; metadata in deterministic HTTP headers; custom `application/vnd.shadowdrop.cli-download` content type. Plan `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated with concrete header names (`X-ShadowDrop-*`), content-type, and implementation touchpoints. Headers: `First-Chunk-Index`, `Last-Chunk-Index`, `Plaintext-Range-Start`, `Plaintext-Range-End`, `Total-Plaintext-Size`, `Chunk-Size`, `Final-Chunk-Plaintext-Length`. No body preamble/footer; streaming-first design reuses existing crypto and auth gates.
+- 2026-05-18T23:10:12.515+02:00: Issue #27 plan refinement: ShadowDrop replaces v1 JSON/Base64 CLI contract with binary streaming—no version suffix in query selector. Christian Flessa decision: use `?mode=cli` (not `?mode=v2`). Rationale: ShadowDrop is still pre-release; this binary contract is the actual v1 on public release. Plan updated to remove version-suffix language and lock negotiation to explicit `?mode=cli` query parameter.
+- 2026-05-18T23:11:54.206+02:00: Cleaned up plan 0027 Rationale section to remove residual "v2" framing. Ensured internal consistency: Rationale now clarifies that the binary contract is the authoritative CLI shape on release (not a v2 option), negotiated via `?mode=cli`. Acceptance criteria and technical details already correctly reference mode selector and avoid v2 language.
+
+## 2026-05-18T23:24:50.124+02:00: Issue #27 Plan Finalization — Range Header Locking
+
+**Task:** Update ai-plans/0027-streamed-binary-v2-cli-download-contract.md to lock in the decision that CLI mode uses `?mode=cli` plus standard HTTP `Range: bytes=...` header for subset selection, with legacy query parameters (`plaintextStart`, `plaintextEndExclusive`) retired and unsupported in CLI mode.
+
+**Changes Applied:**
+
+All six subsections of Technical Details updated for internal consistency:
+
+1. **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as the only subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing `Range` headers with legacy query parameters.
+
+2. **CLI HTTP Semantics:** Specified `200 OK` response code (not 206), no `Accept-Ranges`/`Content-Range` in response (redundant with ShadowDrop headers). Added explicit Range header parsing rules: validate `bytes=start-end` format, reject malformed/overlapped/contradictory ranges with `400`, unsatisfiable ranges with `416` (no file-size leakage).
+
+3. **Wire Integrity Rules:** Added request-side Range header validation before processing, with malformed/overlapped/unsatisfiable rejection. Clarified that Range header must be consistent with plaintext window and body length.
+
+4. **API Implementation:** Specific language around parsing standard `Range: bytes=start-end` header, rejecting legacy query parameter mixing, mapping plaintext range to encrypted chunk span, and locking exact parsing rules in one place.
+
+5. **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` request headers for resume state instead of legacy query parameters.
+
+6. **Testing:** Added specific Range header test scenarios: valid `bytes=start-end` formats, overlapped/malformed range rejection, unsatisfiable ranges with `416` and no leakage, rejection of mixing with legacy parameters.
+
+7. **Acceptance Criteria:** Refined three criteria to explicitly reference `Range: bytes=...` as the request-side mechanism and to call out testing for Range header acceptance/rejection.
+
+**Knock-on Implications:**
+
+- **Legacy Code Removal:** Any CLI-mode code path using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation; no fallback or dual-path allowed.
+- **Range Validation:** Both API and CLI must implement robust `Range: bytes=...` parsing with explicit handling for malformed, overlapped, unsatisfiable, and mixed-parameter cases.
+- **Clean Separation:** Mode negotiation (`?mode=cli` query param) is now cleanly separated from plaintext window selection (`Range: bytes=...` header). Removes ambiguity and enables deterministic unit testing.
+- **Documentation Binding:** Plan is now the single authoritative source for Range header semantics in CLI mode; no guesswork during implementation.
+- **Testing Scope:** Test matrix expanded to cover 6+ Range header edge cases plus 2+ mixing scenarios with legacy query parameters.
+
+**Status:** Plan is now locked, internally consistent, and ready for implementation assignment. No further scope changes expected.
+
+## 2026-05-18 — Plan 0027: Immediate Replacement Decision
+
+**What:** Edited 0027-streamed-binary-v2-cli-download-contract.md to eliminate the coexistence contradiction. Plan now commits to immediate replacement of legacy CLI v1 JSON/Base64 contract.
+
+**Key Changes:**
+- Line 74: Omitted `mode` now routes only to direct-HTTP decryption; v1 path retired this slice
+- Line 76: Legacy query parameters (`plaintextStart`/`plaintextEndExclusive`) fully retired, rejected on all paths
+- Line 111–112: Negotiation matrix updated; omitted mode goes direct-HTTP, legacy params return 400
+- Line 31–32: Acceptance criterion now says "removed completely" not "removed or retired"
+- Line 170–172: CLI/shared implementation section clarified: removal includes all v1 DTOs, serializers, tests
+
+**Pattern:** ShadowDrop has no active external users; immediate replacement is cleaner than deferred dual-path support. Acceptance criteria now have one story, no fallback branches.
+
+**Files:** ai-plans/0027-streamed-binary-v2-cli-download-contract.md

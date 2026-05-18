@@ -153,3 +153,66 @@ date: 2026-05-18T22:35:59.710+02:00
 - Direct-HTTP download setup must treat both `InvalidDataException` (corrupt metadata) and `IOException` (initial skip/read failure) as the same non-leaky invalid-request result already used by the CLI-decrypt path.
 - This mapping belongs in `TryOpenDirectHttpContentAsync()` because `DirectHttpDecryptingStream.CreateAsync()` can fail before any response is returned but after the encrypted blob stream is opened.
 - Regression coverage should assert the blob stream still gets disposed when direct-HTTP setup fails closed, so the error handling path does not leak file handles while hiding the root cause from callers.
+
+---
+date: 2026-05-18T23:24:50.124+02:00
+---
+
+## Findings — Plan 0027 Impact Analysis
+
+**Task:** Identify backend/API areas affected by `?mode=cli` + `Range: bytes=...` negotiation for streamed binary v2 CLI contract.
+
+### Key Affected Surfaces
+
+1. **DownloadEndpoints.cs** (lines 33–34, 75–83)
+   - Must extract new `?mode=cli` query parameter to route negotiation
+   - TryGetInt64QueryValue method becomes deprecated for plaintextStart/End in CLI mode
+
+2. **DownloadFileService.ResolveAsync() overloads** (lines 50–76, all three)
+   - Currently three overload signatures (5-param, 7-param, 9-param)
+   - Must thread mode parameter through all chains to ResolveRequestedRange
+   - **Risk:** Parameter explosion; consider request object bundling
+
+3. **ResolveRequestedRange()** (lines 391–440)
+   - Current check rejects mixing Range header + query params (line 398–401)
+   - Must implement three-way logic:
+     - `mode=cli`: reject plaintextStart/End entirely; accept only Range header
+     - Omitted mode: preserve v1 behavior (backward compat)
+     - Unknown mode: reject as invalid
+   - **Risk:** Complex branching; decision table must be explicit and locked
+
+4. **Mode selection at line 127** (`share.DirectHttpEnabled ? DirectHttp : CliDecrypt`)
+   - New validation matrix needed:
+     - `?mode=cli` + DirectHttpEnabled → reject (key material model conflict)
+     - `?mode=cli` + CliDecrypt → binary contract path (new)
+     - Omitted mode + CliDecrypt → JSON contract path (v1 compat)
+
+5. **CLI response producer** (TryOpenCliDecryptContentAsync lines 470–515, CreateCliDecryptJsonStreamAsync lines 207–243)
+   - Must branch on mode:
+     - `mode=cli`: raw encrypted bytes + X-ShadowDrop-* metadata headers (firstChunkIndex, lastChunkIndex, plaintextRange, totalSize, chunkSize, finalChunkLength)
+     - Omitted mode: keep JSON contract (CliResumableDownloadContract + Base64 payload)
+   - **Risk:** Two parallel content streams; maintenance burden
+
+6. **Response header output** (DownloadStreamResult.ExecuteAsync lines 139–156)
+   - ContentType negotiation now three-way (DirectHttp, CliDecrypt-JSON, CliDecrypt-Binary)
+   - Mode=cli responses must use `application/vnd.shadowdrop.cli-download`
+   - Metadata headers for binary mode must be deterministic and present
+
+7. **Test coverage** (ApiWalkingSkeletonTests line 620, DownloadFileServiceTests methods)
+   - Current test `?plaintextStart=64&plaintextEndExclusive=120` must remain for v1 compat
+   - New tests required:
+     - `?mode=cli + Range: bytes=` → 206 binary response
+     - `?mode=cli + plaintextStart/End` → 400 rejection
+     - Omitted mode + plaintextStart/End → 206 JSON response (v1)
+     - `?mode=cli` on DirectHttp share → 400 or 403
+
+8. **DownloadFileResolution model** (communication between service and endpoint)
+   - Currently carries ResponseContentType, RequestedRange for Content-Range header
+   - May need mode-specific metadata fields or separate resolution model for binary path
+
+### Implications for Plan Update
+
+- Explicit decision table needed: (mode, share.DirectHttpEnabled, rangeHeader, queryParams) → (action, statusCode, responseFormat)
+- Clarify if plaintextStart/End are only invalid when `mode=cli`, or deprecated entirely for CLI
+- Lock the exact point where mode validation occurs (endpoint vs service vs helper)
+- Decide if DownloadFileService should bundle (mode, rangeHeader, plaintextStart/End) into request object to reduce overload sprawl

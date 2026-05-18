@@ -18,3 +18,49 @@
 - Joined team deployment for issue #15
 - Coordinate cross-agent work on HTTP range support
 - All agents operational and focused
+
+## 2026-05-18 23:24:50 UTC — Codebase Impact Analysis for CLI Download Contract Refresh
+
+Inspected codebase to identify surfaces affected by plan 0027 decision: CLI subset selection uses `?mode=cli` + standard `Range: bytes=...` header, retiring legacy `plaintextStart`/`plaintextEndExclusive` query parameters.
+
+### Identified Affected Surfaces
+
+**API Request/Response Boundary:**
+- `DownloadEndpoints.cs` (lines 32-43): Currently extracts three separate inputs—Range header, plaintextStart, plaintextEndExclusive—and passes them to service. Will need to parse `?mode=cli` query parameter and enforce Range-only selection for CLI mode.
+- `DownloadFileService.ResolveAsync()` method family: Four overloads with varying signatures (lines 34–76). Some accept plaintextStart/plaintextEndExclusive, others omit them. Will consolidate to accept mode parameter and unified range resolution.
+- `ResolveRequestedRange()` internal method (lines 391–438): Currently handles mixed inputs (header ranges + query params) with mutual-exclusion logic. Will be refactored to reject mixing and enforce mode-specific syntax.
+
+**Shared Contracts/Constants:**
+- `DownloadHeaderConstants.cs`: Will need new headers for CLI binary contract metadata (First-Chunk-Index, Last-Chunk-Index, Plaintext-Range-Start/End, Total-Plaintext-Size, Chunk-Size, Final-Chunk-Plaintext-Length).
+- `CliResumableDownloadContract.cs`: Current JSON DTO with Base64 encryptedPayload will be retired. Metadata will move to response headers; payload moves to raw binary body.
+
+**CLI Parser/Consumer:**
+- `CliResumableDownloadContractParser.cs`: JSON deserialization parser (lines 20–126) becomes obsolete. Must be replaced with header-reader that validates custom metadata headers before consuming streamed binary body.
+
+**Test Coverage That Will Change:**
+- `ApiWalkingSkeletonTests.cs` (lines 620–629): Explicit test for legacy `plaintextStart`/`plaintextEndExclusive` query parameters. Will be retired or converted to use Range headers with mode=cli.
+- `DownloadFileServiceTests.cs` (1108 lines): Many tests invoke ResolveAsync with old parameters. All will need signature updates.
+- `CliResumableDownloadContractParserTests.cs` (159 lines): JSON parsing tests will be deprecated; new tests must cover header parsing and binary-stream consumption.
+- `CliResumableDownloadContractTests.cs`: JSON contract shape tests will be obsolete.
+
+**Response Streaming & HTTP Semantics:**
+- `DownloadFileResolution.cs`: Record carries `ResponseContentType` (currently always "application/json" for CLI mode) and `RequestedRange` (used for Content-Range header). Will need to emit custom media type `application/vnd.shadowdrop.cli-download` and shift metadata to headers.
+- `DownloadMode` enum: Currently only has DirectHttp and CliDecrypt. May need explicit value or flag to distinguish new vs. legacy CLI contract if backward compat is considered (plan 0027 says remove, so likely no change needed).
+
+**Authentication/Authorization (Stable):**
+- Range validation reuses existing plaintext-range-to-chunk-span logic. Share token, bearer-token, expiration checks remain unchanged per plan scope.
+
+### Why These Matter
+
+1. **Endpoint request handling** must explicitly negotiate `?mode=cli` and reject ambiguous inputs (e.g., mixing legacy query params with mode=cli or Range headers).
+2. **Service method surface** needs refactoring to accept mode parameter and singular range input, eliminating four overload variants.
+3. **Shared constants** will grow to define seven new custom headers for encrypted-subset metadata (chunk indices, range, total size, chunk size, final chunk length).
+4. **CLI parser** becomes the critical integration point: must robustly parse headers, validate presence/format, detect truncation before trusting the body.
+5. **Test suites** must be comprehensively rewritten—not just updating method calls, but inverting the shape of what "success" means (binary response with headers vs. JSON body).
+
+### Non-Affected Areas
+
+- Direct-HTTP download path remains stable (uses different mode branch).
+- Share creation, upload, token generation unchanged.
+- Core encryption/decryption and chunk-mapping logic remains the same.
+
