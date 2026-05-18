@@ -255,6 +255,94 @@ public sealed class DownloadFileServiceTests
     }
 
     [Test]
+    public async Task ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsExpired()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "valid-share-token";
+        var bearerToken = "valid-bearer-token-12345";
+        var now = DateTimeOffset.UtcNow;
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                now,
+                now.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                new(TokenHashing.ComputeHashBase64(bearerToken), now.AddMinutes(-5)),
+                [new(fileId, "file.bin", null)]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "file.bin",
+                128,
+                160,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                64,
+                2,
+                Convert.ToBase64String(Enumerable.Range(0, 32).Select(static value => (Byte)value).ToArray()),
+                new('a', 64)));
+        var blobStorage = new StubBlobStorage(new([]));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            bearerToken,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.Forbidden);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsWrong()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "valid-share-token";
+        var correctBearerToken = "correct-bearer-token-12345";
+        var wrongBearerToken = "wrong-bearer-token-67890";
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                new(TokenHashing.ComputeHashBase64(correctBearerToken), DateTimeOffset.UtcNow.AddHours(1)),
+                [new(fileId, "file.bin", null)]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "file.bin",
+                128,
+                160,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                64,
+                2,
+                Convert.ToBase64String(Enumerable.Range(0, 32).Select(static value => (Byte)value).ToArray()),
+                new('a', 64)));
+        var blobStorage = new StubBlobStorage(new([]));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            wrongBearerToken,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.Forbidden);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
     public async Task ResolveAsync_ShouldReturnNotFound_WhenCliDecryptMetadataExistsButBlobIsMissing()
     {
         var fileId = Guid.NewGuid();
@@ -491,13 +579,9 @@ public sealed class DownloadFileServiceTests
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
             Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
 
-        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(false);
-
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
-
-        public Task SaveAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
 

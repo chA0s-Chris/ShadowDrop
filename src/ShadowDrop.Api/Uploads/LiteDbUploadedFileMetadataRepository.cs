@@ -104,24 +104,6 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         return Task.FromResult(document is null || document.IsReserved ? null : Map(document));
     }
 
-    public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        lock (_syncRoot)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var document = _collection.FindById(fileId);
-            if (IsActiveReservation(document, now))
-            {
-                return Task.FromResult(true);
-            }
-
-            DeleteExpiredReservation(document, now);
-            return Task.FromResult(false);
-        }
-    }
-
     public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -178,34 +160,6 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         }
     }
 
-    public Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(record);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        lock (_syncRoot)
-        {
-            _collection.Upsert(new UploadedFileDocument
-            {
-                FileId = record.FileId,
-                BlobKey = record.BlobKey,
-                OriginalFileName = record.OriginalFileName,
-                PlaintextLength = record.PlaintextLength,
-                EncryptedLength = record.EncryptedLength,
-                ContentType = record.ContentType,
-                EncryptionFormatVersion = record.EncryptionFormatVersion,
-                AlgorithmId = record.AlgorithmId,
-                IsReserved = false,
-                IsClaimed = false,
-                ChunkSize = record.ChunkSize,
-                ChunkCount = record.ChunkCount,
-                KdfSaltBase64 = record.KdfSaltBase64,
-                PlaintextSha256 = record.PlaintextSha256
-            });
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-            return Task.CompletedTask;
-        }
-    }
 
     public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
     {

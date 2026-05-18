@@ -47,6 +47,23 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectExpiredReservationClaim_AndPruneIt()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
+
+        var claimed = await repository.TryClaimReservationAsync(expiredReservationId, CancellationToken.None);
+
+        claimed.Should().BeFalse();
+        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
+        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
+    }
+
+    [Test]
     public async Task LiteDbUploadedFileMetadataRepository_ShouldRejectExpiredReservationCompletion_AndPruneItWithoutNewReservation()
     {
         await using var fixture = new UploadPersistenceFixture();
@@ -59,23 +76,6 @@ public sealed class UploadPersistenceServiceTests
         var completed = await repository.TryCompleteReservationAsync(CreateRecord(expiredReservationId, "metadata/expired.blob"), CancellationToken.None);
 
         completed.Should().BeFalse();
-        using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
-        ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
-    }
-
-    [Test]
-    public async Task LiteDbUploadedFileMetadataRepository_ShouldTreatExpiredReservationAsInactive_AndPruneItDuringActiveCheck()
-    {
-        await using var fixture = new UploadPersistenceFixture();
-        var options = fixture.CreateOptions();
-
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
-        var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
-        ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
-
-        var hasActiveReservation = await repository.HasActiveReservationAsync(expiredReservationId, CancellationToken.None);
-
-        hasActiveReservation.Should().BeFalse();
         using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
         ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
     }
@@ -272,14 +272,6 @@ public sealed class UploadPersistenceServiceTests
 
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
 
-        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken)
-        {
-            lock (_syncRoot)
-            {
-                return Task.FromResult(fileId == reservedFileId && !_claimed && !IsCompleted && !_claimReleased);
-            }
-        }
-
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
         {
             lock (_syncRoot)
@@ -295,8 +287,6 @@ public sealed class UploadPersistenceServiceTests
         }
 
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(reservedFileId);
-
-        public Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
         {
@@ -352,13 +342,9 @@ public sealed class UploadPersistenceServiceTests
     {
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
 
-        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
-
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
-
-        public Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
 
