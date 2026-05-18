@@ -63,6 +63,78 @@ public sealed class CliResumableDownloadContractParserTests
     }
 
     [Test]
+    public void Parse_ShouldThrowInvalidDataException_WhenBase64PaddingAppearsEarly()
+    {
+        const String json = """
+                            {
+                              "firstChunkIndex": 0,
+                              "lastChunkIndex": 0,
+                              "encryptedPayload": "A=BC",
+                              "requestedRange": {
+                                "start": 0,
+                                "end": 64
+                              },
+                              "totalPlaintextSize": 64,
+                              "chunkSize": 64,
+                              "finalChunkPlaintextLength": 64
+                            }
+                            """;
+
+        var act = () => CliResumableDownloadContractParser.Parse(json);
+
+        act.Should().Throw<InvalidDataException>()
+           .WithMessage("*invalid encrypted chunk data*");
+    }
+
+    [Test]
+    public void Parse_ShouldThrowInvalidDataException_WhenBase64PaddingExceedsTwoCharacters()
+    {
+        const String json = """
+                            {
+                              "firstChunkIndex": 0,
+                              "lastChunkIndex": 0,
+                              "encryptedPayload": "A===",
+                              "requestedRange": {
+                                "start": 0,
+                                "end": 64
+                              },
+                              "totalPlaintextSize": 64,
+                              "chunkSize": 64,
+                              "finalChunkPlaintextLength": 64
+                            }
+                            """;
+
+        var act = () => CliResumableDownloadContractParser.Parse(json);
+
+        act.Should().Throw<InvalidDataException>()
+           .WithMessage("*invalid encrypted chunk data*");
+    }
+
+    [Test]
+    public void Parse_ShouldThrowInvalidDataException_WhenBase64PaddingIsNonContiguous()
+    {
+        const String json = """
+                            {
+                              "firstChunkIndex": 0,
+                              "lastChunkIndex": 0,
+                              "encryptedPayload": "AB=C",
+                              "requestedRange": {
+                                "start": 0,
+                                "end": 64
+                              },
+                              "totalPlaintextSize": 64,
+                              "chunkSize": 64,
+                              "finalChunkPlaintextLength": 64
+                            }
+                            """;
+
+        var act = () => CliResumableDownloadContractParser.Parse(json);
+
+        act.Should().Throw<InvalidDataException>()
+           .WithMessage("*invalid encrypted chunk data*");
+    }
+
+    [Test]
     public void Parse_ShouldThrowInvalidDataException_WhenEncryptedPayloadIsMissing()
     {
         const String json = """

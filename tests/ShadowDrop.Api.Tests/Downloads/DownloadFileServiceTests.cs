@@ -406,6 +406,54 @@ public sealed class DownloadFileServiceTests
         result.Resolution.Should().BeNull();
     }
 
+    [TestCase(64, 3, 64)]
+    [TestCase(64, 3, 193)]
+    [TestCase(2147483647, 9223372036854775807, 9223372036854775807)]
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenChunkedMetadataProducesInvalidFinalChunkLength(Int32 chunkSize,
+        Int64 chunkCount,
+        Int64 plaintextLength)
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "cli-share-token";
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                null,
+                [new(fileId, "cipher.bin", "corrupt.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "cipher.bin",
+                plaintextLength,
+                Int64.MaxValue,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                chunkSize,
+                chunkCount,
+                Convert.ToBase64String(Enumerable.Range(0, 32).Select(static value => (Byte)value).ToArray()),
+                new('a', 64)));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream([0x01, 0x02, 0x03, 0x04]));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            null,
+                                            null,
+                                            0,
+                                            Math.Min(plaintextLength, (Int64)chunkSize),
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+    }
+
     [Test]
     public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenCliDecryptRangeIsIncomplete()
     {
@@ -437,6 +485,90 @@ public sealed class DownloadFileServiceTests
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
         result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenDirectHttpInitialSkipThrowsIOException()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var encryptedStream = new ThrowingReadStream(payload.Ciphertext, true);
+        var blobStorage = new StubBlobStorage(encryptedStream);
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            payload.ChunkSize,
+                                            payload.Plaintext.LongLength,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenDirectHttpMetadataIsCorrupt()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "corrupt.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(
+            new(fileId,
+                "blob-key",
+                "cipher.bin",
+                payload.Plaintext.LongLength,
+                payload.Ciphertext.LongLength,
+                "application/octet-stream",
+                FormatConstants.EncryptionFormatVersion,
+                FormatConstants.Aes256GcmAlgorithmId,
+                0,
+                payload.ChunkCount,
+                payload.KdfSaltBase64,
+                payload.PlaintextSha256));
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var blobStorage = new StubBlobStorage(encryptedStream);
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
     }
 
     [Test]
@@ -754,6 +886,114 @@ public sealed class DownloadFileServiceTests
 
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingReadStream : Stream
+    {
+        private readonly MemoryStream _innerStream;
+        private readonly Boolean _throwOnReadAsync;
+        private readonly Boolean _throwOnReadByte;
+        private Boolean _disposeTracked;
+        private Boolean _hasThrownReadAsync;
+        private Boolean _hasThrownReadByte;
+
+        public ThrowingReadStream(Byte[] content, Boolean throwOnReadAsync = false, Boolean throwOnReadByte = false)
+        {
+            _innerStream = new(content, false);
+            _throwOnReadAsync = throwOnReadAsync;
+            _throwOnReadByte = throwOnReadByte;
+        }
+
+        public override Boolean CanRead => true;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => false;
+
+        public Int32 DisposeCount { get; private set; }
+        public override Int64 Length => _innerStream.Length;
+
+        public override Int64 Position
+        {
+            get => _innerStream.Position;
+            set => throw new NotSupportedException();
+        }
+
+        public Boolean WasDisposed { get; private set; }
+
+        public override async ValueTask DisposeAsync()
+        {
+            TrackDispose();
+            await _innerStream.DisposeAsync();
+            await base.DisposeAsync();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
+            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+        public override Int32 Read(Span<Byte> buffer)
+        {
+            var temporaryBuffer = new Byte[buffer.Length];
+            var bytesRead = ReadAsync(temporaryBuffer, 0, temporaryBuffer.Length, CancellationToken.None).GetAwaiter().GetResult();
+            temporaryBuffer.AsSpan(0, bytesRead).CopyTo(buffer);
+            return bytesRead;
+        }
+
+        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+        {
+            if (_throwOnReadAsync && !_hasThrownReadAsync)
+            {
+                _hasThrownReadAsync = true;
+                return Task.FromException<Int32>(new IOException("Simulated I/O failure during direct-http setup."));
+            }
+
+            return _innerStream.ReadAsync(buffer, offset, count, cancellationToken);
+        }
+
+        public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_throwOnReadAsync && !_hasThrownReadAsync)
+            {
+                _hasThrownReadAsync = true;
+                return ValueTask.FromException<Int32>(new IOException("Simulated I/O failure during direct-http setup."));
+            }
+
+            return _innerStream.ReadAsync(buffer, cancellationToken);
+        }
+
+        public override Int32 ReadByte()
+        {
+            if (_throwOnReadByte && !_hasThrownReadByte)
+            {
+                _hasThrownReadByte = true;
+                throw new IOException("Simulated I/O failure during direct-http setup.");
+            }
+
+            return _innerStream.ReadByte();
+        }
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        protected override void Dispose(Boolean disposing)
+        {
+            TrackDispose();
+            _innerStream.Dispose();
+            base.Dispose(disposing);
+        }
+
+        private void TrackDispose()
+        {
+            if (_disposeTracked)
+            {
+                return;
+            }
+
+            _disposeTracked = true;
+            DisposeCount++;
+            WasDisposed = true;
+        }
     }
 
     private sealed class TrackingReadStream(Byte[] content) : MemoryStream(content, false)

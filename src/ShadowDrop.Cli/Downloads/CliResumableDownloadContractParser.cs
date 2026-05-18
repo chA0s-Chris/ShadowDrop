@@ -44,18 +44,33 @@ public static class CliResumableDownloadContractParser
             return false;
         }
 
+        var paddingCount = 0;
         for (var i = 0; i < length; i++)
         {
             var c = value[i];
-            var isValid = (c >= 'A' && c <= 'Z')
-                          || (c >= 'a' && c <= 'z')
-                          || (c >= '0' && c <= '9')
-                          || c == '+'
-                          || c == '/'
-                          || (c == '=' && i >= length - 2);
-            if (!isValid)
+            if (c == '=')
+            {
+                paddingCount++;
+                if (i < length - 2 || paddingCount > 2)
+                {
+                    return false;
+                }
+            }
+            else if (paddingCount > 0)
             {
                 return false;
+            }
+            else
+            {
+                var isValid = (c >= 'A' && c <= 'Z')
+                              || (c >= 'a' && c <= 'z')
+                              || (c >= '0' && c <= '9')
+                              || c == '+'
+                              || c == '/';
+                if (!isValid)
+                {
+                    return false;
+                }
             }
         }
 

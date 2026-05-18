@@ -816,9 +816,9 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         var payload = CreateDirectHttpPayload(reservedFileId);
-        var fileNameWithCrlf = "malicious\r\nX-Injected-Header: evil\r\nfile.bin";
+        var fileNameWithControlCharacters = "malicious\r\nX-Injected-Header: evil\r\n\u0085file.bin";
         var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
-                                                        fileNameWithCrlf,
+                                                        fileNameWithControlCharacters,
                                                         payload.Plaintext.LongLength,
                                                         payload.Ciphertext.LongLength,
                                                         payload.ChunkSize,
@@ -840,34 +840,41 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.Should().NotContain(h => h.Key.Equals("X-Injected-Header", StringComparison.OrdinalIgnoreCase),
                                              "control characters in filename must not allow header injection");
-        response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle()
-                .Which.Should().NotContain("\r").And.NotContain("\n",
-                                                                "filename with CR/LF must be sanitized before being written to response headers");
+        var sanitizedFileName = response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Single();
+        sanitizedFileName.Should().NotContain("\r").And.NotContain("\n",
+                                                                   "filename with CR/LF must be sanitized before being written to response headers");
+        sanitizedFileName.Any(Char.IsControl).Should().BeFalse("all control characters, including C1 controls, must be removed from mirrored filename headers");
+        response.Content.Headers.ContentDisposition.Should().NotBeNull();
+        response.Content.Headers.ContentDisposition!.FileNameStar.Should().NotContain("\r").And.NotContain("\n",
+            "Content-Disposition must use the sanitized filename");
+        response.Content.Headers.ContentDisposition.FileNameStar!.Any(Char.IsControl)
+                .Should()
+                .BeFalse("Content-Disposition must also strip persisted C1 control characters");
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid()
+    public async Task PublicDownloadEndpoint_ShouldSanitizeAllControlCharacters_FromPersistedContentTypeHeader()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         var payload = CreateDirectHttpPayload(reservedFileId);
-        var invalidContentType = "invalid/content\r\ntype/with/crlf";
         var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
                                                         "test.bin",
                                                         payload.Plaintext.LongLength,
                                                         payload.Ciphertext.LongLength,
                                                         payload.ChunkSize,
                                                         payload.ChunkCount,
-                                                        payload.KdfSaltBase64,
-                                                        null,
-                                                        invalidContentType);
+                                                        payload.KdfSaltBase64);
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
         var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
         client.DefaultRequestHeaders.Authorization = previousAuthorization;
         uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        OverwriteStoredUploadContentType(fixture.MetadataDatabasePath,
+                                         reservedFileId,
+                                         "text/plain;\u0085charset=\0utf-8\u007F");
         var share = await CreateShareAsync(client,
                                            fixture.BootstrapToken,
                                            CreateValidShareRequest(reservedFileId, false, true));
@@ -879,8 +886,11 @@ public sealed class ApiWalkingSkeletonTests
                                         "download should succeed even when stored content-type is malformed");
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream",
                                                                     "invalid content-type should fallback to application/octet-stream to prevent 500 error");
-        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle(invalidContentType,
-            "X-ShadowDrop-File-Content-Type header should preserve original value for informational purposes");
+        var sanitizedContentType = response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Single();
+        sanitizedContentType.Any(Char.IsControl).Should()
+                            .BeFalse("X-ShadowDrop-File-Content-Type header should remove all control characters before being written");
+        sanitizedContentType.Should().Be("text/plain;charset=utf-8",
+                                         "sanitizer should remove control characters while preserving safe content");
     }
 
     [Test]

@@ -276,11 +276,22 @@ public sealed class DownloadFileService
             return 0;
         }
 
-        var fullChunksLength = (uploadedFile.ChunkCount - 1) * uploadedFile.ChunkSize;
-        var finalChunkLength = (Int32)(uploadedFile.PlaintextLength - fullChunksLength);
-        return finalChunkLength == 0
+        if (uploadedFile.ChunkSize <= 0)
+        {
+            throw new InvalidDataException("Chunked metadata must declare a positive chunk size.");
+        }
+
+        var fullChunksLength = checked((uploadedFile.ChunkCount - 1) * (Int64)uploadedFile.ChunkSize);
+        var remainingPlaintextLength = checked(uploadedFile.PlaintextLength - fullChunksLength);
+        var finalChunkLength = remainingPlaintextLength == 0
             ? uploadedFile.ChunkSize
-            : finalChunkLength;
+            : checked((Int32)remainingPlaintextLength);
+        if (finalChunkLength < 1 || finalChunkLength > uploadedFile.ChunkSize)
+        {
+            throw new InvalidDataException("Chunked metadata produced an invalid final chunk length.");
+        }
+
+        return finalChunkLength;
     }
 
     private static Int64 GetPlaintextLengthForChunkIndex(UploadedFileRecord uploadedFile, Int64 chunkIndex)
@@ -311,23 +322,6 @@ public sealed class DownloadFileService
         return checked(chunkCount * uploadedFile.ChunkSize);
     }
 
-    private static async Task ReadExactlyAsync(Stream stream,
-                                               Memory<Byte> destination,
-                                               CancellationToken cancellationToken)
-    {
-        var totalBytesRead = 0;
-        while (totalBytesRead < destination.Length)
-        {
-            var bytesRead = await stream.ReadAsync(destination[totalBytesRead..], cancellationToken);
-            if (bytesRead == 0)
-            {
-                throw new EndOfStreamException("Unexpected end of encrypted content while reading chunk span.");
-            }
-
-            totalBytesRead += bytesRead;
-        }
-    }
-
     private static RangeResolution ResolveHeaderRange(Int64 totalPlaintextLength, String rangeHeader)
     {
         if (!RangeHeaderValue.TryParse(rangeHeader, out var parsedRange)
@@ -353,6 +347,11 @@ public sealed class DownloadFileService
             }
 
             var suffixLength = Math.Min(range.To.Value, totalPlaintextLength);
+            if (suffixLength == 0)
+            {
+                return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
+            }
+
             start = totalPlaintextLength - suffixLength;
             endExclusive = totalPlaintextLength;
         }
@@ -509,6 +508,7 @@ public sealed class DownloadFileService
                                                        or ArgumentOutOfRangeException
                                                        or EndOfStreamException
                                                        or IOException
+                                                       or InvalidDataException
                                                        or OverflowException)
         {
             if (encryptedContent is not null)
@@ -550,6 +550,8 @@ public sealed class DownloadFileService
                                                        or CryptographicException
                                                        or EndOfStreamException
                                                        or FormatException
+                                                       or InvalidDataException
+                                                       or IOException
                                                        or OverflowException)
         {
             if (encryptedContent is not null)
@@ -622,14 +624,6 @@ public sealed class DownloadFileService
 
         public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
             ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-        public override Int32 Read(Span<Byte> buffer)
-        {
-            var destination = new Byte[buffer.Length];
-            var bytesRead = Read(destination, 0, destination.Length);
-            destination.AsSpan(0, bytesRead).CopyTo(buffer);
-            return bytesRead;
-        }
 
         public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
             ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
@@ -804,14 +798,6 @@ public sealed class DownloadFileService
 
         public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
             ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-        public override Int32 Read(Span<Byte> buffer)
-        {
-            var destination = new Byte[buffer.Length];
-            var bytesRead = Read(destination, 0, destination.Length);
-            destination.AsSpan(0, bytesRead).CopyTo(buffer);
-            return bytesRead;
-        }
 
         public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
             ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();

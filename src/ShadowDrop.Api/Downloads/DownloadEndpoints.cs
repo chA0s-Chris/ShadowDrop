@@ -84,10 +84,29 @@ public static class DownloadEndpoints
 
     private sealed class DownloadStreamResult(DownloadFileResolution resolution) : IResult
     {
+        private static Boolean ContainsControlCharacter(String value)
+        {
+            foreach (var character in value)
+            {
+                if (Char.IsControl(character) || (character >= '\u0080' && character <= '\u009F'))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static String GetResponseContentType(String? contentType) =>
             !String.IsNullOrWhiteSpace(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
                 ? contentType
                 : "application/octet-stream";
+
+        private static String SanitizeFileName(String? value)
+        {
+            var sanitized = SanitizeHeaderValue(value);
+            return sanitized.Length == 0 ? "download" : sanitized;
+        }
 
         private static String SanitizeHeaderValue(String? value)
         {
@@ -96,20 +115,34 @@ public static class DownloadEndpoints
                 return String.Empty;
             }
 
-            var sanitized = value.Replace("\r", String.Empty)
-                                 .Replace("\n", String.Empty);
+            var sanitized = ContainsControlCharacter(value)
+                ? String.Create(value.Length, value, static (destination, source) =>
+                {
+                    var index = 0;
+                    foreach (var character in source)
+                    {
+                        if (!Char.IsControl(character))
+                        {
+                            destination[index++] = character;
+                        }
+                    }
+
+                    destination[index..].Clear();
+                }).TrimEnd('\0')
+                : value;
             return sanitized.Length > 500 ? sanitized[..500] : sanitized;
         }
 
         public async Task ExecuteAsync(HttpContext httpContext)
         {
+            var sanitizedFileName = SanitizeFileName(resolution.FileName);
             httpContext.Response.StatusCode = resolution.RequestedRange is null
                 ? StatusCodes.Status200OK
                 : StatusCodes.Status206PartialContent;
             httpContext.Response.ContentType = GetResponseContentType(resolution.ResponseContentType);
             httpContext.Response.ContentLength = resolution.ResponseContentLength;
             httpContext.Response.Headers.AcceptRanges = "bytes";
-            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = SanitizeHeaderValue(resolution.FileName);
+            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = sanitizedFileName;
             httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = SanitizeHeaderValue(resolution.FileContentType);
             httpContext.Response.Headers[DownloadHeaderConstants.ModeHeaderName] = resolution.Mode == DownloadMode.DirectHttp
                 ? "direct-http"
@@ -126,7 +159,7 @@ public static class DownloadEndpoints
             {
                 httpContext.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
                 {
-                    FileNameStar = resolution.FileName
+                    FileNameStar = sanitizedFileName
                 }.ToString();
             }
 
