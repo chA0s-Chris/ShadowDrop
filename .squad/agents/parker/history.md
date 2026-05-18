@@ -30,6 +30,8 @@ Crypto spike complete. Handoff: implement 26 test cases in `tests/ShadowDrop.Sha
 
 ## Learnings — 2026-05-15T14:30:00.000+02:00
 
+- 2026-05-18T22:35:59.710+02:00: PR #28 direct-HTTP follow-up fix in `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` now fail-closes `InvalidDataException` and `IOException` to `DownloadLookupStatus.InvalidRequest`; regression coverage in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs` proves corrupt metadata (`ChunkSize = 0`) and non-seek skip-time I/O failure both return the non-leaky invalid-request result, and `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-restore` passed with 96 tests.
+
 - **AdminTokenService is conditional on EnableAdminOperations:** `PrepareStartup` only resolves `AdminTokenService` when `options.ApiExposure.EnableAdminOperations` is `true`. When admin operations are disabled, the service is never instantiated, `EnsureBootstrapCredential` is never called, and startup succeeds without a bootstrap token. This is intentional — no admin token is needed if the admin API surface is not exposed.
 - **Coverage gaps addressed (2026-05-15, second pass):** Relative-path config binding (`Config_RelativePaths_ShouldBeResolvedToAbsolutePathsUnderContentRoot`); startup succeeds without bootstrap token when admin ops disabled (`Startup_ShouldSucceed_WhenAdminOperationsAreDisabled_EvenWithoutBootstrapToken`); bootstrap failure leaves env clean for subsequent startup (`Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup`). Test count: 9 → 12, all passing.
 - **TestApiFactory useRelativePaths support:** Added `useRelativePaths` constructor parameter; sets relative path strings for env vars, sets `_temporaryRootDirectory = String.Empty` so base cleanup is skipped, captures content root via `IWebHostEnvironment` in `Dispose` before `base.Dispose()`, then cleans up the relative test directory by absolute path after `base.Dispose()`.
@@ -99,3 +101,114 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) has all Nate and Al
 - 2026-05-18T08:27:12.481+02:00: Added upload-reservation expiry regression coverage in `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs` and `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`; focused validation command `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --filter "FullyQualifiedName~UploadPersistenceServiceTests|FullyQualifiedName~ApiWalkingSkeletonTests" --no-restore` passes with 48 tests.
 - 2026-05-18T08:39:49.512+02:00: Added PR #24 regression coverage proving concurrent upload attempts against one reserved file id yield one successful claim and one `UploadValidationException` cleanup path in `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`; full API test project passes with 71 tests.
 - 2026-05-18T08:39:49.512+02:00: `DownloadFileService.DirectHttpDecryptingStream` now applies the same key/secret zeroing and underlying-stream cleanup on synchronous `Dispose()` as on `DisposeAsync()`, with regression coverage in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`.
+
+- 2026-05-18T11:19:54.273+02:00: Issue #15 coverage split is now explicit: shared crypto tests already cover chunk-span math and plaintext slice correctness, while API walking tests now pin non-partial generic failures for invalid, expired, missing-bearer, and invalid-key range-shaped download requests. HTTP 206/416 coverage is still blocked until the public download endpoint parses Range and emits partial-response headers.
+
+## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
+
+- Joined team deployment for issue #15
+- Coordinate cross-agent work on HTTP range support
+- All agents operational and focused
+- 2026-05-18T13:15:18.889+02:00: Added regression coverage for issue #15 so `DownloadFileService` CLI responses are asserted against `ContractsJsonSerializerContext` output and `CliResumableDownloadContractParser` accepts very large valid chunk-span metadata without falling back into the previous large-span failure mode; focused API/shared/CLI test projects all pass.
+
+---
+date: 2026-05-18T11:23:46.000Z
+team-update: true
+---
+
+## Cross-Agent: Issue #15 Review Fixes Completion
+
+**Status:** Merged  
+**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
+
+### Team Outcome
+
+Issue #15 review findings addressed across all layers:
+
+1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
+2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
+3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
+
+### Decisions Merged
+
+- `decisions.md` now contains:
+  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
+  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
+  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
+
+### Related
+
+- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
+- Orchestration Log: `2026-05-18T11:23:46.000Z-parker.md`
+
+## 2026-05-18T15:26:37.377+02:00 — Issue #15 PR #28 Review Complete
+
+**Context:** Reviewed four Copilot PR review notes on PR #28 (issue #15 range requests) and verified all fixes landed correctly.
+
+**Four PR Notes Reviewed:**
+1. **Header injection security (DownloadEndpoints.cs:102)**: FileName and FileContentType written to headers without sanitization → fixed with `SanitizeHeaderValue` (strips CR/LF, truncates to 500 chars) and `GetResponseContentType` (validates media type, fallbacks to application/octet-stream)
+2. **O(n) performance bottleneck (DownloadFileService.cs:978)**: Chunk-span plaintext length computed with per-chunk loop → fixed with `GetPlaintextLengthForChunkSpan` using O(1) arithmetic
+3. **Base64 allocation waste (CliResumableDownloadContractParser.cs:75)**: `Convert.FromBase64String` allocated full decoded payload for validation → fixed with `IsValidBase64String` character-level validation without allocation
+4. **Outdated plan documentation (0015-range-requests-and-resumable-downloads.md:177)**: Plan said "Direct-HTTP Range / 206 Partial Content work remains outstanding" → updated to reflect completed implementation
+
+**Regression Coverage Added:**
+- `PublicDownloadEndpoint_ShouldSanitizeFileNameWithControlCharacters`: Proves CR/LF in filename does not allow header injection
+- `PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid`: Proves malformed content-type triggers safe fallback instead of 500 error
+
+**Verification Result:**
+- All 165 tests pass (91 API + 3 CLI + 71 Shared)
+- All four fixes confirmed in uncommitted changes (ready to commit)
+- No breaking changes detected
+- Issue #15 implementation is complete and ready for merge
+
+**Key File Paths:**
+- Implementation: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`
+- Tests: `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` (lines 813-883)
+- Plan: `ai-plans/0015-range-requests-and-resumable-downloads.md`
+
+## 2026-05-18T15:55:26.590+02:00 — PR #28 Follow-Up Review Complete
+
+**Context:** Reviewed two remaining Copilot PR review notes on PR #28 (issue #15 range requests) after Nate assessed them as valid merge blockers and Eliot began implementation.
+
+**Two PR Notes Addressed:**
+1. **Base64 padding rule weakness (CliResumableDownloadContractParser.cs:55)**: `IsValidBase64String` accepted invalid padding patterns like "AB=C" where padding was non-contiguous → fixed with state-machine validation that enforces padding must be 0, 1, or 2 trailing '=' chars only, no gaps allowed
+2. **Header-sanitization test assertion (ApiWalkingSkeletonTests.cs:883)**: Test expected unsanitized `invalidContentType` including CR/LF, but endpoint calls `SanitizeHeaderValue()` which strips CR/LF → fixed test to assert sanitized value without CR/LF while verifying fallback behavior
+
+**Regression Coverage Added:**
+- `Parse_ShouldThrowInvalidDataException_WhenBase64PaddingIsNonContiguous`: Proves "AB=C" is rejected
+- `Parse_ShouldThrowInvalidDataException_WhenBase64PaddingAppearsEarly`: Proves "A=BC" is rejected
+- `Parse_ShouldThrowInvalidDataException_WhenBase64PaddingExceedsTwoCharacters`: Proves "A===" is rejected
+
+**Verification Result:**
+- All 168 tests pass (91 API + 6 CLI + 71 Shared)
+- Base64 padding validation now rejects non-contiguous, early, and excessive padding
+- Header sanitization test correctly asserts sanitized output
+- No breaking changes detected
+- PR #28 is ready for merge
+
+**Key File Paths:**
+- Base64 fix: `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs` (lines 34-76)
+- Header test fix: `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` (lines 882-887)
+- Base64 regressions: `tests/ShadowDrop.Cli.Tests/Downloads/CliResumableDownloadContractParserTests.cs` (lines 88-169)
+
+## 2026-05-18T17:36:33.042+02:00 — PR #28 Final Two Review Notes Verified
+
+**Context:** Reviewed the two newest Copilot review notes on PR #28 after Nate assessed both as valid merge blockers. Eliot implemented fixes in parallel. Verified implementation correctness and tested against full suite.
+
+**Two PR Notes Reviewed:**
+1. **Empty-file suffix ranges (DownloadFileService.cs:355)**: Suffix ranges treated as satisfiable when `totalPlaintextLength == 0`, creating invalid empty range `[0, 0)` instead of returning 416 Range Not Satisfiable → Fixed with explicit check: `if (suffixLength == 0) return RangeNotSatisfiable`
+2. **Base64EncodingStream.Read(Span<byte>) (DownloadFileService.cs:632)**: Allocates new `byte[]` on every call, defeating span-based API purpose and creating GC pressure → Fixed by removing the problematic override, letting base Stream's pooled shim handle span reads
+
+**Verification Result:**
+- Both fixes implemented correctly by Eliot
+- All 168 tests pass (91 API + 6 CLI + 71 Shared)
+- No breaking changes detected
+- No new test coverage needed (empty-file scenario is blocked by upload validation requiring ChunkCount > 0, making it a defensive check that can't be triggered through public API)
+- PR #28 is ready for merge
+
+**Key File Paths:**
+- Suffix-range fix: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` (lines 356-359)
+- Base64 span fix: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` (lines 626-632 removed)
+
+**Technical Note:**
+The empty-file suffix-range scenario is a defensive check that cannot be triggered in production because the upload system enforces `ChunkCount > 0` validation. Empty files cannot be uploaded, so `totalPlaintextLength == 0` is unreachable through the public API. The fix is still valid for code correctness, but integration testing is impossible without mocking or reflection.

@@ -1,149 +1,155 @@
-# Project Context
+# Eliot — Backend Developer
 
-- **Owner:** Christian Flessa
-- **Project:** ShadowDrop
+## Context
+
+- **Role:** Backend Dev for ShadowDrop
 - **Stack:** C#/.NET, ASP.NET Core, System.CommandLine, Spectre.Console, LiteDB, Docker, Native AOT
-- **Created:** 2026-05-14
+- **Archive:** Detailed learnings from 2026-05-14 to 2026-05-18 AM documented in `history-archive.md`
 
-## Learnings
+## Active Work — Issue #15 (2026-05-18)
 
-- Initial role seeded as Backend Dev for ShadowDrop.
-- The MVP centers on upload, share, download, revoke, and cleanup workflows.
+### Streaming CLI Range JSON Without Buffering
 
-## Cross-Agent Updates — 2026-05-14T18:43:13Z
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`, `tests/ShadowDrop.Shared.Tests/Contracts/CliResumableDownloadContractTests.cs`
 
-**From Nate (Issue #2 Crypto Spike):**  
-Crypto design finalized. Handoff: implement production code in `src/ShadowDrop.Shared/Crypto/` per API spec in `.squad/decisions.md` (Encryption section). Key constraints: deterministic nonces from chunk index, HKDF-SHA-256 key derivation, 50-byte AAD binding, `stackalloc` for AAD, `IDisposable` + `CryptographicOperations.ZeroMemory` on key types. All AOT-safe (System.Security.Cryptography.HKDF, AesGcm). Parker will test to 26 cases. Branch `squad/2-chunked-aes-gcm-crypto-spike` ready for implementation.
+- The CLI resumable-download response can keep the existing deterministic JSON contract while avoiding full encrypted-span `byte[]` materialization by streaming three segments: serialized JSON prefix, on-the-fly Base64 of the encrypted chunk span, and serialized JSON suffix.
+- Keeping the transport DTO on `ContractsJsonSerializerContext` for both API and CLI centralizes the wire shape even when the payload value itself is streamed rather than prebuilt.
+- Large-range regression coverage should assert lazy source reads before the payload portion is consumed; that catches accidental reintroduction of eager buffering even when the response stream type changes.
 
-## Learnings — 2026-05-15T12:47:15.427+02:00
+---
+date: 2026-05-18T11:23:46.000Z
+team-update: true
+---
 
-### AdminTokenService & Program.cs Bug Fixes
+## Cross-Agent: Issue #15 Review Fixes Completion
 
-**Files touched:** `src/ShadowDrop.Api/Program.cs`, `src/ShadowDrop.Api/Infrastructure/Security/AdminTokenService.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+**Status:** Merged  
+**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
 
-- **HostAbortedException → OperationCanceledException**: `HostAbortedException` inherits from `OperationCanceledException`. Catching only `HostAbortedException` misses plain `OperationCanceledException` thrown by `WebApplicationFactory`/test cancellations. The fix is to widen the catch to `OperationCanceledException`, which covers both.
+### Team Outcome
 
-- **LiteDB credential existence check**: `Query.EQ(nameof(AdminTokenCredential.Id), BootstrapCredentialId)` is a property-name query. LiteDB stores `Id` as `_id` internally, so a name-based `Query.EQ` on `"Id"` may not match. Always use `FindById` for ID-based lookups — it goes through LiteDB's identity-aware path. Consistent with `IsValidToken`.
+Issue #15 review findings addressed across all layers:
 
-- **LiteDB shared connection**: Default `ConnectionType.Direct` is exclusive — only one `LiteDatabase` instance can open the file at a time. In-process tests (WebApplicationFactory) + the service both need the file simultaneously (e.g., `BootstrapToken_ShouldBeStoredAsProtectedHash` opens a second `LiteDatabase` while the host is alive). Fix: `ConnectionType.Shared` in `ConnectionString`.
+1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
+2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
+3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
 
-- **WebApplicationFactory startup failure exception shape**: When `Program.Main` catches the startup exception internally and returns (instead of rethrowing), the factory sees a clean exit but a server that was never configured. `CreateClient()` then throws `InvalidOperationException("The server has not been started...")` — NOT the original cause. The test assertion must match this observable exception, not the internal root cause message.
+### Decisions Merged
 
-- **LiteDB version on this project:** 5.0.21 (in `Directory.Packages.props`). `ConnectionString.Connection = ConnectionType.Shared` is available in this version.
+- `decisions.md` now contains:
+  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
+  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
+  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
 
-## Learnings — 2026-05-15T13:34:42.045+02:00
+### Related
 
-### AdminTokenService conditional initialization & LiteDB leak fix
+- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
+- Orchestration Log: `2026-05-18T11:23:46.000Z-eliot.md`
 
-**Files touched:** `src/ShadowDrop.Api/CompositionRoot/DependencyInjection.cs`, `src/ShadowDrop.Api/CompositionRoot/Startup.cs`, `src/ShadowDrop.Api/Infrastructure/Security/AdminTokenService.cs`
+---
+date: 2026-05-18T15:26:37.377+02:00
+---
 
-- **Conditional registration:** `AdminTokenService` is now only added to DI and resolved at startup when `options.ApiExposure.EnableAdminOperations == true`. Previously it was unconditionally registered and eagerly resolved via `PrepareStartup`, forcing the bootstrap path (env-var check, DB open) even when the admin surface was intentionally disabled.
+## Learnings — PR #28 Review Fixes
 
-- **LiteDB handle on constructor failure:** Wrapped `EnsureBootstrapCredential` in a try/catch in the `AdminTokenService` constructor. On any exception `_database.Dispose()` is called before rethrowing. This prevents the file handle from leaking on first-boot failure (e.g., missing env var), which was previously causing `Cannot open file` errors in retried or parallel test runs.
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`, `ai-plans/0015-range-requests-and-resumable-downloads.md`
 
-- **Test gap noted (not added to prod code):** `ShadowDropOptionsBinding.ResolvePath` supports both absolute and relative `LiteDbPath`/`LocalRoot` config values, but there is no test asserting that a relative path is correctly resolved against `ContentRootPath`. A unit test for `BindAndValidate` covering this case would make the contract explicit and protect against future regressions.
+### Header Injection Prevention
 
-## 2026-05-15: Storage & Initialization Decisions Merged
+- User-controlled metadata (filename, content-type) written to custom response headers can enable header injection attacks if not sanitized.
+- Implemented `SanitizeHeaderValue` helper that strips CR/LF characters and enforces 500-char length limit before writing to `X-ShadowDrop-FileName` and `X-ShadowDrop-FileContentType` headers.
+- Critical security pattern: always sanitize external data before writing to HTTP response headers, even custom headers.
 
-**Session:** Scribe (2026-05-15T14:11:44.855Z)
+### O(1) Chunk-Span Length Calculation
 
-Two backend decisions merged into `decisions.md`:
-1. LiteDB shared connection mode for `AdminTokenService` (concurrent test safety)
-2. Conditional admin service initialization (lean deployment mode, file-handle leak fix)
+- Replaced O(n) loop that summed plaintext lengths across chunk range with O(1) calculation.
+- Added `GetPlaintextLengthForChunkSpan` helper: computes plaintext length for chunk span by recognizing that all non-final chunks have `chunkSize` plaintext, final chunk has `finalChunkPlaintextLength`.
+- Formula: `(chunkCount - 1) * chunkSize + finalChunkPlaintextLength` if range includes final chunk, else `chunkCount * chunkSize`.
+- Performance improvement eliminates linear iteration for large-range requests, critical for multi-GB file ranges.
 
-Relative path resolution test gap documented. Merged with full context into canonical decisions.
+### Zero-Allocation Base64 Validation
 
-- **Status:** Merged; ready for enforcement
+- Base64 validation via `Convert.FromBase64String` allocates a full decoded byte array just to check format validity.
+- Implemented `IsValidBase64String` that validates Base64 character set and padding rules without allocation.
+- Validates: length divisible by 4, character set (A-Z, a-z, 0-9, +, /), padding only in final two positions.
+- Prevents OOM when malicious payloads include multi-MB Base64 strings in CLI resumable-download contract.
 
-## 2026-05-16T07:31:13Z: Plan 0013 Ready for Implementation — Eliot Handoff
+### Plan Synchronization Discipline
 
-**Session:** Scribe (cross-agent notification)
+- Updated stale implementation note in plan 0015 to reflect that Direct-HTTP range support is now complete.
+- Pattern: always sync plan acceptance criteria and implementation notes when backend contracts change or work completes.
 
-Plan 0013 (share creation, expiration, hashed bearer tokens) now has all security clarifications and binding acceptance criteria formalized in canonical `decisions.md`. Nate (Lead) and Alec (Security) have finalized five surgical refinements:
+---
+date: 2026-05-18T15:55:26.590+02:00
+---
 
-1. Token entropy floor: 32 bytes minimum
-2. Plaintext token lifecycle: volatile, never persisted server-side
-3. Expiration validation: deferred to later slices (soft/lazy validation)
-4. Revocation/cleanup fields: initialized at creation (no lazy init)
-5. Mode/token combinations: explicit rejection rules with tests
+## Learnings — PR #28 Follow-Up Fixes
 
-**Handoff:** Backend team (Eliot or assigned) owns implementation with binding acceptance criteria. Vertical slice scope: share creation + token persistence only. Does NOT include download, validation, revocation, or cleanup endpoints.
+**Files touched:** `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`, `tests/ShadowDrop.Cli.Tests/Downloads/CliResumableDownloadContractParserTests.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
 
-**Review gate:** Nate + Parker (default), Alec escalation required. Implementation gate enforced on PR submission.
+### Base64 Padding Contiguity Enforcement
 
-## Learnings — 2026-05-15T16:17:18.120+02:00
+- The initial Base64 validator checked padding position but didn't enforce contiguity: "AB=C" could pass if '=' was at `length - 2`.
+- Fixed by tracking `paddingCount` and rejecting any non-padding character after padding starts.
+- Comprehensive test coverage now includes: non-contiguous padding ("AB=C"), early padding ("A=BC"), and excessive padding ("A===").
+- Critical security pattern: zero-allocation validation must still enforce all Base64 encoding rules, not just character set and divisibility.
 
-### Shared queue and metadata contracts in ShadowDrop.Shared
+### Header Sanitization Test Expectations
 
-**Files touched:** `src/ShadowDrop.Shared/Contracts/*.cs`, `src/ShadowDrop.Shared/Queue/*.cs`, `tests/ShadowDrop.Shared.Tests/Queue/QueueFileParserTests.cs`, `tests/ShadowDrop.Shared.Tests/Contracts/FileMetadataContractTests.cs`
+- Test previously asserted that custom header preserved the original unsanitized value including CR/LF.
+- After implementing `SanitizeHeaderValue`, test must expect the sanitized value (CR/LF stripped) while still verifying fallback behavior.
+- Pattern: when adding sanitization to production code, update assertions to verify sanitization occurred, not that original malicious input is preserved.
+- Test now asserts: (1) no CR/LF in custom header, (2) other characters preserved, (3) Content-Type still falls back to `application/octet-stream`.
 
-- Shared protocol constants now live in `ShadowDrop.Contracts` and cover the direct-download header/query names, CLI config path segments, format versions, and the stable AES-256-GCM algorithm id.
-- Queue contracts use nullable JSON-bound models plus an explicit `QueueFileParser.Validate` pass instead of constructor-only invariants; this keeps deserialization stable while still surfacing CLI-friendly validation errors for missing fields, empty file lists, invalid HTTP(S) targets, negative lengths, and malformed lowercase SHA-256 digests.
-- Shared file metadata stays persistence-neutral: ids are strings, KDF salt is serialized as Base64 text, and no bearer tokens, decryption keys, or other plaintext secrets are represented in `ShadowDrop.Shared`.
+---
+date: 2026-05-18T17:36:33.042+02:00
+---
 
-## Learnings — 2026-05-17T23:05:01.413+02:00
+## Learnings — PR #28 Final Review Fixes
 
-### Direct HTTP key cleanup on pre-transfer failures
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
+
+### Empty-File Suffix-Range Bug Fix
+
+- Suffix ranges (e.g., `Range: bytes=-1`) on zero-length files incorrectly returned `Start=0, End=0` (an empty invalid range) instead of returning `RangeNotSatisfiable` (416).
+- Root cause: When `totalPlaintextLength` is 0, `suffixLength = Math.Min(requestedBytes, 0) = 0`, producing `start = 0 - 0 = 0` and `endExclusive = 0` — an invalid [0,0) range.
+- Fix: Added explicit check in suffix-range branch: if `suffixLength == 0`, return `RangeNotSatisfiable` immediately before constructing the range.
+- Pattern: suffix ranges must be rejected as unsatisfiable when the file is empty, not treated as a zero-length valid range.
+- Note: Zero-length uploads are explicitly blocked by upload validation (`MultipartUploadRequestReader`), so this case is only reachable through edge conditions or direct database manipulation. Tested via full API test suite; isolated unit test not added due to upload restriction.
+
+### Base64EncodingStream.Read(Span<byte>) Allocation Elimination
+
+- The `Read(Span<byte>)` override allocated a fresh `byte[]` on every call, defeating the purpose of the span-based API and creating GC pressure.
+- Original implementation: allocate `new byte[buffer.Length]`, call `Read(byte[], int, int)`, copy into span.
+- Fix: Removed the `Read(Span<byte>)` override entirely, allowing base `Stream` class to provide its own implementation that calls `ReadAsync(Memory<byte>)` directly.
+- Base `Stream.Read(Span<byte>)` implementation already delegates to `ReadAsync(Memory<byte>)` correctly without allocations; no need to override.
+- Pattern: when implementing async-first stream types, only override `ReadAsync(Memory<byte>)`; remove any allocating span shims and let base class handle synchronous/span paths.
+- Verified via full API, CLI, and Shared test suites (168 tests total).
+
+---
+date: 2026-05-18T21:54:45.116+02:00
+---
+
+## Learnings — PR #28 Header Control Character Follow-Up
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+### Custom Header Sanitization Boundary
+
+- `GetResponseContentType` already protects the framework-managed `Content-Type` header, but mirrored metadata written to `X-ShadowDrop-File-Content-Type` needs its own sanitization path.
+- For persisted metadata echoed into headers, stripping only CR/LF is not sufficient; remove every control character (`Char.IsControl`) before truncating to the existing 500-character cap.
+- The safest regression lives at the API level: persist a control-character-tainted content type in metadata storage, download the file, and assert both successful fallback (`application/octet-stream`) and sanitized custom-header output.
+
+---
+date: 2026-05-18T22:35:59.710+02:00
+---
+
+## Learnings — PR #28 Direct-HTTP Fail-Closed Setup
 
 **Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
 
-- Direct HTTP key material now flows through `DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync`, which zeroes decoded `byte[]` buffers in a `finally` block unless ownership has already moved into `DirectHttpDecryptingStream`.
-- This preserves existing malformed-key and invalid-request behavior while covering the previously unprotected path where blob opening or other pre-transfer work can throw after Base64 decode.
-- Focused coverage lives in `DownloadFileServiceTests.WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer`, alongside the existing stream-creation cleanup tests.
+### Direct-HTTP Setup Exception Mapping
 
-## Learnings — 2026-05-17T23:22:19.313+02:00
-
-### Direct HTTP decrypting streams should retain invariant file keys
-
-**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
-
-- `DirectHttpDecryptingStream` now derives the file-scoped `ContentKey` exactly once during `CreateAsync`, transfers ownership into the stream, and disposes that retained key together with `_shareSecret` and `_kdfSalt`.
-- Per-chunk decryption now reuses the retained `ContentKey` instead of recreating `ShareSecret` and repeating HKDF work inside `LoadNextChunkAsync`, which removes redundant allocations and derivations for large downloads.
-- Regression coverage verifies the retained content key buffer is non-zero while the stream is active and is zeroed when the stream is disposed, alongside the existing failure-path cleanup assertions.
-
-## 2026-05-15: Issue #4 Pre-Review Gate Cycle
-
-**Session:** Scribe (2026-05-15T14:31:20.000Z)
-
-Initial implementation of shared contracts completed. Parker (default reviewer) rejected due to missing FileMetadataContract coverage (round-trip / optional-field tests). Per lockout semantics, Eliot locked from next revision; Tara assigned to revise. Tara's revision passed Parker re-review.
-
-- **Status:** Gate PASSED; PR #4 ready for user review
-- **Decision merged:** Shared queue contracts + file metadata design finalized in `decisions.md`
-
-## 2026-05-15: PR #10 Review-Note Follow-Up Implementation
-
-**Session:** Scribe (2026-05-15T19:44:15.000Z)
-
-Nate + Parker joint assessment of remaining Copilot review notes on PR #10 identified three critical fixes:
-1. Missing queue-file length validation (bounds checking in parser validator, not constructor)
-2. Insufficient target URL validation (must be absolute HTTP(S) only)
-3. Incomplete XML documentation on shared contracts
-
-Eliot implemented all three fixes on current branch:
-- Modified `QueueFileParser.Validate` to check length bounds
-- Tightened `QueueFileContract.target` URI validation to reject relative URLs
-- Added XML docs to public API surface on all shared contract types
-- Added targeted test cases for length bounds and URL validation
-
-Parker re-reviewed post-implementation; all items verified and signed off.
-
-Orchestration logs written. Decision "Shared Queue Contract Shape" documented in `decisions.md`.
-
-- **Status:** Complete; PR #10 ready for merge
-- **Next:** Awaiting user review
-
-## Learnings — 2026-05-18T08:27:12.481+02:00
-
-### Time-aware upload reservation validation
-
-**Files touched:** `src/ShadowDrop.Api/Uploads/LiteDbUploadedFileMetadataRepository.cs`, `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
-
-- Active upload reservations must be validated against the retention cutoff everywhere they are consumed, not only when issuing a later reservation that triggers lazy pruning.
-- Centralizing reservation validity around the retention timestamp keeps `HasActiveReservationAsync` and `TryCompleteReservationAsync` consistent and prevents expired reservations from slipping through the upload completion path.
-- Lazy pruning can remain in place for `ReserveFileIdAsync`, but stale reservations should also be deleted opportunistically when active-check or completion discovers that they are expired.
-
-## Learnings — 2026-05-18T08:39:49.512+02:00
-
-- Upload persistence now claims reservations before blob writes via repository-level `TryClaimReservationAsync`, and releases the claim on failure. That keeps invalid or concurrently reused file ids on the validation path instead of letting storage-layer collisions decide the outcome.
-- LiteDB tracks in-flight claims explicitly (`IsClaimed`) so only one upload can advance a reservation, while expired unclaimed reservations are still pruned opportunistically during claim/complete/release checks.
-- `DirectHttpDecryptingStream` secret cleanup must live in a shared sync/async disposal core so both `Dispose()` and `DisposeAsync()` zero the retained content key, share secret, KDF salt, and current plaintext chunk before the encrypted source stream is torn down.
+- Direct-HTTP download setup must treat both `InvalidDataException` (corrupt metadata) and `IOException` (initial skip/read failure) as the same non-leaky invalid-request result already used by the CLI-decrypt path.
+- This mapping belongs in `TryOpenDirectHttpContentAsync()` because `DirectHttpDecryptingStream.CreateAsync()` can fail before any response is returned but after the encrypted blob stream is opened.
+- Regression coverage should assert the blob stream still gets disposed when direct-HTTP setup fails closed, so the error handling path does not leak file handles while hiding the root cause from callers.
