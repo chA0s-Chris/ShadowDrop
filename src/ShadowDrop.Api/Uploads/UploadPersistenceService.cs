@@ -19,10 +19,13 @@ public sealed class UploadPersistenceService
         ArgumentNullException.ThrowIfNull(encryptedContent);
 
         UploadBlobDescriptor? blob = null;
+        var reservationClaimed = false;
+        var reservationCompleted = false;
 
         try
         {
-            if (!await _metadataRepository.HasActiveReservationAsync(request.FileId, cancellationToken))
+            reservationClaimed = await _metadataRepository.TryClaimReservationAsync(request.FileId, cancellationToken);
+            if (!reservationClaimed)
             {
                 throw new UploadValidationException("The file id is invalid or no longer available.");
             }
@@ -46,7 +49,8 @@ public sealed class UploadPersistenceService
                                                 request.KdfSaltBase64,
                                                 request.PlaintextSha256);
 
-            if (!await _metadataRepository.TryCompleteReservationAsync(record, cancellationToken))
+            reservationCompleted = await _metadataRepository.TryCompleteReservationAsync(record, cancellationToken);
+            if (!reservationCompleted)
             {
                 throw new UploadValidationException("The file id is invalid or no longer available.");
             }
@@ -66,6 +70,18 @@ public sealed class UploadPersistenceService
                 try
                 {
                     await _blobStorage.DeleteIfExistsAsync(blob.BlobKey, CancellationToken.None);
+                }
+                catch
+                {
+                    // preserve the original upload failure while attempting deterministic cleanup
+                }
+            }
+
+            if (reservationClaimed && !reservationCompleted)
+            {
+                try
+                {
+                    await _metadataRepository.ReleaseClaimAsync(request.FileId, CancellationToken.None);
                 }
                 catch
                 {

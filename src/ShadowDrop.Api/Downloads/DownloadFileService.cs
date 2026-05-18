@@ -292,15 +292,11 @@ public sealed class DownloadFileService
 
         public override async ValueTask DisposeAsync()
         {
-            if (_disposed)
+            if (!TryDisposeCore())
             {
                 return;
             }
 
-            _disposed = true;
-            _contentKey.Dispose();
-            CryptographicOperations.ZeroMemory(_kdfSalt);
-            CryptographicOperations.ZeroMemory(_shareSecret);
             await _encryptedContent.DisposeAsync();
             await base.DisposeAsync();
         }
@@ -358,6 +354,16 @@ public sealed class DownloadFileService
 
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
 
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing && TryDisposeCore())
+            {
+                _encryptedContent.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
         private async Task LoadNextChunkAsync(CancellationToken cancellationToken)
         {
             var plaintextChunkLength = (Int32)Math.Min(_remainingPlaintextLength, _uploadedFile.ChunkSize);
@@ -384,6 +390,34 @@ public sealed class DownloadFileService
                     throw new EndOfStreamException("Encrypted stream length did not match metadata.");
                 }
             }
+        }
+
+        private Boolean TryBeginDispose()
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            _disposed = true;
+            return true;
+        }
+
+        private Boolean TryDisposeCore()
+        {
+            if (_disposed)
+            {
+                return false;
+            }
+
+            _disposed = true;
+            _contentKey.Dispose();
+            CryptographicOperations.ZeroMemory(_kdfSalt);
+            CryptographicOperations.ZeroMemory(_shareSecret);
+            CryptographicOperations.ZeroMemory(_currentChunk);
+            _currentChunk = [];
+            _currentChunkOffset = 0;
+            return true;
         }
     }
 

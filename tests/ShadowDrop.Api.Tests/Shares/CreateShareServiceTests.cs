@@ -148,6 +148,7 @@ public sealed class CreateShareServiceTests
     private static async Task<Guid> ReserveAndCompleteAsync(IUploadedFileMetadataRepository repository, UploadedFileRecord record)
     {
         var reservedFileId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        (await repository.TryClaimReservationAsync(reservedFileId, CancellationToken.None)).Should().BeTrue();
         var completed = await repository.TryCompleteReservationAsync(record with
         {
             FileId = reservedFileId

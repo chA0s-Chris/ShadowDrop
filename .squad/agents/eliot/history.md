@@ -141,3 +141,9 @@ Orchestration logs written. Decision "Shared Queue Contract Shape" documented in
 - Active upload reservations must be validated against the retention cutoff everywhere they are consumed, not only when issuing a later reservation that triggers lazy pruning.
 - Centralizing reservation validity around the retention timestamp keeps `HasActiveReservationAsync` and `TryCompleteReservationAsync` consistent and prevents expired reservations from slipping through the upload completion path.
 - Lazy pruning can remain in place for `ReserveFileIdAsync`, but stale reservations should also be deleted opportunistically when active-check or completion discovers that they are expired.
+
+## Learnings — 2026-05-18T08:39:49.512+02:00
+
+- Upload persistence now claims reservations before blob writes via repository-level `TryClaimReservationAsync`, and releases the claim on failure. That keeps invalid or concurrently reused file ids on the validation path instead of letting storage-layer collisions decide the outcome.
+- LiteDB tracks in-flight claims explicitly (`IsClaimed`) so only one upload can advance a reservation, while expired unclaimed reservations are still pruned opportunistically during claim/complete/release checks.
+- `DirectHttpDecryptingStream` secret cleanup must live in a shared sync/async disposal core so both `Dispose()` and `DisposeAsync()` zero the retained content key, share secret, KDF salt, and current plaintext chunk before the encrypted source stream is torn down.

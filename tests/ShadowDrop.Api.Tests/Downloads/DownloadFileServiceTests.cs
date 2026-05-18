@@ -71,6 +71,41 @@ public sealed class DownloadFileServiceTests
     }
 
     [Test]
+    public async Task DirectHttpDecryptingStreamDispose_ShouldZeroRetainedContentKeyAndShareSecret()
+    {
+        var fileId = Guid.NewGuid();
+        var payload = CreateDirectHttpPayload(fileId);
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var uploadedFile = new UploadedFileRecord(fileId,
+                                                  "blob-key",
+                                                  "cipher.bin",
+                                                  payload.Plaintext.LongLength,
+                                                  payload.Ciphertext.LongLength,
+                                                  "application/octet-stream",
+                                                  FormatConstants.EncryptionFormatVersion,
+                                                  FormatConstants.Aes256GcmAlgorithmId,
+                                                  payload.ChunkSize,
+                                                  payload.ChunkCount,
+                                                  payload.KdfSaltBase64,
+                                                  payload.PlaintextSha256);
+        var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
+
+        var stream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
+                                                                 uploadedFile,
+                                                                 shareSecret,
+                                                                 CancellationToken.None);
+        var contentKey = GetPrivateField<ContentKey>(stream, "_contentKey");
+        var keyMaterial = GetContentKeyBytes(contentKey);
+
+        stream.Dispose();
+
+        shareSecret.Should().OnlyContain(value => value == 0);
+        keyMaterial.Should().OnlyContain(value => value == 0);
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
+    }
+
+    [Test]
     public async Task DirectHttpDecryptingStreamDisposeAsync_ShouldZeroRetainedContentKeyAndShareSecret()
     {
         var fileId = Guid.NewGuid();
@@ -458,9 +493,13 @@ public sealed class DownloadFileServiceTests
 
         public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(false);
 
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
 
         public Task SaveAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord uploadedFileRecord, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

@@ -123,6 +123,33 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task PersistAsync_ShouldRejectConcurrentUploadAfterAtomicClaim_WithoutCallingBlobStorageTwice()
+    {
+        var fileId = Guid.NewGuid();
+        var repository = new AtomicClaimMetadataRepository(fileId);
+        var blobStorage = new BlockingBlobStorage();
+        var sut = new UploadPersistenceService(blobStorage, repository);
+        var request = CreateRequest(fileId);
+        await using var firstContent = CreateCiphertextStream();
+        await using var secondContent = CreateCiphertextStream();
+
+        var firstUploadTask = sut.PersistAsync(request, firstContent, CancellationToken.None);
+        await blobStorage.SaveStarted.Task;
+
+        var secondAttempt = async () => await sut.PersistAsync(request, secondContent, CancellationToken.None);
+
+        await secondAttempt.Should().ThrowAsync<UploadValidationException>()
+                           .WithMessage("The file id is invalid or no longer available.");
+        blobStorage.SaveCallCount.Should().Be(1);
+
+        blobStorage.AllowSaveToFinish.TrySetResult();
+        var result = await firstUploadTask;
+
+        result.FileId.Should().Be(fileId);
+        repository.IsCompleted.Should().BeTrue();
+    }
+
+    [Test]
     public async Task PersistAsync_ShouldRejectExpiredReservation_AndNotPersistBlob()
     {
         await using var fixture = new UploadPersistenceFixture();
@@ -225,6 +252,7 @@ public sealed class UploadPersistenceServiceTests
     private static async Task<UploadedFileRecord> ReserveAndCompleteAsync(IUploadedFileMetadataRepository repository, UploadedFileRecord record)
     {
         var reservedFileId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        (await repository.TryClaimReservationAsync(reservedFileId, CancellationToken.None)).Should().BeTrue();
         var reservedRecord = record with
         {
             FileId = reservedFileId
@@ -234,15 +262,105 @@ public sealed class UploadPersistenceServiceTests
         return reservedRecord;
     }
 
+    private sealed class AtomicClaimMetadataRepository(Guid reservedFileId) : IUploadedFileMetadataRepository
+    {
+        private readonly Lock _syncRoot = new();
+        private Boolean _claimed;
+        private Boolean _claimReleased;
+
+        public Boolean IsCompleted { get; private set; }
+
+        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
+
+        public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken)
+        {
+            lock (_syncRoot)
+            {
+                return Task.FromResult(fileId == reservedFileId && !_claimed && !IsCompleted && !_claimReleased);
+            }
+        }
+
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
+        {
+            lock (_syncRoot)
+            {
+                if (fileId == reservedFileId && _claimed && !IsCompleted)
+                {
+                    _claimed = false;
+                    _claimReleased = true;
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(reservedFileId);
+
+        public Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
+        {
+            lock (_syncRoot)
+            {
+                if (fileId != reservedFileId || _claimed || IsCompleted || _claimReleased)
+                {
+                    return Task.FromResult(false);
+                }
+
+                _claimed = true;
+                return Task.FromResult(true);
+            }
+        }
+
+        public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken)
+        {
+            lock (_syncRoot)
+            {
+                if (record.FileId != reservedFileId || !_claimed || _claimReleased)
+                {
+                    return Task.FromResult(false);
+                }
+
+                _claimed = false;
+                IsCompleted = true;
+                return Task.FromResult(true);
+            }
+        }
+    }
+
+    private sealed class BlockingBlobStorage : IBlobStorage
+    {
+        public TaskCompletionSource AllowSaveToFinish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Int32 SaveCallCount { get; private set; }
+        public TaskCompletionSource SaveStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public async Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken)
+        {
+            SaveCallCount++;
+            SaveStarted.TrySetResult();
+            await AllowSaveToFinish.Task.WaitAsync(cancellationToken);
+            return new($"blob/{fileId:N}.blob", encryptedContent.Length);
+        }
+    }
+
     private sealed class ThrowingMetadataRepository : IUploadedFileMetadataRepository
     {
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
 
         public Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
 
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(Guid.NewGuid());
 
         public Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
 
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Simulated metadata write failure.");

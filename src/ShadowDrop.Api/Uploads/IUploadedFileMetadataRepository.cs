@@ -8,9 +8,13 @@ public interface IUploadedFileMetadataRepository
 
     Task<Boolean> HasActiveReservationAsync(Guid fileId, CancellationToken cancellationToken);
 
+    Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken);
+
     Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken);
 
     Task SaveAsync(UploadedFileRecord record, CancellationToken cancellationToken);
+
+    Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken);
 
     Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken);
 }

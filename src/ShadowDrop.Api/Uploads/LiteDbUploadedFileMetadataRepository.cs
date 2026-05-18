@@ -12,6 +12,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     private readonly ILiteCollection<UploadedFileDocument> _collection;
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
+    private readonly Lock _syncRoot = new();
 
     public LiteDbUploadedFileMetadataRepository(ShadowDropOptions options)
     {
@@ -43,7 +44,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         now.Subtract(ReservationRetention).ToUnixTimeMilliseconds();
 
     private static Boolean IsActiveReservation(UploadedFileDocument? document, DateTimeOffset now) =>
-        document is { IsReserved: true, ReservedAtUnixTimeMilliseconds: not null }
+        document is { IsReserved: true, IsClaimed: false, ReservedAtUnixTimeMilliseconds: not null }
         && document.ReservedAtUnixTimeMilliseconds.Value > GetReservationCutoffUnixTimeMilliseconds(now);
 
     private static UploadedFileRecord Map(UploadedFileDocument document) =>
@@ -107,39 +108,73 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var now = DateTimeOffset.UtcNow;
-        var document = _collection.FindById(fileId);
-        if (IsActiveReservation(document, now))
+        lock (_syncRoot)
         {
-            return Task.FromResult(true);
-        }
+            var now = DateTimeOffset.UtcNow;
+            var document = _collection.FindById(fileId);
+            if (IsActiveReservation(document, now))
+            {
+                return Task.FromResult(true);
+            }
 
-        DeleteExpiredReservation(document, now);
-        return Task.FromResult(false);
+            DeleteExpiredReservation(document, now);
+            return Task.FromResult(false);
+        }
+    }
+
+    public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var document = _collection.FindById(fileId);
+            if (document is not { IsReserved: true, IsClaimed: true })
+            {
+                return Task.CompletedTask;
+            }
+
+            if (document.ReservedAtUnixTimeMilliseconds.HasValue
+                && document.ReservedAtUnixTimeMilliseconds.Value <= GetReservationCutoffUnixTimeMilliseconds(now))
+            {
+                DeleteExpiredReservation(document, now);
+                return Task.CompletedTask;
+            }
+
+            document.IsClaimed = false;
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.CompletedTask;
+        }
     }
 
     public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        DeleteExpiredReservations();
-
-        while (true)
+        lock (_syncRoot)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var fileId = Guid.NewGuid();
-            if (_collection.Exists(document => document.FileId == fileId))
-            {
-                continue;
-            }
+            DeleteExpiredReservations();
 
-            _collection.Insert(new UploadedFileDocument
+            while (true)
             {
-                FileId = fileId,
-                IsReserved = true,
-                ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            });
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-            return Task.FromResult(fileId);
+                cancellationToken.ThrowIfCancellationRequested();
+                var fileId = Guid.NewGuid();
+                if (_collection.Exists(document => document.FileId == fileId))
+                {
+                    continue;
+                }
+
+                _collection.Insert(new UploadedFileDocument
+                {
+                    FileId = fileId,
+                    IsReserved = true,
+                    IsClaimed = false,
+                    ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+                return Task.FromResult(fileId);
+            }
         }
     }
 
@@ -148,24 +183,49 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         ArgumentNullException.ThrowIfNull(record);
         cancellationToken.ThrowIfCancellationRequested();
 
-        _collection.Upsert(new UploadedFileDocument
+        lock (_syncRoot)
         {
-            FileId = record.FileId,
-            BlobKey = record.BlobKey,
-            OriginalFileName = record.OriginalFileName,
-            PlaintextLength = record.PlaintextLength,
-            EncryptedLength = record.EncryptedLength,
-            ContentType = record.ContentType,
-            EncryptionFormatVersion = record.EncryptionFormatVersion,
-            AlgorithmId = record.AlgorithmId,
-            IsReserved = false,
-            ChunkSize = record.ChunkSize,
-            ChunkCount = record.ChunkCount,
-            KdfSaltBase64 = record.KdfSaltBase64,
-            PlaintextSha256 = record.PlaintextSha256
-        });
-        FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-        return Task.CompletedTask;
+            _collection.Upsert(new UploadedFileDocument
+            {
+                FileId = record.FileId,
+                BlobKey = record.BlobKey,
+                OriginalFileName = record.OriginalFileName,
+                PlaintextLength = record.PlaintextLength,
+                EncryptedLength = record.EncryptedLength,
+                ContentType = record.ContentType,
+                EncryptionFormatVersion = record.EncryptionFormatVersion,
+                AlgorithmId = record.AlgorithmId,
+                IsReserved = false,
+                IsClaimed = false,
+                ChunkSize = record.ChunkSize,
+                ChunkCount = record.ChunkCount,
+                KdfSaltBase64 = record.KdfSaltBase64,
+                PlaintextSha256 = record.PlaintextSha256
+            });
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.CompletedTask;
+        }
+    }
+
+    public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var document = _collection.FindById(fileId);
+            if (!IsActiveReservation(document, now))
+            {
+                DeleteExpiredReservation(document, now);
+                return Task.FromResult(false);
+            }
+
+            document!.IsClaimed = true;
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.FromResult(true);
+        }
     }
 
     public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken)
@@ -173,33 +233,42 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         ArgumentNullException.ThrowIfNull(record);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var now = DateTimeOffset.UtcNow;
-        var document = _collection.FindById(record.FileId);
-        if (!IsActiveReservation(document, now))
+        lock (_syncRoot)
         {
-            DeleteExpiredReservation(document, now);
-            return Task.FromResult(false);
-        }
+            var now = DateTimeOffset.UtcNow;
+            var document = _collection.FindById(record.FileId);
+            if (document is not { IsReserved: true })
+            {
+                return Task.FromResult(false);
+            }
 
-        _collection.Update(new UploadedFileDocument
-        {
-            FileId = record.FileId,
-            BlobKey = record.BlobKey,
-            OriginalFileName = record.OriginalFileName,
-            PlaintextLength = record.PlaintextLength,
-            EncryptedLength = record.EncryptedLength,
-            ContentType = record.ContentType,
-            EncryptionFormatVersion = record.EncryptionFormatVersion,
-            AlgorithmId = record.AlgorithmId,
-            IsReserved = false,
-            ReservedAtUnixTimeMilliseconds = null,
-            ChunkSize = record.ChunkSize,
-            ChunkCount = record.ChunkCount,
-            KdfSaltBase64 = record.KdfSaltBase64,
-            PlaintextSha256 = record.PlaintextSha256
-        });
-        FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-        return Task.FromResult(true);
+            if (!document.IsClaimed)
+            {
+                DeleteExpiredReservation(document, now);
+                return Task.FromResult(false);
+            }
+
+            _collection.Update(new UploadedFileDocument
+            {
+                FileId = record.FileId,
+                BlobKey = record.BlobKey,
+                OriginalFileName = record.OriginalFileName,
+                PlaintextLength = record.PlaintextLength,
+                EncryptedLength = record.EncryptedLength,
+                ContentType = record.ContentType,
+                EncryptionFormatVersion = record.EncryptionFormatVersion,
+                AlgorithmId = record.AlgorithmId,
+                IsReserved = false,
+                IsClaimed = false,
+                ReservedAtUnixTimeMilliseconds = null,
+                ChunkSize = record.ChunkSize,
+                ChunkCount = record.ChunkCount,
+                KdfSaltBase64 = record.KdfSaltBase64,
+                PlaintextSha256 = record.PlaintextSha256
+            });
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class UploadedFileDocument
@@ -220,6 +289,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
 
         [BsonId]
         public Guid FileId { get; set; }
+
+        public Boolean IsClaimed { get; set; }
 
         public Boolean IsReserved { get; set; }
 
