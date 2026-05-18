@@ -31,6 +31,37 @@ public static class CliResumableDownloadContractParser
         return contract;
     }
 
+    private static Boolean IsValidBase64String(String value)
+    {
+        if (String.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+
+        var length = value.Length;
+        if (length % 4 != 0)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < length; i++)
+        {
+            var c = value[i];
+            var isValid = (c >= 'A' && c <= 'Z')
+                          || (c >= 'a' && c <= 'z')
+                          || (c >= '0' && c <= '9')
+                          || c == '+'
+                          || c == '/'
+                          || (c == '=' && i >= length - 2);
+            if (!isValid)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static void Validate(CliResumableDownloadContract contract)
     {
         if (contract.RequestedRange is null)
@@ -67,7 +98,10 @@ public static class CliResumableDownloadContractParser
 
         try
         {
-            Convert.FromBase64String(contract.EncryptedPayload);
+            if (!IsValidBase64String(contract.EncryptedPayload))
+            {
+                throw new FormatException("String contains invalid Base64 characters.");
+            }
         }
         catch (FormatException exception)
         {

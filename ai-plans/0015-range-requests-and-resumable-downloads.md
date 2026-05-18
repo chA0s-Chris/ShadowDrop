@@ -172,6 +172,7 @@ All error responses must omit:
 
 ## Implementation Notes
 
-- 2026-05-18T11:19:54.273+02:00: The CLI-decrypt path now returns a deterministic JSON encrypted-subset contract and
+- 2026-05-18T11:19:54.273+02:00: The CLI-decrypt path returns a deterministic JSON encrypted-subset contract and
   accepts `plaintextStart` / `plaintextEndExclusive` query parameters for scriptable subset retrieval. Direct-HTTP
-  `Range` / `206 Partial Content` work remains outstanding for full issue completion.
+  mode supports standard HTTP `Range` headers with `206 Partial Content` responses, enabling full resumable-download
+  capability for both download modes.

@@ -89,6 +89,18 @@ public static class DownloadEndpoints
                 ? contentType
                 : "application/octet-stream";
 
+        private static String SanitizeHeaderValue(String? value)
+        {
+            if (String.IsNullOrWhiteSpace(value))
+            {
+                return String.Empty;
+            }
+
+            var sanitized = value.Replace("\r", String.Empty)
+                                 .Replace("\n", String.Empty);
+            return sanitized.Length > 500 ? sanitized[..500] : sanitized;
+        }
+
         public async Task ExecuteAsync(HttpContext httpContext)
         {
             httpContext.Response.StatusCode = resolution.RequestedRange is null
@@ -97,8 +109,8 @@ public static class DownloadEndpoints
             httpContext.Response.ContentType = GetResponseContentType(resolution.ResponseContentType);
             httpContext.Response.ContentLength = resolution.ResponseContentLength;
             httpContext.Response.Headers.AcceptRanges = "bytes";
-            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = resolution.FileName;
-            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = resolution.FileContentType;
+            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = SanitizeHeaderValue(resolution.FileName);
+            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = SanitizeHeaderValue(resolution.FileContentType);
             httpContext.Response.Headers[DownloadHeaderConstants.ModeHeaderName] = resolution.Mode == DownloadMode.DirectHttp
                 ? "direct-http"
                 : "cli-decrypt";

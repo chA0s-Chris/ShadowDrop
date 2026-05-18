@@ -293,6 +293,24 @@ public sealed class DownloadFileService
         return uploadedFile.ChunkSize;
     }
 
+    private static Int64 GetPlaintextLengthForChunkSpan(UploadedFileRecord uploadedFile,
+                                                        Int64 firstChunkIndex,
+                                                        Int64 lastChunkIndex)
+    {
+        if (firstChunkIndex > lastChunkIndex)
+        {
+            return 0;
+        }
+
+        var chunkCount = lastChunkIndex - firstChunkIndex + 1;
+        if (lastChunkIndex == uploadedFile.ChunkCount - 1)
+        {
+            return checked(((chunkCount - 1) * uploadedFile.ChunkSize) + GetFinalChunkPlaintextLength(uploadedFile));
+        }
+
+        return checked(chunkCount * uploadedFile.ChunkSize);
+    }
+
     private static async Task ReadExactlyAsync(Stream stream,
                                                Memory<Byte> destination,
                                                CancellationToken cancellationToken)
@@ -971,11 +989,9 @@ public sealed class DownloadFileService
                                                                       range.End - range.Start,
                                                                       uploadedFile.ChunkSize);
                 var encryptedOffset = GetEncryptedOffsetForChunkIndex(uploadedFile, chunkRange.FirstChunkIndex);
-                var remainingSpanPlaintextLength = 0L;
-                for (var chunkIndex = chunkRange.FirstChunkIndex; chunkIndex <= chunkRange.LastChunkIndex; chunkIndex++)
-                {
-                    remainingSpanPlaintextLength += GetPlaintextLengthForChunkIndex(uploadedFile, chunkIndex);
-                }
+                var remainingSpanPlaintextLength = GetPlaintextLengthForChunkSpan(uploadedFile,
+                                                                                  chunkRange.FirstChunkIndex,
+                                                                                  chunkRange.LastChunkIndex);
 
                 await SkipAsync(encryptedContent, encryptedOffset, cancellationToken);
                 stream = new(encryptedContent,

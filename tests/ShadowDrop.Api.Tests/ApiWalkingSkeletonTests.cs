@@ -810,6 +810,80 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldSanitizeFileNameWithControlCharacters()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        var payload = CreateDirectHttpPayload(reservedFileId);
+        var fileNameWithCrlf = "malicious\r\nX-Injected-Header: evil\r\nfile.bin";
+        var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
+                                                        fileNameWithCrlf,
+                                                        payload.Plaintext.LongLength,
+                                                        payload.Ciphertext.LongLength,
+                                                        payload.ChunkSize,
+                                                        payload.ChunkCount,
+                                                        payload.KdfSaltBase64);
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
+        var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+        client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(reservedFileId, false, true));
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, payload.KeyMaterialBase64);
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{reservedFileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.Should().NotContain(h => h.Key.Equals("X-Injected-Header", StringComparison.OrdinalIgnoreCase),
+                                             "control characters in filename must not allow header injection");
+        response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle()
+                .Which.Should().NotContain("\r").And.NotContain("\n",
+                                                                "filename with CR/LF must be sanitized before being written to response headers");
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        var payload = CreateDirectHttpPayload(reservedFileId);
+        var invalidContentType = "invalid/content\r\ntype/with/crlf";
+        var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
+                                                        "test.bin",
+                                                        payload.Plaintext.LongLength,
+                                                        payload.Ciphertext.LongLength,
+                                                        payload.ChunkSize,
+                                                        payload.ChunkCount,
+                                                        payload.KdfSaltBase64,
+                                                        null,
+                                                        invalidContentType);
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
+        var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+        client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(reservedFileId, false, true));
+        client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, payload.KeyMaterialBase64);
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{reservedFileId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK,
+                                        "download should succeed even when stored content-type is malformed");
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream",
+                                                                    "invalid content-type should fallback to application/octet-stream to prevent 500 error");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle(invalidContentType,
+            "X-ShadowDrop-File-Content-Type header should preserve original value for informational purposes");
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldReturn400_WhenDirectHttpKeyMaterialIsMissingFromHeaderAndQuery()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
@@ -1303,7 +1377,8 @@ public sealed class ApiWalkingSkeletonTests
                                                                     Int32 chunkSize = 64,
                                                                     Int64 chunkCount = 2,
                                                                     String? kdfSalt = null,
-                                                                    String? plaintextSha256 = null)
+                                                                    String? plaintextSha256 = null,
+                                                                    String? contentType = null)
     {
         var ciphertext = CreateCiphertext();
         return new(
@@ -1311,7 +1386,7 @@ public sealed class ApiWalkingSkeletonTests
             originalFileName,
             plaintextLength,
             encryptedLength ?? ciphertext.LongLength,
-            "application/octet-stream",
+            contentType ?? "application/octet-stream",
             FormatConstants.EncryptionFormatVersion,
             FormatConstants.Aes256GcmAlgorithmId,
             chunkSize,
