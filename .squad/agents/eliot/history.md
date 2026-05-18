@@ -147,3 +147,19 @@ Orchestration logs written. Decision "Shared Queue Contract Shape" documented in
 - Upload persistence now claims reservations before blob writes via repository-level `TryClaimReservationAsync`, and releases the claim on failure. That keeps invalid or concurrently reused file ids on the validation path instead of letting storage-layer collisions decide the outcome.
 - LiteDB tracks in-flight claims explicitly (`IsClaimed`) so only one upload can advance a reservation, while expired unclaimed reservations are still pruned opportunistically during claim/complete/release checks.
 - `DirectHttpDecryptingStream` secret cleanup must live in a shared sync/async disposal core so both `Dispose()` and `DisposeAsync()` zero the retained content key, share secret, KDF salt, and current plaintext chunk before the encrypted source stream is torn down.
+
+## Learnings — 2026-05-18T11:19:54.273+02:00
+
+### Range-aware download flow contracts
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileResolution.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+
+- The public download slice can keep a single endpoint while serving two resumable contracts: plaintext partial bodies for direct HTTP mode and JSON-wrapped encrypted chunk subsets for CLI-decrypt mode.
+- Range parsing must happen on the authenticated path, not as an early endpoint rejection, so invalid-share, expired-share, and bearer-token failures stay behaviorally aligned with full downloads.
+- For chunked encrypted blobs, direct-HTTP partial delivery only needs the first/last chunk span plus an in-stream trim window; there is no need to decrypt untouched chunks or buffer whole files.
+
+## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
+
+- Joined team deployment for issue #15
+- Coordinate cross-agent work on HTTP range support
+- All agents operational and focused

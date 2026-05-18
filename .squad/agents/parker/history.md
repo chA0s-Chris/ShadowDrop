@@ -99,3 +99,11 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) has all Nate and Al
 - 2026-05-18T08:27:12.481+02:00: Added upload-reservation expiry regression coverage in `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs` and `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`; focused validation command `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --filter "FullyQualifiedName~UploadPersistenceServiceTests|FullyQualifiedName~ApiWalkingSkeletonTests" --no-restore` passes with 48 tests.
 - 2026-05-18T08:39:49.512+02:00: Added PR #24 regression coverage proving concurrent upload attempts against one reserved file id yield one successful claim and one `UploadValidationException` cleanup path in `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`; full API test project passes with 71 tests.
 - 2026-05-18T08:39:49.512+02:00: `DownloadFileService.DirectHttpDecryptingStream` now applies the same key/secret zeroing and underlying-stream cleanup on synchronous `Dispose()` as on `DisposeAsync()`, with regression coverage in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`.
+
+- 2026-05-18T11:19:54.273+02:00: Issue #15 coverage split is now explicit: shared crypto tests already cover chunk-span math and plaintext slice correctness, while API walking tests now pin non-partial generic failures for invalid, expired, missing-bearer, and invalid-key range-shaped download requests. HTTP 206/416 coverage is still blocked until the public download endpoint parses Range and emits partial-response headers.
+
+## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
+
+- Joined team deployment for issue #15
+- Coordinate cross-agent work on HTTP range support
+- All agents operational and focused
