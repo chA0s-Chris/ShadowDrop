@@ -10,10 +10,10 @@ using System.Security.Cryptography;
 /// </summary>
 public static class ChunkEncryptionService
 {
-    private const Int32 AadLength = 50;
+    private const Int32 AadLength = 34;
     private const Int32 AesGcmTagLength = 16;
     private const Int32 AesKeyLength = 32;
-    private const Int32 HkdfInfoLength = 34;
+    private const Int32 HkdfInfoLength = 18;
     private const Int32 NonceLength = 12;
 
     /// <summary>
@@ -176,19 +176,17 @@ public static class ChunkEncryptionService
     {
         destination[0] = (Byte)metadata.Version;
         destination[1] = (Byte)metadata.Algorithm;
-        WriteGuid(metadata.ShareId, destination[2..18]);
-        WriteGuid(metadata.FileId, destination[18..34]);
-        BinaryPrimitives.WriteInt32BigEndian(destination[34..38], metadata.ChunkSize);
-        BinaryPrimitives.WriteInt64BigEndian(destination[38..46], metadata.ChunkIndex);
-        BinaryPrimitives.WriteInt32BigEndian(destination[46..50], metadata.PlaintextChunkLength);
+        WriteGuid(metadata.FileId, destination[2..18]);
+        BinaryPrimitives.WriteInt32BigEndian(destination[18..22], metadata.ChunkSize);
+        BinaryPrimitives.WriteInt64BigEndian(destination[22..30], metadata.ChunkIndex);
+        BinaryPrimitives.WriteInt32BigEndian(destination[30..34], metadata.PlaintextChunkLength);
     }
 
     private static void BuildInfoBlob(FileEncryptionContext context, Span<Byte> destination)
     {
         destination[0] = (Byte)CryptoVersion.V1;
         destination[1] = (Byte)CryptoAlgorithm.Aes256Gcm;
-        WriteGuid(context.ShareId, destination[2..18]);
-        WriteGuid(context.FileId, destination[18..34]);
+        WriteGuid(context.FileId, destination[2..18]);
     }
 
     private static void FillNonce(Int64 chunkIndex, Span<Byte> nonce)

@@ -105,7 +105,9 @@ Deferred:
 
 An admin-token-authorized sender uploads a file through the API or CLI.
 
-The sender client encrypts the file before or during upload. ShadowDrop records metadata and stores the encrypted blob in the configured storage backend.
+The sender client encrypts the file before or during upload. For file-scoped encryption, the client first obtains a
+server-reserved opaque file id, then encrypts against that file id, and finally uploads ciphertext plus non-secret
+metadata. ShadowDrop records metadata and stores the encrypted blob in the configured storage backend.
 
 Example CLI direction:
 

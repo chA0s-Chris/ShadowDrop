@@ -7,4 +7,6 @@ public interface IShareMetadataRepository
     Task CreateAsync(ShareRecord record, CancellationToken cancellationToken);
 
     Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken);
+
+    Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken);
 }

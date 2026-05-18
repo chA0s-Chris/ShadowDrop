@@ -50,6 +50,20 @@ public sealed class LocalBlobStorage : IBlobStorage
         return Task.CompletedTask;
     }
 
+    public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(blobKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        Stream stream = new FileStream(ResolveBlobPath(blobKey),
+                                       FileMode.Open,
+                                       FileAccess.Read,
+                                       FileShare.Read,
+                                       81_920,
+                                       FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return Task.FromResult(stream);
+    }
+
     public async Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(encryptedContent);
@@ -61,16 +75,18 @@ public sealed class LocalBlobStorage : IBlobStorage
 
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(blobDirectory);
 
+        var blobCreated = false;
         try
         {
             Int64 writtenLength;
             await using (var blobStream = new FileStream(blobPath,
-                                                         FileMode.Create,
+                                                         FileMode.CreateNew,
                                                          FileAccess.Write,
                                                          FileShare.None,
                                                          81_920,
                                                          FileOptions.Asynchronous))
             {
+                blobCreated = true;
                 await encryptedContent.CopyToAsync(blobStream, cancellationToken);
                 await blobStream.FlushAsync(cancellationToken);
                 writtenLength = blobStream.Length;
@@ -84,7 +100,10 @@ public sealed class LocalBlobStorage : IBlobStorage
         {
             try
             {
-                DeleteBlobFile(blobPath);
+                if (blobCreated && File.Exists(blobPath))
+                {
+                    DeleteBlobFile(blobPath);
+                }
             }
             catch
             {

@@ -24,6 +24,9 @@ internal sealed class MultipartUploadRequest
     [JsonPropertyName("encryptionFormatVersion")]
     public String? EncryptionFormatVersion { get; init; }
 
+    [JsonPropertyName("fileId")]
+    public Guid FileId { get; init; }
+
     [JsonPropertyName("kdfSalt")]
     public String? KdfSalt { get; init; }
 

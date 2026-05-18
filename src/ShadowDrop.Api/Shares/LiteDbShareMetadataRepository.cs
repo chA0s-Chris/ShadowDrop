@@ -33,6 +33,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         {
             _collection = _database.GetCollection<ShareDocument>("shares");
             _collection.EnsureIndex(document => document.ShareId, true);
+            _collection.EnsureIndex(document => document.ShareTokenHashBase64, true);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -111,6 +112,15 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var document = _collection.FindById(shareId);
+        return Task.FromResult(document is null ? null : Map(document));
+    }
+
+    public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(shareTokenHashBase64);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var document = _collection.FindOne(share => share.ShareTokenHashBase64 == shareTokenHashBase64);
         return Task.FromResult(document is null ? null : Map(document));
     }
 

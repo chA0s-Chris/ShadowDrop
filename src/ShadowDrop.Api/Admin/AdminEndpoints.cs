@@ -27,6 +27,7 @@ public static class AdminEndpoints
             shareRoutes.MapPost("/", CreateShareAsync);
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
+            uploadRoutes.MapPost("/reservations", ReserveUploadAsync);
             uploadRoutes.MapPost("/", UploadAsync)
                         .RequireRateLimiting(RateLimiting.UploadRateLimitPolicyName)
                         .DisableAntiforgery();
@@ -74,6 +75,13 @@ public static class AdminEndpoints
         return record is null
             ? Results.NotFound()
             : Results.Ok(record);
+    }
+
+    private static async Task<IResult> ReserveUploadAsync(IUploadedFileMetadataRepository repository,
+                                                          CancellationToken cancellationToken)
+    {
+        var fileId = await repository.ReserveFileIdAsync(cancellationToken);
+        return Results.Created($"/api/admin/uploads/{fileId}", new UploadReservationResult(fileId));
     }
 
     private static async Task<IResult> UploadAsync(HttpRequest request,

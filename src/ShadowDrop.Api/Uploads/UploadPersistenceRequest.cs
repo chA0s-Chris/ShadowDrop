@@ -3,6 +3,7 @@
 namespace ShadowDrop.Api.Uploads;
 
 public sealed record UploadPersistenceRequest(
+    Guid FileId,
     String OriginalFileName,
     Int64 PlaintextLength,
     Int64 EncryptedLength,

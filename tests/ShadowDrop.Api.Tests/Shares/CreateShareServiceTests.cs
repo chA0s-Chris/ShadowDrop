@@ -19,11 +19,10 @@ public sealed class CreateShareServiceTests
         var options = fixture.CreateOptions();
         using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var fileId = Guid.NewGuid();
-        await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
+        var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId, "Display.bin")],
+                                             [new(fileId, "Display.bin")],
                                              GenerateDownloadBearerToken: true,
                                              DownloadBearerTokenExpiresAtUtc: DateTimeOffset.Parse("2026-05-30T00:00:00Z"));
 
@@ -56,12 +55,11 @@ public sealed class CreateShareServiceTests
         var options = fixture.CreateOptions();
         using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var fileId = Guid.NewGuid();
-        await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
-        var sut = new CreateShareService(uploadedFileMetadataRepository: uploadedFileRepository, shareMetadataRepository: shareRepository,
-                                         timeProvider: TimeProvider.System);
+        var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
+        var sut = new CreateShareService(uploadedFileRepository, shareRepository,
+                                         TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId), new CreateShareFileRequest(fileId)],
+                                             [new(fileId), new(fileId)],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -81,11 +79,10 @@ public sealed class CreateShareServiceTests
         var options = fixture.CreateOptions();
         using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var fileId = Guid.NewGuid();
-        await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
+        var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId)],
+                                             [new(fileId)],
                                              directHttpEnabled,
                                              generateDownloadBearerToken,
                                              includeDownloadTokenExpiration ? DateTimeOffset.Parse("2026-05-30T00:00:00Z") : null);
@@ -104,7 +101,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(Guid.NewGuid())],
+                                             [new(Guid.NewGuid())],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -118,12 +115,11 @@ public sealed class CreateShareServiceTests
         await using var fixture = new SharePersistenceFixture();
         var options = fixture.CreateOptions();
         using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
-        var fileId = Guid.NewGuid();
-        await uploadedFileRepository.SaveAsync(CreateUploadedFileRecord(fileId, "cipher.bin"), CancellationToken.None);
+        var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
         var failingShareRepository = new LiteDbShareMetadataRepository(options, () => throw new InvalidOperationException("Simulated transaction failure."));
         var sut = new CreateShareService(uploadedFileRepository, failingShareRepository, TimeProvider.System);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                             [new CreateShareFileRequest(fileId)],
+                                             [new(fileId)],
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
@@ -146,7 +142,20 @@ public sealed class CreateShareServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new String('a', 64));
+            new('a', 64));
+
+
+    private static async Task<Guid> ReserveAndCompleteAsync(IUploadedFileMetadataRepository repository, UploadedFileRecord record)
+    {
+        var reservedFileId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        (await repository.TryClaimReservationAsync(reservedFileId, CancellationToken.None)).Should().BeTrue();
+        var completed = await repository.TryCompleteReservationAsync(record with
+        {
+            FileId = reservedFileId
+        }, CancellationToken.None);
+        completed.Should().BeTrue();
+        return reservedFileId;
+    }
 
     private sealed class SharePersistenceFixture : IAsyncDisposable
     {
@@ -163,11 +172,11 @@ public sealed class CreateShareServiceTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new MetadataOptions
+                Metadata = new()
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new StorageOptions
+                Storage = new()
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

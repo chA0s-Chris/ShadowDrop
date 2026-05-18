@@ -14,7 +14,7 @@ public sealed class FileEncryptionContextTests
         var salt = CreateSequentialBytes(32);
         var expectedSalt = salt.ToArray();
 
-        var context = new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), salt);
+        var context = new FileEncryptionContext(Guid.NewGuid(), salt);
         salt[0] = Byte.MaxValue;
         salt[31] = Byte.MaxValue;
 
@@ -36,7 +36,7 @@ public sealed class FileEncryptionContextTests
     [Test]
     public void KdfSalt_ShouldReturnDefensiveCopy()
     {
-        var context = new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), CreateSequentialBytes(32));
+        var context = new FileEncryptionContext(Guid.NewGuid(), CreateSequentialBytes(32));
 
         var firstRead = context.KdfSalt;
         firstRead[0] = Byte.MaxValue;

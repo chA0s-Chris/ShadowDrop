@@ -45,7 +45,7 @@ public sealed record FileMetadataContract
     public String? FileId { get; init; }
 
     /// <summary>
-    /// Gets or sets the non-secret share-level KDF salt encoded as Base64.
+    /// Gets or sets the non-secret file-level KDF salt encoded as Base64.
     /// </summary>
     [JsonPropertyName("kdfSalt")]
     [JsonPropertyOrder(6)]

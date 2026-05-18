@@ -12,7 +12,6 @@ public sealed record ChunkMetadata
     /// </summary>
     /// <param name="version">The crypto format version.</param>
     /// <param name="algorithm">The crypto algorithm identifier.</param>
-    /// <param name="shareId">The share identifier.</param>
     /// <param name="fileId">The file identifier.</param>
     /// <param name="chunkSize">The configured plaintext chunk size.</param>
     /// <param name="chunkIndex">The zero-based chunk index.</param>
@@ -25,7 +24,6 @@ public sealed record ChunkMetadata
     public ChunkMetadata(
         CryptoVersion version,
         CryptoAlgorithm algorithm,
-        Guid shareId,
         Guid fileId,
         Int32 chunkSize,
         Int64 chunkIndex,
@@ -48,7 +46,6 @@ public sealed record ChunkMetadata
 
         Version = version;
         Algorithm = algorithm;
-        ShareId = shareId;
         FileId = fileId;
         ChunkSize = chunkSize;
         ChunkIndex = chunkIndex;
@@ -79,11 +76,6 @@ public sealed record ChunkMetadata
     /// Gets the plaintext length of the chunk.
     /// </summary>
     public Int32 PlaintextChunkLength { get; }
-
-    /// <summary>
-    /// Gets the share identifier.
-    /// </summary>
-    public Guid ShareId { get; }
 
     /// <summary>
     /// Gets the crypto format version.

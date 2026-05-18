@@ -81,6 +81,26 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) now has all securit
 - Queue contracts use nullable JSON-bound models plus an explicit `QueueFileParser.Validate` pass instead of constructor-only invariants; this keeps deserialization stable while still surfacing CLI-friendly validation errors for missing fields, empty file lists, invalid HTTP(S) targets, negative lengths, and malformed lowercase SHA-256 digests.
 - Shared file metadata stays persistence-neutral: ids are strings, KDF salt is serialized as Base64 text, and no bearer tokens, decryption keys, or other plaintext secrets are represented in `ShadowDrop.Shared`.
 
+## Learnings — 2026-05-17T23:05:01.413+02:00
+
+### Direct HTTP key cleanup on pre-transfer failures
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+
+- Direct HTTP key material now flows through `DownloadFileService.WithDecodedDirectHttpKeyMaterialAsync`, which zeroes decoded `byte[]` buffers in a `finally` block unless ownership has already moved into `DirectHttpDecryptingStream`.
+- This preserves existing malformed-key and invalid-request behavior while covering the previously unprotected path where blob opening or other pre-transfer work can throw after Base64 decode.
+- Focused coverage lives in `DownloadFileServiceTests.WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer`, alongside the existing stream-creation cleanup tests.
+
+## Learnings — 2026-05-17T23:22:19.313+02:00
+
+### Direct HTTP decrypting streams should retain invariant file keys
+
+**Files touched:** `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+
+- `DirectHttpDecryptingStream` now derives the file-scoped `ContentKey` exactly once during `CreateAsync`, transfers ownership into the stream, and disposes that retained key together with `_shareSecret` and `_kdfSalt`.
+- Per-chunk decryption now reuses the retained `ContentKey` instead of recreating `ShareSecret` and repeating HKDF work inside `LoadNextChunkAsync`, which removes redundant allocations and derivations for large downloads.
+- Regression coverage verifies the retained content key buffer is non-zero while the stream is active and is zeroed when the stream is disposed, alongside the existing failure-path cleanup assertions.
+
 ## 2026-05-15: Issue #4 Pre-Review Gate Cycle
 
 **Session:** Scribe (2026-05-15T14:31:20.000Z)
@@ -111,3 +131,19 @@ Orchestration logs written. Decision "Shared Queue Contract Shape" documented in
 
 - **Status:** Complete; PR #10 ready for merge
 - **Next:** Awaiting user review
+
+## Learnings — 2026-05-18T08:27:12.481+02:00
+
+### Time-aware upload reservation validation
+
+**Files touched:** `src/ShadowDrop.Api/Uploads/LiteDbUploadedFileMetadataRepository.cs`, `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`, `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+- Active upload reservations must be validated against the retention cutoff everywhere they are consumed, not only when issuing a later reservation that triggers lazy pruning.
+- Centralizing reservation validity around the retention timestamp keeps `HasActiveReservationAsync` and `TryCompleteReservationAsync` consistent and prevents expired reservations from slipping through the upload completion path.
+- Lazy pruning can remain in place for `ReserveFileIdAsync`, but stale reservations should also be deleted opportunistically when active-check or completion discovers that they are expired.
+
+## Learnings — 2026-05-18T08:39:49.512+02:00
+
+- Upload persistence now claims reservations before blob writes via repository-level `TryClaimReservationAsync`, and releases the claim on failure. That keeps invalid or concurrently reused file ids on the validation path instead of letting storage-layer collisions decide the outcome.
+- LiteDB tracks in-flight claims explicitly (`IsClaimed`) so only one upload can advance a reservation, while expired unclaimed reservations are still pruned opportunistically during claim/complete/release checks.
+- `DirectHttpDecryptingStream` secret cleanup must live in a shared sync/async disposal core so both `Dispose()` and `DisposeAsync()` zero the retained content key, share secret, KDF salt, and current plaintext chunk before the encrypted source stream is torn down.

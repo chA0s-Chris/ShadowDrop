@@ -1,0 +1,12 @@
+// Copyright (c) 2026 Christian Flessa. All rights reserved.
+// This file is licensed under the MIT license. See LICENSE in the project root for more information.
+namespace ShadowDrop.Api.Downloads;
+
+public sealed record DownloadFileResolution(
+    DownloadMode Mode,
+    Guid ShareId,
+    Guid FileId,
+    String FileName,
+    String ContentType,
+    Int64 ContentLength,
+    Stream ContentStream);

@@ -14,8 +14,8 @@ abstraction details beyond what this slice needs.
 - [x] The endpoint only accepts the declared request envelope shape and Content-Type; unsupported or inconsistent
   Content-Type and request format combinations are rejected (400).
 - [x] The upload pipeline supports streaming request bodies instead of buffering full files in memory.
-- [x] Upload metadata includes share-independent file identity, original file name, plaintext length, encrypted length,
-  encryption format version, algorithm id, chunk size, chunk count, per-share KDF salt, and optional plaintext SHA-256.
+- [x] Upload metadata includes a server-reserved file identity, original file name, plaintext length, encrypted length,
+  encryption format version, algorithm id, chunk size, chunk count, file-level KDF salt, and optional plaintext SHA-256.
 - [x] The API does not persist or log plaintext share secrets, derived file keys, `ShadowDrop-Key`, or `sd-key` values.
 - [x] Upload validation rejects malformed lengths, invalid chunk counts, invalid salts, and inconsistent encryption
   metadata.

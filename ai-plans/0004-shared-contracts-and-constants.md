@@ -53,4 +53,7 @@ Queue JSON property names should match the queue file format exactly: `shadowDro
 
 Prefer an explicit queue file parser and validator over relying only on deserialization. Validation should reject missing required fields, empty file lists, invalid target URLs, negative or otherwise invalid file lengths, and malformed SHA-256 values. Validation errors should be suitable for CLI display and should not include secrets.
 
-Shared encryption metadata should describe file format, not persistence. Include the initial encryption format version, AES-256-GCM algorithm identifier, share id, file id, chunk size, chunk count, non-secret per-share KDF salt, and optional plaintext SHA-256. The actual share encryption secret, derived file keys, bearer tokens, and direct-download key material must not be represented in persisted or serialized shared metadata contracts.
+Shared encryption metadata should describe file format, not persistence. Include the initial encryption format version,
+AES-256-GCM algorithm identifier, share id, file id, chunk size, chunk count, non-secret file-level KDF salt, and
+optional plaintext SHA-256. The actual share encryption secret, derived file keys, bearer tokens, and direct-download
+key material must not be represented in persisted or serialized shared metadata contracts.

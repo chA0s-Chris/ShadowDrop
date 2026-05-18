@@ -20,8 +20,8 @@ public sealed class MultipartUploadRequestReaderTests
     [Test]
     public async Task ReadAsync_ShouldRejectOversizedMetadataWhileReading()
     {
-        var metadata = CreateValidMetadataPayload(originalFileName: new('a', 200));
-        var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], contentLength: null);
+        var metadata = CreateValidMetadataPayload(new('a', 200));
+        var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 64);
 
@@ -37,7 +37,7 @@ public sealed class MultipartUploadRequestReaderTests
                                                   encryptedLength: encryptedContent.LongLength,
                                                   chunkSize: 80,
                                                   chunkCount: 1);
-        var request = await CreateRequestAsync(metadata, encryptedContent, contentLength: null);
+        var request = await CreateRequestAsync(metadata, encryptedContent, null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 128, 4096);
 
@@ -51,12 +51,27 @@ public sealed class MultipartUploadRequestReaderTests
                                                   encryptedLength: Int64.MaxValue,
                                                   chunkSize: 1,
                                                   chunkCount: Int64.MaxValue);
-        var request = await CreateRequestAsync(metadata, [1], contentLength: null);
+        var request = await CreateRequestAsync(metadata, [1], null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 4096);
 
         var exceptionAssertion = await action.Should().ThrowAsync<UploadValidationException>();
         exceptionAssertion.Which.Message.Should().Be("Upload metadata is internally inconsistent.");
+    }
+
+    [Test]
+    public async Task ReadAsync_ShouldRejectMissingReservedFileId()
+    {
+        var metadata = CreateValidMetadataPayload() with
+        {
+            FileId = Guid.Empty
+        };
+        var request = await CreateRequestAsync(metadata, Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray(), null);
+
+        var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 4096);
+
+        var exceptionAssertion = await action.Should().ThrowAsync<UploadValidationException>();
+        exceptionAssertion.Which.Message.Should().Be("The reserved file id is required.");
     }
 
     private static async Task<HttpRequest> CreateRequestAsync(UploadMetadataPayload metadata,
@@ -85,7 +100,8 @@ public sealed class MultipartUploadRequestReaderTests
                                                                     Int64 encryptedLength = 32,
                                                                     Int32 chunkSize = 16,
                                                                     Int64 chunkCount = 1)
-        => new(originalFileName ?? "cipher.bin",
+        => new(Guid.NewGuid(),
+               originalFileName ?? "cipher.bin",
                plaintextLength,
                encryptedLength,
                "application/octet-stream",
@@ -97,6 +113,7 @@ public sealed class MultipartUploadRequestReaderTests
                new('a', 64));
 
     private sealed record UploadMetadataPayload(
+        Guid FileId,
         String OriginalFileName,
         Int64 PlaintextLength,
         Int64 EncryptedLength,

@@ -65,7 +65,7 @@ public sealed class ChunkEncryptionServiceTests
         var fixture = CreateTestFixture();
         using var secret = fixture.Secret;
         using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
-        var wrongContext = new FileEncryptionContext(fixture.Context.ShareId, Guid.NewGuid(), fixture.Context.KdfSalt);
+        var wrongContext = new FileEncryptionContext(Guid.NewGuid(), fixture.Context.KdfSalt);
         using var wrongKey = ChunkEncryptionService.DeriveContentKey(secret, wrongContext);
         var plaintext = CreatePlaintext(32);
         var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
@@ -88,7 +88,6 @@ public sealed class ChunkEncryptionServiceTests
         var tamperedMetadata = new ChunkMetadata(
             metadata.Version,
             metadata.Algorithm,
-            metadata.ShareId,
             Guid.NewGuid(),
             metadata.ChunkSize,
             metadata.ChunkIndex,
@@ -109,46 +108,6 @@ public sealed class ChunkEncryptionServiceTests
         var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
         var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize, metadata.ChunkIndex, metadata.PlaintextChunkLength - 1);
-
-        var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
-
-        act.Should().Throw<CryptographicException>();
-    }
-
-    [Test]
-    public void DecryptChunk_ShouldThrowCryptographicException_WhenShareIdInFileEncryptionContextIsWrong()
-    {
-        var fixture = CreateTestFixture();
-        using var secret = fixture.Secret;
-        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
-        var wrongContext = new FileEncryptionContext(Guid.NewGuid(), fixture.Context.FileId, fixture.Context.KdfSalt);
-        using var wrongKey = ChunkEncryptionService.DeriveContentKey(secret, wrongContext);
-        var plaintext = CreatePlaintext(32);
-        var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
-        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
-
-        var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, wrongKey, metadata);
-
-        act.Should().Throw<CryptographicException>();
-    }
-
-    [Test]
-    public void DecryptChunk_ShouldThrowCryptographicException_WhenShareIdIsTampered()
-    {
-        var fixture = CreateTestFixture();
-        using var secret = fixture.Secret;
-        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
-        var plaintext = CreatePlaintext(32);
-        var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
-        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
-        var tamperedMetadata = new ChunkMetadata(
-            metadata.Version,
-            metadata.Algorithm,
-            Guid.NewGuid(),
-            metadata.FileId,
-            metadata.ChunkSize,
-            metadata.ChunkIndex,
-            metadata.PlaintextChunkLength);
 
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
@@ -299,7 +258,6 @@ public sealed class ChunkEncryptionServiceTests
         return new(
             CryptoVersion.V1,
             CryptoAlgorithm.Aes256Gcm,
-            context.ShareId,
             context.FileId,
             chunkSize,
             chunkIndex,
@@ -321,7 +279,7 @@ public sealed class ChunkEncryptionServiceTests
     private static (ShareSecret Secret, FileEncryptionContext Context) CreateTestFixture()
     {
         var secret = ShareSecret.Generate();
-        var context = new FileEncryptionContext(Guid.NewGuid(), Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
+        var context = new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
         return (secret, context);
     }
 

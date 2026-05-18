@@ -21,6 +21,7 @@ public static class FormatConstants
     /// The current queue file format version.
     /// </summary>
     public const String QueueVersion = "1.0";
+
     /// <summary>
     /// The current ShadowDrop queue file marker version.
     /// </summary>
