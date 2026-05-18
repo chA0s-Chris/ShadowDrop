@@ -1933,3 +1933,105 @@ This keeps the existing upload workflow intact while making the file-scoped cryp
 - The API persists a reservation first, then only completes upload metadata for that reserved id; unreserved or already-consumed ids are rejected.
 - This keeps local and CI behavior aligned with a single repeatable upload path and avoids reintroducing share-derived crypto context.
 
+---
+date: 2026-05-18T13:15:18.889+02:00
+---
+
+# Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
+
+**Date:** 2026-05-18T13:15:18.889+02:00  
+**Author:** Eliot  
+**Scope:** API download / CLI resumable contract
+
+## Decision
+
+Keep the current CLI resumable-download JSON contract for v1, but stream the encrypted payload field instead of materializing the full encrypted chunk span into a single `byte[]` before Base64 encoding.
+
+## Why
+
+- Removes the large-range array-size and memory pressure failure mode without breaking the current CLI wire contract.
+- The API should keep using `ContractsJsonSerializerContext` as the shared source of truth for the contract shape, even when the payload bytes are emitted incrementally.
+- A streamed binary v2 contract is still worth doing later for payload efficiency; follow-up issue created: #25.
+
+## Notes
+
+- Treat the current JSON shape as compatibility-sensitive for existing CLI consumers.
+- Preserve regression coverage that proves large CLI ranges are not eagerly buffered.
+
+# Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
+
+**Date:** 2026-05-18T13:15:18.889+02:00  
+**Author:** Nate (Lead)  
+**Area:** CLI Downloads & API Contracts
+
+## Decision
+
+Create a GitHub issue to track migration from CLI resumable download contract v1 (JSON + Base64) to v2 (streamed binary + deterministic metadata).
+
+## Rationale
+
+**Current (v1) constraints:**
+- Base64 encoding overhead: 33% payload size increase over raw binary
+- Buffering inefficiency: entire encrypted chunk span must be materialized and encoded before transmission
+- Not natural for binary file downloads (JSON wrapper adds complexity on CLI side)
+
+**v2 motivation:**
+- Streaming binary reduces payload and buffering overhead
+- More idiomatic for secure file transfer
+- Same security posture as v1 (no trust boundary changes)
+- Backward compatible: v1 remains default, v2 is opt-in via query parameter
+
+**Timing:**
+- NOT blocking issue #15 (v1 completes this sprint with buffers fixed)
+- Create as future placeholder so team doesn't forget
+- Implement after #15 is merged and v1 CLI consumption is validated in production
+
+## Scope: Issue #25
+
+**Title:** "CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract"
+
+**Contract v2 Shape (sketch):**
+- Streaming response with binary encrypted chunk span (no JSON wrapper)
+- Metadata delivered as deterministic preamble or footer:
+  - First/last chunk indices
+  - Plaintext range boundaries
+  - Total plaintext file size
+  - Chunk size and final-chunk plaintext length
+- Query routing: `?format=binary-v2` or `?contract=v2` to select v2 path
+- Security: same auth/expiration/range-validation gates as v1
+- CLI behavior: autodetect v2 availability, fall back to v1 if unsupported
+
+**Scope Items:**
+- Design v2 binary contract (preamble vs. footer, serialization format)
+- Extend endpoint to support dual-mode routing
+- Implement v2 response construction
+- Add CLI autodetection and fallback
+- Benchmark payload and performance vs. v1
+- Security review of metadata in streaming context
+- Parallel test coverage for v1 and v2
+
+**Non-Goals:**
+- No breaking changes to v1
+- Not for immediate implementation (future work)
+
+## Related
+
+- **Issue #15:** Range Requests and Resumable Downloads (v1 implementation, locked contract)
+- **Plan:** `ai-plans/0015-range-requests-and-resumable-downloads.md` (v1 contract locked; v2 direction added as context)
+- **GitHub Issue #25:** https://github.com/chA0s-Chris/ShadowDrop/issues/25
+
+# Parker — CLI Range Fix Regressions: Dual-Edge Coverage
+
+**Date:** 2026-05-18T13:15:18.889+02:00  
+**Author:** Parker (Tester)
+
+## Decision
+
+Keep regression coverage for the resumable CLI range path split across API and CLI layers:
+- API tests should compare emitted JSON bytes against `ContractsJsonSerializerContext` serialization so the producer cannot silently drift back to reflection-based serialization.
+- CLI parser tests should include chunk-index and plaintext-range values far beyond `Int32` limits so Eliot's current JSON/Base64 contract stays protected against the prior large-span regression.
+
+## Why
+
+The serializer-context review finding is producer-side, while the large-span regression risk is consumer-side. Covering both edges directly keeps the current v1 contract honest until the planned streamed-binary v2 follow-up replaces it.
+

@@ -107,3 +107,34 @@ Plan 0013 (share creation, expiration, hashed bearer tokens) has all Nate and Al
 - Joined team deployment for issue #15
 - Coordinate cross-agent work on HTTP range support
 - All agents operational and focused
+- 2026-05-18T13:15:18.889+02:00: Added regression coverage for issue #15 so `DownloadFileService` CLI responses are asserted against `ContractsJsonSerializerContext` output and `CliResumableDownloadContractParser` accepts very large valid chunk-span metadata without falling back into the previous large-span failure mode; focused API/shared/CLI test projects all pass.
+
+---
+date: 2026-05-18T11:23:46.000Z
+team-update: true
+---
+
+## Cross-Agent: Issue #15 Review Fixes Completion
+
+**Status:** Merged  
+**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
+
+### Team Outcome
+
+Issue #15 review findings addressed across all layers:
+
+1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
+2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
+3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
+
+### Decisions Merged
+
+- `decisions.md` now contains:
+  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
+  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
+  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
+
+### Related
+
+- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
+- Orchestration Log: `2026-05-18T11:23:46.000Z-parker.md`

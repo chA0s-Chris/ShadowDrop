@@ -87,3 +87,49 @@ Analyzed issue #15 requirements (range requests + resumable downloads) and decom
 - Joined team deployment for issue #15
 - Coordinate cross-agent work on HTTP range support
 - All agents operational and focused
+
+## 2026-05-18T13:15:18.889+02:00: Issue #25 Created — CLI v2 Streaming Contract Migration
+
+User request: Create GitHub issue for migrating CLI resumable downloads from v1 (JSON/Base64) to v2 (streamed binary).
+
+**Issue #25 Summary:**
+- **Title:** "CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract"
+- **Scope:** Future-work placeholder (v1 remains in issue #15, locked and backward-compatible)
+- **Rationale:** Base64 overhead (33% payload increase) + buffering inefficiency motivates exploring streamed binary alternative
+- **Contract direction:** Streaming binary with deterministic metadata preamble/footer + dual-mode endpoint routing
+- **Security:** Same auth/expiration gates as v1; no trust boundary changes; metadata in streaming context reviewed for information leakage
+- **Non-goal:** No breaking changes to v1; v2 is additive and optional
+
+**Labels:** `enhancement`, `type:feature`
+
+**Decision:** Documented in `.squad/decisions/inbox/nate-cli-streaming-v2-issue.md`
+
+---
+date: 2026-05-18T11:23:46.000Z
+team-update: true
+---
+
+## Cross-Agent: Issue #15 Review Fixes Completion
+
+**Status:** Merged  
+**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
+
+### Team Outcome
+
+Issue #15 review findings addressed across all layers:
+
+1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
+2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
+3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
+
+### Decisions Merged
+
+- `decisions.md` now contains:
+  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
+  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
+  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
+
+### Related
+
+- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
+- Orchestration Log: `2026-05-18T11:23:46.000Z-nate.md`
