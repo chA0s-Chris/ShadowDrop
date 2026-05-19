@@ -87,6 +87,20 @@ public sealed class CliDownloadResponseParserTests
     }
 
     [Test]
+    public void Parse_ShouldThrowInvalidDataException_WhenFinalChunkLengthDoesNotMatchTotalPlaintextSize()
+    {
+        using var response = CreateResponse();
+        response.Headers.Remove(DownloadHeaderConstants.TotalPlaintextSizeHeaderName);
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, "96");
+        response.Headers.Remove(DownloadHeaderConstants.PlaintextRangeEndHeaderName);
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, "96");
+
+        var act = () => CliDownloadResponseParser.Parse(response);
+
+        act.Should().Throw<InvalidDataException>().WithMessage("*inconsistent final chunk metadata*");
+    }
+
+    [Test]
     public void Parse_ShouldThrowInvalidDataException_WhenMediaTypeIsUnexpected()
     {
         using var response = CreateResponse();

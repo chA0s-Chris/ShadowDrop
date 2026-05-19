@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Downloads;
 using Microsoft.Net.Http.Headers;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Contracts;
+using System.Globalization;
 
 public static class DownloadEndpoints
 {
@@ -69,6 +70,10 @@ public static class DownloadEndpoints
             _ => new StatusDownloadResult(StatusCodes.Status500InternalServerError)
         };
     }
+
+    private static String FormatInvariantHeaderValue(Int64 value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static String FormatInvariantHeaderValue(Int32 value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static String GetResponseContentType(String? contentType) =>
         !String.IsNullOrWhiteSpace(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
@@ -256,14 +261,19 @@ public static class DownloadEndpoints
             }
             else if (resolution.CliMetadata is not null)
             {
-                httpContext.Response.Headers[DownloadHeaderConstants.FirstChunkIndexHeaderName] = resolution.CliMetadata.FirstChunkIndex.ToString();
-                httpContext.Response.Headers[DownloadHeaderConstants.LastChunkIndexHeaderName] = resolution.CliMetadata.LastChunkIndex.ToString();
-                httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeStartHeaderName] = resolution.CliMetadata.RequestedRange.Start.ToString();
-                httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeEndHeaderName] = resolution.CliMetadata.RequestedRange.End.ToString();
-                httpContext.Response.Headers[DownloadHeaderConstants.TotalPlaintextSizeHeaderName] = resolution.CliMetadata.TotalPlaintextSize.ToString();
-                httpContext.Response.Headers[DownloadHeaderConstants.ChunkSizeHeaderName] = resolution.CliMetadata.ChunkSize.ToString();
+                httpContext.Response.Headers[DownloadHeaderConstants.FirstChunkIndexHeaderName] =
+                    FormatInvariantHeaderValue(resolution.CliMetadata.FirstChunkIndex);
+                httpContext.Response.Headers[DownloadHeaderConstants.LastChunkIndexHeaderName] =
+                    FormatInvariantHeaderValue(resolution.CliMetadata.LastChunkIndex);
+                httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeStartHeaderName] =
+                    FormatInvariantHeaderValue(resolution.CliMetadata.RequestedRange.Start);
+                httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeEndHeaderName] =
+                    FormatInvariantHeaderValue(resolution.CliMetadata.RequestedRange.End);
+                httpContext.Response.Headers[DownloadHeaderConstants.TotalPlaintextSizeHeaderName] =
+                    FormatInvariantHeaderValue(resolution.CliMetadata.TotalPlaintextSize);
+                httpContext.Response.Headers[DownloadHeaderConstants.ChunkSizeHeaderName] = FormatInvariantHeaderValue(resolution.CliMetadata.ChunkSize);
                 httpContext.Response.Headers[DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName] =
-                    resolution.CliMetadata.FinalChunkPlaintextLength.ToString();
+                    FormatInvariantHeaderValue(resolution.CliMetadata.FinalChunkPlaintextLength);
             }
 
             await using var contentStream = resolution.ContentStream;

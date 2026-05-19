@@ -15,6 +15,7 @@ using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -667,6 +668,55 @@ public sealed class ApiWalkingSkeletonTests
         response.Headers.GetValues(DownloadHeaderConstants.ChunkSizeHeaderName).Should().ContainSingle("64");
         response.Headers.GetValues(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().ContainSingle("64");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext().Skip(80).Take(80));
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        var ciphertext = Enumerable.Range(0, 128).Select(static value => (Byte)value).ToArray();
+        var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
+                                                        plaintextLength: 96,
+                                                        encryptedLength: ciphertext.LongLength,
+                                                        chunkSize: 64,
+                                                        chunkCount: 2);
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+            CultureInfo.CurrentCulture = new CultureInfo("ar-SA");
+            CultureInfo.CurrentUICulture = new CultureInfo("ar-SA");
+
+            using (var requestContent = CreateValidUploadContent(uploadMetadata, ciphertext))
+            {
+                var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+                uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+            }
+
+            var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(reservedFileId, false));
+
+            var response = await client.GetAsync($"/d/{share.ShareToken}/files/{reservedFileId}?mode=cli");
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
+            response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
+            response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
+            response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("96");
+            response.Headers.GetValues(DownloadHeaderConstants.TotalPlaintextSizeHeaderName).Should().ContainSingle("96");
+            response.Headers.GetValues(DownloadHeaderConstants.ChunkSizeHeaderName).Should().ContainSingle("64");
+            response.Headers.GetValues(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().ContainSingle("32");
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
     }
 
     [Test]

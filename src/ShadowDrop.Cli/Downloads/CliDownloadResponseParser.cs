@@ -173,6 +173,12 @@ public static class CliDownloadResponseParser
             throw new InvalidDataException("The streamed CLI download response contains an out-of-bounds chunk span.");
         }
 
+        var expectedFinalChunkPlaintextLength = checked((Int32)(metadata.TotalPlaintextSize - ((chunkCount - 1) * (Int64)metadata.ChunkSize)));
+        if (metadata.FinalChunkPlaintextLength != expectedFinalChunkPlaintextLength)
+        {
+            throw new InvalidDataException("The streamed CLI download response contains inconsistent final chunk metadata.");
+        }
+
         var firstChunkStart = checked(metadata.FirstChunkIndex * (Int64)metadata.ChunkSize);
         var lastChunkPlaintextLength = metadata.LastChunkIndex == chunkCount - 1
             ? metadata.FinalChunkPlaintextLength
