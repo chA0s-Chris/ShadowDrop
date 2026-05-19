@@ -383,6 +383,41 @@ public sealed class DownloadFileServiceTests
         result.Resolution.Should().BeNull();
     }
 
+    [TestCase("bytes=-")]
+    [TestCase("bytes=nope")]
+    [TestCase("items=0-63")]
+    public async Task ResolveAsync_ShouldReturnInvalidRange_WhenCliRangeHeaderIsMalformed(String rangeHeader)
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "cli-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            DownloadHeaderConstants.StreamedCliMode,
+                                            null,
+                                            null,
+                                            null,
+                                            rangeHeader,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRange);
+        result.Resolution.Should().BeNull();
+    }
+
     [TestCase(64, 3, 64)]
     [TestCase(64, 3, 193)]
     [TestCase(2147483647, 9223372036854775807, 9223372036854775807)]

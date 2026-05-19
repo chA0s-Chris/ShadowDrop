@@ -227,6 +227,16 @@ public static class CliDownloadResponseParser
         public override void SetLength(Int64 value) => throw new NotSupportedException();
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
 
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
         private async Task EnsureNoTrailingDataAsync(CancellationToken cancellationToken)
         {
             if (_validatedTrailingData)

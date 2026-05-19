@@ -9,7 +9,8 @@ public sealed record DownloadRequest(
     String? AuthorizationBearerToken,
     String? HeaderKeyMaterial,
     String? QueryKeyMaterial,
-    RequestedByteRange? RequestedRange);
+    RequestedByteRange? RequestedRange,
+    Boolean HasMalformedRangeHeader = false);
 
 public enum DownloadRequestMode
 {

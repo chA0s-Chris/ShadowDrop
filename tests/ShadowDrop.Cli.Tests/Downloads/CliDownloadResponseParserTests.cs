@@ -28,6 +28,20 @@ public sealed class CliDownloadResponseParserTests
     }
 
     [Test]
+    public void Parse_ShouldDisposeInnerStream_WhenContentStreamIsDisposedSynchronously()
+    {
+        var body = Enumerable.Range(0, 80).Select(static value => (Byte)value).ToArray();
+        var innerStream = new TrackingReadStream(body);
+        using var response = CreateResponse(new StreamContent(innerStream), 80);
+
+        var parsedResponse = CliDownloadResponseParser.Parse(response);
+
+        parsedResponse.ContentStream.Dispose();
+
+        innerStream.IsDisposed.Should().BeTrue();
+    }
+
+    [Test]
     public async Task Parse_ShouldReturnMetadataAndBodyStream_WhenResponseIsValid()
     {
         using var response = CreateResponse();
@@ -164,5 +178,41 @@ public sealed class CliDownloadResponseParserTests
         response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.ChunkSizeHeaderName, "64");
         response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName, "64");
         return response;
+    }
+
+    private static HttpResponseMessage CreateResponse(HttpContent content, Int64? declaredContentLength = 80)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = content
+        };
+        response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+        if (declaredContentLength is not null)
+        {
+            response.Content.Headers.ContentLength = declaredContentLength;
+        }
+
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, "1");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, "1");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeStartHeaderName, "64");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, "120");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, "128");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.ChunkSizeHeaderName, "64");
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName, "64");
+        return response;
+    }
+
+    private sealed class TrackingReadStream : MemoryStream
+    {
+        public TrackingReadStream(Byte[] buffer)
+            : base(buffer) { }
+
+        public Boolean IsDisposed { get; private set; }
+
+        protected override void Dispose(Boolean disposing)
+        {
+            IsDisposed = true;
+            base.Dispose(disposing);
+        }
     }
 }

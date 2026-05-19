@@ -40,16 +40,23 @@ public sealed class DownloadFileService
         var requestMode = String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase)
             ? DownloadRequestMode.Cli
             : DownloadRequestMode.DirectHttp;
-        var requestedRange = String.IsNullOrWhiteSpace(rangeHeader)
-            ? null
-            : ParseRequestedByteRange(rangeHeader);
+        var requestedRange = default(RequestedByteRange?);
+        var hasMalformedRangeHeader = false;
+        if (!String.IsNullOrWhiteSpace(rangeHeader))
+        {
+            var parsedRange = ParseRequestedByteRange(rangeHeader);
+            requestedRange = parsedRange.Range;
+            hasMalformedRangeHeader = parsedRange.IsMalformed;
+        }
+
         return ResolveAsync(new(requestMode,
                                 shareToken,
                                 fileId,
                                 authorizationBearerToken,
                                 headerKeyMaterial,
                                 queryKeyMaterial,
-                                requestedRange),
+                                requestedRange,
+                                hasMalformedRangeHeader),
                             cancellationToken);
     }
 
@@ -105,6 +112,11 @@ public sealed class DownloadFileService
                 return new(DownloadLookupStatus.InvalidRequest);
             }
 
+            if (request.HasMalformedRangeHeader)
+            {
+                return new(DownloadLookupStatus.InvalidRange);
+            }
+
             var rangeResolution = ResolveDirectHttpRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
             if (rangeResolution.Status != DownloadLookupStatus.Success)
             {
@@ -145,6 +157,11 @@ public sealed class DownloadFileService
         if (share.DirectHttpEnabled)
         {
             return new(DownloadLookupStatus.InvalidRequest);
+        }
+
+        if (request.HasMalformedRangeHeader)
+        {
+            return new(DownloadLookupStatus.InvalidRange);
         }
 
         var cliRangeResolution = ResolveCliRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
@@ -273,22 +290,22 @@ public sealed class DownloadFileService
         return checked(chunkCount * uploadedFile.ChunkSize);
     }
 
-    private static RequestedByteRange? ParseRequestedByteRange(String rangeHeader)
+    private static ParsedRangeHeader ParseRequestedByteRange(String rangeHeader)
     {
         if (!RangeHeaderValue.TryParse(rangeHeader, out var parsedRange)
             || !String.Equals(parsedRange.Unit.ToString(), "bytes", StringComparison.OrdinalIgnoreCase)
             || parsedRange.Ranges.Count != 1)
         {
-            return null;
+            return new(null, true);
         }
 
         var range = parsedRange.Ranges.Single();
         if (range.From is null && range.To is null)
         {
-            return null;
+            return new(null, true);
         }
 
-        return new(range.From, range.To);
+        return new(new(range.From, range.To), false);
     }
 
     private static RangeResolution ResolveCliRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
@@ -854,6 +871,8 @@ public sealed class DownloadFileService
             base.Dispose(disposing);
         }
     }
+
+    private sealed record ParsedRangeHeader(RequestedByteRange? Range, Boolean IsMalformed);
 
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
 }
