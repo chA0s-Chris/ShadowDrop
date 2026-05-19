@@ -1166,7 +1166,7 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenCliDecryptBlobIsMissing()
+    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenStreamedCliBlobIsMissing()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();

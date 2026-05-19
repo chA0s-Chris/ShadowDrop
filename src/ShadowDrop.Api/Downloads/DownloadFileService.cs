@@ -37,9 +37,20 @@ public sealed class DownloadFileService
                                                    String? rangeHeader,
                                                    CancellationToken cancellationToken)
     {
-        var requestMode = String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase)
-            ? DownloadRequestMode.Cli
-            : DownloadRequestMode.DirectHttp;
+        DownloadRequestMode requestMode;
+        if (mode is null)
+        {
+            requestMode = DownloadRequestMode.DirectHttp;
+        }
+        else if (String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase))
+        {
+            requestMode = DownloadRequestMode.Cli;
+        }
+        else
+        {
+            return Task.FromResult(new DownloadLookupResult(DownloadLookupStatus.InvalidRequest));
+        }
+
         var requestedRange = default(RequestedByteRange?);
         var hasMalformedRangeHeader = false;
         if (!String.IsNullOrWhiteSpace(rangeHeader))

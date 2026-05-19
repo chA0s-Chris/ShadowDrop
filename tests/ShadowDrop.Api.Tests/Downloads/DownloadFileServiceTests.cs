@@ -550,8 +550,108 @@ public sealed class DownloadFileServiceTests
         encryptedStream.WasDisposed.Should().BeTrue();
     }
 
+    [TestCase("")]
+    [TestCase(" ")]
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenModeIsExplicitButBlank(String mode)
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            mode,
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+    }
+
     [Test]
-    public async Task ResolveAsync_ShouldReturnNotFound_WhenCliDecryptMetadataExistsButBlobIsMissing()
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenModeIsUnknown()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            "unknown",
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenDirectHttpMetadataExistsButBlobIsMissing()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new MissingBlobStorage();
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.NotFound);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenStreamedCliMetadataExistsButBlobIsMissing()
     {
         var fileId = Guid.NewGuid();
         var shareToken = "cli-share-token";
@@ -586,39 +686,6 @@ public sealed class DownloadFileServiceTests
                                             DownloadHeaderConstants.StreamedCliMode,
                                             null,
                                             null,
-                                            null,
-                                            null,
-                                            CancellationToken.None);
-
-        result.Status.Should().Be(DownloadLookupStatus.NotFound);
-        result.Resolution.Should().BeNull();
-    }
-
-    [Test]
-    public async Task ResolveAsync_ShouldReturnNotFound_WhenDirectHttpMetadataExistsButBlobIsMissing()
-    {
-        var fileId = Guid.NewGuid();
-        var shareToken = "direct-http-share-token";
-        var payload = CreateDirectHttpPayload(fileId);
-        var shareRepository = new StubShareMetadataRepository(
-            new(Guid.NewGuid(),
-                TokenHashing.ComputeHashBase64(shareToken),
-                DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow.AddHours(1),
-                null,
-                ShareCleanupState.Pending,
-                true,
-                null,
-                [new(fileId, "cipher.bin", "renamed.bin")]));
-        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
-        var blobStorage = new MissingBlobStorage();
-        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
-
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            null,
-                                            payload.KeyMaterialBase64,
                                             null,
                                             null,
                                             CancellationToken.None);
