@@ -108,3 +108,17 @@ Tara resolved two findings:
 
 Decision inbox consolidated (21 files merged to decisions.md).
 Archive gate passed; no forced archival. Ready for next phase.
+- 2026-05-19T18:32:18.455+02:00: PR #29 final Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` is directionally valid. `ReadRequiredInt64Header()` currently uses `Int64.TryParse(string, out _)`, which already rejects locale group separators like `1,234`/`1.234`, but still accepts semantically loose forms allowed by `NumberStyles.Integer` such as leading/trailing whitespace and explicit `+` signs. Existing coverage in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` exercises missing/duplicated/non-numeric headers, but not strict header-shape rejection; if hardened, the fix should use invariant parsing plus digit-only/strict integer style expectations symmetrically with CLI header emission in `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`.
+
+## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
+
+**Agents involved:** Tara, Parker, Nate  
+**Topic:** Strict CLI download metadata header parsing
+
+Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Parker executed the fix:
+- PR #29 note flagged `CliDownloadResponseParser` as needing stricter parsing
+- Nate confirmed: the real issue is not locale separators (already rejected) but loose `NumberStyles.Integer` acceptance of whitespace and plus signs
+- Tara implemented: invariant-culture parsing with digit-only/strict integer style expectations
+- Parker validated: regression tests cover malformed-but-previously-accepted forms; all tests pass (207 total)
+
+**Decision tracked:** `.squad/decisions.md` → "Final PR #29 review assessment" and "Strict CLI download header parsing"

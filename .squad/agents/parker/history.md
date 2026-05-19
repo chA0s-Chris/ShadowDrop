@@ -108,3 +108,24 @@ Parker reviewed Tara's invalid-mode fail-closed fix:
 **Status:** Approved — contract integrity validated.
 
 **Decision tracked:** `.squad/decisions.md` → "Invalid Mode Overload Fail-Closed"
+
+## Learnings
+
+- 2026-05-19T18:34:53.970+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now enforces canonical digit-only integer headers via `TryParseCanonicalInt64HeaderValue`, so CLI download metadata rejects whitespace-prefixed/suffixed and plus-prefixed numerics before semantic validation.
+- 2026-05-19T18:34:53.970+02:00 — `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` pins the header-format regression with explicit non-canonical samples (`" 128"`, `"128 "`, `"+128"`) and the full solution test suite passed at 207 tests.
+
+## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
+
+**Agents involved:** Tara, Parker, Nate  
+**Topic:** Strict CLI download metadata header parsing
+
+Parker reviewed Tara's strict header parser hardening:
+- Parsing now accepts only canonical digit-only header values
+- Closes earlier acceptance of space-padded and plus-prefixed numerics
+- Regression tests explicitly cover failure modes
+- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` ✅
+- `dotnet test ShadowDrop.slnx --no-restore` ✅ (207 tests passed)
+
+**Status:** Approved — ready for integration.
+
+**Decision tracked:** `.squad/decisions.md` → "Strict Header Parse Review"

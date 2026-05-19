@@ -83,3 +83,21 @@ Tara delivered invalid-mode fail-closed fix to `DownloadFileService.ResolveAsync
 Parker reviewed and approved correctness and coverage.
 
 **Decision tracked:** `.squad/decisions.md` → "Invalid Mode Overload Fail-Closed"
+- 2026-05-19T18:34:53.970+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now treats streamed numeric metadata headers as canonical ASCII digit-only integers only; parse with `NumberStyles.None` + `CultureInfo.InvariantCulture` and reject whitespace/sign-prefixed values fail-closed. Regression coverage for malformed CLI download headers lives in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`.
+
+## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
+
+**Agents involved:** Tara, Parker, Nate  
+**Topic:** Strict CLI download metadata header parsing
+
+Tara delivered strict CLI response header parser hardening:
+- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`: now accepts only canonical ASCII digit-only integers
+- Rejects leading/trailing whitespace, plus signs, minus signs, and non-digit characters
+- Uses `NumberStyles.None` + `CultureInfo.InvariantCulture` for invariant parsing
+- Regression test coverage in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+
+**Rationale:** Transport metadata requires strict parsing to keep local and CI behavior identical, prevent malformed headers from passing normalization, and maintain fail-closed validation for hostile or sloppy intermediaries.
+
+**Status:** Completed, approved by Parker, ready for integration.
+
+**Decision tracked:** `.squad/decisions.md` → "Strict CLI download header parsing"

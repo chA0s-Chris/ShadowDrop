@@ -2748,3 +2748,44 @@ The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` over
 - Regression coverage exists in both service and API layers, so the contract is pinned through the endpoint and not just the helper.
 - `PublicDownloadEndpoint_ShouldReturn404_WhenStreamedCliBlobIsMissing` now clearly names the streamed CLI path.
 - `ResolveAsync_ShouldReturnNotFound_WhenStreamedCliMetadataExistsButBlobIsMissing` now clearly names the streamed CLI metadata path.
+
+### 2026-05-19T18:32:18.455+02:00: Final PR #29 review assessment
+**By:** Nate (Lead)
+
+**Decision:** Treat the remaining Copilot note on `CliDownloadResponseParser` as a real hardening issue worth fixing before merge, but for a narrower reason than stated.
+
+**Why:**
+- Current parser path is `Int64.TryParse(materializedValues[0], out var value)` in `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`.
+- Empirically, default `Int64.TryParse` already rejects culture-specific thousands/grouped inputs such as `1,234` and `1.234`, so the locale-separator part of the note is weaker than it sounds.
+- However, the default overload uses `NumberStyles.Integer`, which still accepts header values with leading/trailing whitespace and explicit `+` signs. For protocol metadata headers, that is looser than the contract should be.
+- Existing parser tests cover missing, duplicated, and obviously malformed headers, but not these semantically malformed numeric forms.
+
+**Expected fix shape:**
+- Parse numeric headers with an explicit invariant culture.
+- Tighten accepted syntax to the exact header contract (prefer ASCII digits only / no whitespace / no explicit plus sign).
+- Add regression tests proving malformed-but-currently-accepted values are rejected.
+- For symmetry, emit CLI numeric response headers using invariant formatting in `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`.
+
+### 2026-05-19T18:34:53.970+02:00: Strict CLI download header parsing
+**By:** Tara (Platform Engineer)
+**Area:** CLI download response validation
+
+**Decision:** Treat streamed numeric download metadata headers as canonical ASCII digit-only integers only. `CliDownloadResponseParser` should reject any header value with leading/trailing whitespace, explicit plus signs, minus signs, or any non-ASCII digit characters before attempting numeric conversion.
+
+**Rationale:** These values are transport metadata, not user-facing numbers. Accepting culture-sensitive or permissive parsing widens the wire contract, makes behavior dependent on parser defaults, and can let malformed headers pass normalization unexpectedly. A strict invariant parser keeps local and CI behavior identical and preserves fail-closed validation for hostile or sloppy intermediaries.
+
+**Applied In:**
+- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+
+### 2026-05-19T18:34:53.970+02:00: Strict Header Parse Review
+**By:** Parker (Tester)
+**Area:** CLI download response validation
+
+**Decision:** Approve the strict integer-header parsing change for CLI download metadata.
+
+**Basis:** Parsing now accepts only canonical digit-only header values, which closes the earlier acceptance of space-padded and plus-prefixed numerics; regression tests explicitly cover those failure modes.
+
+**Validation:** 
+- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` passed
+- `dotnet test ShadowDrop.slnx --no-restore` passed
