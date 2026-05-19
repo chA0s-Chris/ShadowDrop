@@ -143,6 +143,20 @@ public sealed class CliDownloadResponseParserTests
         act.Should().Throw<InvalidDataException>().WithMessage($"*{DownloadHeaderConstants.ChunkSizeHeaderName}*");
     }
 
+    [TestCase(" 128")]
+    [TestCase("128 ")]
+    [TestCase("+128")]
+    public void Parse_ShouldThrowInvalidDataException_WhenRequiredInt64HeaderUsesNonCanonicalIntegerFormat(String headerValue)
+    {
+        using var response = CreateResponse();
+        response.Headers.Remove(DownloadHeaderConstants.TotalPlaintextSizeHeaderName);
+        response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, headerValue);
+
+        var act = () => CliDownloadResponseParser.Parse(response);
+
+        act.Should().Throw<InvalidDataException>().WithMessage($"*{DownloadHeaderConstants.TotalPlaintextSizeHeaderName}*");
+    }
+
     [Test]
     public async Task Parse_ShouldThrowInvalidDataException_WhenTrailingBodyDataAppearsAfterExpectedLength()
     {

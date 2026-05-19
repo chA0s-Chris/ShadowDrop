@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Downloads;
 
 using ShadowDrop.Contracts;
+using System.Globalization;
 using System.Net.Http.Headers;
 
 /// <summary>
@@ -99,12 +100,32 @@ public static class CliDownloadResponseParser
         }
 
         var materializedValues = values.ToArray();
-        if (materializedValues.Length != 1 || !Int64.TryParse(materializedValues[0], out var value))
+        if (materializedValues.Length != 1 || !TryParseCanonicalInt64HeaderValue(materializedValues[0], out var value))
         {
             throw new InvalidDataException($"The streamed CLI download response contains an invalid {headerName} header.");
         }
 
         return value;
+    }
+
+    private static Boolean TryParseCanonicalInt64HeaderValue(String value, out Int64 parsedValue)
+    {
+        if (String.IsNullOrEmpty(value))
+        {
+            parsedValue = default;
+            return false;
+        }
+
+        foreach (var character in value)
+        {
+            if (character is < '0' or > '9')
+            {
+                parsedValue = default;
+                return false;
+            }
+        }
+
+        return Int64.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out parsedValue);
     }
 
     private static void ValidateContentType(MediaTypeHeaderValue? contentType)
