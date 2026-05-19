@@ -114,3 +114,16 @@ Tara delivered strict CLI response header parser hardening:
 - Both API and CLI test suites validated cleanly
 - Ready for next feature cycle
 
+## 2026-05-19T17:32:56Z — PR #29 DownloadAsync Resume Session Preflight Validation (Nate Assessment)
+
+**Event:** Nate assessed latest Copilot review note on PR #29 and recommended fail-closed preflight validation for resumable download sessions.
+
+**Issue:** `CliDownloadSession.DownloadAsync()` trusts `DurablePlaintextLength` and seeks seekable destination streams to that offset without validating `destination.Length == DurablePlaintextLength`. Stale caller state can create gaps or resume from wrong plaintext boundaries.
+
+**Impact on Tara:**
+- `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` requires preflight validation before HTTP request
+- For seekable destinations, must fail closed unless `destination.Length == DurablePlaintextLength`
+- Throw state exception with clear contract message
+- Add regression tests for seekable streams with length shorter and longer than durable state
+- Decision tracked: `.squad/decisions.md` → "Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation"
+

@@ -163,3 +163,18 @@ Parker reviewed Tara's strict header parser hardening:
 - Test evidence captured (CliDownloadResponseParserTests, ApiWalkingSkeletonTests)
 - PR #29 formally closed from review perspective
 
+## 2026-05-19T17:32:56Z — PR #29 DownloadAsync Resume Session Preflight Validation (Test Coverage)
+
+**Event:** Nate assessed Copilot review note and recommended fail-closed preflight validation; Scribe merged decision to canonical record.
+
+**Issue:** `CliDownloadSession.DownloadAsync()` does not validate `destination.Length == DurablePlaintextLength` for seekable streams before seeking and issuing HTTP request.
+
+**Impact on Parker:**
+- Regression test coverage required for `CliDownloadSession` preflight validation
+- Must cover seekable destination with length shorter than durable state (should reject before request)
+- Must cover seekable destination with length longer than durable state (should reject before request)
+- Current coverage only exercises fresh `MemoryStream` and in-memory retry, missing mismatch cases
+- Files to touch: `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` (regression suite)
+- Coordinate with: Tara (for implementation) and Nate (for acceptance)
+- Decision tracked: `.squad/decisions.md` → "Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation"
+

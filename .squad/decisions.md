@@ -2875,3 +2875,26 @@ Approved. Both reported defects are fixed and the regression coverage is suffici
 
 - No code changes requested.
 - No reassignment needed.
+
+# Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation
+
+- **Date:** 2026-05-19T19:32:56.771+02:00
+- **Agent:** Nate
+- **Area:** CLI resumable download stream validation
+
+## Decision
+
+Treat the remaining Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` as a real issue worth fixing before the resumable CLI contract is considered hardened.
+
+## Why
+
+`CliDownloadSession.DownloadAsync()` currently trusts the constructor's `durablePlaintextLength` as the next plaintext offset to request and, when the destination stream is seekable, blindly sets `destination.Position = DurablePlaintextLength`.
+
+That is safe only if the destination already contains exactly that many durable bytes. If the seekable stream is shorter than the supplied durable length, the next write can create a gap/zero-fill region. If resume state is stale in the other direction, the session can request data starting too far ahead and silently preserve or skip the wrong bytes. Current coverage exercises only fresh `MemoryStream` destinations and an in-memory interrupted-session retry, so this mismatch is not currently caught by tests.
+
+## Expected Fix Shape
+
+- Validate resumable state before issuing the HTTP request.
+- For seekable destinations, fail closed unless `destination.Length == DurablePlaintextLength`.
+- Throw an argument/state exception with a clear contract message rather than trying to reconcile mismatched caller state automatically.
+- Add regression tests for seekable destinations where length is shorter and longer than the supplied durable length; both should reject before sending any request.
