@@ -64,3 +64,9 @@ Inspected codebase to identify surfaces affected by plan 0027 decision: CLI subs
 - Direct-HTTP download path remains stable (uses different mode branch).
 - Share creation, upload, token generation unchanged.
 - Core encryption/decryption and chunk-mapping logic remains the same.
+
+## Session: Team Integration (2026-05-19T13:14:01Z)
+Both Eliot and Sophie completed targeted fixes in download service handling.
+- Eliot: DownloadFileService range header validation (23 tests passing)
+- Sophie: LengthValidatingReadStream disposal fix (CliDownloadResponseParserTests validated)
+Ready for integration.

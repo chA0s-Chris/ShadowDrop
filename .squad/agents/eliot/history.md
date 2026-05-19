@@ -216,3 +216,9 @@ date: 2026-05-18T23:24:50.124+02:00
 - Clarify if plaintextStart/End are only invalid when `mode=cli`, or deprecated entirely for CLI
 - Lock the exact point where mode validation occurs (endpoint vs service vs helper)
 - Decide if DownloadFileService should bundle (mode, rangeHeader, plaintextStart/End) into request object to reduce overload sprawl
+
+## Session: Team Integration (2026-05-19T13:14:01Z)
+Both Eliot and Sophie completed targeted fixes in download service handling.
+- Eliot: DownloadFileService range header validation (23 tests passing)
+- Sophie: LengthValidatingReadStream disposal fix (CliDownloadResponseParserTests validated)
+Ready for integration.
