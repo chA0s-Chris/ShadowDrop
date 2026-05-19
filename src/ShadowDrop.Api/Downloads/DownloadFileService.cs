@@ -8,13 +8,10 @@ using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using System.Security.Cryptography;
-using System.Text.Json;
 
 public sealed class DownloadFileService
 {
     private const Int32 AesGcmTagLength = 16;
-    private static readonly Byte[] CliEncryptedPayloadMarker = "\"encryptedPayload\":\"\""u8.ToArray();
-    private static readonly Byte[] CliEncryptedPayloadPrefix = "\"encryptedPayload\":\""u8.ToArray();
     private readonly IBlobStorage _blobStorage;
     private readonly IShareMetadataRepository _shareMetadataRepository;
     private readonly TimeProvider _timeProvider;
@@ -31,56 +28,39 @@ public sealed class DownloadFileService
         _timeProvider = timeProvider;
     }
 
-    public async Task<DownloadLookupResult> ResolveAsync(String shareToken,
-                                                         Guid fileId,
-                                                         String? authorizationBearerToken,
-                                                         String? headerKeyMaterial,
-                                                         String? queryKeyMaterial,
-                                                         CancellationToken cancellationToken) =>
-        await ResolveAsync(shareToken,
-                           fileId,
-                           authorizationBearerToken,
-                           headerKeyMaterial,
-                           queryKeyMaterial,
-                           null,
-                           null,
-                           null,
-                           cancellationToken);
-
-    public async Task<DownloadLookupResult> ResolveAsync(String shareToken,
-                                                         Guid fileId,
-                                                         String? authorizationBearerToken,
-                                                         String? headerKeyMaterial,
-                                                         String? queryKeyMaterial,
-                                                         Int64? plaintextStart,
-                                                         Int64? plaintextEndExclusive,
-                                                         CancellationToken cancellationToken) =>
-        await ResolveAsync(shareToken,
-                           fileId,
-                           authorizationBearerToken,
-                           headerKeyMaterial,
-                           queryKeyMaterial,
-                           null,
-                           plaintextStart,
-                           plaintextEndExclusive,
-                           cancellationToken);
-
-    public async Task<DownloadLookupResult> ResolveAsync(String shareToken,
-                                                         Guid fileId,
-                                                         String? authorizationBearerToken,
-                                                         String? headerKeyMaterial,
-                                                         String? queryKeyMaterial,
-                                                         String? rangeHeader,
-                                                         Int64? plaintextStart,
-                                                         Int64? plaintextEndExclusive,
-                                                         CancellationToken cancellationToken)
+    public Task<DownloadLookupResult> ResolveAsync(String shareToken,
+                                                   Guid fileId,
+                                                   String? mode,
+                                                   String? authorizationBearerToken,
+                                                   String? headerKeyMaterial,
+                                                   String? queryKeyMaterial,
+                                                   String? rangeHeader,
+                                                   CancellationToken cancellationToken)
     {
-        if (String.IsNullOrWhiteSpace(shareToken))
+        var requestMode = String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase)
+            ? DownloadRequestMode.Cli
+            : DownloadRequestMode.DirectHttp;
+        var requestedRange = String.IsNullOrWhiteSpace(rangeHeader)
+            ? null
+            : ParseRequestedByteRange(rangeHeader);
+        return ResolveAsync(new(requestMode,
+                                shareToken,
+                                fileId,
+                                authorizationBearerToken,
+                                headerKeyMaterial,
+                                queryKeyMaterial,
+                                requestedRange),
+                            cancellationToken);
+    }
+
+    public async Task<DownloadLookupResult> ResolveAsync(DownloadRequest request, CancellationToken cancellationToken)
+    {
+        if (String.IsNullOrWhiteSpace(request.ShareToken))
         {
             return new(DownloadLookupStatus.InvalidShare);
         }
 
-        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(shareToken), cancellationToken);
+        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(request.ShareToken), cancellationToken);
         if (share is null || share.RevokedAtUtc is not null)
         {
             return new(DownloadLookupStatus.InvalidShare);
@@ -94,47 +74,51 @@ public sealed class DownloadFileService
 
         if (share.DownloadBearerToken is not null)
         {
-            if (String.IsNullOrWhiteSpace(authorizationBearerToken))
+            if (String.IsNullOrWhiteSpace(request.AuthorizationBearerToken))
             {
                 return new(DownloadLookupStatus.Forbidden);
             }
 
             if (share.DownloadBearerToken.ExpiresAtUtc < now
-                || !TokenHashing.MatchesStoredHash(authorizationBearerToken, share.DownloadBearerToken.TokenHashBase64))
+                || !TokenHashing.MatchesStoredHash(request.AuthorizationBearerToken, share.DownloadBearerToken.TokenHashBase64))
             {
                 return new(DownloadLookupStatus.Forbidden);
             }
         }
 
-        var fileEntry = share.Files.SingleOrDefault(file => file.FileId == fileId);
+        var fileEntry = share.Files.SingleOrDefault(file => file.FileId == request.FileId);
         if (fileEntry is null)
         {
             return new(DownloadLookupStatus.NotFound);
         }
 
-        var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileId, cancellationToken);
+        var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(request.FileId, cancellationToken);
         if (uploadedFile is null)
         {
             return new(DownloadLookupStatus.NotFound);
         }
 
-        var rangeResolution = ResolveRequestedRange(uploadedFile, rangeHeader, plaintextStart, plaintextEndExclusive);
-        if (rangeResolution.Status != DownloadLookupStatus.Success)
+        if (request.Mode == DownloadRequestMode.DirectHttp)
         {
-            return new(rangeResolution.Status);
-        }
+            if (!share.DirectHttpEnabled)
+            {
+                return new(DownloadLookupStatus.InvalidRequest);
+            }
 
-        var mode = share.DirectHttpEnabled ? DownloadMode.DirectHttp : DownloadMode.CliDecrypt;
-        if (mode == DownloadMode.DirectHttp)
-        {
-            var hasHeaderKey = !String.IsNullOrWhiteSpace(headerKeyMaterial);
-            var hasQueryKey = !String.IsNullOrWhiteSpace(queryKeyMaterial);
+            var rangeResolution = ResolveDirectHttpRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
+            if (rangeResolution.Status != DownloadLookupStatus.Success)
+            {
+                return new(rangeResolution.Status);
+            }
+
+            var hasHeaderKey = !String.IsNullOrWhiteSpace(request.HeaderKeyMaterial);
+            var hasQueryKey = !String.IsNullOrWhiteSpace(request.QueryKeyMaterial);
             if (hasHeaderKey == hasQueryKey)
             {
                 return new(DownloadLookupStatus.InvalidRequest);
             }
 
-            var presentedKeyMaterial = !String.IsNullOrWhiteSpace(headerKeyMaterial) ? headerKeyMaterial : queryKeyMaterial;
+            var presentedKeyMaterial = hasHeaderKey ? request.HeaderKeyMaterial : request.QueryKeyMaterial;
             var directHttpOpenResult = await TryOpenDirectHttpContentAsync(uploadedFile,
                                                                            presentedKeyMaterial!,
                                                                            rangeResolution.RequestedRange,
@@ -145,42 +129,50 @@ public sealed class DownloadFileService
             }
 
             return new(DownloadLookupStatus.Success,
-                       new(mode,
+                       new(DownloadMode.DirectHttp,
                            share.ShareId,
-                           fileId,
+                           request.FileId,
                            fileEntry.DisplayName ?? fileEntry.OriginalFileName,
                            uploadedFile.ContentType ?? "application/octet-stream",
                            uploadedFile.ContentType ?? "application/octet-stream",
                            rangeResolution.RequestedRange?.End - rangeResolution.RequestedRange?.Start ?? uploadedFile.PlaintextLength,
                            directHttpOpenResult.Content,
                            uploadedFile.PlaintextLength,
-                           rangeResolution.RequestedRange));
+                           rangeResolution.RequestedRange,
+                           null));
         }
 
-        var cliRequestedRange = rangeResolution.RequestedRange ?? new RequestedPlaintextRangeContract
+        if (share.DirectHttpEnabled)
         {
-            Start = 0,
-            End = uploadedFile.PlaintextLength
-        };
-        var cliDecryptOpenResult = await TryOpenCliDecryptContentAsync(uploadedFile,
-                                                                       cliRequestedRange,
-                                                                       cancellationToken);
-        if (cliDecryptOpenResult.Status != DownloadLookupStatus.Success || cliDecryptOpenResult.Content is null)
+            return new(DownloadLookupStatus.InvalidRequest);
+        }
+
+        var cliRangeResolution = ResolveCliRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
+        if (cliRangeResolution.Status != DownloadLookupStatus.Success || cliRangeResolution.RequestedRange is null)
         {
-            return new(cliDecryptOpenResult.Status);
+            return new(cliRangeResolution.Status);
+        }
+
+        var cliOpenResult = await TryOpenCliContentAsync(uploadedFile,
+                                                         cliRangeResolution.RequestedRange,
+                                                         cancellationToken);
+        if (cliOpenResult.Status != DownloadLookupStatus.Success || cliOpenResult.Content is null || cliOpenResult.Metadata is null)
+        {
+            return new(cliOpenResult.Status);
         }
 
         return new(DownloadLookupStatus.Success,
-                   new(mode,
+                   new(DownloadMode.Cli,
                        share.ShareId,
-                       fileId,
+                       request.FileId,
                        fileEntry.DisplayName ?? fileEntry.OriginalFileName,
                        uploadedFile.ContentType ?? "application/octet-stream",
-                       "application/json",
-                       cliDecryptOpenResult.ContentLength,
-                       cliDecryptOpenResult.Content,
+                       DownloadHeaderConstants.CliDownloadContentType,
+                       cliOpenResult.ContentLength,
+                       cliOpenResult.Content,
                        uploadedFile.PlaintextLength,
-                       rangeResolution.IsPartial ? cliRequestedRange : null));
+                       cliRangeResolution.IsPartial ? cliRangeResolution.RequestedRange : null,
+                       cliOpenResult.Metadata));
     }
 
     internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(String keyMaterial,
@@ -202,47 +194,6 @@ public sealed class DownloadFileService
                 CryptographicOperations.ZeroMemory(secretBytes);
             }
         }
-    }
-
-    private static async Task<CliDecryptJsonStream> CreateCliDecryptJsonStreamAsync(Stream encryptedContent,
-                                                                                    UploadedFileRecord uploadedFile,
-                                                                                    CliResumableDownloadContract contract,
-                                                                                    ChunkRange chunkRange,
-                                                                                    CancellationToken cancellationToken)
-    {
-        var encryptedOffset = GetEncryptedOffsetForChunkIndex(uploadedFile, chunkRange.FirstChunkIndex);
-        var encryptedLength = GetEncryptedLengthForChunkSpan(uploadedFile,
-                                                             chunkRange.FirstChunkIndex,
-                                                             chunkRange.LastChunkIndex);
-        await SkipAsync(encryptedContent, encryptedOffset, cancellationToken);
-
-        var template = JsonSerializer.SerializeToUtf8Bytes(contract, ContractsJsonSerializerContext.Default.CliResumableDownloadContract);
-        var payloadMarkerIndex = FindSubsequence(template, CliEncryptedPayloadMarker);
-        if (payloadMarkerIndex < 0)
-        {
-            throw new InvalidOperationException("The CLI resumable-download contract template is missing the encrypted payload marker.");
-        }
-
-        var payloadPrefixLength = payloadMarkerIndex + CliEncryptedPayloadPrefix.Length;
-        return new(template, payloadPrefixLength, encryptedLength, encryptedContent);
-    }
-
-    private static Int32 FindSubsequence(Byte[] haystack, Byte[] needle)
-    {
-        if (needle.Length == 0)
-        {
-            return 0;
-        }
-
-        for (var startIndex = 0; startIndex <= haystack.Length - needle.Length; startIndex++)
-        {
-            if (haystack.AsSpan(startIndex, needle.Length).SequenceEqual(needle))
-            {
-                return startIndex;
-            }
-        }
-
-        return -1;
     }
 
     private static Int64 GetEncryptedLengthForChunkSpan(UploadedFileRecord uploadedFile, Int64 firstChunkIndex, Int64 lastChunkIndex)
@@ -322,31 +273,83 @@ public sealed class DownloadFileService
         return checked(chunkCount * uploadedFile.ChunkSize);
     }
 
-    private static RangeResolution ResolveHeaderRange(Int64 totalPlaintextLength, String rangeHeader)
+    private static RequestedByteRange? ParseRequestedByteRange(String rangeHeader)
     {
         if (!RangeHeaderValue.TryParse(rangeHeader, out var parsedRange)
             || !String.Equals(parsedRange.Unit.ToString(), "bytes", StringComparison.OrdinalIgnoreCase)
             || parsedRange.Ranges.Count != 1)
         {
-            return new(DownloadLookupStatus.InvalidRange, null, false);
+            return null;
         }
 
         var range = parsedRange.Ranges.Single();
         if (range.From is null && range.To is null)
         {
+            return null;
+        }
+
+        return new(range.From, range.To);
+    }
+
+    private static RangeResolution ResolveCliRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
+    {
+        if (requestedRange is null)
+        {
+            return new(DownloadLookupStatus.Success,
+                       new()
+                       {
+                           Start = 0,
+                           End = totalPlaintextLength
+                       },
+                       false);
+        }
+
+        if (requestedRange.Start is null || requestedRange.EndInclusive is null)
+        {
             return new(DownloadLookupStatus.InvalidRange, null, false);
+        }
+
+        var start = requestedRange.Start.Value;
+        var endInclusive = requestedRange.EndInclusive.Value;
+        if (start < 0 || endInclusive < start)
+        {
+            return new(DownloadLookupStatus.InvalidRange, null, false);
+        }
+
+        if (start >= totalPlaintextLength)
+        {
+            return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
+        }
+
+        var endExclusive = endInclusive >= totalPlaintextLength
+            ? totalPlaintextLength
+            : checked(endInclusive + 1);
+        return new(DownloadLookupStatus.Success,
+                   new()
+                   {
+                       Start = start,
+                       End = endExclusive
+                   },
+                   true);
+    }
+
+    private static RangeResolution ResolveDirectHttpRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
+    {
+        if (requestedRange is null)
+        {
+            return new(DownloadLookupStatus.Success, null, false);
         }
 
         Int64 start;
         Int64 endExclusive;
-        if (range.From is null)
+        if (requestedRange.Start is null)
         {
-            if (range.To is null || range.To <= 0)
+            if (requestedRange.EndInclusive is null || requestedRange.EndInclusive <= 0)
             {
                 return new(DownloadLookupStatus.InvalidRange, null, false);
             }
 
-            var suffixLength = Math.Min(range.To.Value, totalPlaintextLength);
+            var suffixLength = Math.Min(requestedRange.EndInclusive.Value, totalPlaintextLength);
             if (suffixLength == 0)
             {
                 return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
@@ -357,7 +360,7 @@ public sealed class DownloadFileService
         }
         else
         {
-            start = range.From.Value;
+            start = requestedRange.Start.Value;
             if (start < 0)
             {
                 return new(DownloadLookupStatus.InvalidRange, null, false);
@@ -368,15 +371,15 @@ public sealed class DownloadFileService
                 return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
             }
 
-            if (range.To is not null && range.To < range.From)
+            if (requestedRange.EndInclusive is not null && requestedRange.EndInclusive < start)
             {
                 return new(DownloadLookupStatus.InvalidRange, null, false);
             }
 
-            var endInclusive = range.To is null || range.To.Value >= totalPlaintextLength
+            var endInclusive = requestedRange.EndInclusive is null || requestedRange.EndInclusive.Value >= totalPlaintextLength
                 ? totalPlaintextLength - 1
-                : range.To.Value;
-            endExclusive = endInclusive + 1;
+                : requestedRange.EndInclusive.Value;
+            endExclusive = checked(endInclusive + 1);
         }
 
         return new(DownloadLookupStatus.Success,
@@ -384,57 +387,6 @@ public sealed class DownloadFileService
                    {
                        Start = start,
                        End = endExclusive
-                   },
-                   true);
-    }
-
-    private static RangeResolution ResolveRequestedRange(UploadedFileRecord uploadedFile,
-                                                         String? rangeHeader,
-                                                         Int64? plaintextStart,
-                                                         Int64? plaintextEndExclusive)
-    {
-        var hasQueryRange = plaintextStart is not null || plaintextEndExclusive is not null;
-        var hasHeaderRange = !String.IsNullOrWhiteSpace(rangeHeader);
-        if (hasHeaderRange && hasQueryRange)
-        {
-            return new(DownloadLookupStatus.InvalidRange, null, false);
-        }
-
-        if (hasHeaderRange)
-        {
-            return ResolveHeaderRange(uploadedFile.PlaintextLength, rangeHeader!);
-        }
-
-        if (!hasQueryRange)
-        {
-            return new(DownloadLookupStatus.Success, null, false);
-        }
-
-        if (plaintextStart == Int64.MinValue || plaintextEndExclusive == Int64.MinValue)
-        {
-            return new(DownloadLookupStatus.InvalidRequest, null, false);
-        }
-
-        if (plaintextStart is null || plaintextEndExclusive is null)
-        {
-            return new(DownloadLookupStatus.InvalidRequest, null, false);
-        }
-
-        if (plaintextStart < 0 || plaintextEndExclusive <= plaintextStart)
-        {
-            return new(DownloadLookupStatus.InvalidRequest, null, false);
-        }
-
-        if (plaintextStart >= uploadedFile.PlaintextLength || plaintextEndExclusive > uploadedFile.PlaintextLength)
-        {
-            return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
-        }
-
-        return new(DownloadLookupStatus.Success,
-                   new()
-                   {
-                       Start = plaintextStart.Value,
-                       End = plaintextEndExclusive.Value
                    },
                    true);
     }
@@ -467,9 +419,9 @@ public sealed class DownloadFileService
         }
     }
 
-    private async Task<CliDecryptOpenResult> TryOpenCliDecryptContentAsync(UploadedFileRecord uploadedFile,
-                                                                           RequestedPlaintextRangeContract requestedRange,
-                                                                           CancellationToken cancellationToken)
+    private async Task<CliOpenResult> TryOpenCliContentAsync(UploadedFileRecord uploadedFile,
+                                                             RequestedPlaintextRangeContract requestedRange,
+                                                             CancellationToken cancellationToken)
     {
         Stream? encryptedContent = null;
 
@@ -482,27 +434,29 @@ public sealed class DownloadFileService
             encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
             if (encryptedContent is null)
             {
-                return new(DownloadLookupStatus.NotFound, null, 0);
+                return new(DownloadLookupStatus.NotFound, null, 0, null);
             }
 
-            var contract = new CliResumableDownloadContract
+            var encryptedOffset = GetEncryptedOffsetForChunkIndex(uploadedFile, chunkRange.FirstChunkIndex);
+            var encryptedLength = GetEncryptedLengthForChunkSpan(uploadedFile, chunkRange.FirstChunkIndex, chunkRange.LastChunkIndex);
+            await SkipAsync(encryptedContent, encryptedOffset, cancellationToken);
+
+            var metadata = new CliDownloadMetadataContract
             {
                 FirstChunkIndex = chunkRange.FirstChunkIndex,
                 LastChunkIndex = chunkRange.LastChunkIndex,
-                EncryptedPayload = String.Empty,
                 RequestedRange = requestedRange,
                 TotalPlaintextSize = uploadedFile.PlaintextLength,
                 ChunkSize = uploadedFile.ChunkSize,
                 FinalChunkPlaintextLength = GetFinalChunkPlaintextLength(uploadedFile)
             };
 
-            var content = await CreateCliDecryptJsonStreamAsync(encryptedContent,
-                                                                uploadedFile,
-                                                                contract,
-                                                                chunkRange,
-                                                                cancellationToken);
+            var content = new LengthLimitingReadStream(encryptedContent, encryptedLength);
             encryptedContent = null;
-            return new(DownloadLookupStatus.Success, content, content.Length);
+            return new(DownloadLookupStatus.Success,
+                       content,
+                       encryptedLength,
+                       metadata);
         }
         catch (Exception exception) when (exception is ArgumentException
                                                        or ArgumentOutOfRangeException
@@ -516,7 +470,7 @@ public sealed class DownloadFileService
                 await encryptedContent.DisposeAsync();
             }
 
-            return new(DownloadLookupStatus.InvalidRequest, null, 0);
+            return new(DownloadLookupStatus.InvalidRequest, null, 0, null);
         }
     }
 
@@ -575,326 +529,7 @@ public sealed class DownloadFileService
         }
     }
 
-    private sealed class Base64EncodingStream(Stream source, Int64 sourceLength) : Stream
-    {
-        private const Int32 InputBufferSize = 12 * 1024;
-        private readonly ToBase64Transform _base64Transform = new();
-        private readonly Byte[] _carryBuffer = new Byte[2];
-        private readonly Byte[] _inputBuffer = new Byte[InputBufferSize];
-        private readonly Stream _source = source;
-        private readonly Int64 _sourceLength = sourceLength;
-        private Boolean _disposed;
-        private Byte[] _encodedBuffer = [];
-        private Int32 _encodedBufferLength;
-        private Int32 _encodedBufferOffset;
-        private Boolean _hasCompletedTransform;
-        private Int32 _pendingCarryCount;
-        private Int64 _remainingSourceBytes = sourceLength;
-
-        public override Boolean CanRead => !_disposed;
-        public override Boolean CanSeek => false;
-        public override Boolean CanWrite => false;
-        public override Int64 Length => GetEncodedLength(_sourceLength);
-
-        public override Int64 Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public static Int64 GetEncodedLength(Int64 sourceLength) => checked((sourceLength + 2) / 3 * 4);
-
-        public override async ValueTask DisposeAsync()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            CryptographicOperations.ZeroMemory(_carryBuffer);
-            CryptographicOperations.ZeroMemory(_inputBuffer);
-            CryptographicOperations.ZeroMemory(_encodedBuffer);
-            _base64Transform.Dispose();
-            await _source.DisposeAsync();
-            await base.DisposeAsync();
-        }
-
-        public override void Flush() => throw new NotSupportedException();
-
-        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
-            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
-            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
-
-        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (buffer.IsEmpty)
-            {
-                return 0;
-            }
-
-            var totalBytesRead = 0;
-            while (totalBytesRead < buffer.Length)
-            {
-                if (_encodedBufferOffset < _encodedBufferLength)
-                {
-                    var bytesToCopy = Math.Min(buffer.Length - totalBytesRead, _encodedBufferLength - _encodedBufferOffset);
-                    _encodedBuffer.AsSpan(_encodedBufferOffset, bytesToCopy).CopyTo(buffer.Span[totalBytesRead..]);
-                    _encodedBufferOffset += bytesToCopy;
-                    totalBytesRead += bytesToCopy;
-                    continue;
-                }
-
-                if (_hasCompletedTransform)
-                {
-                    return totalBytesRead;
-                }
-
-                await FillEncodedBufferAsync(cancellationToken);
-            }
-
-            return totalBytesRead;
-        }
-
-        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(Int64 value) => throw new NotSupportedException();
-        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
-
-        protected override void Dispose(Boolean disposing)
-        {
-            if (disposing && !_disposed)
-            {
-                _disposed = true;
-                CryptographicOperations.ZeroMemory(_carryBuffer);
-                CryptographicOperations.ZeroMemory(_inputBuffer);
-                CryptographicOperations.ZeroMemory(_encodedBuffer);
-                _base64Transform.Dispose();
-                _source.Dispose();
-            }
-
-            base.Dispose(disposing);
-        }
-
-        private void EnsureEncodedBufferCapacity(Int32 requiredLength)
-        {
-            if (_encodedBuffer.Length >= requiredLength)
-            {
-                return;
-            }
-
-            if (_encodedBuffer.Length > 0)
-            {
-                CryptographicOperations.ZeroMemory(_encodedBuffer);
-            }
-
-            _encodedBuffer = new Byte[requiredLength];
-        }
-
-        private async Task FillEncodedBufferAsync(CancellationToken cancellationToken)
-        {
-            while (true)
-            {
-                if (_remainingSourceBytes == 0)
-                {
-                    _encodedBuffer = _pendingCarryCount == 0
-                        ? []
-                        : _base64Transform.TransformFinalBlock(_carryBuffer, 0, _pendingCarryCount);
-                    _encodedBufferLength = _encodedBuffer.Length;
-                    _encodedBufferOffset = 0;
-                    _pendingCarryCount = 0;
-                    _hasCompletedTransform = true;
-                    return;
-                }
-
-                if (_pendingCarryCount > 0)
-                {
-                    _carryBuffer.AsSpan(0, _pendingCarryCount).CopyTo(_inputBuffer);
-                }
-
-                var bytesToRead = (Int32)Math.Min(_inputBuffer.Length - _pendingCarryCount, _remainingSourceBytes);
-                var bytesRead = await _source.ReadAsync(_inputBuffer.AsMemory(_pendingCarryCount, bytesToRead), cancellationToken);
-                if (bytesRead == 0)
-                {
-                    throw new EndOfStreamException("Unexpected end of encrypted content while Base64-encoding the CLI response payload.");
-                }
-
-                _remainingSourceBytes -= bytesRead;
-
-                var totalInputBytes = _pendingCarryCount + bytesRead;
-                var fullBlockByteCount = totalInputBytes / 3 * 3;
-                var remainingBytes = totalInputBytes - fullBlockByteCount;
-
-                if (fullBlockByteCount == 0)
-                {
-                    _inputBuffer.AsSpan(0, remainingBytes).CopyTo(_carryBuffer);
-                    _pendingCarryCount = remainingBytes;
-                    continue;
-                }
-
-                var encodedLength = _base64Transform.OutputBlockSize * (fullBlockByteCount / _base64Transform.InputBlockSize);
-                EnsureEncodedBufferCapacity(encodedLength);
-                _encodedBufferLength = _base64Transform.TransformBlock(_inputBuffer, 0, fullBlockByteCount, _encodedBuffer, 0);
-                _encodedBufferOffset = 0;
-
-                if (remainingBytes > 0)
-                {
-                    _inputBuffer.AsSpan(fullBlockByteCount, remainingBytes).CopyTo(_carryBuffer);
-                }
-
-                _pendingCarryCount = remainingBytes;
-                return;
-            }
-        }
-    }
-
-    private sealed class CliDecryptJsonStream : Stream
-    {
-        private readonly Base64EncodingStream _base64PayloadStream;
-        private readonly Int64 _length;
-        private readonly Int32 _payloadSuffixOffset;
-        private readonly Byte[] _template;
-        private Boolean _disposed;
-        private StreamPhase _phase;
-        private Int32 _templateOffset;
-
-        public CliDecryptJsonStream(Byte[] template, Int32 payloadPrefixLength, Int64 encryptedPayloadLength, Stream encryptedContent)
-        {
-            _template = template;
-            _payloadSuffixOffset = payloadPrefixLength;
-            _base64PayloadStream = new(encryptedContent, encryptedPayloadLength);
-            _length = checked(payloadPrefixLength
-                              + Base64EncodingStream.GetEncodedLength(encryptedPayloadLength)
-                              + (template.LongLength - payloadPrefixLength));
-        }
-
-        public override Boolean CanRead => !_disposed;
-        public override Boolean CanSeek => false;
-        public override Boolean CanWrite => false;
-        public override Int64 Length => _length;
-
-        public override Int64 Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override async ValueTask DisposeAsync()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            await _base64PayloadStream.DisposeAsync();
-            await base.DisposeAsync();
-        }
-
-        public override void Flush() => throw new NotSupportedException();
-
-        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
-            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
-
-        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
-            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
-
-        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (buffer.IsEmpty)
-            {
-                return 0;
-            }
-
-            var totalBytesRead = 0;
-            while (totalBytesRead < buffer.Length)
-            {
-                switch (_phase)
-                {
-                    case StreamPhase.TemplatePrefix:
-                        totalBytesRead += CopyTemplateBytes(buffer.Span[totalBytesRead..], _payloadSuffixOffset);
-                        if (_templateOffset >= _payloadSuffixOffset)
-                        {
-                            _phase = StreamPhase.Base64Payload;
-                        }
-
-                        break;
-                    case StreamPhase.Base64Payload:
-                        var payloadBytesRead = await _base64PayloadStream.ReadAsync(buffer[totalBytesRead..], cancellationToken);
-                        totalBytesRead += payloadBytesRead;
-                        if (payloadBytesRead == 0)
-                        {
-                            _phase = StreamPhase.TemplateSuffix;
-                        }
-
-                        break;
-                    case StreamPhase.TemplateSuffix:
-                        totalBytesRead += CopyTemplateBytes(buffer.Span[totalBytesRead..], _template.Length);
-                        if (_templateOffset >= _template.Length)
-                        {
-                            _phase = StreamPhase.Completed;
-                        }
-
-                        break;
-                    case StreamPhase.Completed:
-                        return totalBytesRead;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
-
-                if (totalBytesRead == 0)
-                {
-                    return 0;
-                }
-            }
-
-            return totalBytesRead;
-        }
-
-        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(Int64 value) => throw new NotSupportedException();
-        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
-
-        protected override void Dispose(Boolean disposing)
-        {
-            if (disposing && !_disposed)
-            {
-                _disposed = true;
-                _base64PayloadStream.Dispose();
-            }
-
-            base.Dispose(disposing);
-        }
-
-        private Int32 CopyTemplateBytes(Span<Byte> destination, Int32 endExclusive)
-        {
-            var remainingTemplateBytes = endExclusive - _templateOffset;
-            if (remainingTemplateBytes <= 0)
-            {
-                return 0;
-            }
-
-            var bytesToCopy = Math.Min(destination.Length, remainingTemplateBytes);
-            _template.AsSpan(_templateOffset, bytesToCopy).CopyTo(destination);
-            _templateOffset += bytesToCopy;
-            return bytesToCopy;
-        }
-
-        private enum StreamPhase
-        {
-            TemplatePrefix,
-            Base64Payload,
-            TemplateSuffix,
-            Completed
-        }
-    }
-
-    private sealed record CliDecryptOpenResult(DownloadLookupStatus Status, Stream? Content, Int64 ContentLength);
+    private sealed record CliOpenResult(DownloadLookupStatus Status, Stream? Content, Int64 ContentLength, CliDownloadMetadataContract? Metadata);
 
     private sealed class DirectHttpDecryptingStream : Stream
     {
@@ -1145,6 +780,80 @@ public sealed class DownloadFileService
     }
 
     private sealed record DirectHttpOpenResult(DownloadLookupStatus Status, Stream? Content);
+
+    private sealed class LengthLimitingReadStream(Stream source, Int64 sourceLength) : Stream
+    {
+        private readonly Stream _source = source;
+        private readonly Int64 _sourceLength = sourceLength;
+        private Boolean _disposed;
+        private Int64 _remainingSourceBytes = sourceLength;
+
+        public override Boolean CanRead => !_disposed;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => false;
+        public override Int64 Length => _sourceLength;
+
+        public override Int64 Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            await _source.DisposeAsync();
+            await base.DisposeAsync();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
+            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (buffer.IsEmpty || _remainingSourceBytes == 0)
+            {
+                return 0;
+            }
+
+            var bytesToRead = (Int32)Math.Min(buffer.Length, _remainingSourceBytes);
+            var bytesRead = await _source.ReadAsync(buffer[..bytesToRead], cancellationToken);
+            if (bytesRead == 0)
+            {
+                throw new EndOfStreamException("Unexpected end of encrypted content while streaming the CLI response payload.");
+            }
+
+            _remainingSourceBytes -= bytesRead;
+            return bytesRead;
+        }
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing && !_disposed)
+            {
+                _disposed = true;
+                _source.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
 }

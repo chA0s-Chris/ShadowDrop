@@ -14,4 +14,5 @@ public sealed record DownloadFileResolution(
     Int64 ResponseContentLength,
     Stream ContentStream,
     Int64 TotalPlaintextLength,
-    RequestedPlaintextRangeContract? RequestedRange);
+    RequestedPlaintextRangeContract? RequestedRange,
+    CliDownloadMetadataContract? CliMetadata);

@@ -4,6 +4,6 @@ namespace ShadowDrop.Api.Downloads;
 
 public enum DownloadMode
 {
-    CliDecrypt = 0,
+    Cli = 0,
     DirectHttp = 1
 }

@@ -2,8 +2,6 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Contracts;
 
-using System.Text.Json.Serialization;
-
 /// <summary>
 /// Describes the plaintext byte range requested by a resumable download client.
 /// </summary>
@@ -12,14 +10,10 @@ public sealed record RequestedPlaintextRangeContract
     /// <summary>
     /// Gets or sets the exclusive end offset of the requested plaintext range.
     /// </summary>
-    [JsonPropertyName("end")]
-    [JsonPropertyOrder(1)]
     public Int64 End { get; init; }
 
     /// <summary>
     /// Gets or sets the zero-based start offset of the requested plaintext range.
     /// </summary>
-    [JsonPropertyName("start")]
-    [JsonPropertyOrder(0)]
     public Int64 Start { get; init; }
 }
