@@ -2789,3 +2789,33 @@ The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` over
 **Validation:** 
 - `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` passed
 - `dotnet test ShadowDrop.slnx --no-restore` passed
+
+### 2026-05-19T18:49:22.425+02:00: Nate — PR #29 Latest Review Assessment
+**By:** Nate (Lead)
+**Area:** PR #29 Review & Assessment
+
+**Decision:** Assess the three open Copilot review notes on PR #29 as follows:
+
+1. **`DownloadEndpoints.cs` culture-sensitive numeric header emission — valid, fix now.**
+   - CLI response headers are written with plain `ToString()` for chunk indices, range bounds, total size, chunk size, and final chunk length.
+   - `CliDownloadResponseParser` now enforces canonical ASCII digit-only integers, so a server running under a culture that emits non-ASCII digits can produce headers the CLI rejects.
+   - Expected fix shape: format every CLI numeric metadata header with `CultureInfo.InvariantCulture`, then add an API/CLI regression proving canonical wire values stay parseable.
+
+2. **`CliDownloadResponseParser.cs` missing final-chunk consistency check — valid, fix now.**
+   - `ValidateMetadata()` bounds `FinalChunkPlaintextLength` to `1..ChunkSize`, but it does not prove that `TotalPlaintextSize == ((chunkCount - 1) * ChunkSize) + FinalChunkPlaintextLength`.
+   - That leaves room for metadata that names a smaller total plaintext size but a larger final chunk length to pass validation and influence expected encrypted-length math.
+   - Expected fix shape: derive the expected final chunk plaintext length from total size + chunk size (with checked arithmetic) and require equality before accepting metadata; add hostile-metadata parser tests.
+
+3. **`DownloadRequest.cs` suffix-range overload on `EndInclusive` — not worth fixing in this PR.**
+   - Current code contains the ambiguity inside one narrow model and immediately disambiguates by checking `Start is null` in `ResolveDirectHttpRequestedRange()`.
+   - CLI mode rejects suffix/open-ended forms outright, and no current caller assumes `EndInclusive` is always a literal inclusive end index.
+   - This is a design smell worth cleaning up only if range handling expands; preferred future shape would be an explicit range kind or dedicated suffix-length field.
+
+**Supporting paths:**
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
+- `src/ShadowDrop.Api/Downloads/DownloadRequest.cs`
+- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+- `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
+- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`

@@ -122,3 +122,9 @@ Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Park
 - Parker validated: regression tests cover malformed-but-previously-accepted forms; all tests pass (207 total)
 
 **Decision tracked:** `.squad/decisions.md` → "Final PR #29 review assessment" and "Strict CLI download header parsing"
+
+## Learnings
+
+- 2026-05-19T18:49:22.425+02:00: PR #29 follow-up assessment: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` emits CLI numeric metadata headers with plain `ToString()`, which is a real contract risk because `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now accepts only ASCII digit canonical integers.
+- 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` still needs a cross-check that `TotalPlaintextSize`, `ChunkSize`, computed chunk count, and `FinalChunkPlaintextLength` describe the same final chunk; otherwise semantically inconsistent metadata can pass and skew encrypted-length expectations.
+- 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Api/Downloads/DownloadRequest.cs` models suffix ranges by reusing `RequestedByteRange.EndInclusive`, but current consumers in `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` branch on `Start is null`, so this is a maintainability smell rather than an active bug today.

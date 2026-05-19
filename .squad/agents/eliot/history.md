@@ -222,3 +222,20 @@ Both Eliot and Sophie completed targeted fixes in download service handling.
 - Eliot: DownloadFileService range header validation (23 tests passing)
 - Sophie: LengthValidatingReadStream disposal fix (CliDownloadResponseParserTests validated)
 Ready for integration.
+
+## 2026-05-19T16:52:49Z: PR #29 Fix Assignment — Numeric Header Invariant Culture
+
+**From:** Scribe (post-Nate review assessment)
+**Status:** Awaiting coordinator spawn
+
+**Assignment:** Fix numeric CLI metadata header formatting in `DownloadEndpoints.cs`
+- Issue: Plain `ToString()` for chunk indices, ranges, sizes can produce culture-sensitive output
+- CLI parser enforces ASCII digits only, so culture-emitted headers fail parsing
+- Fix: Format every numeric header with `CultureInfo.InvariantCulture`
+- Add API/CLI regression tests proving canonical wire values parse correctly
+
+**Files to touch:**
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` (formatting)
+- `tests/ShadowDrop.Api.Tests/...` or `tests/ShadowDrop.Cli.Tests/...` (regression)
+
+**Coordinate with:** Parker (for complementary final-chunk check tests)

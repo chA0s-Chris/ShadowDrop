@@ -129,3 +129,24 @@ Parker reviewed Tara's strict header parser hardening:
 **Status:** Approved — ready for integration.
 
 **Decision tracked:** `.squad/decisions.md` → "Strict Header Parse Review"
+
+## 2026-05-19T16:52:49Z: PR #29 Fix Assignment — Final-Chunk Consistency & Hostile Metadata Tests
+
+**From:** Scribe (post-Nate review assessment)
+**Status:** Awaiting coordinator spawn
+
+**Primary Assignment:** Add final-chunk consistency validation in `CliDownloadResponseParser.cs`
+- Issue: `ValidateMetadata()` does not verify `TotalPlaintextSize == ((chunkCount - 1) * ChunkSize) + FinalChunkPlaintextLength`
+- Risk: Metadata with mismatched final-chunk length passes validation and corrupts encrypted-length math
+- Fix: Derive expected final chunk length; require equality; add hostile-metadata tests
+- Also add hostile tests for invalid/malformed metadata combinations
+
+**Secondary Assignment:** Verify numeric header formatting for Eliot's fix
+- Coordinate test coverage to ensure API numeric headers emit invariant, and CLI parses invariant
+- Regression coverage needed in both layers
+
+**Files to touch:**
+- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` (validation)
+- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` (hostile tests)
+
+**Coordinate with:** Eliot (for symmetric numeric header emission)
