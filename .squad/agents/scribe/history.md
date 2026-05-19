@@ -22,3 +22,7 @@
 - Merged 2 model availability directives into Governance section
 - Topics: Deprecated models (claude-opus-4.5, gemini-3-pro-preview); available models and cost multipliers; ask before using claude-opus-4.7
 - Inbox files deleted; inbox now empty
+
+## 2026-05-19 — Decision inbox consolidation
+
+Merged 21 files from decisions/inbox into canonical decisions.md. Archive gate passed (>51KB file, entries within 7-day window). Wrote orchestration and session logs. Cross-agent history updated for Tara, Nate, Parker, Alec.

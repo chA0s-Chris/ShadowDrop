@@ -11,8 +11,6 @@ using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 
 public sealed class DownloadFileServiceTests
 {
@@ -177,13 +175,13 @@ public sealed class DownloadFileServiceTests
         var blobStorage = new StubBlobStorage(encryptedStream);
         var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
 
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            payload.KeyMaterialBase64,
-                                            null,
-                                            null,
-                                            null,
+        var result = await sut.ResolveAsync(new(DownloadRequestMode.DirectHttp,
+                                                shareToken,
+                                                fileId,
+                                                null,
+                                                null,
+                                                payload.KeyMaterialBase64,
+                                                null),
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
@@ -245,73 +243,19 @@ public sealed class DownloadFileServiceTests
         var blobStorage = new StubBlobStorage(encryptedStream);
         var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
 
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            Convert.ToBase64String(Enumerable.Repeat((Byte)42, 32).ToArray()),
-                                            null,
-                                            null,
-                                            null,
+        var result = await sut.ResolveAsync(new(DownloadRequestMode.DirectHttp,
+                                                shareToken,
+                                                fileId,
+                                                null,
+                                                null,
+                                                Convert.ToBase64String(Enumerable.Repeat((Byte)42, 32).ToArray()),
+                                                null),
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
         result.Resolution.Should().BeNull();
         encryptedStream.DisposeCount.Should().Be(1);
         encryptedStream.WasDisposed.Should().BeTrue();
-    }
-
-    [Test]
-    public async Task ResolveAsync_ShouldReturnCliResumableContract_FromSharedSerializerContext_ForCliDecryptMode()
-    {
-        var fileId = Guid.NewGuid();
-        var shareToken = "cli-share-token";
-        var payload = CreateDirectHttpPayload(fileId);
-        var shareRepository = new StubShareMetadataRepository(
-            new(Guid.NewGuid(),
-                TokenHashing.ComputeHashBase64(shareToken),
-                DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow.AddHours(1),
-                null,
-                ShareCleanupState.Pending,
-                false,
-                null,
-                [new(fileId, "cipher.bin", "renamed.bin")]));
-        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
-        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
-        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
-
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            null,
-                                            null,
-                                            64,
-                                            120,
-                                            CancellationToken.None);
-
-        result.Status.Should().Be(DownloadLookupStatus.Success);
-        result.Resolution.Should().NotBeNull();
-        result.Resolution!.ResponseContentType.Should().Be("application/json");
-        result.Resolution.FileContentType.Should().Be("application/octet-stream");
-        result.Resolution.ContentStream.Should().NotBeOfType<MemoryStream>();
-
-        using var content = new MemoryStream();
-        await result.Resolution.ContentStream.CopyToAsync(content, CancellationToken.None);
-        var json = content.ToArray();
-        var contract = JsonSerializer.Deserialize(json, ContractsJsonSerializerContext.Default.CliResumableDownloadContract);
-
-        contract.Should().NotBeNull();
-        contract!.FirstChunkIndex.Should().Be(1);
-        contract.LastChunkIndex.Should().Be(1);
-        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
-        {
-            Start = 64,
-            End = 120
-        });
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(payload.Ciphertext.Skip(80).Take(80));
-        JsonSerializer.Serialize(contract, ContractsJsonSerializerContext.Default.CliResumableDownloadContract)
-                      .Should()
-                      .Contain("\"encryptedPayload\":\"");
     }
 
     [Test]
@@ -349,8 +293,8 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            bearerToken,
                                             null,
+                                            bearerToken,
                                             null,
                                             null,
                                             null,
@@ -395,14 +339,82 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            wrongBearerToken,
                                             null,
+                                            wrongBearerToken,
                                             null,
                                             null,
                                             null,
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.Forbidden);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnInvalidRange_WhenCliRangeHeaderIsIncomplete()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "cli-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            DownloadHeaderConstants.StreamedCliMode,
+                                            null,
+                                            null,
+                                            null,
+                                            "bytes=64-",
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRange);
+        result.Resolution.Should().BeNull();
+    }
+
+    [TestCase("bytes=-")]
+    [TestCase("bytes=nope")]
+    [TestCase("items=0-63")]
+    public async Task ResolveAsync_ShouldReturnInvalidRange_WhenCliRangeHeaderIsMalformed(String rangeHeader)
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "cli-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                false,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            DownloadHeaderConstants.StreamedCliMode,
+                                            null,
+                                            null,
+                                            null,
+                                            rangeHeader,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRange);
         result.Resolution.Should().BeNull();
     }
 
@@ -443,44 +455,11 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
+                                            DownloadHeaderConstants.StreamedCliMode,
                                             null,
                                             null,
                                             null,
-                                            0,
-                                            Math.Min(plaintextLength, (Int64)chunkSize),
-                                            CancellationToken.None);
-
-        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
-        result.Resolution.Should().BeNull();
-    }
-
-    [Test]
-    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenCliDecryptRangeIsIncomplete()
-    {
-        var fileId = Guid.NewGuid();
-        var shareToken = "cli-share-token";
-        var payload = CreateDirectHttpPayload(fileId);
-        var shareRepository = new StubShareMetadataRepository(
-            new(Guid.NewGuid(),
-                TokenHashing.ComputeHashBase64(shareToken),
-                DateTimeOffset.UtcNow,
-                DateTimeOffset.UtcNow.AddHours(1),
-                null,
-                ShareCleanupState.Pending,
-                false,
-                null,
-                [new(fileId, "cipher.bin", "renamed.bin")]));
-        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
-        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
-        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
-
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            null,
-                                            null,
-                                            64,
-                                            null,
+                                            $"bytes=0-{Math.Min(plaintextLength, (Int64)chunkSize) - 1}",
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
@@ -513,8 +492,8 @@ public sealed class DownloadFileServiceTests
                                             null,
                                             null,
                                             payload.KeyMaterialBase64,
-                                            payload.ChunkSize,
-                                            payload.Plaintext.LongLength,
+                                            null,
+                                            $"bytes={payload.ChunkSize}-{payload.Plaintext.LongLength - 1}",
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
@@ -556,13 +535,13 @@ public sealed class DownloadFileServiceTests
         var blobStorage = new StubBlobStorage(encryptedStream);
         var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
 
-        var result = await sut.ResolveAsync(shareToken,
-                                            fileId,
-                                            null,
-                                            payload.KeyMaterialBase64,
-                                            null,
-                                            null,
-                                            null,
+        var result = await sut.ResolveAsync(new(DownloadRequestMode.DirectHttp,
+                                                shareToken,
+                                                fileId,
+                                                null,
+                                                null,
+                                                payload.KeyMaterialBase64,
+                                                null),
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
@@ -571,8 +550,108 @@ public sealed class DownloadFileServiceTests
         encryptedStream.WasDisposed.Should().BeTrue();
     }
 
+    [TestCase("")]
+    [TestCase(" ")]
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenModeIsExplicitButBlank(String mode)
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            mode,
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+    }
+
     [Test]
-    public async Task ResolveAsync_ShouldReturnNotFound_WhenCliDecryptMetadataExistsButBlobIsMissing()
+    public async Task ResolveAsync_ShouldReturnInvalidRequest_WhenModeIsUnknown()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            "unknown",
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenDirectHttpMetadataExistsButBlobIsMissing()
+    {
+        var fileId = Guid.NewGuid();
+        var shareToken = "direct-http-share-token";
+        var payload = CreateDirectHttpPayload(fileId);
+        var shareRepository = new StubShareMetadataRepository(
+            new(Guid.NewGuid(),
+                TokenHashing.ComputeHashBase64(shareToken),
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddHours(1),
+                null,
+                ShareCleanupState.Pending,
+                true,
+                null,
+                [new(fileId, "cipher.bin", "renamed.bin")]));
+        var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
+        var blobStorage = new MissingBlobStorage();
+        var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
+
+        var result = await sut.ResolveAsync(shareToken,
+                                            fileId,
+                                            null,
+                                            null,
+                                            payload.KeyMaterialBase64,
+                                            null,
+                                            null,
+                                            CancellationToken.None);
+
+        result.Status.Should().Be(DownloadLookupStatus.NotFound);
+        result.Resolution.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ResolveAsync_ShouldReturnNotFound_WhenStreamedCliMetadataExistsButBlobIsMissing()
     {
         var fileId = Guid.NewGuid();
         var shareToken = "cli-share-token";
@@ -604,7 +683,7 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            null,
+                                            DownloadHeaderConstants.StreamedCliMode,
                                             null,
                                             null,
                                             null,
@@ -616,10 +695,10 @@ public sealed class DownloadFileServiceTests
     }
 
     [Test]
-    public async Task ResolveAsync_ShouldReturnNotFound_WhenDirectHttpMetadataExistsButBlobIsMissing()
+    public async Task ResolveAsync_ShouldReturnStreamedCliMetadata_ForCliMode()
     {
         var fileId = Guid.NewGuid();
-        var shareToken = "direct-http-share-token";
+        var shareToken = "cli-share-token";
         var payload = CreateDirectHttpPayload(fileId);
         var shareRepository = new StubShareMetadataRepository(
             new(Guid.NewGuid(),
@@ -628,28 +707,43 @@ public sealed class DownloadFileServiceTests
                 DateTimeOffset.UtcNow.AddHours(1),
                 null,
                 ShareCleanupState.Pending,
-                true,
+                false,
                 null,
                 [new(fileId, "cipher.bin", "renamed.bin")]));
         var uploadedFileRepository = new StubUploadedFileMetadataRepository(CreateUploadedFileRecord(fileId, payload));
-        var blobStorage = new MissingBlobStorage();
+        var blobStorage = new StubBlobStorage(new TrackingReadStream(payload.Ciphertext));
         var sut = new DownloadFileService(shareRepository, uploadedFileRepository, blobStorage, TimeProvider.System);
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            null,
-                                            payload.KeyMaterialBase64,
-                                            null,
+                                            DownloadHeaderConstants.StreamedCliMode,
                                             null,
                                             null,
+                                            null,
+                                            "bytes=64-119",
                                             CancellationToken.None);
 
-        result.Status.Should().Be(DownloadLookupStatus.NotFound);
-        result.Resolution.Should().BeNull();
+        result.Status.Should().Be(DownloadLookupStatus.Success);
+        result.Resolution.Should().NotBeNull();
+        result.Resolution!.ResponseContentType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        result.Resolution.FileContentType.Should().Be("application/octet-stream");
+        result.Resolution.ContentStream.Should().NotBeOfType<MemoryStream>();
+        result.Resolution.CliMetadata.Should().NotBeNull();
+
+        using var content = new MemoryStream();
+        await result.Resolution.ContentStream.CopyToAsync(content, CancellationToken.None);
+        result.Resolution.CliMetadata!.FirstChunkIndex.Should().Be(1);
+        result.Resolution.CliMetadata.LastChunkIndex.Should().Be(1);
+        result.Resolution.CliMetadata.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+        {
+            Start = 64,
+            End = 120
+        });
+        content.ToArray().Should().Equal(payload.Ciphertext.Skip(80).Take(80));
     }
 
     [Test]
-    public async Task ResolveAsync_ShouldStreamCliDecryptContract_ForLargeRangesWithoutPrebufferingEncryptedPayload()
+    public async Task ResolveAsync_ShouldStreamCliBinaryPayload_ForLargeRangesWithoutPrebufferingEncryptedPayload()
     {
         var fileId = Guid.NewGuid();
         var shareToken = "cli-share-token";
@@ -686,25 +780,25 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
+                                            DownloadHeaderConstants.StreamedCliMode,
                                             null,
                                             null,
                                             null,
-                                            0,
-                                            plaintextLength,
+                                            $"bytes=0-{plaintextLength - 1}",
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
         result.Resolution.Should().NotBeNull();
         result.Resolution!.ContentStream.Should().NotBeOfType<MemoryStream>();
-        result.Resolution.ResponseContentLength.Should().BeGreaterThan(Int32.MaxValue);
+        result.Resolution.ResponseContentLength.Should().Be(ciphertextLength);
         encryptedStream.TotalBytesRead.Should().Be(0);
 
         var prefixBuffer = new Byte[64];
         var bytesRead = await result.Resolution.ContentStream.ReadAsync(prefixBuffer, CancellationToken.None);
 
         bytesRead.Should().BeGreaterThan(0);
-        Encoding.UTF8.GetString(prefixBuffer, 0, bytesRead).Should().StartWith("{\"firstChunkIndex\":0,");
-        encryptedStream.TotalBytesRead.Should().Be(0);
+        prefixBuffer.Take(bytesRead).Should().OnlyContain(value => value == 0);
+        encryptedStream.TotalBytesRead.Should().Be(bytesRead);
 
         await result.Resolution.ContentStream.DisposeAsync();
         encryptedStream.WasDisposed.Should().BeTrue();

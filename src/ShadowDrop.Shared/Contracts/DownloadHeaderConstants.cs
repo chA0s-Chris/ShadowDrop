@@ -7,18 +7,17 @@ namespace ShadowDrop.Contracts;
 /// </summary>
 public static class DownloadHeaderConstants
 {
-    /// <summary>
-    /// The header describing the original file content type for CLI decrypt responses.
-    /// </summary>
+    public const String ChunkSizeHeaderName = "X-ShadowDrop-Chunk-Size";
+    public const String CliDownloadContentType = "application/vnd.shadowdrop.cli-download";
     public const String FileContentTypeHeaderName = "X-ShadowDrop-File-Content-Type";
-
-    /// <summary>
-    /// The header describing the intended output file name for download responses.
-    /// </summary>
     public const String FileNameHeaderName = "X-ShadowDrop-File-Name";
-
-    /// <summary>
-    /// The header describing whether the server returned direct plaintext or CLI decrypt metadata.
-    /// </summary>
+    public const String FinalChunkPlaintextLengthHeaderName = "X-ShadowDrop-Final-Chunk-Plaintext-Length";
+    public const String FirstChunkIndexHeaderName = "X-ShadowDrop-First-Chunk-Index";
+    public const String LastChunkIndexHeaderName = "X-ShadowDrop-Last-Chunk-Index";
     public const String ModeHeaderName = "X-ShadowDrop-Download-Mode";
+    public const String ModeQueryParameterName = "mode";
+    public const String PlaintextRangeEndHeaderName = "X-ShadowDrop-Plaintext-Range-End";
+    public const String PlaintextRangeStartHeaderName = "X-ShadowDrop-Plaintext-Range-Start";
+    public const String StreamedCliMode = "cli";
+    public const String TotalPlaintextSizeHeaderName = "X-ShadowDrop-Total-Plaintext-Size";
 }

@@ -8,29 +8,29 @@ option), negotiated explicitly via `?mode=cli`.
 
 ## Acceptance Criteria
 
-- [ ] The CLI resumable-download path uses a single streamed binary response contract instead of the current JSON/Base64
+- [x] The CLI resumable-download path uses a single streamed binary response contract instead of the current JSON/Base64
   payload contract.
-- [ ] The API exposes an explicit, deterministic negotiation mechanism for selecting the CLI binary contract, and
+- [x] The API exposes an explicit, deterministic negotiation mechanism for selecting the CLI binary contract, and
   rejects ambiguous or unsupported contract selections with a generic client error.
-- [ ] The plan defines the full negotiation matrix for omitted/unknown `mode`, `mode=cli` requests on direct-HTTP
+- [x] The plan defines the full negotiation matrix for omitted/unknown `mode`, `mode=cli` requests on direct-HTTP
   shares, requests that also send direct-HTTP key material, requests that mix `Range` headers with legacy query
   parameters, and other mixed/ambiguous inputs.
-- [ ] Successful CLI responses return raw encrypted chunk bytes in the body and all metadata required for local
+- [x] Successful CLI responses return raw encrypted chunk bytes in the body and all metadata required for local
   decryption and resume (`firstChunkIndex`, `lastChunkIndex`, requested plaintext range, total plaintext size, chunk
   size, final chunk plaintext length) in a deterministic transport shape.
-- [ ] The CLI binary contract defines both request-side range inputs (standard `Range: bytes=...` header) and
+- [x] The CLI binary contract defines both request-side range inputs (standard `Range: bytes=...` header) and
   response-side HTTP semantics (200 OK, custom headers, no 206/Content-Range).
-- [ ] The CLI contract keeps the same authentication, optional bearer-token, expiration, and range-validation rules as
+- [x] The CLI contract keeps the same authentication, optional bearer-token, expiration, and range-validation rules as
   the existing download path.
-- [ ] The API streams the encrypted chunk span directly to the response without JSON wrapping, Base64 encoding, or
+- [x] The API streams the encrypted chunk span directly to the response without JSON wrapping, Base64 encoding, or
   full-response buffering.
-- [ ] The CLI download flow can request the CLI contract (via `?mode=cli`), send a `Range: bytes=...` header for
+- [x] The CLI download flow can request the CLI contract (via `?mode=cli`), send a `Range: bytes=...` header for
   partial downloads, read the metadata, stream the encrypted bytes, decrypt locally, and resume partial downloads.
-- [ ] The CLI contract fails closed when metadata headers are missing, duplicated, malformed, semantically inconsistent,
+- [x] The CLI contract fails closed when metadata headers are missing, duplicated, malformed, semantically inconsistent,
   or paired with an unexpected media type or body length.
-- [ ] The legacy JSON/Base64 CLI contract producer/parser code is removed completely so the codebase has only one
+- [x] The legacy JSON/Base64 CLI contract producer/parser code is removed completely so the codebase has only one
   authoritative CLI download contract (the streamed binary shape via `?mode=cli`).
-- [ ] Automated tests cover API negotiation, metadata shape, streaming behavior, CLI consumption, resume behavior,
+- [x] Automated tests cover API negotiation, metadata shape, streaming behavior, CLI consumption, resume behavior,
   Range header acceptance/rejection, and invalid/unauthorized request handling for the CLI binary contract.
 
 ## Technical Details

@@ -12,8 +12,10 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -455,29 +457,26 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldStreamEncryptedFile_WithHeaders_ForCliDecryptMode()
+    public async Task PublicDownloadEndpoint_ShouldStreamEncryptedFile_WithHeaders_ForCliMode()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
-        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Headers.AcceptRanges.Should().BeEmpty();
         response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
         response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
-        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli-decrypt");
-
-        var contract = await ReadCliResumableDownloadContractAsync(response);
-        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
-        {
-            Start = 0,
-            End = 128
-        });
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli");
+        response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
+        response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("128");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
 
     [Test]
@@ -489,15 +488,13 @@ public sealed class ApiWalkingSkeletonTests
         OverwriteStoredUploadContentType(fixture.MetadataDatabasePath, fileId, "not/a valid media type");
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType.Should().NotBeNull();
-        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
         response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
-
-        var contract = await ReadCliResumableDownloadContractAsync(response);
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
 
     [Test]
@@ -512,7 +509,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                    false,
                                                                    expiresAtUtc: DateTimeOffset.UtcNow.AddMinutes(-5)));
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
@@ -597,74 +594,327 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"/d/{share.ShareToken}/files/{fileId}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/d/{share.ShareToken}/files/{fileId}?mode=cli");
         request.Headers.Authorization = new("Bearer", share.DownloadBearerToken);
 
         var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli-decrypt");
-
-        var contract = await ReadCliResumableDownloadContractAsync(response);
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext());
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldReturnChunkSubsetContract_WhenCliRangeQueryIsProvided()
+    public async Task PublicDownloadEndpoint_ShouldRejectLegacyPlaintextRangeQueryParameters_WhenCliModeIsRequested()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?plaintextStart=64&plaintextEndExclusive=120");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli&plaintextStart=64&plaintextEndExclusive=120");
 
-        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
-        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
-        response.Content.Headers.ContentRange.Should().NotBeNull();
-        response.Content.Headers.ContentRange!.Unit.Should().Be("bytes");
-        response.Content.Headers.ContentRange.From.Should().Be(64);
-        response.Content.Headers.ContentRange.To.Should().Be(119);
-        response.Content.Headers.ContentRange.Length.Should().Be(128);
-        var contract = await ReadCliResumableDownloadContractAsync(response);
-
-        contract.FirstChunkIndex.Should().Be(1);
-        contract.LastChunkIndex.Should().Be(1);
-        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
-        {
-            Start = 64,
-            End = 120
-        });
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext().Skip(80).Take(80));
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+        response.Headers.Contains(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().BeFalse();
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldReturnChunkSubsetContract_WhenCliByteRangeHeaderIsProvided()
+    public async Task PublicDownloadEndpoint_ShouldReturnBinaryCliContract_WhenCliModeIsRequestedWithoutRange()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
-        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}", 64, 119);
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType.Should().NotBeNull();
+        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Headers.AcceptRanges.Should().BeEmpty();
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+        response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
+        response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("128");
+        response.Headers.GetValues(DownloadHeaderConstants.TotalPlaintextSizeHeaderName).Should().ContainSingle("128");
+        response.Headers.GetValues(DownloadHeaderConstants.ChunkSizeHeaderName).Should().ContainSingle("64");
+        response.Headers.GetValues(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().ContainSingle("64");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturnBinaryCliContract_WhenCliModeAndByteRangeHeaderAreProvided()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}?mode=cli", 64, 119);
 
         var response = await client.SendAsync(request);
 
-        response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
-        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
-        response.Content.Headers.ContentRange.Should().NotBeNull();
-        response.Content.Headers.ContentRange!.From.Should().Be(64);
-        response.Content.Headers.ContentRange.To.Should().Be(119);
-        response.Content.Headers.ContentRange.Length.Should().Be(128);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Headers.AcceptRanges.Should().BeEmpty();
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("1");
+        response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("64");
+        response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("120");
+        response.Headers.GetValues(DownloadHeaderConstants.TotalPlaintextSizeHeaderName).Should().ContainSingle("128");
+        response.Headers.GetValues(DownloadHeaderConstants.ChunkSizeHeaderName).Should().ContainSingle("64");
+        response.Headers.GetValues(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().ContainSingle("64");
+        (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext().Skip(80).Take(80));
+    }
 
-        var contract = await ReadCliResumableDownloadContractAsync(response);
-        contract.FirstChunkIndex.Should().Be(1);
-        contract.LastChunkIndex.Should().Be(1);
-        contract.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        var ciphertext = Enumerable.Range(0, 128).Select(static value => (Byte)value).ToArray();
+        var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
+                                                        plaintextLength: 96,
+                                                        encryptedLength: ciphertext.LongLength,
+                                                        chunkSize: 64,
+                                                        chunkCount: 2);
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+        var previousCulture = CultureInfo.CurrentCulture;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+
+        try
         {
-            Start = 64,
-            End = 120
+            client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+            CultureInfo.CurrentCulture = new CultureInfo("ar-SA");
+            CultureInfo.CurrentUICulture = new CultureInfo("ar-SA");
+
+            using (var requestContent = CreateValidUploadContent(uploadMetadata, ciphertext))
+            {
+                var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+                uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+            }
+
+            var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(reservedFileId, false));
+
+            var response = await client.GetAsync($"/d/{share.ShareToken}/files/{reservedFileId}?mode=cli");
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
+            response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
+            response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
+            response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("96");
+            response.Headers.GetValues(DownloadHeaderConstants.TotalPlaintextSizeHeaderName).Should().ContainSingle("96");
+            response.Headers.GetValues(DownloadHeaderConstants.ChunkSizeHeaderName).Should().ContainSingle("64");
+            response.Headers.GetValues(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().ContainSingle("32");
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+            CultureInfo.CurrentCulture = previousCulture;
+            CultureInfo.CurrentUICulture = previousUiCulture;
+        }
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRoundTripCliDownloadSession_EndToEnd()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(directHttpFixture.FileId, false));
+        var payload = CreateDirectHttpPayload(directHttpFixture.FileId);
+        using var shareSecret = ShareSecret.FromBytes(Convert.FromBase64String(payload.KeyMaterialBase64));
+        await using var destination = new MemoryStream();
+        using var session = new CliDownloadSession(client,
+                                                   new(client.BaseAddress!, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}"),
+                                                   destination,
+                                                   shareSecret,
+                                                   new(directHttpFixture.FileId, Convert.FromBase64String(payload.KdfSaltBase64)));
+
+        await session.DownloadAsync(CancellationToken.None);
+
+        destination.ToArray().Should().Equal(payload.Plaintext);
+        session.DurablePlaintextLength.Should().Be(payload.Plaintext.LongLength);
+        session.TotalPlaintextSize.Should().Be(payload.Plaintext.LongLength);
+    }
+
+    [TestCase("bytes=64-")]
+    [TestCase("bytes=-64")]
+    [TestCase("bytes=64-80,96-112")]
+    public async Task PublicDownloadEndpoint_ShouldRejectUnsupportedCliRangeShapes(String rangeHeaderValue)
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        using var request = CreateRawRangeRequest($"/d/{share.ShareToken}/files/{fileId}?mode=cli", rangeHeaderValue);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+        response.Headers.Contains(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn416WithoutCliMetadata_WhenCliModeRangeIsUnsatisfiable()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        using var request = CreateByteRangeRequest($"/d/{share.ShareToken}/files/{fileId}?mode=cli", 1024, 2048);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestedRangeNotSatisfiable);
+        response.Headers.AcceptRanges.Should().BeEmpty();
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Content.Headers.ContentLength.Should().Be(0);
+        response.Content.Headers.ContentType.Should().BeNull();
+        response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FileNameHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FileContentTypeHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.TotalPlaintextSizeHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.ChunkSizeHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName).Should().BeFalse();
+        (await response.Content.ReadAsByteArrayAsync()).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldCompleteCliDownloadDecryptWorkflow_EndToEnd()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var cliFixture = await UploadCliDownloadFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(cliFixture.FileId, false));
+        var downloadUri = new Uri(client.BaseAddress!, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
+
+        using var plaintext = new MemoryStream();
+        var downloadResult = await DownloadCliPlaintextAsync(client,
+                                                             downloadUri,
+                                                             cliFixture.FileId,
+                                                             cliFixture.KdfSaltBase64,
+                                                             cliFixture.KeyMaterialBase64,
+                                                             plaintext,
+                                                             null,
+                                                             null);
+
+        downloadResult.ResponseMetadata.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
+        {
+            Start = 0,
+            End = cliFixture.Plaintext.LongLength
         });
-        Convert.FromBase64String(contract.EncryptedPayload!).Should().Equal(CreateCiphertext().Skip(80).Take(80));
+        plaintext.ToArray().Should().Equal(cliFixture.Plaintext);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldResumeCliDownloadFromLastDurablePlaintextByte()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var cliFixture = await UploadCliDownloadFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(cliFixture.FileId, false));
+        var downloadUri = new Uri(client.BaseAddress!, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
+        using var durablePlaintext = new MemoryStream();
+        const Int64 interruptionOffset = 70;
+
+        var interruptedDownload = await DownloadCliPlaintextAsync(client,
+                                                                  downloadUri,
+                                                                  cliFixture.FileId,
+                                                                  cliFixture.KdfSaltBase64,
+                                                                  cliFixture.KeyMaterialBase64,
+                                                                  durablePlaintext,
+                                                                  null,
+                                                                  interruptionOffset);
+        interruptedDownload.BytesWritten.Should().Be(interruptionOffset);
+        durablePlaintext.ToArray().Should().Equal(cliFixture.Plaintext.Take((Int32)interruptionOffset));
+
+        var resumeRange = new RequestedPlaintextRangeContract
+        {
+            Start = interruptionOffset,
+            End = cliFixture.Plaintext.LongLength
+        };
+        var resumedDownload = await DownloadCliPlaintextAsync(client,
+                                                              downloadUri,
+                                                              cliFixture.FileId,
+                                                              cliFixture.KdfSaltBase64,
+                                                              cliFixture.KeyMaterialBase64,
+                                                              durablePlaintext,
+                                                              resumeRange,
+                                                              null);
+
+        resumedDownload.ResponseMetadata.RequestedRange.Should().BeEquivalentTo(resumeRange);
+        resumedDownload.ResponseMetadata.FirstChunkIndex.Should().Be(1);
+        resumedDownload.ResponseMetadata.LastChunkIndex.Should().Be(1);
+        durablePlaintext.ToArray().Should().Equal(cliFixture.Plaintext);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectCliMode_WhenDirectHttpKeyMaterialIsAlsoProvided()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}?mode=cli");
+        request.Headers.Add(DownloadKeyConstants.HeaderName, directHttpFixture.KeyMaterialBase64);
+
+        var response = await client.SendAsync(request);
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectCliMode_OnDirectHttpShare()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(directHttpFixture.FileId, false, true));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{directHttpFixture.FileId}?mode=cli");
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectUnknownMode()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=unknown");
+
+        await AssertNonPartialErrorResponseAsync(response, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectEmptyModeQueryParameter()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var emptyModeResponse = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=");
+        var whitespaceModeResponse = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=%20");
+
+        await AssertNonPartialErrorResponseAsync(emptyModeResponse, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+        await AssertNonPartialErrorResponseAsync(whitespaceModeResponse, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
     }
 
     [Test]
@@ -768,9 +1018,14 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be((HttpStatusCode)416);
-        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.AcceptRanges.Should().BeEmpty();
         response.Content.Headers.ContentRange.Should().BeNull();
+        response.Content.Headers.ContentLength.Should().Be(0);
+        response.Content.Headers.ContentType.Should().BeNull();
         response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FileNameHeaderName).Should().BeFalse();
+        response.Headers.Contains(DownloadHeaderConstants.FileContentTypeHeaderName).Should().BeFalse();
+        (await response.Content.ReadAsByteArrayAsync()).Should().BeEmpty();
     }
 
     [Test]
@@ -961,7 +1216,7 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenCliDecryptBlobIsMissing()
+    public async Task PublicDownloadEndpoint_ShouldReturn404_WhenStreamedCliBlobIsMissing()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
         using var client = fixture.CreateClient();
@@ -969,7 +1224,7 @@ public sealed class ApiWalkingSkeletonTests
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
         DeleteUploadedBlob(fixture, fileId);
 
-        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}");
+        var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -1156,6 +1411,35 @@ public sealed class ApiWalkingSkeletonTests
         return new(String.Empty, reservedFileId, payload.KeyMaterialBase64, payload.WrongKeyMaterialBase64, payload.Plaintext);
     }
 
+    private static async Task<CliDownloadFixture> UploadCliDownloadFileAsync(HttpClient client, String bootstrapToken)
+    {
+        var reservedFileId = await ReserveFileIdAsync(client, bootstrapToken);
+        var payload = CreateDirectHttpPayload(reservedFileId);
+        var uploadMetadata = CreateValidMetadataPayload(reservedFileId,
+                                                        "cipher.bin",
+                                                        payload.Plaintext.LongLength,
+                                                        payload.Ciphertext.LongLength,
+                                                        payload.ChunkSize,
+                                                        payload.ChunkCount,
+                                                        payload.KdfSaltBase64,
+                                                        payload.PlaintextSha256);
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+
+        try
+        {
+            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
+            var response = await client.PostAsync("/api/admin/uploads", requestContent);
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        }
+
+        return new(reservedFileId, payload.KeyMaterialBase64, payload.KdfSaltBase64, payload.Plaintext);
+    }
+
     private static async Task<Guid> ReserveFileIdAsync(HttpClient client, String bootstrapToken)
     {
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
@@ -1327,19 +1611,84 @@ public sealed class ApiWalkingSkeletonTests
         (await response.Content.ReadAsStringAsync()).Should().Be(expectedBody);
     }
 
-    private static async Task<CliResumableDownloadContract> ReadCliResumableDownloadContractAsync(HttpResponseMessage response)
-    {
-        var json = await response.Content.ReadAsStringAsync();
-        var contract = JsonSerializer.Deserialize(json, ContractsJsonSerializerContext.Default.CliResumableDownloadContract);
-        contract.Should().NotBeNull();
-        return contract!;
-    }
-
     private static HttpRequestMessage CreateByteRangeRequest(String requestUri, Int64 from, Int64 to)
     {
         var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
         request.Headers.Range = new(from, to);
         return request;
+    }
+
+    private static HttpRequestMessage CreateRawRangeRequest(String requestUri, String rangeHeaderValue)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.TryAddWithoutValidation("Range", rangeHeaderValue).Should().BeTrue();
+        return request;
+    }
+
+    private static Int32 GetChunkPlaintextLength(CliDownloadMetadataContract metadata, Int64 chunkIndex)
+    {
+        var lastChunkIndex = (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize;
+        return chunkIndex == lastChunkIndex
+            ? metadata.FinalChunkPlaintextLength
+            : metadata.ChunkSize;
+    }
+
+    private static async Task<CliDownloadExecutionResult> DownloadCliPlaintextAsync(HttpClient client,
+                                                                                    Uri downloadUri,
+                                                                                    Guid fileId,
+                                                                                    String kdfSaltBase64,
+                                                                                    String keyMaterialBase64,
+                                                                                    MemoryStream destination,
+                                                                                    RequestedPlaintextRangeContract? requestedRange,
+                                                                                    Int64? stopAfterDurableBytes)
+    {
+        using var request = CliDownloadRequestFactory.CreateGetRequest(downloadUri, requestedRange);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var parsedResponse = CliDownloadResponseParser.Parse(response, requestedRange);
+        await using var encryptedContent = parsedResponse.ContentStream;
+        var metadata = parsedResponse.Metadata;
+        var responsePlaintextRange = metadata.RequestedRange;
+        var durableLimit = stopAfterDurableBytes ?? Int64.MaxValue;
+        var bytesWritten = 0L;
+        var kdfSalt = Convert.FromBase64String(kdfSaltBase64);
+        var shareSecretBytes = Convert.FromBase64String(keyMaterialBase64);
+
+        using var shareSecret = ShareSecret.FromBytes(shareSecretBytes);
+        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new(fileId, kdfSalt));
+
+        for (var chunkIndex = metadata.FirstChunkIndex;
+             chunkIndex <= metadata.LastChunkIndex && bytesWritten < durableLimit;
+             chunkIndex++)
+        {
+            var plaintextChunkLength = GetChunkPlaintextLength(metadata, chunkIndex);
+            var encryptedChunk = new Byte[plaintextChunkLength + 16];
+            await encryptedContent.ReadExactlyAsync(encryptedChunk, CancellationToken.None);
+
+            var decryptedChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunk),
+                                                                     contentKey,
+                                                                     new(CryptoVersion.V1,
+                                                                         CryptoAlgorithm.Aes256Gcm,
+                                                                         fileId,
+                                                                         metadata.ChunkSize,
+                                                                         chunkIndex,
+                                                                         plaintextChunkLength));
+            var chunkPlaintextStart = chunkIndex * metadata.ChunkSize;
+            var sliceStart = (Int32)Math.Max(responsePlaintextRange.Start, chunkPlaintextStart) - (Int32)chunkPlaintextStart;
+            var sliceEndExclusive = (Int32)Math.Min(responsePlaintextRange.End, chunkPlaintextStart + plaintextChunkLength) - (Int32)chunkPlaintextStart;
+            var availablePlaintextLength = sliceEndExclusive - sliceStart;
+            if (availablePlaintextLength <= 0)
+            {
+                continue;
+            }
+
+            var bytesToWrite = (Int32)Math.Min(availablePlaintextLength, durableLimit - bytesWritten);
+            await destination.WriteAsync(decryptedChunk.AsMemory(sliceStart, bytesToWrite));
+            bytesWritten += bytesToWrite;
+        }
+
+        return new(bytesWritten, metadata);
     }
 
     private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
@@ -1448,6 +1797,14 @@ public sealed class ApiWalkingSkeletonTests
         Guid FileId,
         String KeyMaterialBase64,
         String WrongKeyMaterialBase64,
+        Byte[] Plaintext);
+
+    private sealed record CliDownloadExecutionResult(Int64 BytesWritten, CliDownloadMetadataContract ResponseMetadata);
+
+    private sealed record CliDownloadFixture(
+        Guid FileId,
+        String KeyMaterialBase64,
+        String KdfSaltBase64,
         Byte[] Plaintext);
 
     private sealed record DirectHttpPayload(
