@@ -19,6 +19,18 @@ public sealed class CliDownloadRequestFactoryTests
         request.Headers.Range.Should().BeNull();
     }
 
+    [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?mode=cli", "?mode=cli")]
+    [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?mode=direct-http", "?mode=cli")]
+    [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1&mode=direct-http&mode=cli", "?download=1&mode=cli")]
+    public void CreateGetRequest_ShouldNormalizeModeQueryParameter_ToSingleCliValue(String downloadUri, String expectedQuery)
+    {
+        var request = CliDownloadRequestFactory.CreateGetRequest(new(downloadUri));
+
+        request.RequestUri.Should().NotBeNull();
+        request.RequestUri!.Query.Should().Be(expectedQuery);
+        request.Headers.Range.Should().BeNull();
+    }
+
     [Test]
     public void CreateGetRequest_ShouldPreserveExistingQueryString_AndAddByteRangeHeader()
     {

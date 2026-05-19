@@ -9,7 +9,7 @@ using ShadowDrop.Contracts;
 public sealed class CliDownloadMetadataContractTests
 {
     [Test]
-    public void RequestedRange_ShouldRoundTripAllFields()
+    public void CliDownloadMetadataContract_ShouldExposeAssignedValues()
     {
         var metadata = new CliDownloadMetadataContract
         {

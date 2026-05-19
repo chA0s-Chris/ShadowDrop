@@ -36,14 +36,21 @@ public static class CliDownloadRequestFactory
     private static Uri AppendCliMode(Uri downloadUri)
     {
         var builder = new UriBuilder(downloadUri);
-        var query = builder.Query;
-        var separator = String.IsNullOrEmpty(query) || query == "?"
-            ? String.Empty
-            : "&";
-        var trimmedQuery = String.IsNullOrEmpty(query)
-            ? String.Empty
-            : query.TrimStart('?');
-        builder.Query = $"{trimmedQuery}{separator}{DownloadHeaderConstants.ModeQueryParameterName}={DownloadHeaderConstants.StreamedCliMode}";
+        var normalizedParameters = builder.Query
+                                          .TrimStart('?')
+                                          .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                                          .Where(static parameter => !IsModeParameter(parameter))
+                                          .Concat([$"{DownloadHeaderConstants.ModeQueryParameterName}={DownloadHeaderConstants.StreamedCliMode}"]);
+        builder.Query = String.Join("&", normalizedParameters);
         return builder.Uri;
+    }
+
+    private static Boolean IsModeParameter(String parameter)
+    {
+        var separatorIndex = parameter.IndexOf('=');
+        var parameterName = separatorIndex >= 0
+            ? parameter[..separatorIndex]
+            : parameter;
+        return String.Equals(parameterName, DownloadHeaderConstants.ModeQueryParameterName, StringComparison.OrdinalIgnoreCase);
     }
 }
