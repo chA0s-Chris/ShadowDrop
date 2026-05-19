@@ -50,3 +50,19 @@ Created GitHub PR #10 targeting `main` for branch `squad/4-define-shared-contrac
 - 2026-05-18T18:02:41.646+02:00: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` should let `CliDecryptJsonStream` fall back to the base `Stream` span shim instead of overriding `Read(Span<byte>)` with a per-call array allocation; focused regression coverage remains in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
 - 2026-05-18T22:12:59.106+02:00: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` should use one `Char.IsControl`-based fast-path/sanitizer rule for mirrored header values and filenames; ASCII-only pre-scans miss persisted C1 controls like `\u0085`, so HTTP regressions belong in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
 - 2026-05-18T22:12:59.106+02:00: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` now treats corrupt chunk metadata as fail-closed input: final chunk length math must stay checked and resolve to `1..ChunkSize`, with focused hostile-metadata coverage in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`.
+- 2026-05-19T12:11:29.955+02:00: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` `TryCreateDownloadRequest` must distinguish absent `mode` query param from present-but-empty; check `request.Query.ContainsKey(ModeQueryParameterName) && IsNullOrWhiteSpace(mode)` before the DirectHttp fallthrough to return null (→ 400) for the explicit-empty case.
+- 2026-05-19T12:11:29.955+02:00: `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs` bearer-token tests (`WhenBearerTokenIsExpired`, `WhenBearerTokenIsWrong`) had the bearer token passed as the `mode` argument (3rd param) instead of `authorizationBearerToken` (4th param); they passed by coincidence because null bearer triggers Forbidden too — fixed to null/bearerToken order so they exercise the intended expired/wrong-hash branches.
+
+## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
+
+**Agents involved:** Tara, Nate, Parker  
+**Context:** PR #28 review cycle closed on issue #27 follow-up work
+
+Tara resolved two findings:
+- Rejected explicit empty/whitespace mode selectors
+- Repaired bearer-token tests (ResolveAsync signature)
+- Added end-to-end API test for empty mode rejection
+- Test suite validated (194 tests green)
+
+Decision inbox consolidated (21 files merged to decisions.md).
+Archive gate passed; no forced archival. Ready for next phase.

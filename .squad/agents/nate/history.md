@@ -1,3 +1,29 @@
+# SUMMARY — Generated 2026-05-19T10:20:42.080364Z
+
+**Coverage:** May 14–19, 2026  
+**Sessions:** Multiple  
+**Key themes:** Issue #27 planning, PR #28 review notes, request validation hardening
+
+### Highlights
+
+- **Issue #27 sequencing:** Moved up after issue #15; CLI v2 contract with streaming binary, Range header mode gating
+- **Plan #27 refinements:** Five surgical edits locking decision matrix, legacy parameter retirement, mode defaults, validation determinism  
+- **PR #28 review notes:** Two unresolved in download hardening (header sanitization, chunk-length arithmetic); flagged for implementation
+- **Test coverage:** API walking skeleton gaps closed (public downloads, bearer tokens, bootstrap failures)
+- **Architecture:** Emphasized no `dev` branch; squad/issue-slug branching; NUnit 4 + FluentAssertions, no mocking library
+
+### Related Work
+
+- Parker (Tester): PR #10 review fixes, test coverage expansion
+- Tara (Platform): Chunk metadata, download headers, crypto hot paths
+- Alec (Security): Header injection prevention, char sanitization
+- Eliot (Backend): Direct-HTTP fail-closed setup
+
+
+---
+
+## Archived Details
+
 # Project Context
 
 - **Owner:** Christian Flessa
@@ -331,3 +357,17 @@ All six subsections of Technical Details updated for internal consistency:
 **Pattern:** ShadowDrop has no active external users; immediate replacement is cleaner than deferred dual-path support. Acceptance criteria now have one story, no fallback branches.
 
 **Files:** ai-plans/0027-streamed-binary-v2-cli-download-contract.md
+
+## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
+
+**Agents involved:** Tara, Nate, Parker  
+**Context:** PR #28 review cycle closed on issue #27 follow-up work
+
+Tara resolved two findings:
+- Rejected explicit empty/whitespace mode selectors
+- Repaired bearer-token tests (ResolveAsync signature)
+- Added end-to-end API test for empty mode rejection
+- Test suite validated (194 tests green)
+
+Decision inbox consolidated (21 files merged to decisions.md).
+Archive gate passed; no forced archival. Ready for next phase.

@@ -2035,3 +2035,685 @@ Keep regression coverage for the resumable CLI range path split across API and C
 
 The serializer-context review finding is producer-side, while the large-span regression risk is consumer-side. Covering both edges directly keeps the current v1 contract honest until the planned streamed-binary v2 follow-up replaces it.
 
+
+---
+date: 2026-05-18T22:35:59.710+02:00
+agent: Eliot
+slug: direct-http-fail-closed-setup
+---
+
+## Summary
+Mapped direct-HTTP setup-time `InvalidDataException` and `IOException` failures to the existing non-leaky invalid-request result in `DownloadFileService`.
+
+## Why
+`DirectHttpDecryptingStream.CreateAsync()` performs metadata validation, initial seek/skip work, and first-chunk setup after the blob stream is opened. Corrupt metadata or early I/O faults in that phase must fail closed exactly like the CLI-decrypt path, without leaking implementation details to callers.
+
+## Implementation Notes
+- Updated `TryOpenDirectHttpContentAsync()` to catch `InvalidDataException` and `IOException` alongside the existing setup-failure exceptions.
+- Added regressions for corrupt direct-HTTP metadata (`ChunkSize = 0`) and for an initial non-seekable read failure during direct-HTTP range setup.
+- Tests also assert the encrypted blob stream is disposed on these fail-closed paths.
+
+---
+date: 2026-05-18T21:54:45.116+02:00
+author: Eliot
+area: API download headers
+---
+
+## Decision
+
+Treat all persisted metadata echoed into custom HTTP headers as untrusted header input: remove every control character before assignment, even when a separate framework-managed header already has its own validation/fallback path.
+
+## Why
+
+`Content-Type` fallback logic protects the actual response media type, but it does not make `X-ShadowDrop-File-Content-Type` safe automatically. Persisted NUL, TAB, DEL, or similar control bytes can survive storage and must be stripped independently to keep download responses valid and non-injectable.
+
+## Applied In
+
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+# Header Injection Prevention Pattern
+
+**Date:** 2026-05-18T15:26:37.377+02:00  
+**By:** Eliot (Backend Dev)  
+**Context:** PR #28 review fix — sanitize user-controlled metadata before writing to response headers
+
+## Decision
+
+All user-controlled data written to HTTP response headers MUST be sanitized to prevent header injection attacks.
+
+## Implementation
+
+Use the `SanitizeHeaderValue` pattern (implemented in `DownloadEndpoints.cs`):
+- Strip carriage return (`\r`) and line feed (`\n`) characters
+- Enforce reasonable length limit (500 chars) to prevent response bloat
+- Apply before writing to any custom or standard response header
+
+## Rationale
+
+User-controlled filenames, content types, and other metadata can contain CRLF sequences that enable:
+- Response splitting attacks (inject additional headers)
+- Cache poisoning (manipulate downstream proxies)
+- XSS via injected headers
+
+Even custom headers like `X-ShadowDrop-FileName` are vulnerable if not sanitized.
+
+## Scope
+
+- **Applies to:** All endpoints that write user-provided metadata to response headers
+- **Files:** `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` (reference implementation)
+- **Priority:** Security-critical — must be applied before merging any endpoint that writes user data to headers
+
+## Related
+
+- PR #28 review fix #1
+- ASP.NET Core does not automatically sanitize custom header values
+
+# Plan 0027 Clarifications — CLI Binary Download Contract
+
+**Date:** 2026-05-18T23:30:26.681+02:00  
+**Agent:** Nate (Lead)  
+**Status:** Ready for merge into decisions.md  
+
+## Problem
+
+Plan 0027 (streamed binary v2 CLI download contract) left five ambiguities that Eliot and Sophie surfaced during codebase-impact analysis:
+
+1. **No negotiation matrix** → implementers must guess which input combinations are allowed
+2. **Legacy params status unclear** → ambiguous whether `plaintextStart`/`plaintextEndExclusive` are retired or fallback
+3. **Mode default behavior vague** → unclear if omitted mode still uses legacy v1 path
+4. **Validation logic placement scattered** → behavior could be inferred across endpoint/service/helpers
+5. **Parameter sprawl unchecked** → multiple independent inputs without consolidation
+
+## Solution Locked In Plan 0027
+
+### 1. Request Validation Matrix (10 Scenarios)
+
+Explicit decision table added:
+- `?mode=cli` + valid Range → 200 OK + headers + binary
+- `?mode=cli` + no Range → full file
+- `?mode=cli` + malformed Range → 400
+- `?mode=cli` + unsatisfiable Range → 416
+- `?mode=cli` + legacy query params → 400 (rejected)
+- `?mode=cli` + direct-HTTP key material → 400 (rejected)
+- Omitted mode + Range header → route to legacy path
+- Omitted mode + legacy query params → backward compat route
+- `?mode=cli` on direct-HTTP-only share → 400
+- `?mode=unknown` → 400
+
+Implementers now have a single authoritative table instead of inferring behavior.
+
+### 2. Legacy Parameters Fully Retired for CLI Mode
+
+**Decision:** `plaintextStart` and `plaintextEndExclusive` are **forbidden** when `?mode=cli` is present. Any mixing fails with generic `400 Bad Request`.
+
+**Scope:** Applies only to CLI mode. Legacy parameters remain available on the default path (omitted `mode`) for backward compatibility.
+
+**Rationale:** Keeps the new CLI binary contract free of old naming; avoids carrying bespoke query names into streaming implementation. Clean separation: new contract has only `Range` headers; old contract can retain legacy query params as fallback.
+
+### 3. Mode Default Path Continues Unchanged
+
+**Decision:** Omitted `mode` parameter routes requests to the existing non-CLI path (direct-HTTP with plaintext decryption or legacy CLI v1 JSON/Base64, depending on share configuration).
+
+**Scope:** Plan 0027 does not remove the v1 CLI path. Both contracts coexist.
+
+**Rationale:** Backward compatibility is preserved. Deprecation/retirement of v1 path is a separate future decision with its own plan. This slice focuses on adding the new binary contract without disruption.
+
+### 4. Validation & Routing Centralized in Endpoint
+
+**Decision:** All mode negotiation and request validation is **centralized in `DownloadEndpoints`** before calling service methods.
+
+**Sequence:**
+1. **Endpoint Entry:** Parse/validate `?mode`, Range header, detect legacy params → return 400 if contradictory
+2. **Mode Routing:** If `?mode=cli` + valid inputs → call CLI service. Otherwise → legacy path.
+3. **Service Call:** Receive only pre-validated consolidated model (mode, range, auth context)
+4. **Response:** Service returns resolution object; endpoint streams body + headers deterministically
+
+**Rationale:** No behavior inference across helpers. Contradictions caught early. Logic is testable at the endpoint layer. Service implementations do not guess about contract details.
+
+### 5. Parameter Consolidation Recommended
+
+**Decision:** Implement a single `CliDownloadRequest` value object (struct or record) at the endpoint boundary.
+
+**Shape:**
+```csharp
+record CliDownloadRequest {
+    string Mode,                            // e.g., "cli"
+    PlaintextRange? RequestedRange,         // null for full file
+    ShareId,
+    BearerToken? IfPresent,
+    DirectHttpKeyMaterial? IfPresent
+}
+```
+
+**Rationale:** Eliminates ad-hoc parameter threading. Makes contradictions visible at construction time instead of scattered across helpers. Single validation point. Future contract changes have one place to adjust.
+
+## Impact
+
+- Implementation cannot accidentally split mode-selection logic or re-parse inputs
+- All edge cases documented and testable
+- Parameter handling explicit and auditable
+- Backward compatibility preserved; v1 path untouched
+- Future transport changes have a clear hook
+
+## References
+
+- **Plan:** `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` (updated 2026-05-18T23:30:26.681+02:00)
+- **Codebase Impact Analysis:** `.squad/agents/sophie/history.md` (2026-05-18 23:24:50 UTC)
+- **Backend Perspective:** `.squad/agents/eliot/history.md` (same session)
+
+---
+date: 2026-05-18T23:21:46.244+02:00
+team-update: true
+author: Nate
+area: issue-27-cli-download-contract
+---
+
+# Nate — CLI subset syntax decision for issue #27
+
+## Decision
+
+For the new streamed CLI download contract, keep `?mode=cli` as the only mode selector and replace the old `plaintextStart` / `plaintextEndExclusive` query parameters with one authoritative subset syntax: `Range: bytes=...` interpreted against plaintext byte offsets.
+
+## Why
+
+This is the cleanest contract boundary for ShadowDrop right now. The query string selects the transport mode, while the standard HTTP range grammar selects the requested plaintext window. That removes ShadowDrop-specific subset parameter names from the new contract, eliminates mixed-syntax ambiguity, and gives the API/CLI/tests a single request grammar to validate.
+
+## Consequences
+
+- CLI mode must reject requests that combine `Range` with legacy subset query parameters.
+- The plan should stop treating the subset syntax as open and instead lock `Range` as the only supported subset selector for `?mode=cli`.
+- Response semantics still stay CLI-specific; adopting `Range` on the request side does not require `206` or `Content-Range` on the response side.
+
+### 2026-05-18T22:54:33.368+02:00: CLI streamed-binary v2 should follow stabilization, not lead it
+**By:** Nate
+**What:** Treat issue #27 as "soon but not immediately" work. Do not make it the very next slice after issue #15; first let the newly shipped direct-HTTP resumable path and v1 CLI contract settle, then add v2 as an additive, opt-in efficiency upgrade.
+**Why:** Issue #15 already delivered the core user value: resumable downloads now work, and direct HTTP already avoids the JSON/Base64 tax for clients that can use standard range requests. Issue #27 mainly improves efficiency for CLI large-range downloads, but it introduces a new versioned wire contract and negotiation path while v1 must remain stable for existing consumers. That makes compatibility discipline and real-world v1 validation more important than immediate follow-through.
+
+# 2026-05-18T21:49:09.624+02:00 — PR #28 header control-char sanitization
+
+## Context
+Latest open Copilot review note on PR #28 flags `DownloadEndpoints.SanitizeHeaderValue()` for stripping only CR/LF before writing `X-ShadowDrop-File-Content-Type`.
+
+## Decision
+Treat the note as valid and merge-blocking. Response-header sanitization for persisted metadata must remove **all** control characters, not just CR/LF, before custom headers are assigned.
+
+## Why
+`GetResponseContentType()` already protects the main `Content-Type` header, but the custom `X-ShadowDrop-File-Content-Type` header still receives the partially sanitized raw metadata. Escaped control characters such as NUL or DEL can survive persistence and later trigger header validation failures or malformed-header behavior. This is a correctness and resilience issue, not style.
+
+## Recommended fix
+Update `SanitizeHeaderValue()` to filter `Char.IsControl` characters (or equivalent allow-list) before truncation, and add an API walking-skeleton regression using stored content-type metadata containing non-CR/LF controls.
+
+# Immediate Replacement: Legacy CLI v1 Contract Retired This Slice
+
+**Date:** 2026-05-18T23:34:55.793+02:00  
+**Author:** Nate  
+**Plan:** 0027-streamed-binary-v2-cli-download-contract.md
+
+## Decision
+
+Plan 0027 now explicitly commits to **immediate replacement** of the legacy CLI v1 JSON/Base64 contract:
+
+1. **Omitted `mode` behavior:** Routes only to direct-HTTP plaintext decryption. Legacy v1 path is gone.
+2. **Legacy query parameters:** Fully retired; any request with `plaintextStart` or `plaintextEndExclusive` returns `400 Bad Request`.
+3. **Removal scope:** JSON/Base64 parser, producer, shared DTOs, serializers, tests—all removed, not deferred.
+4. **Negotiation:** Explicit `?mode=cli` for streamed binary. No fallback to v1.
+
+## Rationale
+
+ShadowDrop has no active external users yet. Carrying dual contracts adds implementation friction and testing debt. Retiring v1 immediately keeps the download boundary simple and keeps acceptance criteria clear: one authoritative CLI shape from this slice forward.
+
+## Impact
+
+- Implementation removes obsolete v1 code surface entirely
+- Acceptance criteria updated: "removed completely" not "removed or retired"
+- Negotiation matrix now rejects legacy query params on all paths
+- Direct-HTTP shares get direct-HTTP behavior (no v1 fallback)
+
+### 2026-05-18T22:59:03.328+02:00: Issue #27 plan uses one binary CLI contract
+**By:** Nate
+**What:** Scope issue #27 as a replacement of the current CLI JSON/Base64 resumable-download contract with a single streamed binary v2 contract, using explicit negotiation and deterministic metadata headers rather than a long-lived dual v1/v2 surface.
+**Why:** The project is still pre-adoption, so compatibility ballast does not buy us anything yet. A header-described binary stream keeps the encrypted payload fully streaming, removes JSON/Base64 overhead, and leaves the API and CLI with one contract to lock through tests.
+
+# Issue #27: CLI Binary Download Contract — Mode Negotiation Locked
+
+**Date:** 2026-05-18T23:10:12.515+02:00  
+**Decided By:** Christian Flessa  
+**Scope:** Issue #27 plan finalization
+
+## Decision
+
+CLI download binary contract uses explicit `?mode=cli` query parameter (no version suffix).
+
+## Rationale
+
+ShadowDrop is still pre-release with no active external users. This binary streaming contract replaces the JSON/Base64 v1 contract outright and becomes the actual v1 public contract on release. Labeling it with a version suffix (`v2`, `cli-v2`) creates unnecessary confusion about versioning scope.
+
+Clean negotiation through `?mode=cli` is explicit and extensible without versioning baggage.
+
+## Transport Shape (Locked)
+
+- **Query Parameter:** `?mode=cli` (required for binary contract negotiation)
+- **Response Body:** Raw encrypted chunk bytes, streamed without JSON wrapping or Base64 encoding
+- **Metadata:** HTTP headers with deterministic names prefixed `X-ShadowDrop-*`
+  - `First-Chunk-Index`, `Last-Chunk-Index`
+  - `Plaintext-Range-Start`, `Plaintext-Range-End`
+  - `Total-Plaintext-Size`, `Chunk-Size`
+  - `Final-Chunk-Plaintext-Length`
+- **Content-Type:** `application/vnd.shadowdrop.cli-download` (allows future evolution)
+
+## Plan Updates
+
+- `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated to remove version-suffix language
+- All acceptance criteria and technical details now reference `?mode=cli` negotiation
+- Emphasis on "no JSON/Base64 in v1 contract" replaces "v2 is the new version"
+
+## Implementation Touchpoints
+
+No change to planned touchpoints; `?mode=cli` fits cleanly into existing `DownloadEndpoints` query routing.
+
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
+- `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs` (rename to reflect binary protocol)
+
+## Status
+
+**Ready for implementation.** Plan is now precise enough for issue assignment.
+
+# Nate — Issue #27 CLI v2 Transport Shape: Approved
+
+**Date:** 2026-05-18T23:04:42.962+02:00  
+**Author:** Nate (Lead)  
+**Area:** CLI Downloads & API Contracts  
+**Status:** Locked  
+**Issue:** #27 (CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract)
+
+## Decision
+
+Approve and lock the proposed CLI v2 download contract transport shape:
+- **Response Body:** Raw encrypted chunk bytes streamed directly
+- **Response Headers:** Deterministic HTTP headers carry all metadata
+- **Content-Type:** Custom `application/vnd.shadowdrop.cli-download-v2` media type
+
+## Rationale
+
+Requested by Christian Flessa. This shape:
+1. **Eliminates wrapper overhead:** No JSON envelope, no Base64 encoding, no full-buffer requirement
+2. **Cleaner boundaries:** Payload lives entirely in the body; metadata travels in stable headers
+3. **Type-safe:** Custom content type prevents misinterpretation and signals protocol version
+4. **Streaming-native:** Fits ASP.NET Core streaming model without preamble/footer complexity
+5. **Reusable infrastructure:** Leverages existing crypto gates, auth checks, and range logic
+
+## Architecture
+
+### Transport Contract
+
+**Metadata Headers (Deterministic):**
+- `X-ShadowDrop-First-Chunk-Index` — 0-based chunk index where encrypted span starts
+- `X-ShadowDrop-Last-Chunk-Index` — inclusive, 0-based chunk index where span ends
+- `X-ShadowDrop-Plaintext-Range-Start` — byte offset where decrypted output begins
+- `X-ShadowDrop-Plaintext-Range-End` — byte offset where decrypted output ends (exclusive)
+- `X-ShadowDrop-Total-Plaintext-Size` — full plaintext file size in bytes
+- `X-ShadowDrop-Chunk-Size` — plaintext bytes per encrypted chunk
+- `X-ShadowDrop-Final-Chunk-Plaintext-Length` — plaintext length of final chunk
+
+**Response Body:** Raw encrypted bytes (no framing, no encoding)  
+**Content-Type:** `application/vnd.shadowdrop.cli-download-v2`
+
+### Implementation Scope
+
+**API Layer (`DownloadEndpoints`, `DownloadFileService`):**
+- Add explicit v2 negotiation (e.g., `?mode=cli-v2` query parameter)
+- Return a metadata + stream model instead of JSON-wrapped `CliResumableDownloadContract`
+- Set custom content type and deterministic headers
+- Reuse existing plaintext-to-chunk-span logic and auth gates
+- Stream encrypted bytes without Base64 or JSON templating
+
+**CLI/Shared Layer (`CliResumableDownloadContractParser`, shared contracts):**
+- Replace JSON DTO parser with v2 header/stream reader
+- Validate headers before consuming body
+- Feed encrypted bytes into existing decryption/resume pipeline
+- Remove old v1 parser/producer surface (no dual code paths)
+
+**Testing:**
+- API tests: content-type, header correctness, streaming behavior, error cases
+- CLI tests: header parsing, end-to-end download/resume/decrypt, error handling
+- Sociable tests around existing pipeline (no protocol-level mocks)
+
+## Non-Goals
+
+- Direct-HTTP downloads remain unchanged
+- No breaking changes to other contracts
+- No changes to cryptographic model or auth boundaries
+
+## Related
+
+- Issue #27: CLI Resumable Downloads Migrate to Streamed Binary v2 Contract
+- Plan: `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` (updated with this shape)
+- Related Issue #15: Range requests + resumable downloads (v1 foundation)
+
+---
+date: 2026-05-18T23:24:50.124+02:00
+team-update: true
+author: Nate
+area: issue-27-cli-download-contract
+blocking: false
+---
+
+# Nate — Issue #27 Plan Finalization & Internal Consistency
+
+## Summary
+
+Updated `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` to lock in the Range header decision across all six Technical Details subsections. Plan is now internally consistent and ready for implementation.
+
+## Changes
+
+- **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as sole subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing Range with legacy query parameters.
+- **CLI HTTP Semantics:** Specified `200 OK` response code (not 206). No `Accept-Ranges`/`Content-Range`. Added explicit Range header parsing: malformed → `400`, unsatisfiable → `416` (non-leaky).
+- **Wire Integrity Rules:** Added request-side Range validation before processing; clarified consistency requirements between Range header and plaintext window.
+- **API Implementation:** Specific Range header parsing rules locked in one place. Legacy query parameter mixing explicitly rejected.
+- **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` headers (avoiding legacy parameters).
+- **Testing:** Specific Range header scenarios: valid formats, overlapped/malformed rejection, unsatisfiable (416, no leakage), mixing with legacy parameters.
+- **Acceptance Criteria:** Refined to explicitly reference Range header as request-side mechanism and testing for Range acceptance/rejection.
+
+## Implications
+
+1. **Legacy Code:** Any CLI-mode code using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation.
+2. **Validation Scope:** Both API and CLI must robustly parse and validate `Range: bytes=...` headers.
+3. **Clean Separation:** Mode selector (`?mode=cli`) cleanly separated from plaintext window (`Range: bytes=...`). Enables deterministic testing and removes ambiguity.
+4. **Plan Authority:** Plan is now the single source of truth for Range header semantics in CLI mode.
+5. **Testing Matrix:** Expanded to cover ~6+ Range header edge cases plus mixing scenarios with legacy parameters.
+
+## Status
+
+Plan locked. Ready for implementation assignment. No further scope refinement expected.
+
+---
+date: 2026-05-18T22:57:19.450+02:00
+author: Nate
+team: squad
+decision: issue-27-sequencing
+---
+
+# Nate — Issue #27 Sequencing Reassessment
+
+## Decision
+
+Move issue #27 up. With no external users and no compatibility promise to protect yet, the streamed-binary CLI contract redesign should be the next CLI-focused slice after issue #15 rather than a deferred follow-up.
+
+## Why
+
+- The original delay depended on preserving a newly-stabilized v1 contract for real consumers; that constraint is now gone.
+- Issue #15 already delivered the hard part: range mapping, selective chunk handling, CLI metadata shape, shared JSON/AOT contract discipline, and regression coverage. Issue #27 can reuse that work while swapping the transport contract instead of re-solving download semantics later.
+- Doing the redesign now avoids building more CLI behavior, docs, and tests around a contract we already expect to replace.
+
+## Scope Guard
+
+- Redesign the CLI download contract now.
+- Do not broaden into unrelated download features or protocol churn outside CLI resumable mode.
+- If useful, v1 can remain temporarily as an internal migration shim, but it should not be the sequencing driver anymore.
+
+---
+date: 2026-05-18T13:26:19.627+02:00
+author: Nate
+subject: PR #28 Created for Issue #15 — Range Requests & Resumable Downloads
+scope: team
+---
+
+# PR #28: HTTP Range Requests with Resumable Downloads
+
+## Decision
+
+Created GitHub PR #28 to merge completed issue #15 implementation to `main`.
+
+## Details
+
+| Property | Value |
+|----------|-------|
+| PR Number | 28 |
+| Title | `feat: HTTP range requests with resumable downloads (issue #15)` |
+| Branch | `squad/15-cli-resumable-download-contract` |
+| Base | `main` |
+| Commits | 3 (core implementation + review fixes + decision merge) |
+| URL | https://github.com/chA0s-Chris/ShadowDrop/pull/28 |
+| Status | Open (ready for review gate) |
+
+## PR Body Structure
+
+- **Summary:** HTTP 206 Partial Content + CLI-resumable downloads on chunked encryption
+- **Closes:** #15
+- **Implementation Slices:** Three focused layers (Direct-HTTP, CLI Contract, Security)
+- **Related:** Issue #25 (future v2 binary streaming migration) documented as follow-up
+- **Architecture:** Reused contracts, new contracts, streaming-first design notes
+
+## Team Context
+
+- Implementation completed by Eliot (Backend), Sophie (CLI), Parker (Testing)
+- Review fixes merged from three inbox decisions (streaming payload fix, regression coverage, issue #25 creation)
+- Cross-agent history updated; decision merge finalized state
+- No breaking changes; locked CLI v1 contract maintained backward-compatibility
+
+## Next Steps
+
+- Review gate: Nate + Parker (default pair)
+- Security escalation to Alec if needed (auth/crypto aspects already reviewed)
+- Issue #25 remains open as future-work placeholder; not blocking this PR
+
+---
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+### 2026-05-18T22:34:05.735+02:00: PR #28 latest Copilot note blocks merge
+**By:** Nate
+**What:** Treat the newest open Copilot note on `DownloadFileService.TryOpenDirectHttpContentAsync()` as valid and merge-blocking until direct-HTTP stream creation also fail-closes on `InvalidDataException` and `IOException`.
+**Why:** `DirectHttpDecryptingStream.CreateAsync()` can surface those exceptions before returning a stream; the direct-HTTP path currently lets them escape as 500s instead of the intended non-leaky invalid-request response.
+
+---
+date: 2026-05-18T15:26:37.377+02:00
+author: Parker
+subject: Issue #15 PR #28 Review — Four Copilot Notes Addressed and Verified
+scope: team
+---
+
+# Issue #15 PR #28 Review Complete
+
+## Decision
+
+All four Copilot PR review notes on PR #28 (issue #15 range requests & resumable downloads) have been addressed with fixes in uncommitted local changes. Regression coverage added. Implementation verified and ready for commit.
+
+## Review Findings
+
+### PR Note #1: Header Injection Security (CRITICAL)
+
+**Issue:** `resolution.FileName` and `resolution.FileContentType` written directly to response headers without validation in `DownloadEndpoints.cs:102`. Risk: header injection via CR/LF, 500 errors from invalid media types.
+
+**Fix Applied:** 
+- `SanitizeHeaderValue(value)`: Strips `\r` and `\n`, truncates to 500 chars
+- `GetResponseContentType(contentType)`: Validates with `MediaTypeHeaderValue.TryParse`, fallbacks to `application/octet-stream`
+
+**Regression Coverage:**
+- `PublicDownloadEndpoint_ShouldSanitizeFileNameWithControlCharacters`: Uploads file with `\r\nX-Injected-Header: evil\r\n` in name, verifies injection blocked
+- `PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid`: Uploads file with malformed content-type, verifies safe fallback
+
+**Status:** ✅ Fixed and verified
+
+---
+
+### PR Note #2: O(n) Performance Bottleneck
+
+**Issue:** `remainingSpanPlaintextLength` computed by iterating every chunk in span (`for (chunkIndex = first; chunkIndex <= last; chunkIndex++)`) in `DownloadFileService.cs:978`. O(number of chunks) latency before any I/O.
+
+**Fix Applied:** 
+- `GetPlaintextLengthForChunkSpan(uploadedFile, firstChunkIndex, lastChunkIndex)` uses O(1) arithmetic:
+  - `chunkCount = lastChunkIndex - firstChunkIndex + 1`
+  - Returns `(chunkCount - 1) * chunkSize + finalChunkLength` if last chunk is final
+  - Returns `chunkCount * chunkSize` otherwise
+
+**Regression Coverage:** Existing tests (`Parse_ShouldAcceptLargeChunkSpanMetadata_WhenValuesStayWithinContractBounds`) verify correctness for large chunk spans (34B+ chunks). Performance improvement is optimization, not correctness bug.
+
+**Status:** ✅ Fixed and verified (optimization)
+
+---
+
+### PR Note #3: Base64 Allocation Waste
+
+**Issue:** `Convert.FromBase64String(contract.EncryptedPayload)` allocates full decoded byte array just for validation in `CliResumableDownloadContractParser.cs:75`, then discards it. Duplicates work (decoded again for decryption) and wastes memory on large payloads.
+
+**Fix Applied:**
+- `IsValidBase64String(value)`: Character-level validation without allocation
+  - Checks length % 4 == 0
+  - Validates each char is `[A-Za-z0-9+/=]`
+  - No byte array created
+
+**Regression Coverage:** Existing parser tests (`Parse_ShouldAcceptLargeChunkSpanMetadata_WhenValuesStayWithinContractBounds`, `Parse_ShouldThrowInvalidDataException_WhenEncryptedPayloadIsMissing`) verify validation correctness. Allocation reduction is optimization.
+
+**Status:** ✅ Fixed and verified (optimization)
+
+---
+
+### PR Note #4: Outdated Plan Documentation
+
+**Issue:** `ai-plans/0015-range-requests-and-resumable-downloads.md:177` says "Direct-HTTP Range / 206 Partial Content work remains outstanding" but implementation is complete.
+
+**Fix Applied:** Plan updated to reflect completed state: "Direct-HTTP mode supports standard HTTP `Range` headers with `206 Partial Content` responses, enabling full resumable-download capability for both download modes."
+
+**Status:** ✅ Fixed
+
+---
+
+## Test Verification
+
+**Full test suite passed:**
+- API: 91 tests (added 2 for header injection regression)
+- CLI: 3 tests
+- Shared: 71 tests
+- **Total: 165 tests, all passing**
+
+**Command:**
+```bash
+dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-build
+dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-build
+dotnet test tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj --no-build
+```
+
+## Uncommitted Changes Summary
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` | +16 | `SanitizeHeaderValue` method |
+| `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` | +26 | `GetPlaintextLengthForChunkSpan` O(1) method |
+| `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs` | +36 | `IsValidBase64String` non-allocating validation |
+| `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` | +79 | Header injection regression tests |
+| `ai-plans/0015-range-requests-and-resumable-downloads.md` | +3 | Updated implementation notes |
+
+## Outcome
+
+**Issue #15 implementation is complete and ready for merge.**
+
+All acceptance criteria met:
+- HTTP 206 Partial Content support ✅
+- CLI-resumable encrypted-subset contract ✅
+- Security gates (auth, expiration, non-leaky errors) ✅
+- Selective decryption and streaming-oriented design ✅
+- Comprehensive test coverage ✅
+
+**Next Steps:**
+- Commit uncommitted changes
+- Merge PR #28 to `main`
+
+---
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+---
+date: 2026-05-19T10:16:47.327+02:00
+agent: Parker
+issue: 27
+---
+
+## Decision
+
+Start issue #27 test coverage at the transport boundary, not in the removed JSON/Base64 DTO surface.
+
+## Why
+
+The working tree already pivots toward streamed binary CLI downloads (`CliDownloadMetadataContract`, `CliDownloadRequestFactory`, `CliDownloadResponseParser`) while the old `CliResumableDownloadContract` files are being deleted. High-signal regression coverage should therefore lock:
+
+- API negotiation and CLI-mode HTTP semantics (`?mode=cli`, 200/no `Content-Range`, binary body, metadata headers)
+- CLI fail-closed parsing for missing/duplicate/malformed headers, media type mismatches, and truncated/oversized bodies
+- Legacy `plaintextStart` / `plaintextEndExclusive` rejection assumptions
+
+## Current Blocker
+
+The branch is mid-migration: `DownloadFileService` still references the removed `CliResumableDownloadContract`, and `DownloadHeaderConstants` does not yet expose the new mode-selector constants referenced by the new CLI request factory. Expect test compilation to stay red until those implementation files land consistently.
+
+---
+date: 2026-05-19T10:16:47.327+02:00
+agent: Sophie
+issue: 27
+slug: cli-binary-contract
+---
+
+Locked the CLI/client slice onto explicit `?mode=cli` negotiation with standard `Range: bytes=start-end` headers for partial/resume requests. The client/shared contract now treats `application/vnd.shadowdrop.cli-download` plus required `X-ShadowDrop-*` metadata headers as authoritative, consumes raw encrypted body bytes as a stream, and removes the legacy JSON/Base64 parser surface.
+
+# 2026-05-18T22:12:59.106+02:00 — Fail closed on corrupt chunk metadata
+
+## Context
+PR #28 review found `GetFinalChunkPlaintextLength` trusted persisted chunk metadata too much. Unchecked multiplication/subtraction plus narrowing casts could turn corrupt `ChunkCount`/`PlaintextLength` combinations into bogus offsets and lengths.
+
+## Decision
+Treat chunk-metadata-derived final chunk length as validated data, not trusted arithmetic:
+- use `checked` arithmetic for full-chunk and remainder calculations;
+- require chunked files to produce a final chunk length within `1..ChunkSize`;
+- map violations to the existing invalid-request path instead of emitting malformed download offsets.
+
+## Why
+This keeps local and CI behavior deterministic under corrupt metadata and prevents release builds from depending on unchecked overflow behavior. The download path now fails closed before streaming corrupted ranges.
+
+# Tara Decision — Download header sanitization
+
+- **Date:** 2026-05-18T18:02:41.646+02:00
+- **Area:** Public download response shaping
+
+## Decision
+Sanitize persisted filenames once in `DownloadEndpoints` and reuse that sanitized value for both the custom filename header and `Content-Disposition` `FileNameStar`.
+
+## Why
+The filename can come from stored upload/share metadata, so it must not be written directly into either header surface. Reusing one sanitized value keeps direct HTTP downloads resilient against header injection attempts and ASP.NET header validation failures while preserving a single repeatable response path.
+
+## Affected Paths
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+# Decision: Download Endpoint Mode Validation and Test Correctness
+
+**Date:** 2026-05-19T12:11:29.955+02:00
+**Author:** Tara
+
+## Fix 1 — `DownloadEndpoints`: Reject explicit empty/whitespace `mode` with 400
+
+`TryCreateDownloadRequest` in `DownloadEndpoints.cs` previously used
+`String.IsNullOrWhiteSpace(mode)` to detect "no mode supplied" and fall into
+the DirectHttp branch. This also matched `?mode=` and `?mode=%20` (present
+but blank), silently treating them as DirectHttp.
+
+**Decision:** Before the DirectHttp fallthrough, check
+`request.Query.ContainsKey(ModeQueryParameterName) && IsNullOrWhiteSpace(mode)`
+and return `null` (→ 400) if true. Absence and explicit-empty are now distinct.
+
+Pinned by new integration test:
+`PublicDownloadEndpoint_ShouldRejectEmptyModeQueryParameter` in
+`tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
+
+## Fix 2 — `DownloadFileServiceTests`: Bearer token tests used wrong argument slot
+
+`ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsExpired` and
+`ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsWrong` called the
+8-parameter `ResolveAsync` overload with the bearer token as the `mode`
+argument (position 3) and `null` for `authorizationBearerToken` (position 4).
+Both tests passed by coincidence: `null` bearer on a bearer-protected share
+also returns Forbidden (missing-bearer path), so the intended expired/wrong-hash
+branch was never exercised.
+
+**Decision:** Fixed argument order — `null` for mode, bearer token in position 4.
+Tests now exercise the correct service branches (expiry check and hash mismatch).

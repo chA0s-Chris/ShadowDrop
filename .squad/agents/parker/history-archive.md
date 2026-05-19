@@ -1,28 +1,3 @@
-# SUMMARY — Generated 2026-05-19T10:20:42.080364Z
-
-**Coverage:** May 14–19, 2026  
-**Sessions:** Multiple  
-**Key themes:** Test coverage expansion, PR #28 review gate enforcement
-
-### Highlights
-
-- **PR #10 assessment:** Completed three critical fixes (queue validation, URL validation, XML docs) with Nate; ready for merge
-- **API test coverage:** Four missing scenarios added (wrong bearer token 401, public downloads disabled 404, upload token requirement, bootstrap failure)
-- **WebApplicationFactory behavior:** Documented .NET 10 startup exception handling (caught internally; CreateClient() throws InvalidOperationException)
-- **Issue #27 test frontier:** Boundary cases for mode validation, range header parsing, empty mode rejection
-- **Review gate:** Default pair established (Nate + Parker); Alec escalates for security
-
-### Related Work
-
-- Nate (Lead): Issue #27 planning, plan refinements, decision matrix
-- Tara (Platform): Bearer-token test repairs, end-to-end mode rejection testing
-- Alec (Security): Review escalation for token/auth boundaries
-
-
----
-
-## Archived Details
-
 # Project Context
 
 - **Owner:** Christian Flessa

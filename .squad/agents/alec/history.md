@@ -73,3 +73,17 @@ Alec's security review of plan 0013 has been merged into canonical `decisions.md
 3. Verify no other secret lifetime gaps exist (review all code paths from key decode to final cleanup)
 
 **Pattern applied:** `crypto-buffer-encapsulation` skill validates that all secret transfer points have explicit cleanup guards. This PR introduced an implicit transfer point (blob open before stream creation) that lacks guard.
+
+## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
+
+**Agents involved:** Tara, Nate, Parker  
+**Context:** PR #28 review cycle closed on issue #27 follow-up work
+
+Tara resolved two findings:
+- Rejected explicit empty/whitespace mode selectors
+- Repaired bearer-token tests (ResolveAsync signature)
+- Added end-to-end API test for empty mode rejection
+- Test suite validated (194 tests green)
+
+Decision inbox consolidated (21 files merged to decisions.md).
+Archive gate passed; no forced archival. Ready for next phase.
