@@ -2732,3 +2732,19 @@ Tests now exercise the correct service branches (expiry check and hash mismatch)
 - Existing CLI and shared tests validate the behavior
 
 **Rationale:** Prevents parameter duplication and ensures deterministic CLI download contract shape.
+
+### 2026-05-19T18:02:15.900+02:00: Invalid Mode Overload Fail-Closed
+**By:** Tara (Platform Engineer), approved by Parker (Tester)
+**Area:** public download negotiation / service overload parity
+
+The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` overload must fail closed with `InvalidRequest` for any explicit mode value other than `cli`, including blank strings, instead of silently treating it as direct HTTP.
+
+**Rationale:** `DownloadEndpoints.TryCreateDownloadRequest` already rejects explicit invalid or blank `mode` query values with a 400. Keeping the service overload permissive creates a negotiation mismatch that can make tests or alternative call paths succeed as direct HTTP when the HTTP contract would reject the request.
+
+**Details:**
+- Omitted mode (`null`) still means direct HTTP.
+- Explicit `cli` still selects streamed CLI behavior.
+- Explicit invalid/blank mode values now stay aligned with endpoint fail-closed behavior.
+- Regression coverage exists in both service and API layers, so the contract is pinned through the endpoint and not just the helper.
+- `PublicDownloadEndpoint_ShouldReturn404_WhenStreamedCliBlobIsMissing` now clearly names the streamed CLI path.
+- `ResolveAsync_ShouldReturnNotFound_WhenStreamedCliMetadataExistsButBlobIsMissing` now clearly names the streamed CLI metadata path.

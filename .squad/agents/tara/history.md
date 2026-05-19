@@ -66,3 +66,20 @@ Tara resolved two findings:
 
 Decision inbox consolidated (21 files merged to decisions.md).
 Archive gate passed; no forced archival. Ready for next phase.
+
+- 2026-05-19T18:02:15.900+02:00: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` string overloads for download negotiation should mirror `DownloadEndpoints.TryCreateDownloadRequest`: only `null` means omitted/direct HTTP, `cli` selects streamed CLI, and any explicit blank or unknown mode must return `InvalidRequest` fail-closed. Regression coverage lives in `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`; stale `CliDecrypt` test names should be updated to `StreamedCli` wording in both API and service tests.
+
+## 2026-05-19T16:02:15.900Z — Scribe: Invalid Mode Overload Fail-Closed
+
+**Agents involved:** Tara, Parker  
+**Topic:** Public download negotiation parity
+
+Tara delivered invalid-mode fail-closed fix to `DownloadFileService.ResolveAsync(string? mode, ...)`:
+- Explicit invalid/blank mode values now return `InvalidRequest` instead of silently falling back to direct HTTP
+- Regression coverage added at both service and API layers (pinned contract)
+- Test naming clarified: renamed stale `CliDecrypt` test names to `StreamedCli` wording
+- All targeted API tests pass; solution build clean
+
+Parker reviewed and approved correctness and coverage.
+
+**Decision tracked:** `.squad/decisions.md` → "Invalid Mode Overload Fail-Closed"
