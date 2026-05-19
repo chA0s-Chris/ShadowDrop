@@ -110,6 +110,7 @@ Parker reviewed Tara's invalid-mode fail-closed fix:
 **Decision tracked:** `.squad/decisions.md` → "Invalid Mode Overload Fail-Closed"
 
 ## Learnings
+- 2026-05-19T19:35:51.788+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` now fails closed before resume when a seekable destination stream length differs from `DurablePlaintextLength`; `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` covers both shorter (`-1`) and longer (`+1`) mismatches and targeted `CliDownloadSessionTests` passed.
 
 - 2026-05-19T18:34:53.970+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now enforces canonical digit-only integer headers via `TryParseCanonicalInt64HeaderValue`, so CLI download metadata rejects whitespace-prefixed/suffixed and plus-prefixed numerics before semantic validation.
 - 2026-05-19T18:34:53.970+02:00 — `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` pins the header-format regression with explicit non-canonical samples (`" 128"`, `"128 "`, `"+128"`) and the full solution test suite passed at 207 tests.

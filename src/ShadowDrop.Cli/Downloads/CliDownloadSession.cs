@@ -88,6 +88,7 @@ public sealed class CliDownloadSession : IDisposable
 
         if (_destination.CanSeek)
         {
+            ValidateSeekableDestinationForResume();
             _destination.Position = DurablePlaintextLength;
         }
 
@@ -195,6 +196,20 @@ public sealed class CliDownloadSession : IDisposable
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, nameof(CliDownloadSession));
+
+    private void ValidateSeekableDestinationForResume()
+    {
+        if (DurablePlaintextLength == 0)
+        {
+            return;
+        }
+
+        if (_destination.Length != DurablePlaintextLength)
+        {
+            throw new InvalidOperationException(
+                "Cannot resume a streamed CLI download when the seekable destination length does not match the durable plaintext length.");
+        }
+    }
 
     /// <inheritdoc />
     public void Dispose()

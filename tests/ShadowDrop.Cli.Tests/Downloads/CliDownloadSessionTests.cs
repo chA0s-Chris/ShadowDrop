@@ -11,6 +11,40 @@ using System.Net;
 
 public sealed class CliDownloadSessionTests
 {
+    [TestCase(-1)]
+    [TestCase(1)]
+    public async Task DownloadAsync_ShouldFailClosed_WhenSeekableDestinationLengthDoesNotMatchDurablePlaintextLength(Int32 lengthDelta)
+    {
+        var fixture = DownloadFixture.Create();
+        var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
+        using var handler = new StubHttpMessageHandler(_ => fixture.CreateInterruptedResponse(firstChunkEncryptedLength + 7));
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new("https://shadowdrop.test/")
+        };
+        await using var destination = new MemoryStream();
+        using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
+        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+                                                   fixture.CreateFileEncryptionContext());
+
+        var firstAttempt = async () => await session.DownloadAsync(CancellationToken.None);
+
+        await firstAttempt.Should().ThrowAsync<IOException>();
+        session.TotalPlaintextSize.Should().Be(fixture.Plaintext.LongLength);
+        session.DurablePlaintextLength.Should().Be(fixture.ChunkSize);
+        destination.Length.Should().Be(fixture.ChunkSize);
+
+        destination.SetLength(fixture.ChunkSize + lengthDelta);
+
+        var resumedAttempt = async () => await session.DownloadAsync(CancellationToken.None);
+
+        await resumedAttempt.Should().ThrowAsync<InvalidOperationException>()
+                            .WithMessage("*seekable destination length does not match the durable plaintext length*");
+        handler.Requests.Should().HaveCount(1);
+        destination.Length.Should().Be(fixture.ChunkSize + lengthDelta);
+        session.DurablePlaintextLength.Should().Be(fixture.ChunkSize);
+    }
+
     [Test]
     public async Task DownloadAsync_ShouldRequestCliMode_DecryptFullResponse_AndPersistPlaintext()
     {
