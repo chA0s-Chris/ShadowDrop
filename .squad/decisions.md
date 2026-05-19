@@ -2898,3 +2898,22 @@ That is safe only if the destination already contains exactly that many durable 
 - For seekable destinations, fail closed unless `destination.Length == DurablePlaintextLength`.
 - Throw an argument/state exception with a clear contract message rather than trying to reconcile mismatched caller state automatically.
 - Add regression tests for seekable destinations where length is shorter and longer than the supplied durable length; both should reject before sending any request.
+
+# Tara Decision — Resume Destination Length Must Match Durable Plaintext
+
+- **Date:** 2026-05-19T19:35:51.788+02:00
+- **Agent:** Tara
+- **Area:** CLI resumable download fail-closed validation
+
+## Decision
+
+When `CliDownloadSession` resumes into a seekable destination stream, the stream length must exactly equal `DurablePlaintextLength` before any seek or HTTP resume request occurs. If the destination is shorter or longer than the durable byte count, the session now throws `InvalidOperationException` and does not issue a resume request.
+
+## Why
+
+Resume state is only trustworthy when the persisted plaintext boundary and local durable metadata agree exactly. Allowing shorter or longer seekable destinations would silently splice decrypted bytes onto inconsistent local state and make resumes machine-dependent.
+
+## Implementation
+
+- Implemented in `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs`
+- Regression coverage added in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` for both shorter-than-durable and longer-than-durable destination lengths

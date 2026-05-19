@@ -127,3 +127,19 @@ Tara delivered strict CLI response header parser hardening:
 - Add regression tests for seekable streams with length shorter and longer than durable state
 - Decision tracked: `.squad/decisions.md` → "Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation"
 
+## 2026-05-19T19:35:51Z — Resume Destination Length Validation Implemented
+
+**Event:** Tara implemented fail-closed preflight validation for `CliDownloadSession` resumable downloads.
+
+**Decision:** When resuming into a seekable destination stream, the stream length must exactly equal `DurablePlaintextLength` before any seek or HTTP resume request. If shorter or longer, throw `InvalidOperationException`.
+
+**Implementation Details:**
+- Modified `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` to validate destination.Length == DurablePlaintextLength
+- Does not issue resume request if validation fails (fail-closed)
+- Added regression tests in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs`:
+  - Test for shorter destination (reject before request)
+  - Test for longer destination (reject before request)
+- Decision tracked: `.squad/decisions.md` → "Tara Decision — Resume Destination Length Must Match Durable Plaintext"
+- Status: Implementation complete, regression tests passing
+
+- 2026-05-19T19:35:51.788+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` resume flow must fail closed before any seek/network call when a seekable destination stream length differs from `DurablePlaintextLength`; shorter and longer mismatch regressions belong in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs`.
