@@ -113,6 +113,8 @@ Parker reviewed Tara's invalid-mode fail-closed fix:
 
 - 2026-05-19T18:34:53.970+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now enforces canonical digit-only integer headers via `TryParseCanonicalInt64HeaderValue`, so CLI download metadata rejects whitespace-prefixed/suffixed and plus-prefixed numerics before semantic validation.
 - 2026-05-19T18:34:53.970+02:00 — `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` pins the header-format regression with explicit non-canonical samples (`" 128"`, `"128 "`, `"+128"`) and the full solution test suite passed at 207 tests.
+- 2026-05-19T18:54:27.229+02:00 — `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` now emits CLI numeric metadata headers via invariant-culture helpers, and `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` forces `ar-SA` current/UI culture to prove the wire format stays ASCII-canonical (`0`, `96`, `64`, `32`).
+- 2026-05-19T18:54:27.229+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now rejects final-chunk metadata where `FinalChunkPlaintextLength` disagrees with `TotalPlaintextSize` and `ChunkSize`; `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` pins the hostile single-final-chunk case.
 
 ## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
 
@@ -150,3 +152,14 @@ Parker reviewed Tara's strict header parser hardening:
 - `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` (hostile tests)
 
 **Coordinate with:** Eliot (for symmetric numeric header emission)
+
+## 2026-05-19 — Review Approved & Archived
+
+**Event:** Scribe merged Parker's PR #29 review approval into canonical record and archived inbox entry.
+
+**Impact on Parker:**
+- Review outcome "Approved. Both reported defects are fixed and the regression coverage is sufficient" is now permanent record
+- Verification of invariant culture headers and final-chunk metadata validation documented
+- Test evidence captured (CliDownloadResponseParserTests, ApiWalkingSkeletonTests)
+- PR #29 formally closed from review perspective
+

@@ -7,6 +7,8 @@
 
 ## Learnings
 
+- 2026-05-19T18:54:27.229+02:00: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` must emit streamed CLI numeric metadata headers with `CultureInfo.InvariantCulture` so wire values stay canonical ASCII digits regardless of host/request culture; regression coverage lives in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` with a non-default culture.
+- 2026-05-19T18:54:27.229+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` must validate that `TotalPlaintextSize`, derived chunk count, `ChunkSize`, and `FinalChunkPlaintextLength` agree on the last chunk length before trusting streamed metadata; focused regression coverage lives in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`.
 - Initial role seeded as Platform Dev for ShadowDrop.
 - The concept requires one-container Docker distribution plus x64 and arm64 delivery for server and CLI artifacts.
 - 2026-05-14T20:06:45.536+02:00: `ShadowDrop.slnx` already contains the three production projects plus all three test projects, so issue work should preserve existing solution membership instead of recreating it.
@@ -101,3 +103,14 @@ Tara delivered strict CLI response header parser hardening:
 **Status:** Completed, approved by Parker, ready for integration.
 
 **Decision tracked:** `.squad/decisions.md` → "Strict CLI download header parsing"
+
+## 2026-05-19 — Decision Archived & Merged
+
+**Event:** Scribe merged Tara's PR #29 fix decisions into canonical record and archived inbox entries.
+
+**Impact on Tara:**
+- Decision "Treat streamed CLI numeric metadata headers as culture-invariant wire values…" is now part of permanent team record
+- Regression coverage for invariant culture test and final-chunk validation test integrated
+- Both API and CLI test suites validated cleanly
+- Ready for next feature cycle
+

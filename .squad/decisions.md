@@ -2819,3 +2819,59 @@ The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` over
 - `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
 - `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
 - `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+
+# Tara Decision — Latest PR Fixes
+
+- **Date:** 2026-05-19T18:54:27.229+02:00
+- **Agent:** Tara
+- **Area:** CLI download wire contract and parser validation
+
+## Decision
+
+Treat streamed CLI numeric metadata headers as culture-invariant wire values and validate the final chunk semantics from the total plaintext size instead of trusting the last-chunk header in isolation.
+
+## Why
+
+- Response headers must stay identical across developer machines and CI runners, even under non-default cultures.
+- The CLI parser needs a fail-closed check that the derived last chunk length matches `TotalPlaintextSize`/`ChunkSize`, otherwise inconsistent metadata can advertise an impossible final chunk.
+
+## Applied In
+
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
+- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+
+## Validation
+
+- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore`
+- `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-restore`
+
+## 2026-05-19T18:54:27.229+02:00 — Parker Review: Latest PR Fixes Approved
+
+**Requested by:** Christian Flessa  
+**Reviewed author:** Tara
+
+### Outcome
+
+Approved. Both reported defects are fixed and the regression coverage is sufficient for the two review notes.
+
+### What I verified
+
+1. **Invariant/canonical CLI metadata headers**
+   - `DownloadEndpoints` now formats every numeric CLI metadata header with `CultureInfo.InvariantCulture`.
+   - `ApiWalkingSkeletonTests.PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture` forces `ar-SA` current/UI culture and asserts canonical ASCII header values, which directly covers the localization regression risk.
+
+2. **Final-chunk metadata consistency**
+   - `CliDownloadResponseParser.ValidateMetadata()` now derives the expected final chunk plaintext length from `TotalPlaintextSize` and `ChunkSize` and rejects mismatches.
+   - `CliDownloadResponseParserTests.Parse_ShouldThrowInvalidDataException_WhenFinalChunkLengthDoesNotMatchTotalPlaintextSize` proves inconsistent hostile metadata is rejected.
+
+### Test evidence
+
+- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` ✅
+- `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-restore --filter ApiWalkingSkeletonTests.PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture` ✅
+
+### Reviewer judgment
+
+- No code changes requested.
+- No reassignment needed.
