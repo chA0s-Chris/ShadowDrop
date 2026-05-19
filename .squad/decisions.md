@@ -2717,3 +2717,18 @@ branch was never exercised.
 
 **Decision:** Fixed argument order — `null` for mode, bearer token in position 4.
 Tests now exercise the correct service branches (expiry check and hash mismatch).
+
+---
+
+### 2026-05-19T14:38:07.521+02:00: PR #29 Follow-up — CLI Download URI Normalization
+**By:** Sophie
+
+**What:** Normalize CLI download URIs to emit `mode` exactly once as `mode=cli`.
+
+**Details:**
+- Remove any existing `mode` query parameters from incoming download URI before appending the CLI contract selector
+- Preserve all other query parameters so scripted operator workflows round-trip their flags cleanly
+- Implemented in `CliDownloadRequestFactory` with regression coverage for existing/conflicting mode values
+- Existing CLI and shared tests validate the behavior
+
+**Rationale:** Prevents parameter duplication and ensures deterministic CLI download contract shape.
