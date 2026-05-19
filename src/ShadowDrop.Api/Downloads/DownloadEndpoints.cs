@@ -166,6 +166,11 @@ public static class DownloadEndpoints
             return null;
         }
 
+        if (request.Query.ContainsKey(DownloadHeaderConstants.ModeQueryParameterName) && String.IsNullOrWhiteSpace(mode))
+        {
+            return null;
+        }
+
         if (String.IsNullOrWhiteSpace(mode))
         {
             var requestedRange = String.IsNullOrWhiteSpace(rangeHeader)

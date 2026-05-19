@@ -293,8 +293,8 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            bearerToken,
                                             null,
+                                            bearerToken,
                                             null,
                                             null,
                                             null,
@@ -339,8 +339,8 @@ public sealed class DownloadFileServiceTests
 
         var result = await sut.ResolveAsync(shareToken,
                                             fileId,
-                                            wrongBearerToken,
                                             null,
+                                            wrongBearerToken,
                                             null,
                                             null,
                                             null,

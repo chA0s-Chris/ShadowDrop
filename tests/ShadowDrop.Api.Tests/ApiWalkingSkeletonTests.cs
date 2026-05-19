@@ -853,6 +853,21 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task PublicDownloadEndpoint_ShouldRejectEmptyModeQueryParameter()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var emptyModeResponse = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=");
+        var whitespaceModeResponse = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=%20");
+
+        await AssertNonPartialErrorResponseAsync(emptyModeResponse, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+        await AssertNonPartialErrorResponseAsync(whitespaceModeResponse, HttpStatusCode.BadRequest, """{"error":"Invalid download request."}""");
+    }
+
+    [Test]
     public async Task PublicDownloadEndpoint_ShouldAcceptDirectHttpKeyMaterial_FromHeader()
     {
         await using var fixture = new TestApiFactory(enablePublicDownloads: true);
@@ -1562,7 +1577,7 @@ public sealed class ApiWalkingSkeletonTests
 
     private static Int32 GetChunkPlaintextLength(CliDownloadMetadataContract metadata, Int64 chunkIndex)
     {
-        var lastChunkIndex = ((metadata.TotalPlaintextSize - 1) / metadata.ChunkSize);
+        var lastChunkIndex = (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize;
         return chunkIndex == lastChunkIndex
             ? metadata.FinalChunkPlaintextLength
             : metadata.ChunkSize;
