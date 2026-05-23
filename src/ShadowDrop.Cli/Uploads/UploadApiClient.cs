@@ -32,15 +32,22 @@ internal sealed class UploadApiClient(HttpClient httpClient)
                 throw CreateUploadFailure(response.StatusCode);
             }
 
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var reservation =
-                await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadReservationResponse, cancellationToken);
-            if (reservation is null || reservation.FileId == Guid.Empty)
+            try
+            {
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var reservation =
+                    await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadReservationResponse, cancellationToken);
+                if (reservation is null || reservation.FileId == Guid.Empty)
+                {
+                    throw new UploadCommandException("Upload failed; please verify file and try again.");
+                }
+
+                return reservation.FileId;
+            }
+            catch (JsonException)
             {
                 throw new UploadCommandException("Upload failed; please verify file and try again.");
             }
-
-            return reservation.FileId;
         }
     }
 
@@ -70,14 +77,21 @@ internal sealed class UploadApiClient(HttpClient httpClient)
                 throw CreateUploadFailure(response.StatusCode);
             }
 
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var uploadResponse = await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadResponse, cancellationToken);
-            if (uploadResponse is null || uploadResponse.FileId == Guid.Empty)
+            try
+            {
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var uploadResponse = await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadResponse, cancellationToken);
+                if (uploadResponse is null || uploadResponse.FileId == Guid.Empty)
+                {
+                    throw new UploadCommandException("Upload failed; please verify file and try again.");
+                }
+
+                return uploadResponse.FileId;
+            }
+            catch (JsonException)
             {
                 throw new UploadCommandException("Upload failed; please verify file and try again.");
             }
-
-            return uploadResponse.FileId;
         }
     }
 

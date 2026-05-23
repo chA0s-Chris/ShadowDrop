@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Uploads;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
+using System.Text.Json;
 
 internal sealed class UploadCommandHandler(
     CliConfigurationResolver configurationResolver,
@@ -18,7 +19,27 @@ internal sealed class UploadCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
+        CliResolvedConfiguration configuration;
+        try
+        {
+            configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
+        }
+        catch (IOException)
+        {
+            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
+            return 1;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
+            return 1;
+        }
+        catch (JsonException)
+        {
+            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
+            return 1;
+        }
+
         if (!Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var serverUrl)
             || ((serverUrl.Scheme != Uri.UriSchemeHttp) && (serverUrl.Scheme != Uri.UriSchemeHttps)))
         {
