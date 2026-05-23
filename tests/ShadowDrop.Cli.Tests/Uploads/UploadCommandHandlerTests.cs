@@ -11,23 +11,129 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using System.Runtime.Versioning;
 using System.Text;
 
 [NonParallelizable]
 public sealed class UploadCommandHandlerTests
 {
     [Test]
-    public async Task InvokeAsync_ShouldFailWithGenericError_WhenServerUrlIsMissing()
+    public async Task InvokeAsync_ShouldFailCleanly_WhenConfigFileContainsMalformedJson()
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new NeverCalledHandler());
-        var services = new CliApplicationServices(new(new StubConfigPathResolver(null), new StubEnvironmentReader(new Dictionary<String, String?>())),
-                                                  httpClient,
-                                                  standardOut,
-                                                  standardError);
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "cli-upload-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+        try
+        {
+            var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+            File.WriteAllText(configPath, "{\"serverUrl\":");
+            var services = new CliApplicationServices(
+                new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(new Dictionary<String, String?>())),
+                httpClient,
+                standardOut,
+                standardError);
+
+            var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardOut.ToString().Should().BeEmpty();
+            standardError.ToString().Should().Contain("Configuration file invalid or unreadable.");
+            standardError.ToString().Should().NotContain("JsonException").And.NotContain(configPath);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailCleanly_WhenConfigFileIsUnreadable()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new NeverCalledHandler());
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "cli-upload-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+            File.WriteAllText(configPath, "{\"serverUrl\":\"https://shadowdrop.test/\",\"uploadToken\":\"token\"}");
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Ignore("Unreadable file permissions test is only supported on Unix.");
+            }
+
+            SetUnreadableFileMode(configPath);
+            var services = new CliApplicationServices(
+                new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(new Dictionary<String, String?>())),
+                httpClient,
+                standardOut,
+                standardError);
+
+            var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardOut.ToString().Should().BeEmpty();
+            standardError.ToString().Should().Contain("Configuration file invalid or unreadable.");
+            standardError.ToString().Should().NotContain(configPath);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
+                if (File.Exists(configPath) && !OperatingSystem.IsWindows())
+                {
+                    RestoreReadableFileMode(configPath);
+                }
+
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailCleanly_WhenUploadTokenIsWrongAgainstRealApi()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), "wrong-token");
+        var services = new CliApplicationServices(
+            new(new StubConfigPathResolver(fixture.ConfigFilePath), new StubEnvironmentReader(new Dictionary<String, String?>())),
+            httpClient,
+            standardOut,
+            standardError);
+        var filePath = fixture.CreateInputFile("wrong-token.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("File 1 failed: Authentication token invalid or missing.");
+        standardError.ToString().Should().NotContain("wrong-token")
+                     .And.NotContain(httpClient.BaseAddress!.ToString())
+                     .And.NotContain(filePath);
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailWithGenericError_WhenServerUrlIsMissing()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], CreateServices(standardOut, standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -39,19 +145,47 @@ public sealed class UploadCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new NeverCalledHandler());
-        var services = new CliApplicationServices(new(new StubConfigPathResolver(null), new StubEnvironmentReader(new Dictionary<String, String?>
-                                                  {
-                                                      ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
-                                                  })),
-                                                  httpClient,
-                                                  standardOut,
-                                                  standardError);
-
-        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"],
+                                                        CreateServices(standardOut,
+                                                                       standardError,
+                                                                       environmentValues: new Dictionary<String, String?>
+                                                                       {
+                                                                           ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
+                                                                       }),
+                                                        CancellationToken.None);
 
         exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Authentication token invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldIgnoreWhitespaceOverridesWhenResolvingEachConfigurationField()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig("https://config.invalid/", "config-token");
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var services = CreateServices(standardOut,
+                                      standardError,
+                                      fixture.ConfigFilePath,
+                                      new Dictionary<String, String?>
+                                      {
+                                          ["SHADOWDROP_SERVER_URL"] = httpClient.BaseAddress!.ToString(),
+                                          ["SHADOWDROP_UPLOAD_TOKEN"] = fixture.BootstrapToken
+                                      },
+                                      httpClient);
+        var filePath = fixture.CreateInputFile("whitespace-overrides.bin", 72);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", filePath, "--server-url", "   ", "--upload-token", "   "],
+            services,
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        Guid.Parse(standardOut.ToString().Trim()).Should().NotBe(Guid.Empty);
+        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
     }
 
     [Test]
@@ -79,6 +213,32 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldResolveServerUrlAndTokenIndependentlyAcrossSources()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig("https://config.invalid/", fixture.BootstrapToken);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var services = CreateServices(standardOut,
+                                      standardError,
+                                      fixture.ConfigFilePath,
+                                      new Dictionary<String, String?>
+                                      {
+                                          ["SHADOWDROP_UPLOAD_TOKEN"] = fixture.BootstrapToken
+                                      },
+                                      httpClient);
+        var filePath = fixture.CreateInputFile("independent-config.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--server-url", httpClient.BaseAddress!.ToString()], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        Guid.Parse(standardOut.ToString().Trim()).Should().NotBe(Guid.Empty);
+        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldReturnNonZeroWithoutSecret_WhenSomeFilesFail()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -103,6 +263,61 @@ public sealed class UploadCommandHandlerTests
         standardOut.ToString().Should().NotContain("secret:");
         standardError.ToString().Should().Contain("File 2 failed: File is missing.");
         standardError.ToString().Should().NotContain(missingFile);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldStoreEncryptedBlobAndNonSecretMetadataOnly()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = new CliApplicationServices(
+            new(new StubConfigPathResolver(fixture.ConfigFilePath), new StubEnvironmentReader(new Dictionary<String, String?>())),
+            httpClient,
+            standardOut,
+            standardError);
+        var filePath = fixture.CreateInputFile(Path.Combine("nested", "secret-notes.bin"), 128);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--output-secret"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        stdoutLines.Should().HaveCount(2);
+        var shareSecret = stdoutLines[1].Split(':', 2)[1];
+        var storedUpload = fixture.GetStoredUploads().Should().ContainSingle().Subject;
+        var storedBlobPath = fixture.GetBlobPath(storedUpload.FileId);
+        var storedBlob = await File.ReadAllBytesAsync(storedBlobPath);
+        var plaintext = await File.ReadAllBytesAsync(filePath);
+
+        storedBlob.Should().NotEqual(plaintext);
+        storedBlob.Length.Should().Be((Int32)storedUpload.EncryptedLength);
+        storedUpload.OriginalFileName.Should().Be("secret-notes.bin");
+        storedUpload.OriginalFileName.Should().NotContain(fixture.RootDirectory).And.NotContain(Path.DirectorySeparatorChar.ToString());
+        storedUpload.BlobKey.Should().NotContain(fixture.RootDirectory).And.NotContain("secret-notes.bin");
+        storedUpload.KdfSaltBase64.Should().NotBe(shareSecret);
+        storedUpload.PlaintextSha256.Should().BeNull();
+        standardError.ToString().Should().NotContain(shareSecret).And.NotContain(filePath);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldTreatDashedFileNamesAsOperandsAfterSeparator()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("--data.bin", 24);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var fileId = Guid.Parse(standardOut.ToString().Trim());
+        fixture.GetStoredUploads().Should().ContainSingle(record => record.FileId == fileId && record.OriginalFileName == "--data.bin");
+        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
     }
 
     [Test]
@@ -210,6 +425,114 @@ public sealed class UploadCommandHandlerTests
         fixture.GetStoredUploads().Should().ContainSingle();
     }
 
+    [Test]
+    public async Task InvokeAsync_ShouldWriteOnlyFileIdsToStdoutInArgumentOrder_ForSuccessfulMultiFileUploads()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePaths = new[]
+        {
+            fixture.CreateInputFile("first.bin", 16),
+            fixture.CreateInputFile("second.bin", 48),
+            fixture.CreateInputFile("third.bin", 96)
+        };
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", ..filePaths], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        stdoutLines.Should().HaveCount(filePaths.Length);
+        standardOut.ToString().Should().NotContain("Uploaded file").And.NotContain("secret:");
+        var uploadedFilesById = fixture.GetStoredUploads().ToDictionary(static record => record.FileId);
+        stdoutLines.Select(Guid.Parse)
+                   .Select(fileId => uploadedFilesById[fileId].OriginalFileName)
+                   .Should()
+                   .Equal(filePaths.Select(Path.GetFileName));
+        standardError.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                     .Should()
+                     .Equal("Uploaded file 1 of 3.", "Uploaded file 2 of 3.", "Uploaded file 3 of 3.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteParseFailuresToStandardError_WhenFilesOperandIsMissingAfterOptions()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--server-url", "https://shadowdrop.test/"], CreateServices(standardOut, standardError),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Required argument missing for command: 'upload'.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteRootHelpToStdout()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["--help"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardError.ToString().Should().BeEmpty();
+        standardOut.ToString().Should().Contain("ShadowDrop CLI")
+                   .And.Contain("upload")
+                   .And.Contain("--help");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteUploadHelpToStdout()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--help"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardError.ToString().Should().BeEmpty();
+        standardOut.ToString().Should().Contain("Encrypt local files and upload encrypted content to ShadowDrop.")
+                   .And.Contain("files")
+                   .And.Contain("--server-url")
+                   .And.Contain("--upload-token")
+                   .And.Contain("--output-secret");
+    }
+
+    private static CliApplicationServices CreateServices(StringWriter standardOut,
+                                                         StringWriter standardError,
+                                                         String? configPath = null,
+                                                         IReadOnlyDictionary<String, String?>? environmentValues = null,
+                                                         HttpClient? httpClient = null)
+    {
+        var resolvedHttpClient = httpClient ?? new HttpClient(new NeverCalledHandler());
+        return new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
+                   resolvedHttpClient,
+                   standardOut,
+                   standardError);
+    }
+
+    private static CliApplicationServices CreateServices(
+        TextWriter standardOut,
+        TextWriter standardError,
+        String? configPath = null,
+        IReadOnlyDictionary<String, String?>? environmentValues = null,
+        HttpClient? httpClient = null) =>
+        new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
+            httpClient ?? new HttpClient(new NeverCalledHandler()),
+            standardOut,
+            standardError);
+
+    [SupportedOSPlatform("linux")]
+    private static void RestoreReadableFileMode(String path) => File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+    [SupportedOSPlatform("linux")]
+    private static void SetUnreadableFileMode(String path) => File.SetUnixFileMode(path, UnixFileMode.UserWrite);
+
     private sealed class CliUploadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {
         private const String AdminOperationsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnableAdminOperations";
@@ -252,9 +575,21 @@ public sealed class UploadCommandHandlerTests
         public String CreateInputFile(String fileName, Int32 length)
         {
             var path = Path.Combine(_rootDirectory, fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var bytes = Enumerable.Range(0, length).Select(static value => (Byte)(value % 251)).ToArray();
             File.WriteAllBytes(path, bytes);
             return path;
+        }
+
+        public String GetBlobPath(Guid fileId)
+        {
+            var blobPath = Directory.EnumerateFiles(StorageRoot, $"{fileId:N}.blob", SearchOption.AllDirectories).SingleOrDefault();
+            if (blobPath is not null)
+            {
+                return blobPath;
+            }
+
+            return Directory.EnumerateFiles(StorageRoot, $"{fileId}.blob", SearchOption.AllDirectories).Single();
         }
 
         public IReadOnlyList<UploadedFileRecord> GetStoredUploads()
