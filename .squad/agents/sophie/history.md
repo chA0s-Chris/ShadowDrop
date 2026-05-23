@@ -70,3 +70,8 @@ Both Eliot and Sophie completed targeted fixes in download service handling.
 - Eliot: DownloadFileService range header validation (23 tests passing)
 - Sophie: LengthValidatingReadStream disposal fix (CliDownloadResponseParserTests validated)
 Ready for integration.
+- **Issue 16 upload command (2026-05-23T22:26:23.766+02:00):** The CLI upload path is now intentionally split between
+  script-stable stdout and human stderr: successful file ids stream to stdout in argument order, `secret:<hex>` is
+  emitted only as the final stdout line on full success behind `--output-secret`, and all diagnostics stay on stderr.
+  Config resolution is locked to flags > `SHADOWDROP_SERVER_URL` / `SHADOWDROP_UPLOAD_TOKEN` > config file, with token
+  trimming before use and Native AOT-safe JSON source generation for config and upload DTOs.

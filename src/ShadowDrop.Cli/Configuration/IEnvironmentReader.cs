@@ -1,5 +1,8 @@
 // Copyright (c) 2026 Christian Flessa. All rights reserved.
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
-using ShadowDrop.Cli;
+namespace ShadowDrop.Cli.Configuration;
 
-return await CliApplication.RunAsync(args, CancellationToken.None);
+internal interface IEnvironmentReader
+{
+    String? GetEnvironmentVariable(String variableName);
+}
