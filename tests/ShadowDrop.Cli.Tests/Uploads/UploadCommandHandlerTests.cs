@@ -11,7 +11,6 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
-using System.Runtime.Versioning;
 using System.Text;
 
 [NonParallelizable]
@@ -66,10 +65,10 @@ public sealed class UploadCommandHandlerTests
         {
             var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-            File.WriteAllText(configPath, "{\"serverUrl\":\"https://shadowdrop.test/\",\"uploadToken\":\"token\"}");
-            if (OperatingSystem.IsWindows())
+            await File.WriteAllTextAsync(configPath, "{\"serverUrl\":\"https://shadowdrop.test/\",\"uploadToken\":\"token\"}");
+            if (!OperatingSystem.IsLinux())
             {
-                Assert.Ignore("Unreadable file permissions test is only supported on Unix.");
+                Assert.Ignore("Unreadable file permissions test is only supported on Linux.");
             }
 
             SetUnreadableFileMode(configPath);
@@ -91,7 +90,7 @@ public sealed class UploadCommandHandlerTests
             if (Directory.Exists(rootDirectory))
             {
                 var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
-                if (File.Exists(configPath) && !OperatingSystem.IsWindows())
+                if (File.Exists(configPath) && OperatingSystem.IsLinux())
                 {
                     RestoreReadableFileMode(configPath);
                 }
@@ -527,11 +526,21 @@ public sealed class UploadCommandHandlerTests
             standardOut,
             standardError);
 
-    [SupportedOSPlatform("linux")]
-    private static void RestoreReadableFileMode(String path) => File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    private static void RestoreReadableFileMode(String path)
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
 
-    [SupportedOSPlatform("linux")]
-    private static void SetUnreadableFileMode(String path) => File.SetUnixFileMode(path, UnixFileMode.UserWrite);
+    private static void SetUnreadableFileMode(String path)
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserWrite);
+        }
+    }
 
     private sealed class CliUploadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {
