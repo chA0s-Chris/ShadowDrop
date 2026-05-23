@@ -5,48 +5,25 @@ namespace ShadowDrop.Cli.Uploads;
 using System.Text.Json.Serialization;
 
 internal sealed record UploadMetadataPayload(
+    [property: JsonPropertyName("fileId"), JsonPropertyOrder(0)]
     Guid FileId,
+    [property: JsonPropertyName("originalFileName"), JsonPropertyOrder(1)]
     String OriginalFileName,
+    [property: JsonPropertyName("plaintextLength"), JsonPropertyOrder(2)]
     Int64 PlaintextLength,
+    [property: JsonPropertyName("encryptedLength"), JsonPropertyOrder(3)]
     Int64 EncryptedLength,
+    [property: JsonPropertyName("contentType"), JsonPropertyOrder(4)]
     String ContentType,
+    [property: JsonPropertyName("encryptionFormatVersion"), JsonPropertyOrder(5)]
     String EncryptionFormatVersion,
+    [property: JsonPropertyName("algorithmId"), JsonPropertyOrder(6)]
     String AlgorithmId,
+    [property: JsonPropertyName("chunkSize"), JsonPropertyOrder(7)]
     Int32 ChunkSize,
+    [property: JsonPropertyName("chunkCount"), JsonPropertyOrder(8)]
     Int64 ChunkCount,
+    [property: JsonPropertyName("kdfSalt"), JsonPropertyOrder(9)]
     String KdfSalt,
-    String? PlaintextSha256)
-{
-    [JsonPropertyName("algorithmId")]
-    public String AlgorithmId { get; init; } = AlgorithmId;
-
-    [JsonPropertyName("chunkCount")]
-    public Int64 ChunkCount { get; init; } = ChunkCount;
-
-    [JsonPropertyName("chunkSize")]
-    public Int32 ChunkSize { get; init; } = ChunkSize;
-
-    [JsonPropertyName("contentType")]
-    public String ContentType { get; init; } = ContentType;
-
-    [JsonPropertyName("encryptedLength")]
-    public Int64 EncryptedLength { get; init; } = EncryptedLength;
-
-    [JsonPropertyName("encryptionFormatVersion")]
-    public String EncryptionFormatVersion { get; init; } = EncryptionFormatVersion;
-
-    [JsonPropertyName("fileId")]
-    public Guid FileId { get; init; } = FileId;
-
-    [JsonPropertyName("kdfSalt")]
-    public String KdfSalt { get; init; } = KdfSalt;
-
-    [JsonPropertyName("originalFileName")]
-    public String OriginalFileName { get; init; } = OriginalFileName;
-
-    [JsonPropertyName("plaintextLength")]
-    public Int64 PlaintextLength { get; init; } = PlaintextLength;
-
-    [JsonPropertyName("plaintextSha256")]
-    public String? PlaintextSha256 { get; init; } = PlaintextSha256;
-}
+    [property: JsonPropertyName("plaintextSha256"), JsonPropertyOrder(10)]
+    String? PlaintextSha256);

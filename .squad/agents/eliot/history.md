@@ -23,7 +23,7 @@ team-update: true
 
 ## Cross-Agent: Issue #15 Review Fixes Completion
 
-**Status:** Merged  
+**Status:** Merged
 **Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
 
 ### Team Outcome
@@ -239,3 +239,31 @@ Ready for integration.
 - `tests/ShadowDrop.Api.Tests/...` or `tests/ShadowDrop.Cli.Tests/...` (regression)
 
 **Coordinate with:** Parker (for complementary final-chunk check tests)
+
+---
+date: 2026-05-23T23:28:14.726+02:00
+---
+
+## Learnings — PR #30 CLI Upload Review Fixes
+
+**Files touched:** `src/ShadowDrop.Cli/Configuration/CliConfigurationResolver.cs`,
+`src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs`, `src/ShadowDrop.Cli/Uploads/UploadApiClient.cs`,
+`src/ShadowDrop.Cli/Uploads/UploadCommandHandler.cs`, `src/ShadowDrop.Cli/Uploads/UploadMetadataPayload.cs`,
+`src/ShadowDrop.Shared/Crypto/EncryptedChunk.cs`, `src/ShadowDrop.Shared/Properties/AssemblyInfo.cs`,
+`tests/ShadowDrop.Cli.Tests/Uploads/EncryptedFileContentTests.cs`,
+`tests/ShadowDrop.Cli.Tests/Uploads/UploadCommandHandlerTests.cs`
+
+### CLI Upload Streaming Cancellation
+
+- `HttpContent` upload streams need the request cancellation token threaded into the content instance and honored inside
+  both file reads and response-stream writes; otherwise CLI cancellation can stall until the current chunk finishes.
+- For chunked crypto payloads, the cancellation-aware override belongs on
+  `SerializeToStreamAsync(Stream, TransportContext?, CancellationToken)` and the request factory must pass the same
+  token when constructing the content.
+
+### Zero-Copy Internal Ciphertext Access
+
+- Shared crypto DTOs can keep their public defensive-copy contract while still serving streaming callers efficiently by
+  exposing an internal `ReadOnlyMemory<byte>` view for async I/O.
+- In this slice, `EncryptedChunk` now keeps `Ciphertext` as the safe public copy-returning API and adds internal
+  `CiphertextMemory` so CLI upload streaming stops cloning each ciphertext chunk before `Stream.WriteAsync`.

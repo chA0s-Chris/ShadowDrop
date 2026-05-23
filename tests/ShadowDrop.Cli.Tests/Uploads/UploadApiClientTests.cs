@@ -4,11 +4,13 @@ namespace ShadowDrop.Tests.Uploads;
 
 using FluentAssertions;
 using NUnit.Framework;
+using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Crypto;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 
 [TestFixture]
 public sealed class UploadApiClientTests
@@ -111,6 +113,62 @@ public sealed class UploadApiClientTests
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Upload failed; please verify file and try again.");
         handler.RequestCount.Should().Be(1);
+    }
+
+    [Test]
+    public async Task UploadAsync_ShouldPropagateCallerCancellation_WithoutRetrying()
+    {
+        using var shareSecret = ShareSecret.Generate();
+        using var fixture = new UploadFilePlanFixture();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var handler = new SequenceHttpMessageHandler(_ =>
+        {
+            cancellationTokenSource.Cancel();
+            throw new TaskCanceledException("caller cancelled");
+        });
+        using var httpClient = new HttpClient(handler);
+        var sut = new UploadApiClient(httpClient);
+
+        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, cancellationTokenSource.Token);
+
+        await act.Should().ThrowAsync<TaskCanceledException>();
+        handler.RequestCount.Should().Be(1);
+    }
+
+    [Test]
+    public void UploadMetadataPayloadSerialization_ShouldPreserveMultipartContract()
+    {
+        var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var payload = new UploadMetadataPayload(fileId,
+                                                "payload.bin",
+                                                128,
+                                                144,
+                                                "application/octet-stream",
+                                                "1",
+                                                "aes-256-gcm",
+                                                64,
+                                                2,
+                                                Convert.ToBase64String(Enumerable.Range(0, 32).Select(static value => (Byte)value).ToArray()),
+                                                null);
+
+        var json = JsonSerializer.Serialize(payload, CliJsonSerializerContext.Default.UploadMetadataPayload);
+        using var document = JsonDocument.Parse(json);
+
+        document.RootElement.EnumerateObject().Select(static property => property.Name).Should()
+                .Equal("fileId",
+                       "originalFileName",
+                       "plaintextLength",
+                       "encryptedLength",
+                       "contentType",
+                       "encryptionFormatVersion",
+                       "algorithmId",
+                       "chunkSize",
+                       "chunkCount",
+                       "kdfSalt",
+                       "plaintextSha256");
+        document.RootElement.GetProperty("fileId").GetGuid().Should().Be(fileId);
+        document.RootElement.GetProperty("originalFileName").GetString().Should().Be("payload.bin");
+        document.RootElement.GetProperty("plaintextSha256").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
     private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler

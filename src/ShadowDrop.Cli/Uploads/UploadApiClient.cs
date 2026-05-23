@@ -56,7 +56,7 @@ internal sealed class UploadApiClient(HttpClient httpClient)
         var response = await SendWithRetryAsync(() =>
         {
             var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads"), uploadToken);
-            request.Content = CreateMultipartContent(plan, shareSecret);
+            request.Content = CreateMultipartContent(plan, shareSecret, cancellationToken);
             return request;
         }, cancellationToken);
 
@@ -114,7 +114,7 @@ internal sealed class UploadApiClient(HttpClient httpClient)
     private static Boolean IsTransientStatus(HttpStatusCode statusCode) =>
         statusCode == HttpStatusCode.TooManyRequests || statusCode == HttpStatusCode.ServiceUnavailable;
 
-    private MultipartFormDataContent CreateMultipartContent(UploadFilePlan plan, ShareSecret shareSecret)
+    private MultipartFormDataContent CreateMultipartContent(UploadFilePlan plan, ShareSecret shareSecret, CancellationToken cancellationToken)
     {
         var multipartContent = new MultipartFormDataContent();
         var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(plan.Metadata, CliJsonSerializerContext.Default.UploadMetadataPayload);
@@ -122,7 +122,8 @@ internal sealed class UploadApiClient(HttpClient httpClient)
         metadataContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         multipartContent.Add(metadataContent, "metadata");
 
-        var encryptedContent = new EncryptedFileContent(plan.File, shareSecret, plan.EncryptionContext, plan.ChunkSize, plan.Metadata.EncryptedLength);
+        var encryptedContent =
+            new EncryptedFileContent(plan.File, shareSecret, plan.EncryptionContext, plan.ChunkSize, plan.Metadata.EncryptedLength, cancellationToken);
         encryptedContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         multipartContent.Add(encryptedContent, "content", "cipher.bin");
         return multipartContent;

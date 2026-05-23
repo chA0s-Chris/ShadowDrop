@@ -1,7 +1,7 @@
 # SUMMARY — Generated 2026-05-19T10:20:42.080364Z
 
-**Coverage:** May 14–19, 2026  
-**Sessions:** Multiple  
+**Coverage:** May 14–19, 2026
+**Sessions:** Multiple
 **Key themes:** Test coverage expansion, PR #28 review gate enforcement
 
 ### Highlights
@@ -82,7 +82,7 @@ The empty-file suffix-range scenario is a defensive check that cannot be trigger
 
 ## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
 
-**Agents involved:** Tara, Nate, Parker  
+**Agents involved:** Tara, Nate, Parker
 **Context:** PR #28 review cycle closed on issue #27 follow-up work
 
 Tara resolved two findings:
@@ -96,7 +96,7 @@ Archive gate passed; no forced archival. Ready for next phase.
 
 ## 2026-05-19T16:02:15.900Z — Scribe: Invalid Mode Overload Review & Approval
 
-**Agents involved:** Tara, Parker  
+**Agents involved:** Tara, Parker
 **Topic:** Public download negotiation correctness
 
 Parker reviewed Tara's invalid-mode fail-closed fix:
@@ -119,7 +119,7 @@ Parker reviewed Tara's invalid-mode fail-closed fix:
 
 ## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
 
-**Agents involved:** Tara, Parker, Nate  
+**Agents involved:** Tara, Parker, Nate
 **Topic:** Strict CLI download metadata header parsing
 
 Parker reviewed Tara's strict header parser hardening:
@@ -179,3 +179,7 @@ Parker reviewed Tara's strict header parser hardening:
 - Coordinate with: Tara (for implementation) and Nate (for acceptance)
 - Decision tracked: `.squad/decisions.md` → "Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation"
 
+- 2026-05-23T23:28:14.726+02:00 — CLI upload regression coverage now pins three reviewer-sensitive paths: zero-byte
+  uploads must fail with `File is empty.`, `UploadApiClient.UploadAsync` must propagate caller cancellation without
+  retrying, and `UploadMetadataPayload` positional-record cleanup must preserve the existing multipart JSON property
+  order and names.

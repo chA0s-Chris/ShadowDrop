@@ -6,11 +6,6 @@ using System.Text.Json;
 
 internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathResolver, IEnvironmentReader environmentReader)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        TypeInfoResolver = CliJsonSerializerContext.Default
-    };
-
     public CliResolvedConfiguration Resolve(String? serverUrlOverride, String? uploadTokenOverride)
     {
         CliConfigFile? configFile = null;

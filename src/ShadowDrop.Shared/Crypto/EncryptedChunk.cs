@@ -37,4 +37,6 @@ public sealed record EncryptedChunk
     public Byte[] Ciphertext => _ciphertext.ToArray();
 
     internal ReadOnlySpan<Byte> CiphertextBytes => _ciphertext;
+
+    internal ReadOnlyMemory<Byte> CiphertextMemory => _ciphertext;
 }

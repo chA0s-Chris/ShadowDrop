@@ -9,13 +9,19 @@ internal sealed class EncryptedFileContent : HttpContent
 {
     private const Int32 AesGcmTagLength = 16;
 
+    private readonly CancellationToken _cancellationToken;
     private readonly Int32 _chunkSize;
     private readonly Int64 _encryptedLength;
     private readonly FileEncryptionContext _encryptionContext;
     private readonly FileInfo _file;
     private readonly ShareSecret _shareSecret;
 
-    public EncryptedFileContent(FileInfo file, ShareSecret shareSecret, FileEncryptionContext encryptionContext, Int32 chunkSize, Int64 encryptedLength)
+    public EncryptedFileContent(FileInfo file,
+                                ShareSecret shareSecret,
+                                FileEncryptionContext encryptionContext,
+                                Int32 chunkSize,
+                                Int64 encryptedLength,
+                                CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(shareSecret);
@@ -28,9 +34,13 @@ internal sealed class EncryptedFileContent : HttpContent
         _encryptionContext = encryptionContext;
         _chunkSize = chunkSize;
         _encryptedLength = encryptedLength;
+        _cancellationToken = cancellationToken;
     }
 
     protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        => await SerializeToStreamAsync(stream, context, _cancellationToken);
+
+    protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
     {
         using var plaintext = _file.OpenRead();
         using var contentKey = ChunkEncryptionService.DeriveContentKey(_shareSecret, _encryptionContext);
@@ -41,7 +51,7 @@ internal sealed class EncryptedFileContent : HttpContent
         {
             while (true)
             {
-                var bytesRead = await plaintext.ReadAsync(buffer.AsMemory(0, buffer.Length));
+                var bytesRead = await plaintext.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
                 if (bytesRead == 0)
                 {
                     break;
@@ -55,7 +65,7 @@ internal sealed class EncryptedFileContent : HttpContent
                                                                              _chunkSize,
                                                                              chunkIndex,
                                                                              bytesRead));
-                await stream.WriteAsync(encryptedChunk.Ciphertext.AsMemory(0, bytesRead + AesGcmTagLength));
+                await stream.WriteAsync(encryptedChunk.CiphertextMemory, cancellationToken);
                 chunkIndex++;
             }
         }

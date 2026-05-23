@@ -206,7 +206,7 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 1 failed: File is unreadable.");
+        standardError.ToString().Should().Contain("File 1 failed: File is empty.");
         standardError.ToString().Should().NotContain(emptyFile).And.NotContain("secret:");
         fixture.GetStoredUploads().Should().BeEmpty();
     }

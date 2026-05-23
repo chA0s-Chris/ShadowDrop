@@ -108,7 +108,7 @@ internal sealed class UploadCommandHandler(
 
         if (file.Length <= 0)
         {
-            throw new UploadCommandException("File is unreadable.");
+            throw new UploadCommandException("File is empty.");
         }
 
         using var probe = file.OpenRead();
