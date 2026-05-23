@@ -21,7 +21,17 @@ internal static class CliApplication
         ArgumentNullException.ThrowIfNull(services);
 
         var commandModel = CreateCommandModel();
-        return ExecuteAsync(commandModel.RootCommand.Parse(args), services, commandModel, cancellationToken);
+        var parseResult = commandModel.RootCommand.Parse(args);
+        if (IsHelpRequest(args))
+        {
+            return parseResult.InvokeAsync(new()
+            {
+                Output = services.StandardOut,
+                Error = services.StandardError
+            }, cancellationToken);
+        }
+
+        return ExecuteAsync(parseResult, services, commandModel, cancellationToken);
     }
 
     private static CliCommandModel CreateCommandModel()
@@ -55,7 +65,7 @@ internal static class CliApplication
         uploadCommand.Options.Add(outputSecretOption);
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(uploadCommand);
-        return new(rootCommand, filesArgument, serverOption, uploadTokenOption, outputSecretOption);
+        return new(rootCommand, uploadCommand, filesArgument, serverOption, uploadTokenOption, outputSecretOption);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -78,6 +88,12 @@ internal static class CliApplication
             return 1;
         }
 
+        if (parseResult.GetResult(commandModel.FilesArgument) is null)
+        {
+            await services.StandardError.WriteLineAsync("Required argument missing for command: 'upload'.");
+            return 1;
+        }
+
         var handler = new UploadCommandHandler(services.ConfigurationResolver,
                                                services.HttpClient,
                                                services.StandardOut,
@@ -90,8 +106,14 @@ internal static class CliApplication
                                           cancellationToken);
     }
 
+    private static Boolean IsHelpFlag(String value) =>
+        String.Equals(value, "--help", StringComparison.Ordinal) || String.Equals(value, "-h", StringComparison.Ordinal);
+
+    private static Boolean IsHelpRequest(String[] args) => args.Any(IsHelpFlag);
+
     private sealed record CliCommandModel(
         RootCommand RootCommand,
+        Command UploadCommand,
         Argument<FileInfo[]> FilesArgument,
         Option<String?> ServerOption,
         Option<String?> UploadTokenOption,
