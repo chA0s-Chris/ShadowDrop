@@ -136,3 +136,11 @@ Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Park
   builds” notes need build verification against this repo’s actual analyzers;
   `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` built clean in Release with an unused private const, so that
   warning claim was not actionable here.
+- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment: `src/ShadowDrop.Cli/CliApplication.cs` help
+  detection is genuinely vulnerable to misclassifying a literal file operand named `--help` or `-h` because
+  `IsHelpRequest(args)` scans raw argv instead of parser-recognized options, which breaks the `--` end-of-options
+  contract.
+- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment:
+  `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` uses `Array.Clear` on a plaintext upload buffer where
+  `CryptographicOperations.ZeroMemory` would be a stronger consistency hardening move, but this is defense-in-depth
+  rather than a demonstrated correctness or build issue.

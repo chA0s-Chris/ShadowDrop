@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Crypto;
 using System.Net;
+using System.Security.Cryptography;
 
 internal sealed class EncryptedFileContent : HttpContent
 {
@@ -33,6 +34,12 @@ internal sealed class EncryptedFileContent : HttpContent
         _chunkSize = chunkSize;
         _encryptedLength = encryptedLength;
         _cancellationToken = cancellationToken;
+    }
+
+    internal static void ZeroPlaintextBuffer(Byte[] buffer)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        CryptographicOperations.ZeroMemory(buffer);
     }
 
     protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
@@ -71,7 +78,7 @@ internal sealed class EncryptedFileContent : HttpContent
         }
         finally
         {
-            Array.Clear(buffer);
+            ZeroPlaintextBuffer(buffer);
         }
     }
 

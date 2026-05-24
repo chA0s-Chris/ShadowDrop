@@ -320,6 +320,39 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldTreatHelpLikeTokenAfterSeparatorAsUploadOperand()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var workingDirectory = Path.Combine(fixture.RootDirectory, "separator-help-operand");
+        Directory.CreateDirectory(workingDirectory);
+        var helpNamedFilePath = Path.Combine(workingDirectory, "--help");
+        await File.WriteAllBytesAsync(helpNamedFilePath, Encoding.UTF8.GetBytes("separator operand payload"));
+        var originalCurrentDirectory = Directory.GetCurrentDirectory();
+
+        Directory.SetCurrentDirectory(workingDirectory);
+
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["upload", "--", "--help"], services, CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            Guid.Parse(standardOut.ToString().Trim()).Should().NotBe(Guid.Empty);
+            standardError.ToString().Should().Contain("Uploaded file 1 of 1.")
+                         .And.NotContain("Encrypt local files and upload encrypted content to ShadowDrop.")
+                         .And.NotContain("ShadowDrop CLI");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCurrentDirectory);
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldUploadLargeFileAcrossMultipleChunks()
     {
         await using var fixture = new CliUploadApiFactory();

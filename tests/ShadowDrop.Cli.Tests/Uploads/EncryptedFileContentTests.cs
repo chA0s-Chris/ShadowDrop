@@ -43,4 +43,14 @@ public sealed class EncryptedFileContentTests
             }
         }
     }
+
+    [Test]
+    public void ZeroPlaintextBuffer_ShouldOverwriteBufferContents()
+    {
+        var buffer = Enumerable.Range(1, 32).Select(static value => (Byte)value).ToArray();
+
+        EncryptedFileContent.ZeroPlaintextBuffer(buffer);
+
+        buffer.Should().OnlyContain(static value => value == 0);
+    }
 }

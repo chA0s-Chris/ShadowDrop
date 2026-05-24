@@ -109,7 +109,26 @@ internal static class CliApplication
     private static Boolean IsHelpFlag(String value) =>
         String.Equals(value, "--help", StringComparison.Ordinal) || String.Equals(value, "-h", StringComparison.Ordinal);
 
-    private static Boolean IsHelpRequest(String[] args) => args.Any(IsHelpFlag);
+    private static Boolean IsHelpRequest(String[] args)
+    {
+        var reachedEndOfOptions = false;
+
+        foreach (var arg in args)
+        {
+            if (String.Equals(arg, "--", StringComparison.Ordinal))
+            {
+                reachedEndOfOptions = true;
+                continue;
+            }
+
+            if (!reachedEndOfOptions && IsHelpFlag(arg))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private sealed record CliCommandModel(
         RootCommand RootCommand,
