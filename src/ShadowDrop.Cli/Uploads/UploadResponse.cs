@@ -1,5 +1,7 @@
 // Copyright (c) 2026 Christian Flessa. All rights reserved.
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
-using ShadowDrop.Cli;
+namespace ShadowDrop.Cli.Uploads;
 
-return await CliApplication.RunAsync(args, CancellationToken.None);
+using System.Text.Json.Serialization;
+
+internal sealed record UploadResponse([property: JsonPropertyName("fileId")] Guid FileId);

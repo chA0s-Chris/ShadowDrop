@@ -1,13 +1,13 @@
 # SUMMARY — Generated 2026-05-19T10:20:42.080364Z
 
-**Coverage:** May 14–19, 2026  
-**Sessions:** Multiple  
+**Coverage:** May 14–19, 2026
+**Sessions:** Multiple
 **Key themes:** Issue #27 planning, PR #28 review notes, request validation hardening
 
 ### Highlights
 
 - **Issue #27 sequencing:** Moved up after issue #15; CLI v2 contract with streaming binary, Range header mode gating
-- **Plan #27 refinements:** Five surgical edits locking decision matrix, legacy parameter retirement, mode defaults, validation determinism  
+- **Plan #27 refinements:** Five surgical edits locking decision matrix, legacy parameter retirement, mode defaults, validation determinism
 - **PR #28 review notes:** Two unresolved in download hardening (header sanitization, chunk-length arithmetic); flagged for implementation
 - **Test coverage:** API walking skeleton gaps closed (public downloads, bearer tokens, bootstrap failures)
 - **Architecture:** Emphasized no `dev` branch; squad/issue-slug branching; NUnit 4 + FluentAssertions, no mocking library
@@ -97,7 +97,7 @@ All six subsections of Technical Details updated for internal consistency:
 
 ## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
 
-**Agents involved:** Tara, Nate, Parker  
+**Agents involved:** Tara, Nate, Parker
 **Context:** PR #28 review cycle closed on issue #27 follow-up work
 
 Tara resolved two findings:
@@ -112,7 +112,7 @@ Archive gate passed; no forced archival. Ready for next phase.
 
 ## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
 
-**Agents involved:** Tara, Parker, Nate  
+**Agents involved:** Tara, Parker, Nate
 **Topic:** Strict CLI download metadata header parsing
 
 Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Parker executed the fix:
@@ -129,3 +129,24 @@ Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Park
 - 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` still needs a cross-check that `TotalPlaintextSize`, `ChunkSize`, computed chunk count, and `FinalChunkPlaintextLength` describe the same final chunk; otherwise semantically inconsistent metadata can pass and skew encrypted-length expectations.
 - 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Api/Downloads/DownloadRequest.cs` models suffix ranges by reusing `RequestedByteRange.EndInclusive`, but current consumers in `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` branch on `Start is null`, so this is a maintainability smell rather than an active bug today.
 - 2026-05-19T19:32:56.771+02:00: PR #29 remaining Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` is valid for the resumable contract even though current tests only construct the session with fresh `MemoryStream` destinations. `DownloadAsync()` trusts caller-supplied `durablePlaintextLength` and seeks any seekable destination to that offset without confirming `destination.Length == DurablePlaintextLength`, which can silently create zero-filled gaps or skip persisted plaintext when resume state is stale.
+- 2026-05-24T07:54:32.950+02:00: PR #30 upload review follow-up: an un-awaited FluentAssertions `ThrowAsync` in NUnit
+  can leave a cancellation test as a false positive even when the production code is correct, so async assertion tasks
+  must be awaited from an `async Task` test method.
+- 2026-05-24T07:54:32.950+02:00: PR #30 upload review follow-up: Copilot-style “unused field/constant will break Release
+  builds” notes need build verification against this repo’s actual analyzers;
+  `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` built clean in Release with an unused private const, so that
+  warning claim was not actionable here.
+- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment: `src/ShadowDrop.Cli/CliApplication.cs` help
+  detection is genuinely vulnerable to misclassifying a literal file operand named `--help` or `-h` because
+  `IsHelpRequest(args)` scans raw argv instead of parser-recognized options, which breaks the `--` end-of-options
+  contract.
+- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment:
+  `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` uses `Array.Clear` on a plaintext upload buffer where
+  `CryptographicOperations.ZeroMemory` would be a stronger consistency hardening move, but this is defense-in-depth
+  rather than a demonstrated correctness or build issue.
+- 2026-05-24T08:31:51.321+02:00: PR #30 live review triage: a retry helper that only catches transient transport
+  exceptions before the final attempt can still leak raw `HttpRequestException`/timeout failures on the last try, so
+  generic CLI error contracts need explicit max-attempt coverage in both code and tests.
+- 2026-05-24T08:31:51.321+02:00: Review notes that cite plan compliance should be checked against the plan's binding
+  language; `may implement exponential backoff` is advisory, so linear bounded retries can still satisfy the accepted
+  upload contract even if exponential backoff would be a stronger resilience improvement.
