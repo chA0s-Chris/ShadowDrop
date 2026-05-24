@@ -8,9 +8,10 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-internal sealed class UploadApiClient(HttpClient httpClient)
+internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
 {
     private const Int32 MaxAttempts = 3;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
 
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
     {
@@ -109,7 +110,7 @@ internal sealed class UploadApiClient(HttpClient httpClient)
         _ => new("Server connection failed.")
     };
 
-    private static TimeSpan GetDelay(Int32 attempt) => TimeSpan.FromMilliseconds(200 * attempt);
+    private static TimeSpan GetDelay(Int32 attempt) => TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1));
 
     private static Boolean IsTransientStatus(HttpStatusCode statusCode) =>
         statusCode == HttpStatusCode.TooManyRequests || statusCode == HttpStatusCode.ServiceUnavailable;
@@ -140,7 +141,7 @@ internal sealed class UploadApiClient(HttpClient httpClient)
                 if ((attempt < MaxAttempts) && IsTransientStatus(response.StatusCode))
                 {
                     response.Dispose();
-                    await Task.Delay(GetDelay(attempt), cancellationToken);
+                    await _delayAsync(GetDelay(attempt), cancellationToken);
                     continue;
                 }
 
@@ -148,11 +149,19 @@ internal sealed class UploadApiClient(HttpClient httpClient)
             }
             catch (HttpRequestException) when (attempt < MaxAttempts)
             {
-                await Task.Delay(GetDelay(attempt), cancellationToken);
+                await _delayAsync(GetDelay(attempt), cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                throw new UploadCommandException("Server connection failed.");
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < MaxAttempts)
             {
-                await Task.Delay(GetDelay(attempt), cancellationToken);
+                await _delayAsync(GetDelay(attempt), cancellationToken);
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new UploadCommandException("Server connection failed.");
             }
         }
 

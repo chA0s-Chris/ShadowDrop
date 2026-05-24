@@ -233,3 +233,54 @@ pattern. No security concerns; all trust boundaries intact.
 - The test assertion bug is a correctness concern with security implications (cancellation cleanup not verified).
 - Both `AesGcmTagLength` and `succeededFileIds` are code smell; neither expose secrets or trust boundaries.
 - Recommend addressing the test async issue immediately; the others can be cleaned up pre-merge or in a follow-up.
+
+## 2026-05-24T08:31:51.321+02:00 — PR #30 Follow-up Assessment: Two Additional Review Notes
+
+**Requested by:** Christian Flessa
+**Context:** Two further Copilot notes surfaced after initial merge signal. Nate triaging main scope; Alec narrower
+scope: security/trust-boundary relevance only.
+
+### New Notes Analysis
+
+**Note 1: SendWithRetryAsync — Unhandled Exception on Final Attempt**
+
+- **Issue** (line 132-160): Catch blocks for `HttpRequestException` and `TaskCanceledException` only trigger when
+  `attempt < MaxAttempts`. On the final attempt (attempt == 3), if either exception throws, it bubbles uncaught.
+- **Current flow:** Line 149 catches `HttpRequestException when (attempt < MaxAttempts)`, line 153 catches
+  `TaskCanceledException when (!IsCancellationRequested && attempt < MaxAttempts)`. Final iteration skips both handlers;
+  exception propagates to caller.
+- **Impact on trust boundary:** Caller (`UploadAsync`/`ReserveFileIdAsync`) receives raw `HttpRequestException` or
+  `TaskCanceledException` instead of wrapped `UploadCommandException`. This violates error contract: diagnostics
+  output (stderr) may expose transport-layer details (DNS failures, connection resets, TLS errors, network topology)
+  instead of generic "Server connection failed." message.
+- **Security concern:** Leak surface is moderate (network-layer diagnostics, not secrets). But violates established
+  error hygiene pattern and breaks non-leakage guarantee.
+- **Assessment:** 🔴 **REAL ISSUE — TRUST-BOUNDARY RELEVANT** — Error contract breach. Fix: Wrap final-attempt exceptions
+  in catch blocks (or refactor to handle all attempts uniformly), ensuring
+  `UploadCommandException("Server connection failed.")` is thrown for all transient/connection failures.
+
+**Note 2: Retry Delay — Linear vs. Exponential Backoff**
+
+- **Issue** (line 112): `GetDelay(attempt)` returns `TimeSpan.FromMilliseconds(200 * attempt)` — linear progression (
+  200ms, 400ms, 600ms).
+- **Current flow:** Delays increase linearly; if multiple clients retry in lockstep, load spikes recur at predictable
+  intervals.
+- **Requirements baseline:** Plan 0016 (ai-plans/0016-cli-upload-command.md) specifies exponential backoff for transient
+  failures to prevent DOS-like retry storms.
+- **Impact:** Under heavy concurrent uploads with transient failures (e.g., server hitting rate-limit), clients will
+  retry in synchronized waves, amplifying server strain instead of smoothing load.
+- **Security concern:** Not a direct secret-leakage concern, but violates explicit stability/resilience requirement and
+  can enable unintended DOS patterns. Moderate severity for production deployability.
+- **Assessment:** 🟡 **REQUIREMENT VIOLATION — STABILITY/RESILIENCE** — Not a secret-boundary concern. Backoff strategy
+  should match plan spec (exponential with bounded jitter). Fix: Change to exponential backoff (e.g.,
+  `200 * (2 ** (attempt - 1))` or similar); optionally add jitter to desynchronize retry waves.
+
+### Verdict
+
+**1 real security/contract issue, 1 stability/resilience issue (not secret-leakage).**
+
+- The exception-handling gap on final attempt is a **trust-boundary concern** (error contract breach; non-generic error
+  surface). Alec escalates this as **should-fix before merge**.
+- The linear backoff is a **stability/resilience violation** (not a secret exposure), but violates stated requirements.
+  Recommend fixing in same pass for consistency, or defer to post-merge cleanup if plan allows.
+- Neither exposes secret material or ciphertext; both are operational/contract concerns.

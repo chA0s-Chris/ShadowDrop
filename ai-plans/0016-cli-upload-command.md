@@ -91,7 +91,8 @@ Establish clear retry semantics so implementers know which failures are transien
   missing required fields, file unreadable), 413 (payload too large). These indicate client-side issues that retry
   cannot fix.
 - **Transient/retriable:** HTTP 429 (rate limited), 503 (server unavailable), network timeouts, and connection errors.
-  Implementer may implement exponential backoff with bounded retry count (e.g., up to 3 retries with jitter).
+  Implement exponential backoff with a bounded retry count. The current CLI contract uses up to 3 total attempts with
+  exponential delays between retries.
 - **Partial failure:** If one file succeeds and another fails, the command exits non-zero and reports which files
   failed on stderr. The CLI does not automatically retry failed files or track upload state between invocations. The
   caller must re-run the command with only the failed file paths. If a file is successfully uploaded and then

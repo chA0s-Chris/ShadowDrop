@@ -75,6 +75,72 @@ public sealed class UploadApiClientTests
         handler.RequestCount.Should().Be(2);
     }
 
+    [Test]
+    public async Task ReserveFileIdAsync_ShouldNormalizeFinalHttpRequestException()
+    {
+        var handler = new SequenceHttpMessageHandler(
+            _ => throw new HttpRequestException("temporary-1"),
+            _ => throw new HttpRequestException("temporary-2"),
+            _ => throw new HttpRequestException("temporary-3"));
+        using var httpClient = new HttpClient(handler);
+        var sut = new UploadApiClient(httpClient);
+
+        var act = () => sut.ReserveFileIdAsync(ServerUrl, "token", CancellationToken.None);
+
+        await act.Should().ThrowAsync<UploadCommandException>()
+                 .WithMessage("Server connection failed.");
+        handler.RequestCount.Should().Be(3);
+    }
+
+    [Test]
+    public async Task UploadAsync_ShouldNormalizeFinalTimeoutException()
+    {
+        using var shareSecret = ShareSecret.Generate();
+        using var fixture = new UploadFilePlanFixture();
+        var handler = new SequenceHttpMessageHandler(
+            _ => throw new TaskCanceledException("timeout-1"),
+            _ => throw new TaskCanceledException("timeout-2"),
+            _ => throw new TaskCanceledException("timeout-3"));
+        using var httpClient = new HttpClient(handler);
+        var sut = new UploadApiClient(httpClient);
+
+        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+
+        await act.Should().ThrowAsync<UploadCommandException>()
+                 .WithMessage("Server connection failed.");
+        handler.RequestCount.Should().Be(3);
+    }
+
+    [Test]
+    public async Task UploadAsync_ShouldUseExponentialBackoffBetweenRetries()
+    {
+        using var shareSecret = ShareSecret.Generate();
+        using var fixture = new UploadFilePlanFixture();
+        var delays = new List<TimeSpan>();
+        var handler = new SequenceHttpMessageHandler(
+            _ => new(HttpStatusCode.TooManyRequests),
+            _ => throw new HttpRequestException("temporary"),
+            _ => new(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    fileId = fixture.FileId
+                })
+            });
+        using var httpClient = new HttpClient(handler);
+        var sut = new UploadApiClient(httpClient, (delay, cancellationToken) =>
+        {
+            delays.Add(delay);
+            return Task.CompletedTask;
+        });
+
+        var uploadedFileId = await sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+
+        uploadedFileId.Should().Be(fixture.FileId);
+        delays.Should().Equal(TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(400));
+        handler.RequestCount.Should().Be(3);
+    }
+
     [TestCase("{\"fileId\":\"not-a-guid\"}")]
     [TestCase("{")]
     [TestCase("{}")]

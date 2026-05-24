@@ -144,3 +144,9 @@ Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Park
   `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` uses `Array.Clear` on a plaintext upload buffer where
   `CryptographicOperations.ZeroMemory` would be a stronger consistency hardening move, but this is defense-in-depth
   rather than a demonstrated correctness or build issue.
+- 2026-05-24T08:31:51.321+02:00: PR #30 live review triage: a retry helper that only catches transient transport
+  exceptions before the final attempt can still leak raw `HttpRequestException`/timeout failures on the last try, so
+  generic CLI error contracts need explicit max-attempt coverage in both code and tests.
+- 2026-05-24T08:31:51.321+02:00: Review notes that cite plan compliance should be checked against the plan's binding
+  language; `may implement exponential backoff` is advisory, so linear bounded retries can still satisfy the accepted
+  upload contract even if exponential backoff would be a stronger resilience improvement.
