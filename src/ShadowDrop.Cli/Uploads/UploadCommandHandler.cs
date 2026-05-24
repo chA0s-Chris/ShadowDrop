@@ -55,7 +55,6 @@ internal sealed class UploadCommandHandler(
 
         using var shareSecret = ShareSecret.Generate();
         var uploadApiClient = new UploadApiClient(httpClient);
-        var succeededFileIds = new List<Guid>(options.Files.Length);
         var allSucceeded = true;
 
         for (var index = 0; index < options.Files.Length; index++)
@@ -64,7 +63,6 @@ internal sealed class UploadCommandHandler(
             {
                 var plan = await CreatePlanAsync(options.Files[index], uploadApiClient, serverUrl, configuration.UploadToken, cancellationToken);
                 var uploadedFileId = await uploadApiClient.UploadAsync(serverUrl, configuration.UploadToken, plan, shareSecret, cancellationToken);
-                succeededFileIds.Add(uploadedFileId);
                 await standardOut.WriteLineAsync(uploadedFileId.ToString());
                 await standardError.WriteLineAsync($"Uploaded file {index + 1} of {options.Files.Length}.");
             }
@@ -111,13 +109,13 @@ internal sealed class UploadCommandHandler(
             throw new UploadCommandException("File is empty.");
         }
 
-        using var probe = file.OpenRead();
+        await using var probe = file.OpenRead();
         _ = probe.Length;
 
         var fileId = await uploadApiClient.ReserveFileIdAsync(serverUrl, uploadToken, cancellationToken);
         var plaintextLength = file.Length;
         var chunkCount = checked(((plaintextLength - 1) / ChunkSize) + 1);
-        var encryptedLength = checked(plaintextLength + (chunkCount * 16));
+        var encryptedLength = checked(plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength));
         var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
         var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
         var metadata = new UploadMetadataPayload(fileId,

@@ -11,7 +11,7 @@ using ShadowDrop.Crypto;
 public sealed class EncryptedFileContentTests
 {
     [Test]
-    public void CopyToAsync_ShouldHonorCancellationToken()
+    public async Task CopyToAsync_ShouldHonorCancellationToken()
     {
         var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "encrypted-file-content-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(rootDirectory);
@@ -31,9 +31,9 @@ public sealed class EncryptedFileContentTests
                                                          new CancellationToken(true));
             using var sink = new MemoryStream();
 
-            var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
+            Func<Task> act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
 
-            act.Should().ThrowAsync<OperationCanceledException>();
+            await act.Should().ThrowAsync<OperationCanceledException>();
         }
         finally
         {

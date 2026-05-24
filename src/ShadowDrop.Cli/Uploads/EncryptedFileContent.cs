@@ -7,8 +7,6 @@ using System.Net;
 
 internal sealed class EncryptedFileContent : HttpContent
 {
-    private const Int32 AesGcmTagLength = 16;
-
     private readonly CancellationToken _cancellationToken;
     private readonly Int32 _chunkSize;
     private readonly Int64 _encryptedLength;
@@ -42,7 +40,9 @@ internal sealed class EncryptedFileContent : HttpContent
 
     protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
     {
-        using var plaintext = _file.OpenRead();
+        using var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken, cancellationToken);
+        var effectiveCancellationToken = cancellationTokenSource.Token;
+        await using var plaintext = _file.OpenRead();
         using var contentKey = ChunkEncryptionService.DeriveContentKey(_shareSecret, _encryptionContext);
         var buffer = new Byte[_chunkSize];
         var chunkIndex = 0L;
@@ -51,7 +51,7 @@ internal sealed class EncryptedFileContent : HttpContent
         {
             while (true)
             {
-                var bytesRead = await plaintext.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                var bytesRead = await plaintext.ReadAsync(buffer.AsMemory(0, buffer.Length), effectiveCancellationToken);
                 if (bytesRead == 0)
                 {
                     break;
@@ -65,7 +65,7 @@ internal sealed class EncryptedFileContent : HttpContent
                                                                              _chunkSize,
                                                                              chunkIndex,
                                                                              bytesRead));
-                await stream.WriteAsync(encryptedChunk.CiphertextMemory, cancellationToken);
+                await stream.WriteAsync(encryptedChunk.CiphertextMemory, effectiveCancellationToken);
                 chunkIndex++;
             }
         }

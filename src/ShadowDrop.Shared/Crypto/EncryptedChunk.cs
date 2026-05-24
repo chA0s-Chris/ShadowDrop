@@ -7,7 +7,7 @@ namespace ShadowDrop.Crypto;
 /// </summary>
 public sealed record EncryptedChunk
 {
-    private const Int32 TagLength = 16;
+    public const Int32 AuthenticationTagLength = 16;
     private readonly Byte[] _ciphertext;
 
     /// <summary>
@@ -23,7 +23,7 @@ public sealed record EncryptedChunk
     {
         ArgumentNullException.ThrowIfNull(ciphertext);
 
-        if (ciphertext.Length < TagLength)
+        if (ciphertext.Length < AuthenticationTagLength)
         {
             throw new ArgumentException("Encrypted chunks must include a 16-byte authentication tag.", nameof(ciphertext));
         }

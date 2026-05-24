@@ -205,7 +205,7 @@ public sealed class UploadApiClientTests
             var chunkSize = 1024 * 1024;
             var plaintextLength = fileInfo.Length;
             var chunkCount = 1L;
-            var encryptedLength = plaintextLength + 16;
+            var encryptedLength = plaintextLength + EncryptedChunk.AuthenticationTagLength;
             Plan = new UploadFilePlan(
                 fileInfo,
                 FileId,

@@ -193,3 +193,43 @@ All fixes verified:
 All Copilot review notes (4 real + 3 optional) have been addressed. Changes preserve secret/ciphertext boundaries,
 strengthen cancellation semantics, and maintain architectural consistency with existing crypto-buffer-encapsulation
 pattern. No security concerns; all trust boundaries intact.
+
+## 2026-05-24T07:54:32.950+02:00 — PR #30 Follow-up Review: Three Additional Notes Assessed
+
+**Requested by:** Christian Flessa
+
+**Context:** After initial merge signal, three new Copilot notes surfaced. Assessment below.
+
+### New Notes Analysis
+
+**1. `AesGcmTagLength` Unused Constant (EncryptedFileContent.cs:10)**
+
+- **Issue:** Declared but never referenced; triggers unused-field warning in Release builds with
+  `TreatWarningsAsErrors`.
+- **Assessment:** ✅ **False positive / hygiene-only** — Not a security concern. The actual tag length (16 bytes) is
+  correctly hardcoded in `UploadCommandHandler.cs:120`. Constant may have been intended for refactoring but was
+  abandoned. Recommend removal for cleanliness.
+
+**2. Test Async Assertion Not Awaited (EncryptedFileContentTests.cs:37)**
+
+- **Issue:** Test declares `act` as async lambda but line 36 calls `ThrowAsync()` without `await`. Test method is not
+  `async Task`, so the assertion never executes — false positive.
+- **Assessment:** 🔴 **REAL BUG — SECURITY RELEVANT** — Cancellation cleanup verification is untested. The plaintext
+  buffer `finally` block (EncryptedFileContent.cs:73-75) may not be triggered on cancellation if the test passes
+  silently. Fix: convert test to `async Task` and `await` the `ThrowAsync` call. This validates that `CancellationToken`
+  propagates correctly and cleanup fires on abort (critical for secret hygiene).
+
+**3. `succeededFileIds` Unused List (UploadCommandHandler.cs:58, 67)**
+
+- **Issue:** List initialized, populated per file, but never read. No downstream logic consumes it.
+- **Assessment:** ✅ **Code smell, not security-critical** — Not a secret boundary concern. Likely vestigial from
+  incomplete batch-output logic or future audit/retry feature. Recommend removal; if batch reporting is needed,
+  implement it deliberately. No secret leakage risk.
+
+### Verdict
+
+**1 real issue (test correctness), 2 non-security issues (cleanup).**
+
+- The test assertion bug is a correctness concern with security implications (cancellation cleanup not verified).
+- Both `AesGcmTagLength` and `succeededFileIds` are code smell; neither expose secrets or trust boundaries.
+- Recommend addressing the test async issue immediately; the others can be cleaned up pre-merge or in a follow-up.
