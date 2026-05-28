@@ -228,7 +228,7 @@ internal sealed class DownloadCommandHandler(
                                              CancellationToken cancellationToken)
     {
         var fileId = ParseFileId(file.FileId);
-        var downloadUri = new Uri(serverUrl, $"/d/{Uri.EscapeDataString(shareId)}/files/{fileId:D}");
+        var downloadUri = ShareDownloadUriFactory.CreateFileUri(serverUrl, shareId, fileId);
         Byte[]? kdfSalt = null;
         try
         {
@@ -439,9 +439,16 @@ internal sealed class DownloadCommandHandler(
             && (absoluteShareUri.Scheme == Uri.UriSchemeHttp || absoluteShareUri.Scheme == Uri.UriSchemeHttps))
         {
             var segments = absoluteShareUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length == 2 && String.Equals(segments[0], "d", StringComparison.OrdinalIgnoreCase))
+            if (segments.Length >= 2 && String.Equals(segments[^2], "d", StringComparison.OrdinalIgnoreCase))
             {
-                return new(new($"{absoluteShareUri.Scheme}://{absoluteShareUri.Authority}"), segments[1]);
+                var basePath = segments.Length == 2 ? "/" : $"/{String.Join('/', segments[..^2])}/";
+                var builder = new UriBuilder(absoluteShareUri)
+                {
+                    Path = basePath,
+                    Query = String.Empty,
+                    Fragment = String.Empty
+                };
+                return new(builder.Uri, Uri.UnescapeDataString(segments[^1]));
             }
 
             throw new DownloadCommandException("Share id invalid or missing.");

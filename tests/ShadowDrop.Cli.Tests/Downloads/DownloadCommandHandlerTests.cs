@@ -10,9 +10,13 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Contracts;
+using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 
 [NonParallelizable]
 public sealed class DownloadCommandHandlerTests
@@ -53,6 +57,88 @@ public sealed class DownloadCommandHandlerTests
         standardError.ToString().Should().Contain("SUCCESS stable.bin ->")
                      .And.Contain("FAILED missing.bin ->")
                      .And.Contain("Requested file not found in share.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldContinueQueueProcessingAfterManifestFetchFailure()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var firstOutputPath = Path.Combine(rootDirectory, "broken.bin");
+            var secondOutputPath = Path.Combine(rootDirectory, "good.bin");
+            var queuePath = Path.Combine(rootDirectory, "queue.json");
+            var queueJson = QueueFileParser.Serialize(new()
+            {
+                ShadowDrop = "1.0",
+                QueueVersion = "1.0",
+                Files =
+                [
+                    new QueueFileEntry
+                    {
+                        ServerUrl = "https://shadowdrop.test/base-path/",
+                        ShareId = "broken-share",
+                        FileId = fixture.FileId.ToString(),
+                        FileName = "broken.bin",
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = firstOutputPath
+                    },
+                    new QueueFileEntry
+                    {
+                        ServerUrl = "https://shadowdrop.test/base-path/",
+                        ShareId = "good-share",
+                        FileId = fixture.FileId.ToString(),
+                        FileName = fixture.FileName,
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = secondOutputPath
+                    }
+                ]
+            });
+            await File.WriteAllTextAsync(queuePath, queueJson);
+
+            using var handler = new SequenceHttpMessageHandler(
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/broken-share"));
+                    throw new HttpRequestException("Simulated manifest fetch failure.");
+                },
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/good-share"));
+                    return fixture.CreateManifestResponse();
+                },
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/good-share/files/{fixture.FileId:D}?mode=cli"));
+                    return fixture.CreateDownloadResponse();
+                });
+            using var httpClient = new HttpClient(handler);
+            var binaryOutput = new MemoryStream();
+            var standardOut = new StringWriter();
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", fixture.ShareKey],
+                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            binaryOutput.Length.Should().Be(0);
+            standardOut.ToString().Should().BeEmpty();
+            File.Exists(firstOutputPath).Should().BeFalse();
+            (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
+            standardError.ToString().Should().Contain($"FAILED broken.bin -> {firstOutputPath}: Server connection failed.")
+                         .And.Contain($"SUCCESS {fixture.FileName} -> {secondOutputPath}");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -119,6 +205,36 @@ public sealed class DownloadCommandHandlerTests
 
         exitCode.Should().Be(0);
         binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveBasePathForManifestAndFileRequests()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            request =>
+            {
+                request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/share-token"));
+                return fixture.CreateManifestResponse();
+            },
+            request =>
+            {
+                request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/share-token/files/{fixture.FileId:D}?mode=cli"));
+                return fixture.CreateDownloadResponse();
+            });
+        using var httpClient = new HttpClient(handler);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "https://shadowdrop.test/base-path/d/share-token", "--share-key", fixture.ShareKey],
+                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().BeEmpty();
     }
@@ -197,6 +313,29 @@ public sealed class DownloadCommandHandlerTests
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("files[0].outputPath: The outputPath value is required.")
                      .And.Contain("The queue file is invalid.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldReportManifestReadFailuresAsCommandErrors()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new ThrowingReadStream(new IOException("Simulated manifest read failure.")))
+        });
+        using var httpClient = new HttpClient(handler);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--server-url", "https://shadowdrop.test", "--share-key", new('a', 64)],
+                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.Length.Should().Be(0);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Server connection failed.")
+                     .And.NotContain("local I/O");
     }
 
     private static CliApplicationServices CreateServices(Stream standardOutStream,
@@ -348,6 +487,109 @@ public sealed class DownloadCommandHandlerTests
         }
     }
 
+    private sealed class DownloadHttpFixture
+    {
+        private DownloadHttpFixture(Guid fileId, Byte[] keyMaterial, Byte[] kdfSalt, Byte[] plaintext, Int32 chunkSize, Byte[][] encryptedChunks)
+        {
+            FileId = fileId;
+            KeyMaterial = keyMaterial;
+            KdfSalt = kdfSalt;
+            Plaintext = plaintext;
+            ChunkSize = chunkSize;
+            EncryptedChunks = encryptedChunks;
+        }
+
+        public Int32 ChunkSize { get; }
+
+        public Byte[][] EncryptedChunks { get; }
+
+        public Guid FileId { get; }
+
+        public String FileName => "payload.bin";
+
+        public Byte[] KdfSalt { get; }
+
+        public Byte[] Plaintext { get; }
+
+        public String ShareKey => Convert.ToHexStringLower(KeyMaterial);
+
+        private Byte[] KeyMaterial { get; }
+
+        public static DownloadHttpFixture Create()
+        {
+            var fileId = Guid.Parse("01234567-89ab-cdef-0123-456789abcdef");
+            var keyMaterial = Enumerable.Range(1, 32).Select(static value => (Byte)value).ToArray();
+            var kdfSalt = Enumerable.Range(65, 32).Select(static value => (Byte)value).ToArray();
+            var plaintext = Enumerable.Range(0, 128).Select(static value => (Byte)(255 - value)).ToArray();
+            const Int32 chunkSize = 64;
+            using var shareSecret = ShareSecret.FromBytes(keyMaterial);
+            var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
+            var encryptedChunks = new List<Byte[]>();
+
+            for (var chunkIndex = 0L; chunkIndex < plaintext.LongLength / chunkSize; chunkIndex++)
+            {
+                var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
+                var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
+                                                                         contentKey,
+                                                                         new(CryptoVersion.V1,
+                                                                             CryptoAlgorithm.Aes256Gcm,
+                                                                             fileId,
+                                                                             chunkSize,
+                                                                             chunkIndex,
+                                                                             chunkPlaintext.Length));
+                encryptedChunks.Add(encryptedChunk.Ciphertext);
+            }
+
+            return new(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
+        }
+
+        public HttpResponseMessage CreateDownloadResponse()
+        {
+            var responseBody = EncryptedChunks.SelectMany(static chunk => chunk).ToArray();
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(responseBody)
+            };
+            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentLength = responseBody.LongLength;
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, "0");
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, (EncryptedChunks.Length - 1).ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeStartHeaderName, "0");
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, Plaintext.LongLength.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, Plaintext.LongLength.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.ChunkSizeHeaderName, ChunkSize.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName, ChunkSize.ToString());
+            return response;
+        }
+
+        public HttpResponseMessage CreateManifestResponse(String? fileName = null)
+        {
+            var manifest = new ShareManifestContract
+            {
+                Files =
+                [
+                    new ShareManifestFileContract
+                    {
+                        AlgorithmId = "aes-256-gcm",
+                        ChunkCount = EncryptedChunks.Length,
+                        ChunkSize = ChunkSize,
+                        EncryptionFormatVersion = "1",
+                        FileId = FileId.ToString(),
+                        FileName = fileName ?? FileName,
+                        KdfSalt = Convert.ToBase64String(KdfSalt),
+                        Length = Plaintext.LongLength,
+                        PlaintextSha256 = null
+                    }
+                ]
+            };
+            return new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(manifest), Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
     private sealed class NeverCalledHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
@@ -363,6 +605,21 @@ public sealed class DownloadCommandHandlerTests
         public required String ShareId { get; init; }
     }
 
+    private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+    {
+        private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = new(responses);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (_responses.Count == 0)
+            {
+                throw new AssertionException("Unexpected extra HTTP request.");
+            }
+
+            return Task.FromResult(_responses.Dequeue()(request));
+        }
+    }
+
     private sealed record ShareFixture(String ShareToken, String? DownloadBearerToken);
 
     private sealed class StubConfigPathResolver(String? configPath) : CliConfigPathResolver
@@ -373,6 +630,34 @@ public sealed class DownloadCommandHandlerTests
     private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
     {
         public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+    }
+
+    private sealed class ThrowingReadStream(Exception exception) : Stream
+    {
+        public override Boolean CanRead => true;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => false;
+        public override Int64 Length => throw new NotSupportedException();
+
+        public override Int64 Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw exception;
+
+        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
+            Task.FromException<Int32>(exception);
+
+        public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<Int32>(exception);
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
     }
 
     private sealed record UploadFixture(IReadOnlyList<Guid> FileIds, String ShareKey);
