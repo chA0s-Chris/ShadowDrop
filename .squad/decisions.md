@@ -5,18 +5,6 @@
 - 2026-05-14: The initial ShadowDrop squad uses the user-chosen names Nate, Eliot, Sophie, Alec, Tara, and Parker, with Scribe and Ralph as built-in roles.
 - 2026-05-14: ShadowDrop work is routed by specialization across lead, backend, CLI, security, platform, and testing rather than a generic pooled roster.
 
-## Dependency & AOT Strategy
-
-- 2026-05-14: Keep baseline dependency wiring aligned to deployment boundaries; make Native AOT support explicit in CLI project from first slice (Tara #1). Applied in Directory.Packages.props, ShadowDrop.Api.csproj, ShadowDrop.Cli.csproj. Ensures minimal API/CLI package surface, preserves shared-library boundary, enables `linux-x64` publish path for local and CI before feature code accumulates.
-
-## Encryption & Cryptographic Design
-
-- 2026-05-14 (Nate, Issue #2): Chunked AES-256-GCM crypto with deterministic nonces from chunk index, HKDF-SHA-256 per-file key derivation, sealed `ChunkEncryptionService` API. Test surfaces: 26 cases covering round-trip, range mapping, and tamper detection. AOT-compatible. See `.squad/decisions/inbox/nate-issue-2-crypto-design.md` for full details.
-
-## Platform & Release Management
-
-- 2026-05-14 (Tara, Issue #1): PR #5 targets `main` for foundational wiring (Directory.Packages.props, project refs, baseline builds). Rationale: no `dev` integration branch exists; stable baseline is essential before feature work.
-
 ## Team Policy
 
 - 2026-05-14 (Copilot directive, Christian Flessa): Automatic commits allowed only for `./.squad/` changes. All commits must use Conventional Commits format; squad commits must use `docs(squad):` type prefix. Never push commits.
@@ -27,2893 +15,479 @@
 - Document architectural decisions here
 - Keep history focused on work, decisions focused on direction
 
-### 2026-05-14T22:52:54.277+02:00: User directive
-**By:** Christian Flessa (via Copilot)
-**What:** Do not commit codebase changes unless explicitly asked; it is okay to commit squad-related changes inside `./.squad/`; do not push any commit to the remote; do not create a PR unless explicitly asked.
-**Why:** User request — captured for team memory
+## Recent Decisions
 
-### 2026-05-15T21:48:38.895+02:00: User directive — PR Review Resolution
-**By:** Christian Flessa (via Copilot)
-**What:** When addressing review findings from a PR, always add a small comment to each addressed conversation and then resolve it.
-**Why:** User request — captured for team memory
-
-### 2026-05-15T21:53:13.266+02:00: User directive — Plan Synchronization
-**By:** Christian Flessa (via Copilot)
-**What:** When implementing an issue that has a corresponding plan in `./ai-plans/`, always update the plan and check all acceptance criteria met by the implementation.
-**Why:** User request — captured for team memory
-
-## Review Gate & Process
-
-### 2026-05-15T16:11:44.855+02:00: Pre-User Review Gate Policy
-**By:** Nate (Lead)
-**Area:** Process and Governance
-
-Establish a mandatory internal review gate before any production changes reach the user for final approval.
-
-- **Default review pair:** Nate (Lead) + Parker (Tester)
-- **Security-sensitive escalation:** Alec (Security Engineer) joins for changes touching auth, tokens, crypto, secret handling, or permission boundaries.
-
-**Rationale:** Fixed review pair ensures consistency, uses existing agent expertise without adding a dedicated role, reduces user time by catching issues early, and prevents security boundaries from slipping through.
-
-**Implementation:** Review gate documented in `.squad/routing.md`; rejection follows strict lockout semantics with reassignment or escalation (never original author); Coordinator enforces on all future work.
-
-## Test Coverage & Quality
-
-### 2026-05-15: Walking Skeleton API Tests — Coverage Gaps Closed
-**By:** Nate (Lead)
-
-Four review gaps identified and closed in `ApiWalkingSkeletonTests.cs`:
-
-1. **Public download enabled → 200**: Added `PublicDownloadEndpoint_ShouldReturn200_WhenPublicDownloadsAreEnabled` (enabled/200 path was untested).
-2. **Failed-startup env cleanup**: Updated `Startup_BootstrapFailure_ShouldLeaveEnvironmentClean_ForSubsequentStartup` to directly assert `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` restoration.
-3. **Relative-path cleanup junk**: Fixed silent bug where metadata path layout fell outside cleanup scope; now `{prefix}/metadata/shadowdrop.db`.
-4. **Bootstrap startup failure**: `Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot` asserts `InvalidOperationException` when token is missing.
-
-**TestApiFactory signature extended:** `TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true)`.
-
-### 2026-05-15T12:47:15.427+02:00: API Test Coverage Gaps — Addressed
-**By:** Parker (Tester)
-
-Four missing coverage scenarios added to `ApiWalkingSkeletonTests`:
-
-| Scenario | Test |
-|---|---|
-| Wrong bearer token → 401 | `ManagementEndpoint_ShouldReturn401_ForWrongBearerToken` |
-| Public downloads disabled → 404 | `PublicDownloadEndpoint_ShouldReturn404_WhenPublicDownloadsAreDisabled` |
-| Upload route requires valid token | `UploadRoute_ShouldRequireValidAdminBearerToken` |
-| Startup fails without bootstrap token | `Startup_ShouldFail_WhenBootstrapAdminTokenIsMissingOnFirstBoot` |
-
-**WebApplicationFactory behavior note:** On .NET 10, startup exceptions are caught internally; `CreateClient()` throws `InvalidOperationException`; diagnostic message verified through code review and logged output.
-
-## Cryptography & Buffer Management
-
-### 2026-05-14T23:49:15.783+02:00: Share Salt Encapsulation & Derivation Cleanup
-**By:** Alec (Security Engineer)
-
-`FileEncryptionContext` must not generate a new salt as part of creation. Callers must pass the share-level KDF salt explicitly; `GenerateKdfSalt()` returns raw 32-byte only. `KdfSalt` now returns defensive copy (no mutations after construction); `ChunkEncryptionService.DeriveContentKey()` zeroes temporary buffers.
-
-**Rationale:** Matches trust boundary design where one KDF salt is stored with share metadata and reused across all files; prevents silent violations from fresh-salt-per-invocation.
-
-### 2026-05-15T00:01:13.117+02:00: Direct Guid Span Writes in Crypto Hot Paths
-**By:** Tara (Platform Engineer)
-
-When a hot path writes into a caller-provided `Span<byte>`, serialize `Guid` with `Guid.TryWriteBytes` instead of allocating temporary arrays via `ToByteArray()`.
-
-**Context:** `src/ShadowDrop.Shared/Crypto/ChunkEncryptionService.cs` builds AAD and HKDF info blobs for every chunk/key derivation.
-
-**Impact:** Keeps chunk encryption/decryption and key derivation closer to allocation-free behavior; preserves byte layout and matches stackalloc/span style already in use.
-
-### 2026-05-15T00:16:55.489+02:00: Encrypted Chunk Buffer Ownership
-**By:** Tara (Platform Engineer)
-
-Treat `EncryptedChunk` like other crypto-adjacent buffers: copy inbound/publicly exposed `byte[]` at API boundary, keep internal `ReadOnlySpan<byte>` view for `ChunkEncryptionService`.
-
-**Why:** Record-shaped API returning stored ciphertext array becomes silently mutable after validation; internal span keeps encrypt/decrypt on the no-extra-copy path the crypto code expects.
-
-## Persistence & Storage
-
-### 2026-05-15T12:58:42.780+02:00: LiteDB Shared Connection Mode for AdminTokenService
-**By:** Eliot (Backend Engineer)
-
-`AdminTokenService` opens LiteDB with `ConnectionType.Shared` (not default `Direct`).
-
-**Reason:** In-process tests (WebApplicationFactory) open a second `LiteDatabase` connection to the same file while the service singleton is alive. `Direct` mode is exclusive, causing file-lock conflicts. `Shared` mode removes this constraint and makes the service safe for concurrent in-process access.
-
-**Scope:** Any future singleton LiteDB repository read from tests during the same process lifetime should follow this pattern.
-
-### 2026-05-15T13:34:42.045+02:00: AdminTokenService Conditional Initialization
-**By:** Eliot (Backend Engineer)
-
-`AdminTokenService` and its LiteDB handle + bootstrap credential check are only wired up when `ShadowDrop:ApiExposure:EnableAdminOperations` is `true`. When `false`, service is neither registered in DI nor resolved at startup.
-
-**Previous issue:** Unconditional registration forced bootstrap env-var read, DB file open, and credential upsert to run regardless of whether admin endpoints were exposed — a leaky dependency requiring `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` and writable metadata path even on admin-disabled deployments.
-
-**Side effect fixed:** `LiteDatabase` is now disposed in `AdminTokenService` constructor if `EnsureBootstrapCredential` throws, preventing file-handle leaks on first-boot failures (e.g. missing token).
-
-**Test coverage gap:** `ShadowDropOptionsBinding.ResolvePath` handles relative paths but lacks dedicated test; recommended to add unit test for `BindAndValidate` with relative `LiteDbPath`.
-
-## Security
-
-### 2026-05-15: Bootstrap Token Normalization & Disposal Guard
-**By:** Alec (Security Engineer)
-
-Two surgical fixes applied to `AdminTokenService`:
-
-**1. Bootstrap token whitespace normalization**  
-`SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` is now `.Trim()`-ed before hashing at bootstrap time, matching normalization in `TryReadBearerToken`. Without this, trailing newline or leading space in env var would produce permanent mismatch hash.
-
-**Trust boundary:** Token comparison uses `CryptographicOperations.FixedTimeEquals`; normalization happens before hashing (not before comparison), so no timing channel introduced.
-
-**2. Disposal guard extended to collection/index setup**  
-The `try/catch { _database.Dispose(); throw; }` block now wraps `GetCollection` and `EnsureIndex` as well as `EnsureBootstrapCredential`. Previously, exception during index creation (schema conflict on existing DB) would leave handle open with no cleanup.
-
-**No behavior change** for the happy path.
-
-## Shared Contracts & Constants
-
-### 2026-05-15T16:17:18.120+02:00: Shared Queue Contract Shape
-**By:** Eliot (Backend Engineer)
-**Area:** Shared API/CLI contracts
-
-For issue #4, the shared queue format in `ShadowDrop.Shared` uses simple JSON-bound models plus an explicit parser/validator instead of baking hard validation into constructors or deserialization callbacks.
-
-- Queue ids remain opaque `string` values.
-- `target` must validate as an absolute HTTP or HTTPS URL.
-- `plaintextSha256` is optional, but when present must be a 64-character lowercase hexadecimal digest.
-- Shared file metadata is wire-oriented only and carries `kdfSalt` as Base64 text, never secrets or token-bearing values.
-
-**Rationale:** Keeps the queue format stable across CLI and API, lets the CLI show precise validation errors, and avoids leaking server persistence concerns into `ShadowDrop.Shared`.
-
-## Upload API & Intake
-
-### 2026-05-15T22:41:03.231+02:00: Upload API Plan Refinement — Accepted Suggestions Applied
-**By:** Nate (Lead)
-**Area:** Plan refinement and slice scoping
-
-Applied four substantive refinements to `ai-plans/0011-upload-api-and-encrypted-file-intake.md` based on accepted review feedback:
-
-**1. Upload Response Contract Tightened**  
-Upload response now explicitly returns **only** file id and downstream-safe metadata (plaintext length, encrypted length, chunk count, encryption format version, algorithm id, chunk size) with **no secrets, derived keys, or internal state**. Prevents accidental exposure of `KdfSalt`, `ShadowDrop-Key`, or session tokens.
-
-**2. Error Response Safety Requirement**  
-Error responses must not expose secrets, key material, system paths, or internal validation details. Errors are generic HTTP status codes (400, 401, 413, 429) with minimal public message surface. Attackers use validation error messages to infer presence of files, guess metadata structure, or detect side-channel information leaks.
-
-**3. Abuse Protection Gate**  
-Upload endpoint enforces rate limiting or equivalent abuse protection to prevent high-volume upload spam. Without rate limits, a malicious client can fill storage or exhaust I/O with concurrent/sequential uploads.
-
-**4. All-or-Nothing Upload Semantics**  
-Failed uploads must use all-or-nothing / cleanup semantics. If validation fails after metadata is accepted, or if streaming fails mid-upload, all partially committed metadata and file content must be rolled back. No orphaned or partial records remain in the store.
-
-**Scope Boundary Reinforced:** The plan explicitly does **not** expand into share creation, download setup, or authentication token refresh. Upload is intake-only. Later slices own the contracts for sharing and retrieval.
-
-**Implementation Guidance:**
-- Tests verify error responses do not leak file structure or secrets in HTTP headers, body, or status messages.
-- Rate limiting can be achieved via middleware, endpoint-level guards, or token bucket.
-- Cleanup/rollback on failed metadata commit should use database transactions or equivalent; test surfaces verify the invariant directly.
-
-**Next Steps:** Implementation team (Eliot or assigned backend) owns the vertical slice. Acceptance criteria are binding. Review gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR.
-
-## Upload Plan Clarifications — Metadata Validation & Cross-Layer Cleanup
-
-### 2026-05-15T22:48:25+02:00: Upload Plan Clarifications
-**By:** Nate (Lead)  
-**Request:** Christian Flessa  
-**Area:** `ai-plans/0011-upload-api-and-encrypted-file-intake.md` Technical Details section
-
-Two clarifications tighten the upload implementation contract:
-
-**1. Metadata Validation Before Stream Consumption**  
-Reject malformed envelope metadata (invalid lengths, inconsistent format, missing required fields) **before starting to consume the request body stream**. Metadata parsing is synchronous and complete before any I/O begins; prevents wasting bandwidth on format errors and establishes a clear validation gate.
-
-**2. Cross-Layer Cleanup Semantics**  
-All-or-nothing rollback must span **every persistence layer** in the upload path. If blob content is written before metadata commit succeeds, or if streaming fails mid-upload, that content must be deleted and no orphaned state may remain (database, filesystem, or other persistence backend). Use database transactions with deferred writes or multi-phase commit; test surfaces verify the invariant directly by simulating failure at each boundary.
-
-**Scope Boundary:** Neither clarification expands into share creation, download setup, token refresh, or other downstream concerns. Upload remains intake-only; implementation team owns the vertical slice with binding acceptance criteria.
-
-**Next Steps:** Implementation team uses clarifications as validation checklist during code review. Reviewer gate (Nate + Parker, escalate to Alec if secrets/auth touched) applies on PR. Test surfaces must verify both constraints directly.
-
-### 2026-05-16T08:44:15.662+02:00: User directive — Defer Integrity Verification
-**By:** Christian Flessa (via Copilot)
-**What:** Defer integrity verification in plan 0012 rather than adding it to this slice.
-**Why:** User request — captured for team memory
-
-### 2026-05-16T09:15:58.247+02:00: User directive — Model Availability
-**By:** Christian Flessa (via Copilot)
-**What:** `claude-opus-4.5` and `gemini-3-pro-preview` are no longer available.
-**Why:** User request — captured for team memory
-
-### 2026-05-16T09:21:58.062+02:00: User directive — Available Models & Cost Multipliers
-**By:** Christian Flessa (via Copilot)
-**What:** Available models are `gpt-5.5` (7.5x), `gpt-5.4` (1x), `gpt-5.3-codex` (1x), `gpt-5.2-codex` (1x), `gpt-5.4-mini` (0.33x), `gpt-5-mini` (free), `gpt-4.1` (free), `claude-sonnet-4.5` (1x), `claude-sonnet-4.6` (1x), `claude-haiku-4.5` (0.33x), and `claude-opus-4.7` (15x). Ask before using `claude-opus-4.7`. For tasks that previously would have used Claude Opus 4.5 or 4.6, use `gpt-5.5` instead.
-**Why:** User request — captured for team memory
-
-## Share Creation, Expiration & Hashed Bearer Tokens
-
-### 2026-05-16T09:28:05.383+02:00: Security Review — Plan 0013 Approved with Surgical Clarifications
-**By:** Alec (Security Engineer)
-**Area:** Plan 0013 — share creation, expiration, hashed bearer tokens
-
-Plan 0013 is **sound in trust architecture**. Token handling follows established pattern (hash-on-store, FixedTimeEquals on validate), expiration semantics explicit, direct-HTTP mode opt-in. Five surgical clarifications locked down secret lifecycle, HTTP boundaries, expiration semantics, schema initialization, and token-mode combinations:
-
-1. **Bearer-Token Entropy Requirement:** Both share tokens and download bearer tokens must use `RandomNumberGenerator.GetBytes()` with minimum 32 bytes (256 bits) entropy. Implementers cannot substitute weaker RNGs or reduce byte length.
-
-2. **Plaintext-Token Lifetime Boundary:** Plaintext tokens returned in creation response are volatile secrets existing only during request handling and in HTTP response. After transmission, only hash persists. Do not log, cache, or commit plaintext to server-side logs, metrics, or audit trail; log token hash or metadata fingerprint instead.
-
-3. **Download Bearer-Token Expiration Atomicity:** Expiration checked at validation time only during download request. Shares do not actively revoke download tokens; expired token simply rejected on next use. Soft expiration (checked at use) is simpler and requires no cleanup jobs.
-
-4. **Revocation & Cleanup State Field Semantics:** `optional_revocation_timestamp` and `cleanup_state` must be explicitly initialized at share creation (not left null): `optional_revocation_timestamp = NULL` (not revoked), `cleanup_state = "PENDING"` (shares start unrevoked). Future-proofing for revocation/cleanup endpoints without implementing them here.
-
-5. **Direct-HTTP & Bearer-Token Combination Validation:** Explicitly reject invalid combinations: forbidden are (direct-HTTP + bearer-token requirement) and (direct-HTTP + separate-key mode simultaneously). Allowed: separate-key mode + optional bearer token, direct-HTTP mode + no bearer token. Test coverage: at least three rejected combinations.
-
-**Review Gate Implications:**
-- Default pair: Nate (Lead) + Parker (Tester)
-- Alec escalation required (token generation, hashing, confidentiality)
-- Criteria: atomic persistence, token entropy, plaintext handling, error response safety, invalid-combination validation
-
-**Next Steps:** Implementation team (Eliot or assigned backend) owns vertical slice with binding acceptance criteria.
-
-### 2026-05-16T09:31:13.101+02:00: Plan 0013 — All Review Suggestions Applied
-**By:** Nate (Lead)
-**Request:** Christian Flessa ("Please apply all suggestions")
-**Artifact:** `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md`
-
-Eight substantive refinements applied; all now formalized as binding acceptance criteria:
-
-**Material Changes:**
-1. **Token Entropy Floor Specified** — 256 bits (32 bytes) minimum for share tokens and optional download bearer tokens. Binding criterion.
-2. **Plaintext Token Confidentiality Enforced** — Returned only once at creation; never persisted, logged, or server-side recorded. Three new acceptance criteria spanning hash persistence, plaintext handling, log confidentiality.
-3. **Expiration Validation Deferred** — Expiration checking belongs entirely to later slices. This slice only persists expiration timestamps as metadata.
-4. **Revocation and Cleanup Fields Initialized** — Both fields persisted at share creation time (revocation_timestamp = NULL, cleanup_state = false) without implementing revocation/cleanup endpoints.
-5. **Invalid Mode/Token Combinations Spelled Out** — Direct-HTTP + bearer token, and separate-key without bearer configuration explicitly rejected with clear rationale.
-6. **Error Response Safety Tightened** — Generic HTTP 400 with minimal public message; never expose constraint logic or token-shape details.
-7. **Atomic Persistence Required** — Share metadata, file entries, token hashes persist atomically; partial failures trigger full rollback.
-8. **Scope Boundaries Reinforced** — Does not implement revocation endpoints, cleanup jobs, download endpoint, or download token validation. All belong to later slices.
-
-**Acceptance Criteria Status:**
-- Explicit, binding, testable, focused
-- No scope creep into download, validation, or cleanup endpoints
-- Plan ready for implementation
-- Review gate applies on PR submission
-# Plan 0013 — Cleanup State Representation Clarification
-
-**Date:** 2026-05-16T09:49:47+02:00  
-**Author:** Nate (Lead)  
-**Context:** Polish pass on `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md`
-
-## Decision
-
-Resolve ambiguity in cleanup state representation by explicitly specifying a **named enum state** rather than a boolean flag.
-
-### Change Rationale
-
-The original plan used conflicting terminology:
-- **Line 244 (decisions.md):** `cleanup_state = "PENDING"` (string/enum state)
-- **Line 266 (decisions.md):** `cleanup_state = false` (boolean flag)
-
-This ambiguity creates implementation risk: implementers could conflate a boolean flag with a state enum, leading to inflexible schema or missed extensibility.
-
-### Binding Specification
-
-**Cleanup state is initialized as a discrete named enum value, not a boolean:**
-- Initialized to `"PENDING"` at share creation (not `false`)
-- Represents a discrete state in cleanup job orchestration
-- Enables future extensibility (e.g., `"PENDING"` → `"IN_PROGRESS"` → `"COMPLETED"`)
-- Persisted in metadata alongside revocation timestamp
-
-### Implementation Boundary
-
-This slice persists the initial state (`"PENDING"`) only. Revocation endpoints, cleanup job implementations, and state-transition logic belong to later slices.
-
-### Acceptance Criteria Impact
-
-Acceptance criterion line 26 (now reinforced):
-- ✓ Revocation timestamp (nullable, `NULL` until revoked)
-- ✓ Cleanup state (named enum, initialized to `"PENDING"`, not a boolean default)
-
-Plan remains **implementation-ready** with this clarification.
-# Plan 0014 — Download Endpoint Clarifications
-
-**Session:** 2026-05-16T16:52:54.613+02:00 (Nate)
-
-## Summary
-
-Applied two binding clarifications to `ai-plans/0014-basic-download-endpoint.md` per Christian Flessa review:
-
-1. **Expiration Enforcement Model:** Clarified that expiration is a soft check performed at download-time validation. Acceptance criterion now states: "The endpoint denies expired shares by validating `expiration_timestamp < now` at download time. Expiration is soft (checked on each request); no cleanup jobs or active background revocation required." This aligns with pattern established in Plan 0013 (share creation) and prevents scope creep into revocation/cleanup endpoints, which belong to later slices.
-
-2. **Audit & Logging Metadata Boundaries:** Strengthened logging safety requirement to explicitly allow safe identifiers and outcomes while forbidding sensitive material. New guidance: "Audit and logging metadata may include safe identifiers (share id, file id, request outcome) and high-level success/failure results, but must not include token hashes, Authorization header content, ShadowDrop-Key header content, or plaintext key material." Prevents accidental trace leaks while clarifying what auditing is acceptable.
-
-## Impact
-
-- Expiration clarification closes ambiguity on soft vs. hard expiration and aligns download validation with share-creation metadata model.
-- Logging clarification provides explicit allowlist (safe identifiers, outcomes) rather than just denylist (keys, tokens), reducing implementer uncertainty and preventing trace exposure.
-- Both clarifications tighten the contract without expanding slice scope. Plan remains focused on authorization and streaming.
-
-## Status
-
-Plan is now **implementation-ready**. Acceptance criteria are binding and explicit. Review gate (Nate + Parker, escalate Alec for auth/tokens/security) applies on PR submission.
-# Plan 0015 Clarifications: Range Requests & Resumable Downloads
-
-**Date:** 2026-05-16T21:18:02+02:00  
-**Author:** Nate (Lead)  
-**Status:** Ready for team review and implementation
-
-## Changes Applied
-
-Eight clarifications applied to `ai-plans/0015-range-requests-and-resumable-downloads.md` per Christian Flessa request:
-
-### 1. Explicit Security Criterion (Acceptance Criteria)
-Added binding acceptance criterion: **Range requests enforce the same share-token, optional download bearer-token, and expiration checks as full downloads.** Prevents security bypass via partial-content responses on invalid credentials or expired tokens.
-
-### 2. Security Test Criterion (Acceptance Criteria)
-Added binding acceptance criterion: **Security-focused tests prove that invalid, expired, or unauthorized range requests are rejected and do not return partial content.** Enforces that authentication/expiration failures return appropriate error responses (401, 403, 410) with no partial content, not 206.
-
-### 3. Plaintext-Range-to-Chunk-Span Mapping (Technical Details)
-Added concrete six-step mapping algorithm:
-- Chunk index calculation from plaintext range bounds
-- Plain boundary tracking within chunks
-- Encrypted chunk span streaming (no full-file materialization)
-- Decryption window trimming for Direct-HTTP mode
-- Encrypted subset return for CLI mode
-- Preserves resumability without full-file transfers
-
-### 4. HTTP 206 Response Contract (Technical Details)
-Formalized exact header contract for Direct-HTTP mode:
-- `206 Partial Content` status
-- `Content-Range: bytes {start}-{end-1}/{total-plaintext-size}` with exact semantics
-- `Content-Length: {end - start}` (partial response size only)
-- `Accept-Ranges: bytes` (signals server support)
-- Response body contains only `[start, end)` plaintext bytes
-
-### 5. Separated Direct-HTTP vs CLI Semantics (Technical Details)
-Distinguished two modes explicitly:
-- **Direct-HTTP range mode:** Server decrypts internally, returns HTTP 206 with plaintext; standard `curl -C -` compatibility.
-- **CLI encrypted-subset mode:** Server returns encrypted chunks (no HTTP 206); CLI decrypts locally; chunk boundaries enable resumability.
-Each mode enforces full authentication and expiration validation at request time.
-
-### 6. Tightened Chunk-Span Streaming (Technical Details)
-Reinforced that local blob backend must:
-- Open stream and read only required chunk span
-- Avoid materializing whole files or all chunks upfront
-- Prove mid-chunk and multi-chunk requests produce correct plaintext bytes
-- Enforce authentication and expiration the same way as full-file downloads
-
-### 7. Structure & Scope Preserved
-Plan structure remains unchanged: Rationale, Acceptance Criteria (now with two new security criteria), and Technical Details (now with concrete mappings and header contracts).  
-No slice expansion: download endpoint is still in-scope; share creation, token refresh, revocation belong to later slices.
-
-### 8. Implementation-Ready Status
-All acceptance criteria are now binding and testable:
-- Security enforcement (token/expiration checks on range requests)
-- Concrete byte-mapping algorithm
-- Exact HTTP 206 response contract
-- Separable Direct-HTTP and CLI resumable modes
-- Streaming-oriented blob backend
-
-## Rationale
-
-These clarifications remove ambiguity around:
-- **Security:** Explicit criteria ensure range requests do not bypass auth/expiration checks
-- **Compatibility:** Concrete HTTP 206 contract ensures curl/wget resumption works
-- **Implementation guidance:** Plaintext-to-chunk mapping removes guesswork; CLI mode is explicitly non-206 to avoid HTTP semantics confusion
-- **Scope boundary:** Separating Direct-HTTP (206) from CLI encrypted-subset (no 206) prevents accidental feature creep
-
-## Next Steps
-
-Plan is now implementation-ready. Backend team (Eliot) and testing team (Parker, Tara) can use the concrete mapping algorithm and HTTP contract as implementation targets. Review gate applies on PR.
-# Plan 0015: CLI Contract Lock-Down & Error Handling Polish
-
-**Date:** 2026-05-16T21:22:43.120+02:00  
-**By:** Nate (Lead)  
-**Area:** CLI Integration & Security  
-
-## Summary
-
-Updated `ai-plans/0015-range-requests-and-resumable-downloads.md` to lock down the CLI resumable-download contract and apply explicit non-leaky error handling.
-
-## Changes
-
-### 1. CLI Resumable-Download Contract (Locked)
-
-**Updated acceptance criterion:** "CLI resumable-download contract locked: The CLI receives a deterministic response shape that includes encrypted chunk data, chunk span metadata (first/last chunk index), plaintext range boundaries, and total file size—sufficient for CLI to seek within chunks, decrypt locally, resume on interrupt, and avoid full-file transfer."
-
-**New Technical Details section:** "CLI resumable encrypted-subset mode (contract locked)" now specifies the exact JSON response shape the implementation must use:
-
-```json
-{
-  "firstChunkIndex": 2,
-  "lastChunkIndex": 5,
-  "encryptedPayload": "<base64-encoded concatenated chunks>",
-  "requestedRange": { "start": 131072, "end": 262144 },
-  "totalPlaintextSize": 1048576,
-  "chunkSize": 65536,
-  "finalChunkPlaintextLength": 32768
-}
-```
-
-**Rationale:**
-- Previously, the plan said "wrapped in a structured response (e.g., JSON with chunk metadata and ciphertext)" — vague and unimplementable.
-- New contract is explicit: which fields are required, their meanings, and why each is needed for CLI resumability and chunk-level seeking.
-- Implementation team now has a binding, unambiguous shape to code against.
-- No design changes to download flow; contract is derived from existing architecture.
-
-### 2. Range-Request Error Handling (Non-Leaky)
-
-**Updated acceptance criterion:** "Range-request error handling is explicitly non-leaky: Invalid ranges, invalid/expired tokens, and authorization failures all use generic HTTP status codes (400, 401, 403) without exposing range details, token validation logic, or file size information in error responses."
-
-**New Technical Details section:** "Range-Request Error Handling (Non-Leaky)" details all six error scenarios:
-
-1. **Invalid or unsatisfiable range (HTTP 416):** No range hints; no file-size leak.
-2. **Invalid or missing share token (HTTP 401):** No differentiation between missing vs. invalid vs. revoked.
-3. **Expired share (HTTP 401):** Same generic message as token errors; no time info.
-4. **Unauthorized bearer token (HTTP 403):** No differentiation between absent and invalid.
-5. **Direct-HTTP: Invalid range format (HTTP 400):** No reflection of malformed input.
-6. **CLI: Missing or invalid parameters (HTTP 400):** No parameter names or type hints.
-
-**Omitted from all error responses:**
-- File size (plaintext or encrypted)
-- Chunk configuration details
-- Token validation state or reason
-- Time information
-- Range validity hints
-
-**Rationale:**
-- Previous plan said errors should not leak, but was not explicit about *which* errors leak *what* information.
-- New section provides a binding checklist for implementation and testing.
-- Prevents accidental information disclosure under time pressure.
-- Aligns with earlier upload-plan and share-creation-plan security refinements (consistent security posture across slices).
-- Each error scenario is concrete and testable.
-
-## Scope Boundaries
-
-**Preserved (no scope expansion):**
-- Acceptance criteria count unchanged (still covers all mandatory behaviors).
-- Chunk-to-range mapping logic identical.
-- Direct-HTTP 206 response contract unchanged.
-- Storage streaming and memory constraints unchanged.
-- Test surface (full-file, aligned ranges, mid-chunk, multi-chunk, unsatisfiable) unchanged.
-
-**Refined (no new implementation, clarity only):**
-- CLI response shape pinned from "structured response (e.g., JSON)" to an exact schema.
-- Error handling pinned from "don't leak" to explicit per-error-type rules and omission lists.
-
-## Implementation Readiness
-
-Plan is **now implementation-ready:**
-- CLI contract is explicit enough for backend and frontend (CLI) teams to implement independently.
-- Error handling is explicit enough for test-driven development (each scenario listed with expected status and behavior).
-- Scope is tight; no scope creep; no new features or system interactions.
-- Acceptance criteria are all checkable and measurable.
-- Review gate (Nate + Parker, escalate Alec for token/auth/security) applies on PR.
-# Plan 0015 Polish Items: Accept-Ranges Consistency & Token Validation Pattern Reuse
-
-**Date:** 2026-05-16T21:26:32+02:00  
-**Lead:** Nate  
-**Requested by:** Christian Flessa
-
-## Summary
-
-Added two clarifying polish notes to `ai-plans/0015-range-requests-and-resumable-downloads.md` to strengthen the plan's authentication and header-consistency contracts:
-
-### 1. Accept-Ranges Header Scope Clarification
-
-**Location:** HTTP 206 Response Contract section  
-**Change:** Added polish note that `Accept-Ranges: bytes` must be returned consistently:
-- On full-file (non-206) responses
-- On all HTTP 4xx/5xx error responses to full-file requests
-
-**Rationale:** Clients discover range-request capability via this header. Returning it only on 206 responses creates an incomplete signal. Consistent advertising allows clients to assume resumable-download support without an extra OPTIONS call, improving usability for standard tools like `curl -C -`.
-
-### 2. Bearer-Token Validation Pattern Reuse
-
-**Location:** Technical Details section, end of general guidance  
-**Change:** Added polish note clarifying that optional download bearer-token validation must:
-- Hash the bearer token using the same algorithm as share-creation
-- Compare using fixed-time string comparison
-- Reuse the existing stored-hash/fixed-time-compare pattern from share-creation
-
-**Rationale:** Establishes explicit security guidance to prevent token-timing attacks and accidental timing-leak introduction during range-request implementation. Ensures range requests apply identical token-validation gates as full-file downloads. Reduces implementation surface by directing team to existing established pattern rather than inventing a new validation approach.
-
-## Acceptance
-
-Both polish notes:
-- Preserve plan structure and tone
-- Do not expand slice scope
-- Apply surgical edits to existing sections
-- Formalize team-wide implementation guidance on auth and header consistency
-
-**Status:** Ready for implementation team reference during PR review gate.
-# CLI Upload Command (Plan 0016) — Five Clarifications Applied
-
-**Date:** 2026-05-16T21:52:25.986+02:00  
-**By:** Nate (Lead)  
-**Area:** `ai-plans/0016-cli-upload-command.md` — Plan refinement and acceptance criteria tightening
-
-## Summary
-
-Five substantive clarifications have been folded into the CLI upload command plan to eliminate ambiguity and establish explicit security and contract guarantees. All changes preserve the slice scope (intake-only, non-interactive, client-side encryption) while tightening implementation contracts.
-
-## Clarifications Applied
-
-### 1. Explicit Configuration Precedence
-
-**Added to acceptance criteria & Technical Details:**
-- Config resolution order is binding: **flags > environment variables > config file**.
-- Rationale: Users cannot override stale config without understanding precedence; ambiguity creates footgun scenarios.
-- Test surface: Three configuration sources tested in isolation and in combination to verify precedence holds.
-
-### 2. Admin Token Handling Guidance
-
-**Added to Technical Details → Configuration Precedence & Token Handling:**
-- Trim whitespace before use (matching server-side normalization in `AdminTokenService`).
-- Never log, cache, or persist plaintext token in stdout, stderr, debug output, or telemetry.
-- Explicitly document the visibility risk: tokens passed via CLI flags may be visible to process inspection (e.g., `ps`, Process Explorer).
-- Recommend users prefer environment variables or config file for sensitive deployments.
-
-**Trust boundary:** Token handling follows established pattern: trim early, hash/compare using fixed-time operations, no plaintext persistence.
-
-### 3. Concrete CLI Output Contract
-
-**Added to Technical Details → CLI Output Contract and acceptance criteria:**
-- **stdout:** Successful file ids only, one per line. No diagnostics or progress.
-- **stderr:** All diagnostic messages, validation errors, warnings, and progress.
-- **Exit code:** 0 if all files succeed; non-zero on any failure (file read, validation, API error, network failure, or partial upload failure).
-- Rationale: Makes CLI script-friendly and unambiguous in automated workflows.
-- Test surface: Verify stdout contains only ids, stderr contains diagnostics, exit codes match outcomes.
-
-### 4. Error Message Surface Rules
-
-**Added to Technical Details → Error Messages & Security:**
-- Error messages must be **clear but generic**.
-- Never expose: file paths, server URLs, token values, encryption key material, internal server details, or stack traces.
-- Examples provided of unsafe vs. safe error messages.
-- Rationale: Attackers use validation error messages to infer presence of files, guess metadata structure, or detect side-channel information leaks.
-
-### 5. Stronger Streaming Wording
-
-**Added to Technical Details → Encryption & Streaming and acceptance criteria:**
-- Use **bounded buffers** during encryption and upload; do not accumulate full plaintext in memory.
-- Specify fixed-size chunk buffers (e.g., 1 MB) to read plaintext, encrypt chunk-by-chunk, and write encrypted bytes directly to HTTP stream.
-- Deallocate buffers between chunks.
-- Rationale: Matches existing chunked-AES-GCM architecture and prevents plaintext accumulation footgun in CLI context.
-- Acceptance criterion updated to binding: "streams encrypted content using bounded buffers, never accumulating full plaintext in memory during encryption or upload."
-
-## Scope & Boundaries
-
-No changes to slice scope. CLI remains:
-- **Intake-only:** No share creation, download setup, or token refresh.
-- **Non-interactive:** No wizard prompts or user input beyond file paths and config resolution.
-- **Client-side encryption:** Generates share secret, derives per-file keys, streams encrypted bytes.
-- **Native AOT compatible:** Explicit JSON contracts, no reflection-heavy conveniences.
-
-## Implementation Guidance
-
-1. **Configuration:** Parse flags first, fall back to env vars, fall back to config file; never mix sources without explicit precedence.
-2. **Token safety:** Trim token at parse time; never log plaintext; document CLI flag visibility risk in help text.
-3. **Output:** Strict stdout/stderr separation; exit codes binding.
-4. **Errors:** Use generic HTTP-style codes (400, 401, 413, 429) where applicable; make error messages safe to log or expose to end users.
-5. **Streaming:** Implement with 1 MB chunk buffers (or similar bounded size); verify no full plaintext buffer in memory snapshots during testing.
-
-## Review Gate
-
-- **Default pair:** Nate (Lead) + Parker (Tester)
-- **Escalation:** Alec (Security Engineer) joins for token handling, encryption, error surface, and CLI security review.
-- **Test coverage:** Binding acceptance criteria require tests for all five clarifications.
-
-## Next Steps
-
-Implementation team (CLI ownership, likely Sophie or assigned) uses these clarifications as validation checklist during code review. All acceptance criteria are binding. Reviewer gate applies on PR submission.
-# Plan 0016: CLI Upload Command — Final Polish Applied
-
-**Date:** 2026-05-16T22:00:47+02:00  
-**Owner:** Nate  
-**Request From:** chA0s-Chris
-
-## Changes Applied
-
-Refined `ai-plans/0016-cli-upload-command.md` with two substantive polishing items:
-
-### 1. Token Terminology Clarification
-
-Renamed all occurrences of "admin token" to **"upload authorization token"** throughout the plan to precisely reflect that this is a narrower, intake-specific credential rather than a broad administrative token.
-
-**Locations updated:**
-- Acceptance criterion: "upload authorization token" in configuration resolution
-- Validation criterion: "upload authorization token" in error handling
-- Technical Details: "Upload authorization token" in Configuration Precedence section
-- Flag name example: `--upload-token` (changed from `--admin-token`)
-
-**Rationale:** The terminology change makes the scope of the credential explicit—this token grants **upload/intake rights only**, not admin-level control. Prevents confusion with broader authorization models and aligns with principle of least privilege. Improves clarity for implementation and end-users.
-
-### 2. Upload-Only Scope Clarification
-
-Enhanced the Encryption & Streaming section with explicit statement: **"This command performs upload intake only and does not create shares or attach files to existing shares"**.
-
-**Location updated:**
-- Encryption & Streaming section, final bullet point
-
-**Rationale:** Clarifies slice boundary and prevents scope creep during implementation. Reinforces that this is a pure intake workflow with no share-creation or attachment logic. Consistent with established pattern from earlier upload plan refinements (plans 0011–0013).
-
-## Impact
-
-- **Scope:** No expansion; terminology and clarity only.
-- **Acceptance Criteria:** Remain binding and unchanged in substance.
-- **Implementation Guidance:** Token handling now reads as narrower intake authorization; scope boundary reaffirmed.
-- **Team Alignment:** Both changes are cosmetic refinements that improve precision without broadening responsibilities.
-
-## Decision Status
-
-**Accepted by:** Christian Flessa  
-**Applied:** Yes  
-**Ready for Implementation:** Yes
-# Plan 0016: CLI Upload Command — Final Polishing (Last Two Suggestions)
-
-**Date:** 2026-05-16T22:09:27+02:00  
-**Owner:** Nate  
-**Request From:** chA0s-Chris
-
-## Changes Applied
-
-Refined `ai-plans/0016-cli-upload-command.md` with two final substantive polishing suggestions to eliminate remaining ambiguity for implementation team:
-
-### 1. HTTP Status & Retry Behavior Clarification
-
-**Added as new subsection in Technical Details (after "Error Messages & Security"):**
-
-Distinguishes between permanent and transient failure modes so implementers know which HTTP responses warrant retry vs. immediate failure:
-
-- **Immediate failure (no retry):** HTTP 401 (unauthorized token), 403 (permission denied), 400 (malformed request), 413 (payload too large)
-- **Transient/retriable:** HTTP 429 (rate limit), 503 (unavailable), network timeouts, connection errors
-- **Partial failure:** Multi-file uploads do not auto-retry failed files; user must re-run with failed file paths
-- **Per-file atomicity:** Individual file uploads are all-or-nothing; no resume on mid-transfer interruption
-
-**Rationale:** Prevents retry storms on auth failures (401), clarifies when exponential backoff is appropriate, aligns with zero-knowledge upload architecture where secrets never reach the server. Implementer can code this decisively without ambiguity.
-
-### 2. Share-Level Secret Lifecycle Clarification
-
-**Added as new subsection in Technical Details (after "Encryption & Streaming"):**
-
-Makes explicit the ownership and lifecycle of the share-level secret so downstream callers understand how the CLI manages it:
-
-- **Generation & ownership:** CLI generates 256-bit secret client-side; caller manages its lifecycle (no CLI persistence)
-- **Emission:** Secret is **never** emitted by default; only if user opts in via flag (e.g., `--output-secret`)
-- **Server-side:** Plaintext secret never reaches the server; only encrypted content and non-secret metadata uploaded
-- **Downstream integration:** Separate share-creation command accepts secret + file ids as inputs
-- **Out-of-band management:** Users may manage secret via secure key store, HSM, or secrets manager
-
-**Rationale:** Reinforces zero-knowledge architecture, keeps intake slice narrow, prevents accidental server-side secret storage. Implementation team knows exactly what the CLI owns vs. what the caller must manage.
-
-## Impact
-
-- **Scope:** No expansion; operational clarity and retry semantics only
-- **Acceptance Criteria:** Binding criteria now include retry behavior tests and secret lifecycle validation
-- **Architecture:** Reinforces zero-knowledge pattern; integrates cleanly with later share-creation and download slices
-- **Team alignment:** Both clarifications prevent implementation footguns and reduce review friction
-
-## Decision Status
-
-**Requested by:** Christian Flessa  
-**Applied:** Yes  
-**Test coverage required:** 
-- Retry behavior: Verify immediate-fail status codes exit with non-zero, retriable codes permit retry logic
-- Secret lifecycle: Verify plaintext secret is not logged/persisted by default, only emitted on explicit flag
-
-**Ready for Implementation:** Yes
-
-## Next Steps
-
-Implementation team uses these two clarifications as validation checklist. All acceptance criteria (including new retry and secret-lifecycle behavior) are binding for PR review gate.
-# Plan 0017 Clarifications: CLI Download Command and Queue Processing
-
-**Date:** 2026-05-16  
-**Context:** Edited plan document to resolve ambiguities identified during team review.
-
-## Decisions Made
-
-### 1. Share Key Input Contract: Dual Path, No Prompting
-**Decision:** Share keys are provided via `--share-key <key>` (CLI argument) or `--share-key-file <path>` (file), with CLI argument taking precedence.
-- **Rationale:** Gives callers flexibility without introducing interactive prompts in a CLI tool designed for automation and scripting.
-- **Non-interactive requirement:** If the share key is missing, the command exits with code 1 immediately. This prevents unexpected hangs or failures in batch workflows.
-
-### 2. Bearer Token: CLI Argument Only, No Environment/Config Fallback
-**Decision:** Bearer tokens are sourced exclusively from `--bearer-token <token>`. Environment variables and config files are not consulted.
-- **Rationale:** Explicit, predictable behavior for a security-sensitive credential. Implementers know exactly where tokens come from, reducing the risk of leaking tokens via config files or unintended env var exposure.
-- **Practical:** Callers must explicitly pass bearer tokens each time or script them in, making it clear that auth is happening.
-
-### 3. Output and Exit Code Behavior
-**Decision:** 
-- **Direct downloads:** Content to stdout, errors/status to stderr, exit 0/1.
-- **Queue processing:** Summary report to stderr, exit 0 if all succeed, exit 1 if any fails. Partial failures do not stop processing.
-- **Rationale:** Allows easy piping (stdout for content), clear diagnostics (stderr), and predictable batch error handling (continue on failure, report summary).
-
-### 4. Secrets Security Handling
-**Decision:** Share keys and bearer tokens must never be written to queue files, logs, or stderr output.
-- **Secret disposal:** Where C# data structures support it (e.g., `SecureString`), secrets are cleared/zeroed after use.
-- **Rationale:** Prevents accidental exposure of sensitive credentials in audit trails, backups, or queue file diffs.
-
-### 5. Scope Boundary: No Resume Support in This Slice
-**Decision:** This slice does not include range-request resume functionality. The design explicitly structures the download pipeline to allow resume support to be added cleanly in a future slice.
-- **Rationale:** Keeps scope focused on core download and queue processing. Resume logic can be layered on top without redesign.
-
-## Implementation Guidance
-- Use `System.CommandLine` for robust option parsing and validation.
-- Validate the full queue before beginning any downloads.
-- Report per-file status in the summary to help callers identify which entries succeeded and which failed.
-- Consider using `System.Security.Cryptography` or `System.Security.SecureString` for secret cleanup where appropriate.
-# Plan 0017 Final Polish — Decisions
-
-## Decision 1: Explicit Queue Entry Contract
-Added a new **Queue Entry Contract** section that formally documents the exact fields expected in each queue entry:
-- `serverUrl`, `shareId`, `outputPath`
-
-This section explicitly states that secrets are **never stored in queue entries**—all secrets come from CLI arguments only. This eliminates any ambiguity and ensures downstream consumers of this plan understand the security boundary clearly.
-
-## Decision 2: Upfront Validation Abort
-Clarified that queue validation happens **before any downloads begin**. If validation fails, the command exits with code 1 immediately—no partial downloads, no downloads at all. This is a clear architectural contract that prevents partial failures from queue format issues.
-
-## Decision 3: No Secret Emission in Diagnostics
-Tightened the secrets handling language from "masked values if needed for diagnostics" to an absolute rule: **secrets are never emitted in diagnostics—not even partially masked or redacted**. This removes any temptation to add "helpful" masked output and ensures consistent, strict secret handling across all code paths.
-
-## Impact
-These three clarifications strengthen the security contract and reduce the surface area for implementation mistakes. Teams building on this plan will have clear, unambiguous requirements for queue structure, validation flow, and secret handling.
-# Plan 0018: Interactive Spectre Console UX — Clarifications
-
-**Decision Maker:** Nate (Lead)  
-**Date:** 2026-05-16  
-**Status:** Applied to plan
-
+--- alec-pr30-retry-exception-handling.md ---
 ---
-
-## Summary
-
-Applied six focused clarifications to plan 0018 to ensure implementers understand the scope, integration boundaries, security requirements, and testing expectations for the interactive guided CLI layer.
-
+title: PR #30 — SendWithRetryAsync Error Contract Breach
+date: 2026-05-24T08:31:51.321+02:00
+issue: PR #30 / Copilot review
+priority: should-fix-before-merge
+domain: error-handling, trust-boundary
 ---
-
-## Clarifications Applied
-
-### 1. Interactive Mode Invocation (System.CommandLine Unambiguity)
-
-**Decision:** Interactive mode must be invoked with an explicit `--interactive` flag or equivalent subcommand structure.
-
-**Rationale:** Without a clear invocation boundary, implementers might accidentally blend interactive and non-interactive parsing, creating ambiguous argument-handling behavior. An explicit flag makes the mode orthogonal to the base System.CommandLine parser and allows easy downstream documentation.
-
-**Implementation note:** Suggest either:
-- `shadowdrop upload --interactive` (flag-style)
-- `shadowdrop --interactive upload` (top-level prefix)
-
-Choose one pattern and document it clearly in the implementation.
-
----
-
-### 2. Dependency on Underlying Non-Interactive Flows
-
-**Decision:** Rationale and Technical Details now explicitly state that the interactive layer is a **UI wrapper only**, delegating all business logic to existing/concurrent plans 0016 (upload), 0013 (share creation), and 0017 (download).
-
-**Rationale:** Implementers must understand they are wrapping existing operations, not inventing new ones. This prevents accidental duplication of encryption, token handling, or share-creation logic and keeps the interactive slice genuinely bounded.
-
-**Implementation note:** The interactive layer should invoke the same underlying orchestration functions or CLI commands that non-interactive users would invoke manually. Do not re-implement validation or business logic inside the interactive module.
-
----
-
-### 3. Non-TTY Behavior
-
-**Decision:** When invoked in a non-TTY or unsupported terminal environment, interactive mode fails immediately with a clear error message; **no fallback to non-interactive mode**.
-
-**Rationale:** Graceful degradation (e.g., "running in non-TTY, switching to non-interactive mode") creates confusion and unexpected behavior. Explicit failure signals the user that their environment is incompatible and suggests the correct approach: use non-interactive commands with explicit flags instead.
-
-**Implementation note:** Use Spectre.Console's TTY detection or equivalent; emit exit code 1 with the message: `"Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments."`
-
----
-
-### 4. Tightened Secret-Handling Rules
-
-**Decision:** Interactive mode **inherits and strengthens** all secret-handling guarantees from prior plans:
-
-- **Share keys:** Shown only on explicit opt-in (flag or user affirmation).
-- **Token input:** Always masked (password-entry style).
-- **Secrets in output:** Never rendered in normal diagnostics/warnings/errors.
-- **Logging:** No secrets at any verbosity level.
-- **No weakening:** Future convenience requests (e.g., "cache tokens for faster login") are rejected; prefer explicit opt-in.
-
-**Rationale:** The upload, share-creation, and download plans established strict secret-lifecycle rules that cannot be weakened without violating zero-knowledge architecture. The interactive layer must uphold the same guarantees, even if it demands stricter UX choices (e.g., explicit opt-in for key display).
-
-**Implementation note:** Review plans 0016, 0013, and 0017 secret-handling sections during implementation to ensure compliance.
-
----
-
-### 5. Secret-Absence Test Assertions
-
-**Decision:** Added an explicit acceptance criterion: **Orchestration and output tests must assert that secrets do not appear in rendered stderr or log output.**
-
-**Rationale:** Accidental secret leaks in progress bars, error formatting, or diagnostics are a real risk with rich terminal libraries. Explicit test assertions using grep or regex patterns catch these leaks early.
-
-**Implementation note:** Capture stderr and log output in tests, then assert the absence of plaintext share keys, bearer tokens, admin tokens, etc. using regex/grep. Example:
-```csharp
-var output = capturedStderr;
-Assert.DoesNotMatch(@"[0-9a-f]{64}", output);  // No 256-bit hex key
-Assert.DoesNotMatch(@"Bearer.*[A-Za-z0-9]", output);  // No bearer tokens
-```
-
----
-
-### 6. Scope Boundary (No Stateful Shell or New Logic)
-
-**Decision:** Plan reinforced: keep interactive layer focused on **guided UX over existing operations**. Explicitly prohibits:
-
-- Stateful shell or REPL.
-- New business logic.
-- Interactive-session state persistence.
-
-**Rationale:** Scope creep here leads to maintenance burden and increased testing surface. If state or new logic becomes necessary, evaluate as a separate plan.
-
-**Implementation note:** If implementers encounter feature requests like "remember server URL across sessions" or "add batch job scheduling," reject them as out of scope and suggest a separate follow-up plan.
-
----
-
-## Files Modified
-
-- `/home/chris/Code/github/ShadowDrop/ai-plans/0018-interactive-spectre-console-ux.md` — Updated Rationale, Acceptance Criteria, and Technical Details with all six clarifications.
-
----
-
-## Team Guidance
-
-- **Implementers:** Use this decision document to clarify expectations during implementation review.
-- **Next steps:** When implementing, ensure the first acceptance criterion clearly documents your chosen invocation pattern (flag vs. subcommand).
-- **Secret handling:** Use this document and prior plans 0016/0017 as a security checklist during code review.
-
----
-# Plan 0018 Final Clarifications — Interactive Spectre.Console UX
-
-**Date:** 2026-05-16T22:34:31.673+02:00  
-**Lead:** Nate  
-**Requested by:** chA0s-Chris
-
-## Summary
-
-Applied four clarifying edits to plan 0018 to lock down the interactive UX design while preserving security and scope boundaries.
-
-## Decisions Made
-
-### 1. Interactive Invocation Pattern
-
-**Committed to:** `shadowdrop <subcommand> --interactive` pattern.
-
-**Rationale:** Placing `--interactive` after the subcommand (e.g., `shadowdrop upload --interactive`) is more intuitive for users and aligns with how System.CommandLine typically structures verb-based parsers. This also avoids ambiguity about whether `--interactive` applies globally or to a specific operation.
-
-**Impact:** All implementations of upload, download, and share-creation interactive modes will follow this pattern. Documentation and help text will be clear about placement.
-
----
-
-### 2. Guided Share-Creation Workflow with Upload-Generated Key
-
-**Clarified:** How the upload-generated share key flows through the interactive session while remaining secret.
-
-**Workflow:**
-1. User selects files in interactive upload prompt
-2. Upload delegates to plan 0016 logic, which generates the share key
-3. Share key is held in memory (opaque, never rendered yet)
-4. Share configuration prompts (expiration, direct-HTTP, optional token) capture user choices
-5. All captured choices + key are passed to plan 0013 share-creation logic
-6. Share key is displayed to user **only on opt-in** (explicit prompt or `--output-secret` flag)
-7. Secrets remain hidden by default; user controls visibility
-
-**Impact:** Implementers now have a clear, step-by-step workflow that shows key ownership and opt-in flow. No ambiguity about when/if the key leaks to terminal.
-
----
-
-### 3. Optional Download Bearer-Token Prompting
-
-**Clarified:** How optional bearer-token protection integrates into share-creation and maintains secret handling.
-
-**Design:**
-- Token input uses **masked prompts** (Spectre.Console password mode) so characters are not echoed
-- Token is hashed by plan 0013 logic (not by interactive layer)
-- Plaintext token never appears in logs, diagnostics, or output
-- Token is single-session-scoped; no caching or persistence beyond command invocation
-- Interactive layer only orchestrates the prompt; plan 0013 owns hashing and validation
-
-**Impact:** Clear separation of concerns: UI layer prompts & masks; business layer hashes & validates. Implementers know exactly where each responsibility lies.
-
----
-
-### 4. Scope Boundaries Reinforced
-
-**Confirmed:** Plan 0018 remains a UX wrapper over existing operations.
-
-**Out of Scope:**
-- No stateful REPL or long-lived interactive shell
-- No new business logic (encryption, server features, batch operations)
-- No session-to-session state persistence
-
-**Impact:** Prevents scope creep. If future requests demand these features, they go to separate plans, not grafted into 0018.
-
----
-
-## Team Implications
-
-- **Implementers:** Workflow is locked and clear. Follow the `--interactive` pattern and keep all business logic delegated.
-- **Tests:** Must verify secret-handling paths (no leaks in diagnostics) and orchestration correctness (delegates to 0016/0013/0017 operations).
-- **Documentation:** Ensure user-facing help and README explain the `--interactive` flag placement and opt-in secret display behavior.
-
-No GitHub issue update required at this time; plan clarifications are editorial and do not change acceptance criteria or scope.
-# Scribe Decision: Issue #15 Sync
-
-**Date:** 2026-05-16T21:28:18.558+02:00  
-**Agent:** Scribe  
-**Action:** Updated GitHub issue #15 body to mirror finalized plan
-
-## What
-
-Synchronized GitHub issue #15 ("Range requests and resumable downloads") with the finalized plan at `/home/chris/Code/github/ShadowDrop/ai-plans/0015-range-requests-and-resumable-downloads.md`.
-
-Issue body now includes:
-- Full rationale
-- All 11 acceptance criteria with checkboxes
-- Complete technical details covering:
-  - Plaintext-Range-to-Chunk-Span Mapping
-  - HTTP 206 Response Contract with Accept-Ranges polish note
-  - Direct-HTTP vs CLI Resumable Semantics with locked CLI response shape
-  - Optional download bearer-token validation reuse pattern
-  - Non-leaky Range-Request Error Handling
-
-## Why
-
-Per user directive (2026-05-15T21:53:13.266+02:00): "When implementing an issue that has a corresponding plan in `./ai-plans/`, always update the plan and check all acceptance criteria met by the implementation."
-
-This sync ensures:
-- Issue serves as authoritative spec for team implementation
-- Plan and issue remain synchronized source of truth
-- All acceptance criteria visible and trackable on GitHub
-- Security and technical details (polish notes, token validation pattern, error handling) captured for implementer reference
-# PR #24 Security Review — Direct-HTTP Key Material Cleanup
-
-**Reviewer:** Alec (Security Engineer)  
-**Date:** 2026-05-17T23:05:01.413+02:00  
-**Status Review:** 2026-05-18T00:28:54.318+02:00  
-**Verdict:** ✅ **APPROVED FOR MERGE — SECURITY FIX VERIFIED**
 
 ## Issue
 
-PR #24 implements direct-HTTP downloads with server-side decryption. The code correctly handles secret cleanup when `DirectHttpDecryptingStream.CreateAsync` fails after stream construction. However, a critical failure path remains unprotected: if blob storage fails to open *before* the stream takes ownership, the decoded HTTP key is never zeroed.
+`UploadApiClient.SendWithRetryAsync` (lines 132-160) violates the CLI error contract by allowing non-generic exceptions to propagate on the final retry attempt.
 
-### Code Path
+### Current Behavior
 
-File: `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, method `TryOpenDirectHttpContentAsync` (lines 121–148)
+- **Lines 149-151:** Catches `HttpRequestException` only when `attempt < MaxAttempts`
+- **Lines 153-155:** Catches `TaskCanceledException` only when `!IsCancellationRequested && attempt < MaxAttempts`
+- **Final iteration (attempt == 3):** Both catch blocks are skipped; exceptions bubble uncaught to caller
+
+### Impact
+
+Caller (`UploadAsync` / `ReserveFileIdAsync`) receives raw transport-layer exceptions instead of wrapped `UploadCommandException`. When caught in `UploadCommandHandler.ExecuteAsync`, the error message may expose:
+- DNS lookup failures (network topology)
+- TLS handshake errors (encryption/certificate details)
+- Connection reset errors (server state)
+
+**Violates:** Established error hygiene pattern ("generic errors on stderr, no path/secret/topology leakage").
+
+## Root Cause
+
+Retry guards (`attempt < MaxAttempts`) were designed to retry on transient failures but re-throw on final attempt. However, they should also wrap final-attempt exceptions to preserve error contract.
+
+## Resolution
+
+Refactor `SendWithRetryAsync` to ensure all `HttpRequestException` and `TaskCanceledException` instances are caught and wrapped, regardless of attempt number:
 
 ```csharp
-private async Task<Stream?> TryOpenDirectHttpContentAsync(UploadedFileRecord uploadedFile,
-                                                         String keyMaterial,
-                                                         CancellationToken cancellationToken)
+catch (HttpRequestException)
 {
-    Stream? encryptedContent = null;
-    try
+    if (attempt < MaxAttempts)
     {
-        var secretBytes = Convert.FromBase64String(keyMaterial);  // ← Secret decoded to heap
-        encryptedContent = await _blobStorage.OpenReadAsync(uploadedFile.BlobKey, cancellationToken);  // ← Can throw
-        return await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
-                                                            uploadedFile,
-                                                            secretBytes,
-                                                            cancellationToken);
+        await Task.Delay(GetDelay(attempt), cancellationToken);
     }
-    catch (Exception exception) when (exception is ArgumentException
-                                               or CryptographicException
-                                               or EndOfStreamException
-                                               or FormatException
-                                               or OverflowException)
+    else
     {
-        if (encryptedContent is not null)
-        {
-            await encryptedContent.DisposeAsync();  // ← Clears stream, NOT secretBytes
-        }
-
-        return null;  // ← secretBytes remains in memory
+        throw new UploadCommandException("Server connection failed.");
     }
 }
 ```
 
-### Failure Scenario
-
-1. `secretBytes` is decoded from base64 HTTP header/query parameter (line 128)
-2. `OpenReadAsync` throws due to storage timeout, network error, or missing blob (line 129)
-3. Catch block disposes `encryptedContent` but does not zero `secretBytes`
-4. Exception is caught and converted to `DownloadLookupStatus.InvalidRequest`
-5. **Result:** Request-scoped key material remains resident on heap indefinitely
-
-### Attack Surface
-
-- **Memory introspection:** Process dump, debugger pause, crash dump captures plaintext key
-- **Garbage collection timing:** Secret may outlive the request if finalizer is delayed
-- **Request handling pipeline:** Key material persists in ASP.NET Core pooled thread context
-
-This is a **silent retention vulnerability**: the code explicitly clears secrets in the happy path (when stream is created and disposed), but leaks them on a plausible failure path.
-
-## Required Fix
-
-### Code Change
-
-Add zeroing to the catch block:
-
-```csharp
-catch (Exception exception) when (exception is ArgumentException
-                                           or CryptographicException
-                                           or EndOfStreamException
-                                           or FormatException
-                                           or OverflowException)
-{
-    CryptographicOperations.ZeroMemory(secretBytes);  // ← ADD THIS
-    if (encryptedContent is not null)
-    {
-        await encryptedContent.DisposeAsync();
-    }
-
-    return null;
-}
-```
-
-### Test Addition
-
-Add a test case that verifies `secretBytes` is zeroed when `OpenReadAsync` throws. This test does not currently exist; the existing test `ResolveAsync_ShouldDisposeEncryptedStreamWhenDirectHttpStreamCreationFails` uses a valid secret and only covers stream disposal, not key cleanup on the OpenReadAsync path.
-
-Example stub:
-```csharp
-[Test]
-public async Task TryOpenDirectHttpContentAsync_ShouldZeroKeyMaterialWhenOpenReadAsyncFails()
-{
-    // Create a stub BlobStorage that throws IOException on OpenReadAsync
-    // Verify the passed secretBytes are zeroed after the exception is handled
-}
-```
-
-## Related Review Comments
-
-- **Comment r3255430555** (resolved): CreateAsync failure handling — fixed ✅
-- **Comment r3255477328** (unresolved): OpenReadAsync failure handling — this issue
-
-## Approval Gate
-
-**Block merge until:**
-1. ✅ Zero `secretBytes` in catch block (COMPLETED — WithDecodedDirectHttpKeyMaterialAsync wrapper)
-2. ✅ Add test case for OpenReadAsync failure with secret verification (COMPLETED — line 295 test passes)
-3. ✅ Code review confirms no other secret transfer points lack guards (VERIFIED — only one secret path)
-
----
-
-## Security Verification (2026-05-18T00:28:54.318+02:00)
-
-### Fix Implementation: VERIFIED ✅
-
-**WithDecodedDirectHttpKeyMaterialAsync (lines 121-139):**
-- ✅ Try-finally pattern: try block decodes and executes action, finally block zeros on exception
-- ✅ Ownership gate: `if (!ownershipTransferred && secretBytes is not null)` prevents double-cleanup
-- ✅ Exception handling: Finally executes regardless of exception type (IOException, ArgumentException, etc.)
-
-**Test Coverage: VERIFIED ✅**
-
-Test `WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer` (lines 295-310):
-- ✅ Captures decoded bytes in action scope
-- ✅ Throws CryptographicException (simulates failure before ownership transfer)
-- ✅ Verifies secret is zeroed: `capturedDecodedBytes!.Should().OnlyContain(value => value == 0)`
-- ✅ Test passes successfully
-
-**Failure Path Preservation: VERIFIED ✅**
-
-- IOException and FileNotFoundException propagate correctly (not suppressed)
-- Secret is zeroed BEFORE exception propagates (no heap retention)
-- No masking of I/O errors or unrelated failures
-- Crypto-buffer-encapsulation pattern correctly applied
-
-### Conclusion
-
-**SECURITY FIX IS CORRECT AND COMPLETE.** All acceptance criteria met. Safe for merge.
-
-## Pattern Reference
-
-This finding reinforces the `crypto-buffer-encapsulation` skill: all boundaries where secrets are created, transferred, or relinquished must have explicit cleanup guards on both success and failure paths.
-
-See: `.squad/skills/crypto-buffer-encapsulation/SKILL.md`
-
-### 2026-05-16T23:04:44.162+02:00: User directive
-**By:** Christian Flessa (via Copilot)
-**What:** Do not commit or push code changes unless explicitly requested. If asked to push a branch for PR setup, push only the empty branch so the PR can be created; do not add an empty commit for that.
-**Why:** User request — captured for team memory
-
-# Eliot decision inbox — final PR24 fixes
-
-- **Date:** 2026-05-18T08:39:49.512+02:00
-- **Area:** Upload reservation workflow and direct-download stream cleanup
-
-## Decision
-
-Make upload reservation consumption an explicit repository contract: `TryClaimReservationAsync` atomically moves a reservation into an in-flight claimed state before blob persistence, `TryCompleteReservationAsync` only succeeds for a claimed reservation, and `ReleaseClaimAsync` rolls the claim back on failed uploads.
-
-## Why
-
-The previous split between `HasActiveReservationAsync` and `TryCompleteReservationAsync` let two concurrent uploads race past validation and fail later in storage-specific ways. Moving the atomic boundary into the repository keeps the workflow backend-agnostic and preserves the API contract that stale or reused reservations are rejected as validation failures.
-
-## Notes
-
-`DirectHttpDecryptingStream` now shares its secret-zeroing logic across sync and async disposal paths so plain `using` is equivalent to `await using` for retained key material cleanup.
-
-# Eliot — Issue #12 Upload Persistence Decisions
-
-## Context
-Issue #12 adds the first durable upload persistence slice in `ShadowDrop.Api`.
-
-## Decisions
-
-1. **Opaque local blob layout**
-   - Local blob files are stored under `Storage:LocalRoot` using server-generated blob keys derived from the file id, with a two-character directory fan-out (`{first-two-hex}/{fileId}.blob`).
-   - Original file names are persisted as metadata only and never influence filesystem layout.
-
-2. **Owner-only filesystem permissions**
-   - The local storage root and any derived blob directories are created with owner-only directory permissions where supported.
-   - Blob files and the LiteDB metadata file are enforced to owner read/write only (`0600` equivalent) where supported.
-
-3. **LiteDB shared-mode upload repository**
-   - `LiteDbUploadedFileMetadataRepository` uses `ConnectionType.Shared`, matching the in-process access pattern already established for admin token storage.
-   - This keeps WebApplicationFactory-based tests and future in-process readers from tripping exclusive file locks.
-
-4. **Deterministic cross-layer cleanup**
-   - Upload persistence writes the blob first, then metadata, and deletes the blob again if metadata persistence fails or if the written length does not match declared encrypted length.
-   - The local blob storage implementation also deletes partially written blob files on write failures.
-
-# Eliot issue 13 decisions
-
-- Implemented share creation as `POST /api/admin/shares` with JSON fields `expiresAtUtc`, `files`, `directHttpEnabled`, `generateDownloadBearerToken`, and `downloadBearerTokenExpiresAtUtc`.
-- In separate-key mode (`directHttpEnabled=false`), callers must explicitly set `generateDownloadBearerToken` to `true` or `false`; omission is rejected so the API preserves the plan's "configured or explicitly declined" invariant.
-- Share metadata is stored atomically in a single LiteDB `shares` document with embedded file entries and optional embedded download-token metadata, while only SHA-256 hashes of share/download tokens are persisted.
-
----
-date: 2026-05-18T11:19:54.273+02:00
-author: Eliot
-issue: 15
----
-
-# Issue #15 range-download decisions
-
-- Public download requests now honor standard single `Range: bytes=...` headers after the same share-token, bearer-token, revocation, and expiration checks as full downloads.
-- Direct-HTTP shares return plaintext partial bodies with `206`, `Content-Range`, `Content-Length`, and `Accept-Ranges: bytes`, while decrypting only the chunk span that covers the requested plaintext bytes.
-- CLI-decrypt shares keep the existing JSON resumable contract body for encrypted chunk subsets, but `Range` headers now drive the requested plaintext span and the endpoint responds with `206` plus a plaintext-oriented `Content-Range` header. Existing `plaintextStart` / `plaintextEndExclusive` query support remains for compatibility; CLI follow-up should migrate to `Range` headers and can later remove the query fallback.
-- Unsatisfiable ranges now return generic `416` without file-size leakage, and malformed range inputs still collapse to the existing generic `400` download error payload.
-
-# Eliot PR24 download content type fallback
-
-- **Date:** 2026-05-18T09:39:48.140+02:00
-- **Area:** Public download response handling
-
-## Decision
-
-Validate stored upload content types when composing the download response and fall back to `application/octet-stream` when the persisted value is missing or not a valid media type.
-
-## Why
-
-Upload metadata is persisted data, so older rows or externally modified records can contain malformed media types. Validating at download time keeps downloads resilient without tightening unrelated upload flows or making stored bad values crash response generation.
-
-# Eliot — Upload Reservation Expiry Consistency
-
-## Context
-PR #24 surfaced a valid review note: expired upload reservations were only removed when a later reservation call triggered lazy pruning, so stale ids could still pass active-check or completion paths in the meantime.
-
-## Decision
-1. **Centralized active-reservation validity**
-   - `LiteDbUploadedFileMetadataRepository` treats a reservation as active only when it is marked reserved, has a reservation timestamp, and that timestamp is newer than the retention cutoff.
-   - The same validity rule is applied by both `HasActiveReservationAsync` and `TryCompleteReservationAsync`.
-
-2. **Opportunistic expired-reservation pruning**
-   - Existing lazy pruning on `ReserveFileIdAsync` remains.
-   - In addition, when active-check or completion loads an expired reservation, the repository deletes it before returning `false`.
-
-## Rationale
-This keeps upload reservation behavior correct even if no subsequent reservation request happens before an upload attempt. It also avoids divergent interpretations of reservation state across repository methods, which is the root cause of the PR #24 finding.
-
-# Issue #14 Remediation & Security Review — Assessment & Next Steps
-
-**Lead:** Nate  
-**Date:** 2026-05-17T23:50:41.301+02:00  
-**Verdict:** ✅ Architecture Fixed | 🟡 Security Verification Pending
-
----
-
-## Executive Summary
-
-The direct-HTTP/upload cryptographic mismatch has been **architecturally resolved** via file-scoped binding (Option 1, commit cc41a1d). The secret key cleanup issue identified by Alec has been **proactively fixed** via the `WithDecodedDirectHttpKeyMaterialAsync` ownership-transfer helper (commit 1717f87). However, explicit test verification of the security fix is missing and must be added before merge.
-
-**Critical Path Forward:**
-1. ✅ Verify FileEncryptionContext changes preserve upload/download consistency
-2. ✅ Confirm WithDecodedDirectHttpKeyMaterialAsync guards all secret paths
-3. 🟡 **ACTION:** Add test case for OpenReadAsync failure with secret verification (Alec's block)
-4. 🟡 **ACTION:** Document crypto-buffer-encapsulation pattern application
-
----
-
-## Issue #14: Direct-HTTP/Upload Mismatch — RESOLVED
-
-### The Problem
-
-Uploads assign files with KDF salt determined at upload time. Shares are created independently afterward. Original direct-HTTP design bound decryption context to share-scoped values, creating a circular dependency: *normal uploads could not satisfy direct-HTTP mode if a share was created later.*
-
-### The Solution Applied: File-Scoped Binding (Option 1)
-
-**Changes:**
-- `FileEncryptionContext` no longer takes `shareId` parameter (removed in cc41a1d)
-- Crypto binding uses only `(fileId, kdfSalt)` — values determined at upload time
-- Chunk authentication remains file-scoped, not share-scoped
-- Any share of the uploaded file can decrypt using direct-HTTP mode
-
-**Impact:**
-- ✅ Removes the upload-time/share-time mismatch
-- ✅ Preserves file-level isolation (all shares of same file use same file-scoped context)
-- ✅ Keeps implementation minimal for MVP
-- ✅ No schema changes or data migration required
-
-**Verification:**
-- Build succeeds with no warnings
-- All 120 tests pass (68 Shared + 52 API)
-- FileEncryptionContext contract correctly updated (see diff below)
-
----
-
-## Alec's Security Finding — PARTIALLY FIXED
-
-### The Vulnerability Identified
-
-PR #24 comment identified a secret-retention path: if `_blobStorage.OpenReadAsync()` throws an exception before `DirectHttpDecryptingStream.CreateAsync()` takes ownership, the decoded HTTP key material (`secretBytes`) would not be zeroed in the original error handler.
-
-**Timeline:**
-- **2026-05-17T23:05:01:** Alec's security review flagged the issue
-- **2026-05-17T23:14:52:** Commit 1717f87 proactively introduced `WithDecodedDirectHttpKeyMaterialAsync` helper
-- **2026-05-17T23:28:51:** Commit ba74067 refactored `ContentKey` lifecycle for correctness
-
-### The Fix Applied
-
-Commit 1717f87 introduced a helper method with proper ownership-transfer semantics:
-
-```csharp
-internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(
-    String keyMaterial, 
-    Func<Byte[], Task<T>> action)
-{
-    Byte[]? secretBytes = null;
-    var ownershipTransferred = false;
-    try
-    {
-        secretBytes = Convert.FromBase64String(keyMaterial);  // ← Decode
-        var result = await action(secretBytes);                // ← Action owns secret
-        ownershipTransferred = true;
-        return result;
-    }
-    finally
-    {
-        // ← Cleanup ALWAYS executes, regardless of exception type
-        if (!ownershipTransferred && secretBytes is not null)
-        {
-            CryptographicOperations.ZeroMemory(secretBytes);
-        }
-    }
-}
-```
-
-**How it protects:**
-1. Secret is decoded in the try block
-2. If action throws **any exception** (IOException, CryptographicException, ArgumentException, or unknown types), the finally block executes
-3. Finally block zeros the secret **unless ownership was transferred to the stream**
-4. This guards against the original vulnerability: even if `OpenReadAsync` throws, the secret is zeroed before the exception propagates
-
-**Current call site:**
-```csharp
-return await WithDecodedDirectHttpKeyMaterialAsync(keyMaterial,
-    async secretBytes =>
-    {
-        encryptedContent = await _blobStorage.OpenReadAsync(...);  // ← Protected
-        return await DirectHttpDecryptingStream.CreateAsync(
-            encryptedContent,
-            uploadedFile,
-            secretBytes,
-            cancellationToken);
-    });
-```
-
----
-
-## Test Coverage Gap — MUST CLOSE BEFORE MERGE
-
-### Current Test Coverage
-
-Existing tests verify:
-- ✅ Content key reuse across chunks (DirectHttpDecryptingStream_ShouldReuseDerivedContentKeyAcrossChunks)
-- ✅ Stream disposal zeros key material (DirectHttpDecryptingStreamDisposeAsync_ShouldZeroRetainedContentKeyAndShareSecret)
-- ✅ Failed stream creation zeros share secret (DirectHttpDecryptingStreamCreateAsync_ShouldZeroShareSecretWhenInitializationFails)
-
-### Missing Test
-
-**Test:** `WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroKeyMaterialWhenOpenReadAsyncThrows`
-
-This test must verify:
-1. Create a stub `IBlobStorage` that throws `IOException` (or any non-caught exception) on `OpenReadAsync` call
-2. Call `TryOpenDirectHttpContentAsync` with valid key material and the failing storage
-3. Verify the decoded `secretBytes` have been zeroed (inspection via reflection into the method scope or via wrapper instrumentation)
-4. Confirm the method returns null gracefully (DownloadLookupStatus.InvalidRequest)
-
-**Rationale:**
-- Current tests do not exercise the `OpenReadAsync` failure path
-- This test closes Alec's specific concern: "secretBytes remains in memory" on storage failure
-- Ensures the refactored helper correctly guards all exception paths
-
----
-
-## Architectural Review: Direct-HTTP Flow
-
-### Upload → Share → Download Flow
-
-1. **Upload (Issue #11):** File encrypted with file-scoped KDF salt, stored with metadata
-2. **Share Creation (Issue #13):** Share references uploaded file by ID, inherits file-scoped crypto context
-3. **Direct-HTTP Download (Issue #14):** Client provides share token + key material, server decrypts using file-scoped context
-
-**Data Flow:**
-```
-Upload:   KdfSalt generated → stored with file metadata
-Share:    Share created, references file by ID (no new salt)
-Download: Client provides share token + key material
-          Server uses file ID + stored KdfSalt to decrypt
-          ✅ No share-scoped salt needed
-          ✅ Normal uploads work with direct-HTTP shares
-```
-
-### Crypto Contract Verification
-
-| Element                | Scoped To      | Determined By | Compatibility |
-|------------------------|----------------|---------------|---------------|
-| KDF Salt               | File           | Upload        | ✅ Available at download time |
-| File ID                | File           | Upload        | ✅ Available at download time |
-| Content Key (derived)  | File           | (fileId, salt) | ✅ File-level isolation preserved |
-| Share Secret (input)   | Client-provided| Download request | ✅ Orthogonal to file context |
-| Chunk authentication   | File           | Metadata      | ✅ No share scope required |
-
----
-
-## Compliance with Project Concept
-
-### Original Intent (PROJECT_CONCEPT.md)
-
-> *"Direct-HTTP mode: the server receives the decryption key during download"*  
-> *"Download links that can optionally include the decryption key for direct HTTP retrieval"*
-
-**Alignment:**
-- ✅ Direct-HTTP downloads supported without CLI decryption
-- ✅ Server decrypts using client-provided key material
-- ✅ Shares can be created with or without direct-HTTP mode enabled
-- ✅ Normal upload-then-share workflow works with direct-HTTP mode
-
-### MVP Acceptance Criteria (Issue #14)
-
-All criteria from `ai-plans/0014-basic-download-endpoint.md`:
-
-- ✅ Public download endpoint exists
-- ✅ Endpoint resolves share by token and file ID
-- ✅ Expiration validation at download time
-- ✅ Optional bearer token validation
-- ✅ Direct-HTTP mode accepts key material (header + query parameter)
-- ✅ CLI decrypt mode streams encrypted content
-- ✅ Appropriate headers (filename, content-length)
-- ✅ Streaming responses (no buffering)
-- ✅ Automated tests cover success and error paths
-
----
-
-## Next Steps for Tara & Parker
-
-### Pre-Merge Verification (Do NOT Merge Until Complete)
-
-**Tara (Backend/Testing):**
-
-1. **Add Missing Test Case**
-   - Create `TryOpenDirectHttpContentAsync_ShouldZeroKeyMaterialWhenOpenReadAsyncThrows`
-   - Verify secret cleanup when storage fails
-   - Use a stub `IBlobStorage` that throws (see test stub pattern in history)
-   - Run test and verify it passes
-
-2. **Review Secret Paths End-to-End**
-   - Scan `DownloadFileService.cs` for all locations where `keyMaterial` or `secretBytes` are handled
-   - Verify each path either:
-     - Passes secret to `WithDecodedDirectHttpKeyMaterialAsync` (protected), OR
-     - Explicitly zeros memory after use
-   - Document findings in PR review notes
-
-3. **Spot-Check Crypto-Buffer-Encapsulation Compliance**
-   - Review `.squad/skills/crypto-buffer-encapsulation/SKILL.md`
-   - Verify direct-HTTP flow follows "create → use → zero" pattern
-   - Check that `ContentKey` disposal happens in stream's DisposeAsync
-
-**Parker (Code Review/Merge Gate):**
-
-1. **Verify Test Coverage**
-   - Confirm Tara's new test exercises the OpenReadAsync failure path
-   - Run full test suite: `dotnet test` should pass with ≥120 tests
-   - Spot-check test uses realistic failure scenario (IOException, not generic Exception)
-
-2. **Crypto Review Checklist**
-   - ✅ FileEncryptionContext no longer requires shareId (file-scoped)
-   - ✅ ChunkMetadata no longer uses share context
-   - ✅ WithDecodedDirectHttpKeyMaterialAsync guards all secret transfer points
-   - ✅ ContentKey is properly disposed in stream.DisposeAsync
-   - ✅ No secrets are logged or exposed in error messages
-
-3. **Architecture Review**
-   - Confirm direct-HTTP downloads align with "file-scoped context" decision
-   - Verify that multi-file shares can all use direct-HTTP mode without rekeying
-   - Spot-check one download path end-to-end: resolve → decrypt → stream
-
-### Approval Gate
-
-**Block merge until:**
-1. ✅ `TryOpenDirectHttpContentAsync_ShouldZeroKeyMaterialWhenOpenReadAsyncThrows` test exists and passes
-2. ✅ All secret paths are accounted for (Tara's scan)
-3. ✅ Parker confirms test is realistic and crypto-contract is sound
-4. ✅ Full test suite passes (120+ tests)
-
----
-
-## Decision Record
-
-- **Issue:** #14 (Basic Download Endpoint)
-- **Sub-issue:** Direct-HTTP/Upload Mismatch + Security Verification
-- **Decision:** 
-  1. **Architecture:** File-scoped binding (Option 1) is correct and implemented
-  2. **Security:** Alec's concern is fixed by WithDecodedDirectHttpKeyMaterialAsync, but test coverage gap must be closed
-- **Action Items:**
-  - Tara: Add OpenReadAsync failure test + secret path audit
-  - Parker: Review test realism + crypto contract
-- **Timeline:** Must complete before PR #24 merge
-- **Escalation:** None at this stage; proceed to testing phase
-
----
-
-## Appendix: FileEncryptionContext Contract Change
-
-**Before (Share-Scoped):**
-```csharp
-public FileEncryptionContext(Guid shareId, Guid fileId, Byte[] kdfSalt)
-public Guid ShareId { get; }
-public Guid FileId { get; }
-```
-
-**After (File-Scoped):**
-```csharp
-public FileEncryptionContext(Guid fileId, Byte[] kdfSalt)
-public Guid FileId { get; }
-// ShareId removed — no longer part of crypto binding
-```
-
-**Impact:**
-- Upload: Creates context with (fileId, kdfSalt) at upload time ✅
-- Download: Creates context with same (fileId, kdfSalt) from stored metadata ✅
-- Share: Reference file, context is inherited implicitly ✅
-
----
-
-## Security Review Verification — ALEC (2026-05-18T00:28:54.318+02:00)
-
-**Status:** ✅ **SECURITY FIX VERIFIED**
-
-### Findings
-
-1. **WithDecodedDirectHttpKeyMaterialAsync Implementation:** Correct
-   - Finally block executes regardless of exception type (ArgumentException, CryptographicException, IOException, etc.)
-   - Secret zeroing gate (`!ownershipTransferred && secretBytes is not null`) ensures cleanup only when stream did NOT take ownership
-   - Pattern prevents silent secret retention on storage failures (missing blob, timeout, network error)
-
-2. **Test Coverage:** Adequate
-   - `WithDecodedDirectHttpKeyMaterialAsync_ShouldZeroDecodedBytesWhenFailureOccursBeforeOwnershipTransfer` ✅ passes
-   - Test verifies secret is zeroed when action throws exception (covers OpenReadAsync failure path)
-   - No other secret handling paths exist outside WithDecodedDirectHttpKeyMaterialAsync wrapper
-
-3. **Failure Path Guarantees:** Preserved
-   - Narrow fix: only affects key material lifecycle, does not suppress I/O exceptions
-   - I/O errors (IOException, FileNotFoundException) propagate correctly to caller
-   - Secret is cleaned before exception propagates (no heap retention)
-   - No masking of unrelated failures
-
-4. **Crypto-Buffer-Encapsulation Compliance:** ✅
-   - Secret create → decode → transfer → zero pattern correctly implemented
-   - Transfer ownership gate prevents double-zeroing
-   - All boundaries explicitly guarded
-
-### Approval
-
-This fix correctly addresses the PR #24 vulnerability identified in Alec's original security review. All acceptance criteria met. Safe to merge.
-
----
-
-## Sign-Off
-
-**Alec (Security Engineer) Review Status:** ✅ **SECURITY APPROVED FOR MERGE**
-
-The missing-blob handling fix preserves all secret-handling and failure-path guarantees. The fix is narrow and does not mask unrelated I/O failures.
-
-**Nate (Lead) Review Status:** ✅ **READY FOR MERGE**
-
-Architecture is sound. Security fix is verified correct. Test coverage is adequate. Ready for production.
-
-**Next checkpoint:** Parker's final code review and merge approval.
-
----
-date: 2026-05-18T11:19:54.273+02:00
-issue: #15
-title: Range Requests & Resumable Downloads — Slice Boundaries & Architecture
----
-
-# Issue #15: Slice Decomposition & Team Contracts
-
-## Summary
-
-Issue #15 adds HTTP range-request support (206 Partial Content) and deterministic CLI-resumable download contracts on top of the existing chunked encryption model. This decision splits the work into three focused slices with clear architectural boundaries.
-
-## Branch Name
-
-**Recommended:** `squad/15-range-requests-and-resumable-downloads`
-
-Follows established naming convention: `squad/{issue}-{slug}` from `main`.
-
-## Slice 1: Direct-HTTP Range Infrastructure (Eliot, Primary)
-
-**Scope:** Backend HTTP range-request handling for direct-HTTP download mode.
-
-**Responsibility:** Eliot (backend), Parker (testing).
-
-### Key Tasks
-
-1. **Range Request Parsing Service** — New type: `HttpRangeRequestParser` or similar
-   - Parse `Range: bytes=start-end` header
-   - Validate format and reject multipart ranges (HTTP 400)
-   - Return parsed range or error
-
-2. **Plaintext Range → Chunk Span Mapping** — New service: `RangeResolutionService` or extend `DownloadFileService`
-   - Given plaintext byte range `[start, end)` and chunk size, compute:
-     - First chunk index and last chunk index
-     - Offset within first chunk
-     - End offset within last chunk
-   - Reuse `ChunkRange` class; validate consistency
-   - Reject unsatisfiable ranges (e.g., start ≥ file size) with HTTP 416
-
-3. **Streaming Chunk Extraction** — Extend `IBlobStorage` or create `IBlobStorage.ReadChunksAsync(firstChunk, lastChunk)`
-   - Open blob stream
-   - Seek and read only required encrypted chunks
-   - Do not materialize entire file or all chunks upfront
-   - Stream-oriented to match existing storage design
-
-4. **Selective Decryption** — Extend `ChunkEncryptionService` or create `RangeDecryptionService`
-   - Decrypt only required chunk span
-   - Trim plaintext result to exact byte range requested
-   - Return only `[start, end)` bytes, not entire decrypted chunk span
-
-5. **HTTP Response Lifecycle** — Modify `DownloadEndpoints` and `DownloadStreamResult`
-   - Detect `Range` header in request
-   - If present: resolve range, decrypt selective chunks, return 206 + `Content-Range` + `Content-Length` headers
-   - If absent: existing full-file behavior (200 OK)
-   - **Always include `Accept-Ranges: bytes` header** on all responses (200, 206, 4xx, 5xx) to advertise range capability
-
-6. **Non-Leaky Error Handling**
-   - Invalid range (416): no Content-Range, no file size hints
-   - Invalid token (401): generic message, no token validation details
-   - Expired share (401): same generic message, no expiration hints
-   - Invalid bearer token (403): no differentiation between absent/invalid
-   - Invalid range format (400): no reflection of malformed header
-
-7. **Authentication & Expiration Gates** — Reuse existing logic
-   - All range requests enforce same share-token validation as full-file downloads
-   - All range requests enforce same optional bearer-token validation
-   - All range requests enforce same expiration checks
-   - No new authentication paths; apply existing gates before range resolution
-
-### Key Files to Touch
-
-- `DownloadEndpoints.cs` — Add Range header parsing, route to range handler, add Accept-Ranges to responses
-- `DownloadFileService.cs` — Extend to handle range resolution
-- `DownloadFileResolution.cs` — May extend to include range metadata (start, end, total length) OR create `RangeDownloadResolution` type
-- **New:** `RangeResolutionService.cs` — Plaintext range → chunk span + selective decryption
-- **New:** `HttpRangeRequestParser.cs` — RFC 7233 range header parsing
-- **New:** Range-related types in `Contracts` or `Crypto` namespace if shared with CLI
-
-### Tests (Parker)
-
-- ✓ Full-file request (no Range header) → 200 OK + all content
-- ✓ Aligned range (chunk-boundary aligned) → 206 Partial + correct Content-Range
-- ✓ Mid-chunk range → 206 Partial + correct bytes + correct Content-Range
-- ✓ Multi-chunk range → 206 Partial + all required chunks decrypted, trimmed to range
-- ✓ Unsatisfiable range (start ≥ file size) → 416 Range Not Satisfiable (no Content-Range, no size leak)
-- ✓ Invalid range format → 400 Bad Request (no reflection of header)
-- ✓ Multipart ranges → 400 Bad Request (unsupported)
-- ✓ Expired share + range request → 401 Unauthorized (no expiration hint, no file size)
-- ✓ Invalid bearer token + range request → 403 Forbidden (no token validation details)
-- ✓ Invalid share token + range request → 401 Unauthorized (no differentiation from expiration)
-- ✓ Range header present on full-file response (200) + Add `Accept-Ranges: bytes` on all responses (200, 206, 4xx, 5xx)
-
----
-
-## Slice 2: CLI Resumable Download Contract (Sophie, Primary)
-
-**Scope:** CLI-specific endpoint or query-parameter mode for encrypted-subset downloads.
-
-**Responsibility:** Sophie (CLI), Eliot (backend support), Parker (testing).
-
-### Key Tasks
-
-1. **CLI Query Routing** — Modify `DownloadEndpoints`
-   - Detect CLI-specific query parameter, e.g., `?mode=cli-resumable` or similar routing logic
-   - Route to separate handler: `CliResumableDownloadAsync` or similar
-   - Apply same authentication & expiration gates
-
-2. **CLI Resumable Response Contract** (locked)
-   - JSON response containing:
-     - `firstChunkIndex` (int64)
-     - `lastChunkIndex` (int64)
-     - `encryptedPayload` (base64 string of concatenated encrypted chunks)
-     - `requestedRange` object with `start` (int64) and `end` (int64)
-     - `totalPlaintextSize` (int64)
-     - `chunkSize` (int32)
-     - `finalChunkPlaintextLength` (int32)
-   - Zero plaintext bytes in response; CLI decrypts locally
-   - Metadata is deterministic and versioned for forward compatibility
-
-3. **Encrypted Payload Generation** — New service or extend storage
-   - For a requested plaintext range, extract encrypted chunks from first to last
-   - Concatenate chunk ciphertexts
-   - Encode as base64 for JSON transport
-   - Do not materialize entire blob; stream chunks from storage
-
-4. **Range Handling** — Coordinate with Slice 1
-   - Support optional `?range=start,end` query parameters
-   - If absent: return full-file encrypted chunks
-   - If present: validate range, map to chunk span, return only required encrypted chunks
-
-5. **Error Handling** — CLI-specific
-   - Same non-leaky error semantics as Slice 1
-   - Invalid range parameters → 400 Bad Request (generic)
-   - Invalid token → 401 Unauthorized (generic)
-   - Expired share → 401 Unauthorized (generic)
-
-### Key Files to Touch
-
-- `DownloadEndpoints.cs` — Add CLI mode routing
-- **New:** `CliResumableDownloadHandler.cs` or inline handler in Endpoints
-- **New:** `CliResumableDownloadContract.cs` or similar type (shared with CLI)
-- May reuse: `RangeResolutionService` from Slice 1 for chunk-span mapping
-- May reuse: `IBlobStorage` streaming logic from Slice 1
-
-### Tests (Parker)
-
-- ✓ Full-file CLI request → JSON response with all chunks, correct totalPlaintextSize
-- ✓ Aligned-range CLI request → JSON response with correct firstChunkIndex/lastChunkIndex
-- ✓ Mid-chunk range CLI request → JSON response with correct encryptedPayload span
-- ✓ Multi-chunk range CLI request → JSON response with all required chunks
-- ✓ CLI request + unsatisfiable range → 400 Bad Request (no range metadata)
-- ✓ CLI request + invalid token → 401 Unauthorized (no token details, no file size)
-- ✓ CLI request + expired share → 401 Unauthorized (no expiration hint)
-- ✓ Resumable contract shape determinism — same input always produces identical response
-
----
-
-## Slice 3: Cross-Slice Testing & Security Verification (Parker, Eliot, Sophie)
-
-**Scope:** Comprehensive test coverage for both modes and security boundaries.
-
-**Responsibility:** Parker (primary), with Eliot and Sophie for domain knowledge.
-
-### Key Tests
-
-1. **Direct-HTTP Mode Coverage**
-   - See Slice 1 tests above (11 items)
-
-2. **CLI Mode Coverage**
-   - See Slice 2 tests above (8 items)
-
-3. **Security & Leakage Tests**
-   - Invalid range must not reveal file size
-   - Invalid token must not differentiate between missing/invalid/revoked
-   - Expired share must not expose expiration timestamp
-   - Error responses use generic HTTP codes (400, 401, 403, 416) without detailed messages
-   - No Content-Range header on error responses
-   - No file metadata (chunk size, count, final-chunk length) in error bodies
-
-4. **Resumability Tests**
-   - Download first chunk with range, interrupt, resume from where stopped
-   - Verify encrypted payload matches full-file equivalent
-   - Verify CLI-side decryption produces identical plaintext as full-file download
-
-5. **Authentication Integration Tests**
-   - Share token validation applies to range requests
-   - Optional bearer token validation applies to range requests
-   - Expiration checks apply to range requests at request-time (no soft-expiration cache misses)
-
----
-
-## Architecture & Constraints
-
-### Existing Contracts (Reuse)
-
-- `ChunkRange` — Already validates single-chunk offset consistency; use for range mapping
-- `ChunkEncryptionService` — Decrypt by chunk; extend/wrap for selective decryption
-- `IBlobStorage` — Extend with `ReadChunksAsync(firstChunk, lastChunk)` or stream-oriented method
-- `IShareMetadataRepository` — Existing share lookup; no changes needed
-- `DownloadFileService` — Existing auth/expiration logic; extend to dispatch to range handler
-
-### New Contracts (Define)
-
-- `HttpRangeRequest` — Parsed Range header (start, end) with validation
-- `ChunkSpan` — First/last chunk indices + offsets (extension of ChunkRange concepts)
-- `CliResumableDownloadResponse` — JSON contract for CLI (locked for forward compatibility)
-- `RangeResolutionService` — Plaintext range + file metadata → chunk span + decryption window
-
-### Streaming & Memory Constraints
-
-- **No full-file materialization** — Always stream encrypted chunks from blob storage
-- **Selective decryption** — Only decrypt required chunks; trim plaintext to exact byte range
-- **Bounded buffers** — Chunk buffers (e.g., 64KB) reused; no per-file allocation
-- **Accept-Ranges header** — Signals to clients that resumption is safe
-
-### Security Constraints
-
-- **Non-leaky errors** — Generic HTTP codes, no range/file/token hints in responses
-- **Fixed-time token comparison** — Reuse existing pattern from share-creation
-- **Expiration checked at request-time** — No background expiration; validated synchronously
-- **Consistent auth gates** — Range requests must pass same checks as full-file downloads
-
----
-
-## Acceptance Criteria — Issue #15
-
-All items from issue acceptance criteria are addressed by the three slices:
-
-- ✓ Support single HTTP byte ranges (Slice 1)
-- ✓ 206 Partial Content + correct headers (Slice 1)
-- ✓ Reject invalid ranges without leaking file size (Slice 1)
-- ✓ Enforce same auth/expiration as full downloads (Slice 1 integration)
-- ✓ Direct-HTTP mode decrypts only needed chunks (Slice 1)
-- ✓ CLI resumable contract locked (Slice 2)
-- ✓ No full-file memory load (all slices, streaming design)
-- ✓ Respect chunk boundaries and final-chunk logic (Slice 1 range mapping)
-- ✓ Automated coverage for all cases (Slice 3 tests)
-- ✓ Non-leaky error handling (Slice 1 + Slice 2)
-
----
-
-## Implementation Order
-
-1. **Slice 1 (Eliot + Parker):** Range infrastructure, HTTP 206 handling, tests
-   - Backend foundation; unblocks both direct-HTTP mode and CLI mode
-2. **Slice 2 (Sophie + Eliot + Parker):** CLI contract, encrypted-subset response
-   - Depends on Slice 1 range mapping; can work in parallel after Slice 1 foundation is solid
-3. **Slice 3 (Parker):** Cross-mode security and resumability verification
-   - Final validation after Slices 1 & 2 are complete
-
----
-
-## Decision Binding & Next Steps
-
-- Branch name: **`squad/15-range-requests-and-resumable-downloads`**
-- Assigned to: **Eliot (lead), Sophie (CLI), Parker (testing)**
-- Review gate: **Nate + Parker** (ranged request logic, security); **Alec escalated** for token/auth details
-- Status: **Ready for implementation**
-
-All acceptance criteria binding. Slices are designed to avoid entanglement and support parallel testing. Non-leaky error handling is mandatory; no file size, chunk details, or token validation logic may leak in responses.
-
-# Parker decision inbox — final PR24 tests
-
-- Date: 2026-05-18T08:39:49.512+02:00
-- Agent: Parker
-
-## Decision
-For PR #24 regression coverage, direct-HTTP decrypting stream disposal must be parity-tested for both `DisposeAsync()` and synchronous `Dispose()`, because secret-zeroing is a security property rather than an async-only implementation detail.
-
-## Why it matters
-A caller using synchronous disposal on the returned stream must still clear retained key material and close the wrapped encrypted stream. Coverage now treats the reservation-claim loser as a validation-path regression as well, so concurrent duplicate upload attempts cannot silently regress into raw storage failures.
-
-## Evidence
-- `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
-- `tests/ShadowDrop.Api.Tests/Uploads/UploadPersistenceServiceTests.cs`
-- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
-
-# Parker — Issue #15 test strategy
-
-Date: 2026-05-18T11:19:54.273+02:00
-
-## Decision
-
-Use a two-layer test split for issue #15:
-
-1. Keep chunk-span math and slice correctness in shared crypto tests, where `ChunkEncryptionService.GetChunkRange` and range round-trip coverage already exercise aligned, mid-chunk, and multi-chunk plaintext windows deterministically.
-2. Add API regressions only for security behavior that the current endpoint already supports: range-shaped requests with invalid share tokens, expired shares, missing bearer tokens, or invalid direct-HTTP key material must fail generically and must not emit partial-content headers.
-
-## Gap requiring follow-up
-
-The current public download endpoint in `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` does not parse the HTTP `Range` header and never returns `206 Partial Content`, `416 Range Not Satisfiable`, or `Content-Range` / `Accept-Ranges` headers. Because that production hook does not exist yet, API regression coverage for full-file-vs-range behavior, aligned ranges, mid-chunk ranges, multi-chunk ranges, and unsatisfiable ranges is still blocked at the HTTP layer.
-
-## Routing note
-
-Once the endpoint accepts single-range requests, add API walking tests that prove:
-- full-file responses advertise resumability correctly
-- aligned, mid-chunk, and multi-chunk ranges return exact plaintext slices with `206`
-- unsatisfiable ranges return `416` without leaking file size details beyond the final agreed contract
-- authorized range requests and unauthorized/expired/forbidden range requests remain behaviorally distinct without returning partial content
-
-# Reservation expiry regression coverage
-
-Date: 2026-05-18T08:27:12.481+02:00
-Agent: Parker
-
-## Decision
-Treat expired upload reservations as invalid immediately, even before a later reservation request prunes them, and keep regression coverage at both backend and API upload boundaries.
-
-## Evidence
-- `UploadPersistenceServiceTests` now verifies the LiteDB repository reports expired reservations inactive, refuses completion, and the persistence service rejects expired file ids without writing blobs.
-- `ApiWalkingSkeletonTests` now verifies `/api/admin/uploads` returns 400 and persists nothing when a previously issued reservation has expired in storage.
-
-## Why it matters
-This protects the fix for PR #24 against regressions where stale reservation rows remain in LiteDB until another reservation request triggers cleanup.
-
-# Parker: reserved upload id coverage
-
-- Direct-HTTP decryption only works through the real upload path when the encrypted payload's file-scoped crypto context matches the uploaded file id.
-- Regression coverage now needs a real reservation -> upload -> share -> direct-download path, plus a negative case for uploads that skip reservation.
-
-# Sophie — Issue 15 CLI Contract Decision
-
-- **Date:** 2026-05-18T11:19:54.273+02:00
-- **Area:** CLI download contract / resumable encrypted-subset mode
-
-## Decision
-
-Lock the CLI resumable-download response as a JSON contract carried by the existing public download endpoint in CLI-decrypt mode, with these required fields:
-
-- `firstChunkIndex`
-- `lastChunkIndex`
-- `encryptedPayload` (Base64)
-- `requestedRange.start`
-- `requestedRange.end` (exclusive)
-- `totalPlaintextSize`
-- `chunkSize`
-- `finalChunkPlaintextLength`
-
-The endpoint now also returns stable headers for operator ergonomics:
-
-- `X-ShadowDrop-Download-Mode`
-- `X-ShadowDrop-File-Name`
-- `X-ShadowDrop-File-Content-Type`
-
-## Why
-
-This keeps the CLI path deterministic and scriptable without inventing a second endpoint. The JSON body is explicit enough for resume bookkeeping and local decryption planning, while the headers preserve output-file intent without overloading the contract itself.
-
-## Current boundary
-
-Direct-HTTP HTTP-range support is still not implemented in this branch. The CLI-decrypt path can now request encrypted chunk subsets via `plaintextStart` and `plaintextEndExclusive`, but the remaining backend work for issue #15 is the direct-HTTP `Range`/`206 Partial Content` path and its non-buffering response behavior.
-
----
-date: 2026-05-16T22:42:54.257+02:00
-actor: Sophie
----
-
-# Issue #18 Body Synced with Plan File
-
-## Context
-
-Issue #18 ("Interactive Spectre.Console UX") had an empty body. The corresponding detailed plan file (`ai-plans/0018-interactive-spectre-console-ux.md`) contains comprehensive acceptance criteria, technical details, and testing requirements for the interactive terminal UX feature.
-
-## Decision
-
-Synced the issue #18 body with the full content of the plan file to maintain a single source of truth for the feature specification. The plan file remains unchanged; only the GitHub issue body was updated.
-
-## Outcome
-
-- Issue #18 body now contains the complete rationale, acceptance criteria, technical details, and scope boundaries from the plan file
-- Users and collaborators can reference the issue directly for the full feature specification
-- Plan file remains the authoritative source for implementation details
-
-# Upload reservation contract for file-scoped encryption
-
-## Decision
-
-For upload flows that bind cryptography to `fileId`, the server must reserve the file identifier before the client encrypts any bytes.
-
-## Minimal contract
-
-- `POST /api/admin/uploads/reservations` returns a server-generated `fileId`.
-- The client includes that exact `fileId` in upload metadata.
-- The upload API only completes persistence for previously reserved ids.
-
-## Why
-
-This keeps the existing upload workflow intact while making the file-scoped crypto context consistent with direct-HTTP download decryption. It also avoids inventing a second upload product path and keeps queue/key handling unchanged.
-
-# Tara — Reserved upload file id for file-scoped crypto
-
-- Direct-HTTP remains file-scoped, but upload encryption now depends on a server-issued `fileId` reserved before the client encrypts.
-- The API persists a reservation first, then only completes upload metadata for that reserved id; unreserved or already-consumed ids are rejected.
-- This keeps local and CI behavior aligned with a single repeatable upload path and avoids reintroducing share-derived crypto context.
-
----
-date: 2026-05-18T13:15:18.889+02:00
----
-
-# Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
-
-**Date:** 2026-05-18T13:15:18.889+02:00  
-**Author:** Eliot  
-**Scope:** API download / CLI resumable contract
-
-## Decision
-
-Keep the current CLI resumable-download JSON contract for v1, but stream the encrypted payload field instead of materializing the full encrypted chunk span into a single `byte[]` before Base64 encoding.
-
-## Why
-
-- Removes the large-range array-size and memory pressure failure mode without breaking the current CLI wire contract.
-- The API should keep using `ContractsJsonSerializerContext` as the shared source of truth for the contract shape, even when the payload bytes are emitted incrementally.
-- A streamed binary v2 contract is still worth doing later for payload efficiency; follow-up issue created: #25.
-
-## Notes
-
-- Treat the current JSON shape as compatibility-sensitive for existing CLI consumers.
-- Preserve regression coverage that proves large CLI ranges are not eagerly buffered.
-
-# Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
-
-**Date:** 2026-05-18T13:15:18.889+02:00  
-**Author:** Nate (Lead)  
-**Area:** CLI Downloads & API Contracts
-
-## Decision
-
-Create a GitHub issue to track migration from CLI resumable download contract v1 (JSON + Base64) to v2 (streamed binary + deterministic metadata).
-
-## Rationale
-
-**Current (v1) constraints:**
-- Base64 encoding overhead: 33% payload size increase over raw binary
-- Buffering inefficiency: entire encrypted chunk span must be materialized and encoded before transmission
-- Not natural for binary file downloads (JSON wrapper adds complexity on CLI side)
-
-**v2 motivation:**
-- Streaming binary reduces payload and buffering overhead
-- More idiomatic for secure file transfer
-- Same security posture as v1 (no trust boundary changes)
-- Backward compatible: v1 remains default, v2 is opt-in via query parameter
-
-**Timing:**
-- NOT blocking issue #15 (v1 completes this sprint with buffers fixed)
-- Create as future placeholder so team doesn't forget
-- Implement after #15 is merged and v1 CLI consumption is validated in production
-
-## Scope: Issue #25
-
-**Title:** "CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract"
-
-**Contract v2 Shape (sketch):**
-- Streaming response with binary encrypted chunk span (no JSON wrapper)
-- Metadata delivered as deterministic preamble or footer:
-  - First/last chunk indices
-  - Plaintext range boundaries
-  - Total plaintext file size
-  - Chunk size and final-chunk plaintext length
-- Query routing: `?format=binary-v2` or `?contract=v2` to select v2 path
-- Security: same auth/expiration/range-validation gates as v1
-- CLI behavior: autodetect v2 availability, fall back to v1 if unsupported
-
-**Scope Items:**
-- Design v2 binary contract (preamble vs. footer, serialization format)
-- Extend endpoint to support dual-mode routing
-- Implement v2 response construction
-- Add CLI autodetection and fallback
-- Benchmark payload and performance vs. v1
-- Security review of metadata in streaming context
-- Parallel test coverage for v1 and v2
-
-**Non-Goals:**
-- No breaking changes to v1
-- Not for immediate implementation (future work)
-
-## Related
-
-- **Issue #15:** Range Requests and Resumable Downloads (v1 implementation, locked contract)
-- **Plan:** `ai-plans/0015-range-requests-and-resumable-downloads.md` (v1 contract locked; v2 direction added as context)
-- **GitHub Issue #25:** https://github.com/chA0s-Chris/ShadowDrop/issues/25
-
-# Parker — CLI Range Fix Regressions: Dual-Edge Coverage
-
-**Date:** 2026-05-18T13:15:18.889+02:00  
-**Author:** Parker (Tester)
-
-## Decision
-
-Keep regression coverage for the resumable CLI range path split across API and CLI layers:
-- API tests should compare emitted JSON bytes against `ContractsJsonSerializerContext` serialization so the producer cannot silently drift back to reflection-based serialization.
-- CLI parser tests should include chunk-index and plaintext-range values far beyond `Int32` limits so Eliot's current JSON/Base64 contract stays protected against the prior large-span regression.
-
-## Why
-
-The serializer-context review finding is producer-side, while the large-span regression risk is consumer-side. Covering both edges directly keeps the current v1 contract honest until the planned streamed-binary v2 follow-up replaces it.
-
-
----
-date: 2026-05-18T22:35:59.710+02:00
-agent: Eliot
-slug: direct-http-fail-closed-setup
----
-
-## Summary
-Mapped direct-HTTP setup-time `InvalidDataException` and `IOException` failures to the existing non-leaky invalid-request result in `DownloadFileService`.
-
-## Why
-`DirectHttpDecryptingStream.CreateAsync()` performs metadata validation, initial seek/skip work, and first-chunk setup after the blob stream is opened. Corrupt metadata or early I/O faults in that phase must fail closed exactly like the CLI-decrypt path, without leaking implementation details to callers.
-
-## Implementation Notes
-- Updated `TryOpenDirectHttpContentAsync()` to catch `InvalidDataException` and `IOException` alongside the existing setup-failure exceptions.
-- Added regressions for corrupt direct-HTTP metadata (`ChunkSize = 0`) and for an initial non-seekable read failure during direct-HTTP range setup.
-- Tests also assert the encrypted blob stream is disposed on these fail-closed paths.
-
----
-date: 2026-05-18T21:54:45.116+02:00
-author: Eliot
-area: API download headers
----
-
-## Decision
-
-Treat all persisted metadata echoed into custom HTTP headers as untrusted header input: remove every control character before assignment, even when a separate framework-managed header already has its own validation/fallback path.
-
-## Why
-
-`Content-Type` fallback logic protects the actual response media type, but it does not make `X-ShadowDrop-File-Content-Type` safe automatically. Persisted NUL, TAB, DEL, or similar control bytes can survive storage and must be stripped independently to keep download responses valid and non-injectable.
-
-## Applied In
-
-- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
-- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
-
-# Header Injection Prevention Pattern
-
-**Date:** 2026-05-18T15:26:37.377+02:00  
-**By:** Eliot (Backend Dev)  
-**Context:** PR #28 review fix — sanitize user-controlled metadata before writing to response headers
-
-## Decision
-
-All user-controlled data written to HTTP response headers MUST be sanitized to prevent header injection attacks.
-
-## Implementation
-
-Use the `SanitizeHeaderValue` pattern (implemented in `DownloadEndpoints.cs`):
-- Strip carriage return (`\r`) and line feed (`\n`) characters
-- Enforce reasonable length limit (500 chars) to prevent response bloat
-- Apply before writing to any custom or standard response header
-
-## Rationale
-
-User-controlled filenames, content types, and other metadata can contain CRLF sequences that enable:
-- Response splitting attacks (inject additional headers)
-- Cache poisoning (manipulate downstream proxies)
-- XSS via injected headers
-
-Even custom headers like `X-ShadowDrop-FileName` are vulnerable if not sanitized.
-
-## Scope
-
-- **Applies to:** All endpoints that write user-provided metadata to response headers
-- **Files:** `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` (reference implementation)
-- **Priority:** Security-critical — must be applied before merging any endpoint that writes user data to headers
-
-## Related
-
-- PR #28 review fix #1
-- ASP.NET Core does not automatically sanitize custom header values
-
-# Plan 0027 Clarifications — CLI Binary Download Contract
-
-**Date:** 2026-05-18T23:30:26.681+02:00  
-**Agent:** Nate (Lead)  
-**Status:** Ready for merge into decisions.md  
-
-## Problem
-
-Plan 0027 (streamed binary v2 CLI download contract) left five ambiguities that Eliot and Sophie surfaced during codebase-impact analysis:
-
-1. **No negotiation matrix** → implementers must guess which input combinations are allowed
-2. **Legacy params status unclear** → ambiguous whether `plaintextStart`/`plaintextEndExclusive` are retired or fallback
-3. **Mode default behavior vague** → unclear if omitted mode still uses legacy v1 path
-4. **Validation logic placement scattered** → behavior could be inferred across endpoint/service/helpers
-5. **Parameter sprawl unchecked** → multiple independent inputs without consolidation
-
-## Solution Locked In Plan 0027
-
-### 1. Request Validation Matrix (10 Scenarios)
-
-Explicit decision table added:
-- `?mode=cli` + valid Range → 200 OK + headers + binary
-- `?mode=cli` + no Range → full file
-- `?mode=cli` + malformed Range → 400
-- `?mode=cli` + unsatisfiable Range → 416
-- `?mode=cli` + legacy query params → 400 (rejected)
-- `?mode=cli` + direct-HTTP key material → 400 (rejected)
-- Omitted mode + Range header → route to legacy path
-- Omitted mode + legacy query params → backward compat route
-- `?mode=cli` on direct-HTTP-only share → 400
-- `?mode=unknown` → 400
-
-Implementers now have a single authoritative table instead of inferring behavior.
-
-### 2. Legacy Parameters Fully Retired for CLI Mode
-
-**Decision:** `plaintextStart` and `plaintextEndExclusive` are **forbidden** when `?mode=cli` is present. Any mixing fails with generic `400 Bad Request`.
-
-**Scope:** Applies only to CLI mode. Legacy parameters remain available on the default path (omitted `mode`) for backward compatibility.
-
-**Rationale:** Keeps the new CLI binary contract free of old naming; avoids carrying bespoke query names into streaming implementation. Clean separation: new contract has only `Range` headers; old contract can retain legacy query params as fallback.
-
-### 3. Mode Default Path Continues Unchanged
-
-**Decision:** Omitted `mode` parameter routes requests to the existing non-CLI path (direct-HTTP with plaintext decryption or legacy CLI v1 JSON/Base64, depending on share configuration).
-
-**Scope:** Plan 0027 does not remove the v1 CLI path. Both contracts coexist.
-
-**Rationale:** Backward compatibility is preserved. Deprecation/retirement of v1 path is a separate future decision with its own plan. This slice focuses on adding the new binary contract without disruption.
-
-### 4. Validation & Routing Centralized in Endpoint
-
-**Decision:** All mode negotiation and request validation is **centralized in `DownloadEndpoints`** before calling service methods.
-
-**Sequence:**
-1. **Endpoint Entry:** Parse/validate `?mode`, Range header, detect legacy params → return 400 if contradictory
-2. **Mode Routing:** If `?mode=cli` + valid inputs → call CLI service. Otherwise → legacy path.
-3. **Service Call:** Receive only pre-validated consolidated model (mode, range, auth context)
-4. **Response:** Service returns resolution object; endpoint streams body + headers deterministically
-
-**Rationale:** No behavior inference across helpers. Contradictions caught early. Logic is testable at the endpoint layer. Service implementations do not guess about contract details.
-
-### 5. Parameter Consolidation Recommended
-
-**Decision:** Implement a single `CliDownloadRequest` value object (struct or record) at the endpoint boundary.
-
-**Shape:**
-```csharp
-record CliDownloadRequest {
-    string Mode,                            // e.g., "cli"
-    PlaintextRange? RequestedRange,         // null for full file
-    ShareId,
-    BearerToken? IfPresent,
-    DirectHttpKeyMaterial? IfPresent
-}
-```
-
-**Rationale:** Eliminates ad-hoc parameter threading. Makes contradictions visible at construction time instead of scattered across helpers. Single validation point. Future contract changes have one place to adjust.
-
-## Impact
-
-- Implementation cannot accidentally split mode-selection logic or re-parse inputs
-- All edge cases documented and testable
-- Parameter handling explicit and auditable
-- Backward compatibility preserved; v1 path untouched
-- Future transport changes have a clear hook
+Apply same pattern to `TaskCanceledException` (preserving `!IsCancellationRequested` guard to allow caller cancellation to propagate).
+
+## Test Coverage
+
+Verify that:
+1. `SendWithRetryAsync` throws `UploadCommandException` when final attempt encounters `HttpRequestException`
+2. `SendWithRetryAsync` throws `UploadCommandException` when final attempt encounters `TaskCanceledException` (non-user-cancellation)
+3. `SendWithRetryAsync` propagates caller-initiated `TaskCanceledException` immediately (no wrapping)
+4. CLI handler output never contains "HttpRequestException", "TaskCanceledException", or transport-layer details
 
 ## References
 
-- **Plan:** `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` (updated 2026-05-18T23:30:26.681+02:00)
-- **Codebase Impact Analysis:** `.squad/agents/sophie/history.md` (2026-05-18 23:24:50 UTC)
-- **Backend Perspective:** `.squad/agents/eliot/history.md` (same session)
+- **Trust boundary:** CLI error output contract (stderr only, generic messages)
+- **Pattern:** `crypto-buffer-encapsulation` equivalent for error surfaces (wrap internal exceptions, expose only generic boundary messages)
 
+--- alec-pr30-test-async-assertion.md ---
 ---
-date: 2026-05-18T23:21:46.244+02:00
-team-update: true
-author: Nate
-area: issue-27-cli-download-contract
+title: PR #30 Follow-up — EncryptedFileContentTests Async Assertion Not Awaited
+issue: 30
+date: 2026-05-24T07:54:32.950+02:00
+author: Alec (Security Engineer)
+status: flagged-for-fix
+severity: real
 ---
-
-# Nate — CLI subset syntax decision for issue #27
-
-## Decision
-
-For the new streamed CLI download contract, keep `?mode=cli` as the only mode selector and replace the old `plaintextStart` / `plaintextEndExclusive` query parameters with one authoritative subset syntax: `Range: bytes=...` interpreted against plaintext byte offsets.
-
-## Why
-
-This is the cleanest contract boundary for ShadowDrop right now. The query string selects the transport mode, while the standard HTTP range grammar selects the requested plaintext window. That removes ShadowDrop-specific subset parameter names from the new contract, eliminates mixed-syntax ambiguity, and gives the API/CLI/tests a single request grammar to validate.
-
-## Consequences
-
-- CLI mode must reject requests that combine `Range` with legacy subset query parameters.
-- The plan should stop treating the subset syntax as open and instead lock `Range` as the only supported subset selector for `?mode=cli`.
-- Response semantics still stay CLI-specific; adopting `Range` on the request side does not require `206` or `Content-Range` on the response side.
-
-### 2026-05-18T22:54:33.368+02:00: CLI streamed-binary v2 should follow stabilization, not lead it
-**By:** Nate
-**What:** Treat issue #27 as "soon but not immediately" work. Do not make it the very next slice after issue #15; first let the newly shipped direct-HTTP resumable path and v1 CLI contract settle, then add v2 as an additive, opt-in efficiency upgrade.
-**Why:** Issue #15 already delivered the core user value: resumable downloads now work, and direct HTTP already avoids the JSON/Base64 tax for clients that can use standard range requests. Issue #27 mainly improves efficiency for CLI large-range downloads, but it introduces a new versioned wire contract and negotiation path while v1 must remain stable for existing consumers. That makes compatibility discipline and real-world v1 validation more important than immediate follow-through.
-
-# 2026-05-18T21:49:09.624+02:00 — PR #28 header control-char sanitization
-
-## Context
-Latest open Copilot review note on PR #28 flags `DownloadEndpoints.SanitizeHeaderValue()` for stripping only CR/LF before writing `X-ShadowDrop-File-Content-Type`.
-
-## Decision
-Treat the note as valid and merge-blocking. Response-header sanitization for persisted metadata must remove **all** control characters, not just CR/LF, before custom headers are assigned.
-
-## Why
-`GetResponseContentType()` already protects the main `Content-Type` header, but the custom `X-ShadowDrop-File-Content-Type` header still receives the partially sanitized raw metadata. Escaped control characters such as NUL or DEL can survive persistence and later trigger header validation failures or malformed-header behavior. This is a correctness and resilience issue, not style.
-
-## Recommended fix
-Update `SanitizeHeaderValue()` to filter `Char.IsControl` characters (or equivalent allow-list) before truncation, and add an API walking-skeleton regression using stored content-type metadata containing non-CR/LF controls.
-
-# Immediate Replacement: Legacy CLI v1 Contract Retired This Slice
-
-**Date:** 2026-05-18T23:34:55.793+02:00  
-**Author:** Nate  
-**Plan:** 0027-streamed-binary-v2-cli-download-contract.md
-
-## Decision
-
-Plan 0027 now explicitly commits to **immediate replacement** of the legacy CLI v1 JSON/Base64 contract:
-
-1. **Omitted `mode` behavior:** Routes only to direct-HTTP plaintext decryption. Legacy v1 path is gone.
-2. **Legacy query parameters:** Fully retired; any request with `plaintextStart` or `plaintextEndExclusive` returns `400 Bad Request`.
-3. **Removal scope:** JSON/Base64 parser, producer, shared DTOs, serializers, tests—all removed, not deferred.
-4. **Negotiation:** Explicit `?mode=cli` for streamed binary. No fallback to v1.
-
-## Rationale
-
-ShadowDrop has no active external users yet. Carrying dual contracts adds implementation friction and testing debt. Retiring v1 immediately keeps the download boundary simple and keeps acceptance criteria clear: one authoritative CLI shape from this slice forward.
-
-## Impact
-
-- Implementation removes obsolete v1 code surface entirely
-- Acceptance criteria updated: "removed completely" not "removed or retired"
-- Negotiation matrix now rejects legacy query params on all paths
-- Direct-HTTP shares get direct-HTTP behavior (no v1 fallback)
-
-### 2026-05-18T22:59:03.328+02:00: Issue #27 plan uses one binary CLI contract
-**By:** Nate
-**What:** Scope issue #27 as a replacement of the current CLI JSON/Base64 resumable-download contract with a single streamed binary v2 contract, using explicit negotiation and deterministic metadata headers rather than a long-lived dual v1/v2 surface.
-**Why:** The project is still pre-adoption, so compatibility ballast does not buy us anything yet. A header-described binary stream keeps the encrypted payload fully streaming, removes JSON/Base64 overhead, and leaves the API and CLI with one contract to lock through tests.
-
-# Issue #27: CLI Binary Download Contract — Mode Negotiation Locked
-
-**Date:** 2026-05-18T23:10:12.515+02:00  
-**Decided By:** Christian Flessa  
-**Scope:** Issue #27 plan finalization
-
-## Decision
-
-CLI download binary contract uses explicit `?mode=cli` query parameter (no version suffix).
-
-## Rationale
-
-ShadowDrop is still pre-release with no active external users. This binary streaming contract replaces the JSON/Base64 v1 contract outright and becomes the actual v1 public contract on release. Labeling it with a version suffix (`v2`, `cli-v2`) creates unnecessary confusion about versioning scope.
-
-Clean negotiation through `?mode=cli` is explicit and extensible without versioning baggage.
-
-## Transport Shape (Locked)
-
-- **Query Parameter:** `?mode=cli` (required for binary contract negotiation)
-- **Response Body:** Raw encrypted chunk bytes, streamed without JSON wrapping or Base64 encoding
-- **Metadata:** HTTP headers with deterministic names prefixed `X-ShadowDrop-*`
-  - `First-Chunk-Index`, `Last-Chunk-Index`
-  - `Plaintext-Range-Start`, `Plaintext-Range-End`
-  - `Total-Plaintext-Size`, `Chunk-Size`
-  - `Final-Chunk-Plaintext-Length`
-- **Content-Type:** `application/vnd.shadowdrop.cli-download` (allows future evolution)
-
-## Plan Updates
-
-- `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated to remove version-suffix language
-- All acceptance criteria and technical details now reference `?mode=cli` negotiation
-- Emphasis on "no JSON/Base64 in v1 contract" replaces "v2 is the new version"
-
-## Implementation Touchpoints
-
-No change to planned touchpoints; `?mode=cli` fits cleanly into existing `DownloadEndpoints` query routing.
-
-- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
-- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
-- `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs` (rename to reflect binary protocol)
-
-## Status
-
-**Ready for implementation.** Plan is now precise enough for issue assignment.
-
-# Nate — Issue #27 CLI v2 Transport Shape: Approved
-
-**Date:** 2026-05-18T23:04:42.962+02:00  
-**Author:** Nate (Lead)  
-**Area:** CLI Downloads & API Contracts  
-**Status:** Locked  
-**Issue:** #27 (CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract)
-
-## Decision
-
-Approve and lock the proposed CLI v2 download contract transport shape:
-- **Response Body:** Raw encrypted chunk bytes streamed directly
-- **Response Headers:** Deterministic HTTP headers carry all metadata
-- **Content-Type:** Custom `application/vnd.shadowdrop.cli-download-v2` media type
-
-## Rationale
-
-Requested by Christian Flessa. This shape:
-1. **Eliminates wrapper overhead:** No JSON envelope, no Base64 encoding, no full-buffer requirement
-2. **Cleaner boundaries:** Payload lives entirely in the body; metadata travels in stable headers
-3. **Type-safe:** Custom content type prevents misinterpretation and signals protocol version
-4. **Streaming-native:** Fits ASP.NET Core streaming model without preamble/footer complexity
-5. **Reusable infrastructure:** Leverages existing crypto gates, auth checks, and range logic
-
-## Architecture
-
-### Transport Contract
-
-**Metadata Headers (Deterministic):**
-- `X-ShadowDrop-First-Chunk-Index` — 0-based chunk index where encrypted span starts
-- `X-ShadowDrop-Last-Chunk-Index` — inclusive, 0-based chunk index where span ends
-- `X-ShadowDrop-Plaintext-Range-Start` — byte offset where decrypted output begins
-- `X-ShadowDrop-Plaintext-Range-End` — byte offset where decrypted output ends (exclusive)
-- `X-ShadowDrop-Total-Plaintext-Size` — full plaintext file size in bytes
-- `X-ShadowDrop-Chunk-Size` — plaintext bytes per encrypted chunk
-- `X-ShadowDrop-Final-Chunk-Plaintext-Length` — plaintext length of final chunk
-
-**Response Body:** Raw encrypted bytes (no framing, no encoding)  
-**Content-Type:** `application/vnd.shadowdrop.cli-download-v2`
-
-### Implementation Scope
-
-**API Layer (`DownloadEndpoints`, `DownloadFileService`):**
-- Add explicit v2 negotiation (e.g., `?mode=cli-v2` query parameter)
-- Return a metadata + stream model instead of JSON-wrapped `CliResumableDownloadContract`
-- Set custom content type and deterministic headers
-- Reuse existing plaintext-to-chunk-span logic and auth gates
-- Stream encrypted bytes without Base64 or JSON templating
-
-**CLI/Shared Layer (`CliResumableDownloadContractParser`, shared contracts):**
-- Replace JSON DTO parser with v2 header/stream reader
-- Validate headers before consuming body
-- Feed encrypted bytes into existing decryption/resume pipeline
-- Remove old v1 parser/producer surface (no dual code paths)
-
-**Testing:**
-- API tests: content-type, header correctness, streaming behavior, error cases
-- CLI tests: header parsing, end-to-end download/resume/decrypt, error handling
-- Sociable tests around existing pipeline (no protocol-level mocks)
-
-## Non-Goals
-
-- Direct-HTTP downloads remain unchanged
-- No breaking changes to other contracts
-- No changes to cryptographic model or auth boundaries
-
-## Related
-
-- Issue #27: CLI Resumable Downloads Migrate to Streamed Binary v2 Contract
-- Plan: `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` (updated with this shape)
-- Related Issue #15: Range requests + resumable downloads (v1 foundation)
-
----
-date: 2026-05-18T23:24:50.124+02:00
-team-update: true
-author: Nate
-area: issue-27-cli-download-contract
-blocking: false
----
-
-# Nate — Issue #27 Plan Finalization & Internal Consistency
 
 ## Summary
 
-Updated `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` to lock in the Range header decision across all six Technical Details subsections. Plan is now internally consistent and ready for implementation.
-
-## Changes
-
-- **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as sole subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing Range with legacy query parameters.
-- **CLI HTTP Semantics:** Specified `200 OK` response code (not 206). No `Accept-Ranges`/`Content-Range`. Added explicit Range header parsing: malformed → `400`, unsatisfiable → `416` (non-leaky).
-- **Wire Integrity Rules:** Added request-side Range validation before processing; clarified consistency requirements between Range header and plaintext window.
-- **API Implementation:** Specific Range header parsing rules locked in one place. Legacy query parameter mixing explicitly rejected.
-- **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` headers (avoiding legacy parameters).
-- **Testing:** Specific Range header scenarios: valid formats, overlapped/malformed rejection, unsatisfiable (416, no leakage), mixing with legacy parameters.
-- **Acceptance Criteria:** Refined to explicitly reference Range header as request-side mechanism and testing for Range acceptance/rejection.
-
-## Implications
-
-1. **Legacy Code:** Any CLI-mode code using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation.
-2. **Validation Scope:** Both API and CLI must robustly parse and validate `Range: bytes=...` headers.
-3. **Clean Separation:** Mode selector (`?mode=cli`) cleanly separated from plaintext window (`Range: bytes=...`). Enables deterministic testing and removes ambiguity.
-4. **Plan Authority:** Plan is now the single source of truth for Range header semantics in CLI mode.
-5. **Testing Matrix:** Expanded to cover ~6+ Range header edge cases plus mixing scenarios with legacy parameters.
-
-## Status
-
-Plan locked. Ready for implementation assignment. No further scope refinement expected.
-
----
-date: 2026-05-18T22:57:19.450+02:00
-author: Nate
-team: squad
-decision: issue-27-sequencing
----
-
-# Nate — Issue #27 Sequencing Reassessment
-
-## Decision
-
-Move issue #27 up. With no external users and no compatibility promise to protect yet, the streamed-binary CLI contract redesign should be the next CLI-focused slice after issue #15 rather than a deferred follow-up.
-
-## Why
-
-- The original delay depended on preserving a newly-stabilized v1 contract for real consumers; that constraint is now gone.
-- Issue #15 already delivered the hard part: range mapping, selective chunk handling, CLI metadata shape, shared JSON/AOT contract discipline, and regression coverage. Issue #27 can reuse that work while swapping the transport contract instead of re-solving download semantics later.
-- Doing the redesign now avoids building more CLI behavior, docs, and tests around a contract we already expect to replace.
-
-## Scope Guard
-
-- Redesign the CLI download contract now.
-- Do not broaden into unrelated download features or protocol churn outside CLI resumable mode.
-- If useful, v1 can remain temporarily as an internal migration shim, but it should not be the sequencing driver anymore.
-
----
-date: 2026-05-18T13:26:19.627+02:00
-author: Nate
-subject: PR #28 Created for Issue #15 — Range Requests & Resumable Downloads
-scope: team
----
-
-# PR #28: HTTP Range Requests with Resumable Downloads
-
-## Decision
-
-Created GitHub PR #28 to merge completed issue #15 implementation to `main`.
+`EncryptedFileContentTests.CopyToAsync_ShouldHonorCancellationToken()` declares an async assertion but never awaits it, resulting in a false-positive test that silently passes without verifying cancellation behavior.
 
 ## Details
 
-| Property | Value |
-|----------|-------|
-| PR Number | 28 |
-| Title | `feat: HTTP range requests with resumable downloads (issue #15)` |
-| Branch | `squad/15-cli-resumable-download-contract` |
-| Base | `main` |
-| Commits | 3 (core implementation + review fixes + decision merge) |
-| URL | https://github.com/chA0s-Chris/ShadowDrop/pull/28 |
-| Status | Open (ready for review gate) |
+**File:** `tests/ShadowDrop.Cli.Tests/Uploads/EncryptedFileContentTests.cs` (line 34-36)
 
-## PR Body Structure
-
-- **Summary:** HTTP 206 Partial Content + CLI-resumable downloads on chunked encryption
-- **Closes:** #15
-- **Implementation Slices:** Three focused layers (Direct-HTTP, CLI Contract, Security)
-- **Related:** Issue #25 (future v2 binary streaming migration) documented as follow-up
-- **Architecture:** Reused contracts, new contracts, streaming-first design notes
-
-## Team Context
-
-- Implementation completed by Eliot (Backend), Sophie (CLI), Parker (Testing)
-- Review fixes merged from three inbox decisions (streaming payload fix, regression coverage, issue #25 creation)
-- Cross-agent history updated; decision merge finalized state
-- No breaking changes; locked CLI v1 contract maintained backward-compatibility
-
-## Next Steps
-
-- Review gate: Nate + Parker (default pair)
-- Security escalation to Alec if needed (auth/crypto aspects already reviewed)
-- Issue #25 remains open as future-work placeholder; not blocking this PR
-
----
-
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
-
-### 2026-05-18T22:34:05.735+02:00: PR #28 latest Copilot note blocks merge
-**By:** Nate
-**What:** Treat the newest open Copilot note on `DownloadFileService.TryOpenDirectHttpContentAsync()` as valid and merge-blocking until direct-HTTP stream creation also fail-closes on `InvalidDataException` and `IOException`.
-**Why:** `DirectHttpDecryptingStream.CreateAsync()` can surface those exceptions before returning a stream; the direct-HTTP path currently lets them escape as 500s instead of the intended non-leaky invalid-request response.
-
----
-date: 2026-05-18T15:26:37.377+02:00
-author: Parker
-subject: Issue #15 PR #28 Review — Four Copilot Notes Addressed and Verified
-scope: team
----
-
-# Issue #15 PR #28 Review Complete
-
-## Decision
-
-All four Copilot PR review notes on PR #28 (issue #15 range requests & resumable downloads) have been addressed with fixes in uncommitted local changes. Regression coverage added. Implementation verified and ready for commit.
-
-## Review Findings
-
-### PR Note #1: Header Injection Security (CRITICAL)
-
-**Issue:** `resolution.FileName` and `resolution.FileContentType` written directly to response headers without validation in `DownloadEndpoints.cs:102`. Risk: header injection via CR/LF, 500 errors from invalid media types.
-
-**Fix Applied:** 
-- `SanitizeHeaderValue(value)`: Strips `\r` and `\n`, truncates to 500 chars
-- `GetResponseContentType(contentType)`: Validates with `MediaTypeHeaderValue.TryParse`, fallbacks to `application/octet-stream`
-
-**Regression Coverage:**
-- `PublicDownloadEndpoint_ShouldSanitizeFileNameWithControlCharacters`: Uploads file with `\r\nX-Injected-Header: evil\r\n` in name, verifies injection blocked
-- `PublicDownloadEndpoint_ShouldFallbackToOctetStream_WhenContentTypeIsInvalid`: Uploads file with malformed content-type, verifies safe fallback
-
-**Status:** ✅ Fixed and verified
-
----
-
-### PR Note #2: O(n) Performance Bottleneck
-
-**Issue:** `remainingSpanPlaintextLength` computed by iterating every chunk in span (`for (chunkIndex = first; chunkIndex <= last; chunkIndex++)`) in `DownloadFileService.cs:978`. O(number of chunks) latency before any I/O.
-
-**Fix Applied:** 
-- `GetPlaintextLengthForChunkSpan(uploadedFile, firstChunkIndex, lastChunkIndex)` uses O(1) arithmetic:
-  - `chunkCount = lastChunkIndex - firstChunkIndex + 1`
-  - Returns `(chunkCount - 1) * chunkSize + finalChunkLength` if last chunk is final
-  - Returns `chunkCount * chunkSize` otherwise
-
-**Regression Coverage:** Existing tests (`Parse_ShouldAcceptLargeChunkSpanMetadata_WhenValuesStayWithinContractBounds`) verify correctness for large chunk spans (34B+ chunks). Performance improvement is optimization, not correctness bug.
-
-**Status:** ✅ Fixed and verified (optimization)
-
----
-
-### PR Note #3: Base64 Allocation Waste
-
-**Issue:** `Convert.FromBase64String(contract.EncryptedPayload)` allocates full decoded byte array just for validation in `CliResumableDownloadContractParser.cs:75`, then discards it. Duplicates work (decoded again for decryption) and wastes memory on large payloads.
-
-**Fix Applied:**
-- `IsValidBase64String(value)`: Character-level validation without allocation
-  - Checks length % 4 == 0
-  - Validates each char is `[A-Za-z0-9+/=]`
-  - No byte array created
-
-**Regression Coverage:** Existing parser tests (`Parse_ShouldAcceptLargeChunkSpanMetadata_WhenValuesStayWithinContractBounds`, `Parse_ShouldThrowInvalidDataException_WhenEncryptedPayloadIsMissing`) verify validation correctness. Allocation reduction is optimization.
-
-**Status:** ✅ Fixed and verified (optimization)
-
----
-
-### PR Note #4: Outdated Plan Documentation
-
-**Issue:** `ai-plans/0015-range-requests-and-resumable-downloads.md:177` says "Direct-HTTP Range / 206 Partial Content work remains outstanding" but implementation is complete.
-
-**Fix Applied:** Plan updated to reflect completed state: "Direct-HTTP mode supports standard HTTP `Range` headers with `206 Partial Content` responses, enabling full resumable-download capability for both download modes."
-
-**Status:** ✅ Fixed
-
----
-
-## Test Verification
-
-**Full test suite passed:**
-- API: 91 tests (added 2 for header injection regression)
-- CLI: 3 tests
-- Shared: 71 tests
-- **Total: 165 tests, all passing**
-
-**Command:**
-```bash
-dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-build
-dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-build
-dotnet test tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj --no-build
+**Current code:**
+```csharp
+var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
+act.Should().ThrowAsync<OperationCanceledException>();  // ← never awaited
 ```
 
-## Uncommitted Changes Summary
+**Problem:**
+- Line 34 defines `act` as an async lambda (closure that returns a Task).
+- Line 36 calls `.ThrowAsync()` to assert the async lambda throws on invocation.
+- **BUT:** The test method is NOT `async Task`, so `.ThrowAsync()` is never awaited.
+- Result: Fluent Assertions queues the assertion, but it never executes. Test always passes.
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` | +16 | `SanitizeHeaderValue` method |
-| `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` | +26 | `GetPlaintextLengthForChunkSpan` O(1) method |
-| `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs` | +36 | `IsValidBase64String` non-allocating validation |
-| `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs` | +79 | Header injection regression tests |
-| `ai-plans/0015-range-requests-and-resumable-downloads.md` | +3 | Updated implementation notes |
+## Security Implications
 
-## Outcome
+The plaintext buffer cleanup in `EncryptedFileContent.SerializeToStreamAsync()` (lines 72-75) relies on the `finally` block:
 
-**Issue #15 implementation is complete and ready for merge.**
+```csharp
+finally
+{
+    Array.Clear(buffer);
+}
+```
 
-All acceptance criteria met:
-- HTTP 206 Partial Content support ✅
-- CLI-resumable encrypted-subset contract ✅
-- Security gates (auth, expiration, non-leaky errors) ✅
-- Selective decryption and streaming-oriented design ✅
-- Comprehensive test coverage ✅
+If cancellation is not properly threaded through the stream, the `finally` block may not execute, leaving plaintext in heap memory. This test is supposed to verify that cancellation **is** properly threaded and cleanup fires.
 
-**Next Steps:**
-- Commit uncommitted changes
-- Merge PR #28 to `main`
+**Current state:** Test passes silently ✅, but cancellation is never actually tested. Risk of silent regression if cancellation fails in future refactors.
+
+## Fix
+
+Convert the test to `async Task` and `await` the assertion:
+
+```csharp
+[Test]
+public async Task CopyToAsync_ShouldHonorCancellationToken()
+{
+    // ... setup ...
+    var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
+    await act.Should().ThrowAsync<OperationCanceledException>();
+}
+```
+
+This ensures:
+1. The async lambda is actually invoked.
+2. The assertion waits for the exception.
+3. `OperationCanceledException` is caught and verified.
+4. Plaintext buffer cleanup (`finally`) is validated.
+
+## Recommendation
+
+**MUST FIX before merge.** This is a test correctness deficiency with direct security implications (cancellation cleanup verification). Code review should catch this; it's straightforward to fix.
 
 ---
 
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+**Note:** The other two flagged notes (`AesGcmTagLength` unused, `succeededFileIds` unused) are code smell only — not security concerns. Can be addressed in follow-up or as separate cleanup.
 
----
-date: 2026-05-19T10:16:47.327+02:00
-agent: Parker
-issue: 27
----
+--- alec-queue-secret-free-contract.md ---
+# 2026-05-28T21:54:11.331+02:00 — Alec: Queue files must fail closed on unsupported fields
 
 ## Decision
 
-Start issue #27 test coverage at the transport boundary, not in the removed JSON/Base64 DTO surface.
+Download queue files are part of a trust boundary. They must remain secret-free and reject unsupported JSON properties instead of silently ignoring them.
 
 ## Why
 
-The working tree already pivots toward streamed binary CLI downloads (`CliDownloadMetadataContract`, `CliDownloadRequestFactory`, `CliDownloadResponseParser`) while the old `CliResumableDownloadContract` files are being deleted. High-signal regression coverage should therefore lock:
+- A queue file that silently accepts extra fields can smuggle secrets such as `shareKey`, `bearerToken`, or future ad-hoc auth material.
+- `System.Text.Json` ignores unknown properties by default, which is convenient but wrong at this boundary.
+- Failing closed forces any future contract expansion (for example, adding a new download field) to be explicit in the shared model and validation logic.
 
-- API negotiation and CLI-mode HTTP semantics (`?mode=cli`, 200/no `Content-Range`, binary body, metadata headers)
-- CLI fail-closed parsing for missing/duplicate/malformed headers, media type mismatches, and truncated/oversized bodies
-- Legacy `plaintextStart` / `plaintextEndExclusive` rejection assumptions
+## Security Implications
 
-## Current Blocker
+- Share keys and bearer tokens must not rest in queue files.
+- Queue processing should reject malformed or over-specified input before any network or file I/O begins.
+- This also protects against “helpful” implementations that might otherwise start reading bearer tokens from queue JSON instead of CLI-only ingress.
 
-The branch is mid-migration: `DownloadFileService` still references the removed `CliResumableDownloadContract`, and `DownloadHeaderConstants` does not yet expose the new mode-selector constants referenced by the new CLI request factory. Expect test compilation to stay red until those implementation files land consistently.
+## Reviewer Requirement
 
+For issue #17, bearer tokens for downloads must be sourced only from explicit CLI arguments. Do **not** reuse `CliConfigurationResolver` or any environment/config-backed token lookup for this flow.
+
+## Related Files
+
+- `src/ShadowDrop.Shared/Queue/QueueFile.cs`
+- `src/ShadowDrop.Shared/Queue/QueueFileEntry.cs`
+- `src/ShadowDrop.Shared/Queue/QueueFileParser.cs`
+- `tests/ShadowDrop.Shared.Tests/Queue/QueueFileParserTests.cs`
+- `src/ShadowDrop.Cli/Downloads/CliDownloadRequestFactory.cs`
+
+--- copilot-directive-2026-05-23T22-19-16.996+02-00.md ---
+### 2026-05-23T22:19:16.996+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Secret emission should remain in scope for issue 0016 because the CLI must output the secret somehow; otherwise later download/decrypt use of uploaded files is not possible.
+**Why:** User request — captured for team memory
+
+--- copilot-directive-2026-05-29T00-40-12.837+02-00.md ---
+### 2026-05-29T00:40:12.837+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Use `gpt-5.5` instead of any `claude-opus` model for premium work. `claude-opus-4.5` and `claude-opus-4.6` are unavailable, and `claude-opus-4.7` / `claude-opus-4.8` are available but too expensive.
+**Why:** User request — captured for team memory
+
+--- eliot-cli-upload-ciphertext-memory.md ---
 ---
-date: 2026-05-19T10:16:47.327+02:00
-agent: Sophie
-issue: 27
-slug: cli-binary-contract
+date: 2026-05-23T23:28:14.726+02:00
+agent: Eliot
 ---
 
-Locked the CLI/client slice onto explicit `?mode=cli` negotiation with standard `Range: bytes=start-end` headers for partial/resume requests. The client/shared contract now treats `application/vnd.shadowdrop.cli-download` plus required `X-ShadowDrop-*` metadata headers as authoritative, consumes raw encrypted body bytes as a stream, and removes the legacy JSON/Base64 parser surface.
+## Decision: Internal ciphertext memory view for async upload streaming
 
-# 2026-05-18T22:12:59.106+02:00 — Fail closed on corrupt chunk metadata
+For shared crypto value objects that already protect their public `byte[]` boundary with defensive copies, we can add an internal `ReadOnlyMemory<byte>` view when another in-repo assembly needs allocation-free async stream writes.
 
-## Context
-PR #28 review found `GetFinalChunkPlaintextLength` trusted persisted chunk metadata too much. Unchecked multiplication/subtraction plus narrowing casts could turn corrupt `ChunkCount`/`PlaintextLength` combinations into bogus offsets and lengths.
+Applied here for CLI uploads: `EncryptedChunk` keeps the public `Ciphertext` copy-returning contract, while `ShadowDrop.Cli` uses an internal memory view (via `InternalsVisibleTo`) to avoid per-chunk ciphertext cloning during `Stream.WriteAsync`.
 
-## Decision
-Treat chunk-metadata-derived final chunk length as validated data, not trusted arithmetic:
-- use `checked` arithmetic for full-chunk and remainder calculations;
-- require chunked files to produce a final chunk length within `1..ChunkSize`;
-- map violations to the existing invalid-request path instead of emitting malformed download offsets.
+--- nate-0016-cli-upload-review.md ---
+---
+date: 2026-05-23T22:14:25.974+02:00
+author: Nate (Lead)
+subject: Plan 0016 Architectural Review
+status: decision_and_recommendations
+---
 
-## Why
-This keeps local and CI behavior deterministic under corrupt metadata and prevents release builds from depending on unchecked overflow behavior. The download path now fails closed before streaming corrupted ranges.
+# Plan 0016 Review — CLI Upload Command
 
-# Tara Decision — Download header sanitization
+## Overview
 
-- **Date:** 2026-05-18T18:02:41.646+02:00
-- **Area:** Public download response shaping
+Plan 0016 (cli-upload-command.md) is **well-scoped and architecturally sound**. The slice is properly bounded (intake-only, no share creation), dependencies align with existing decisions, and acceptance criteria are concrete and testable. No blocking issues.
 
-## Decision
-Sanitize persisted filenames once in `DownloadEndpoints` and reuse that sanitized value for both the custom filename header and `Content-Disposition` `FileNameStar`.
-
-## Why
-The filename can come from stored upload/share metadata, so it must not be written directly into either header surface. Reusing one sanitized value keeps direct HTTP downloads resilient against header injection attempts and ASP.NET header validation failures while preserving a single repeatable response path.
-
-## Affected Paths
-- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
-- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
-
-# Decision: Download Endpoint Mode Validation and Test Correctness
-
-**Date:** 2026-05-19T12:11:29.955+02:00
-**Author:** Tara
-
-## Fix 1 — `DownloadEndpoints`: Reject explicit empty/whitespace `mode` with 400
-
-`TryCreateDownloadRequest` in `DownloadEndpoints.cs` previously used
-`String.IsNullOrWhiteSpace(mode)` to detect "no mode supplied" and fall into
-the DirectHttp branch. This also matched `?mode=` and `?mode=%20` (present
-but blank), silently treating them as DirectHttp.
-
-**Decision:** Before the DirectHttp fallthrough, check
-`request.Query.ContainsKey(ModeQueryParameterName) && IsNullOrWhiteSpace(mode)`
-and return `null` (→ 400) if true. Absence and explicit-empty are now distinct.
-
-Pinned by new integration test:
-`PublicDownloadEndpoint_ShouldRejectEmptyModeQueryParameter` in
-`tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
-
-## Fix 2 — `DownloadFileServiceTests`: Bearer token tests used wrong argument slot
-
-`ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsExpired` and
-`ResolveAsync_ShouldReturnForbidden_WhenBearerTokenIsWrong` called the
-8-parameter `ResolveAsync` overload with the bearer token as the `mode`
-argument (position 3) and `null` for `authorizationBearerToken` (position 4).
-Both tests passed by coincidence: `null` bearer on a bearer-protected share
-also returns Forbidden (missing-bearer path), so the intended expired/wrong-hash
-branch was never exercised.
-
-**Decision:** Fixed argument order — `null` for mode, bearer token in position 4.
-Tests now exercise the correct service branches (expiry check and hash mismatch).
+Three surgical recommendations strengthen the plan before implementation starts:
 
 ---
 
-### 2026-05-19T14:38:07.521+02:00: PR #29 Follow-up — CLI Download URI Normalization
-**By:** Sophie
+## Recommendation 1: Harden Token Leakage Boundary
 
-**What:** Normalize CLI download URIs to emit `mode` exactly once as `mode=cli`.
+**Location:** "Configuration Precedence & Token Handling" section  
+**Current language:** "If users pass token via CLI flag (e.g., `--upload-token $USERTOKEN`), the token may be visible to process inspection tools..."
 
-**Details:**
-- Remove any existing `mode` query parameters from incoming download URI before appending the CLI contract selector
-- Preserve all other query parameters so scripted operator workflows round-trip their flags cleanly
-- Implemented in `CliDownloadRequestFactory` with regression coverage for existing/conflicting mode values
-- Existing CLI and shared tests validate the behavior
+**Issue:** The statement is correct but passive. Add explicit guidance on what "process inspection" means and tie it to the bootstrap token pattern already used in the API:
 
-**Rationale:** Prevents parameter duplication and ensures deterministic CLI download contract shape.
+**Change:** Expand the paragraph to:
+> If users pass token via CLI flag (e.g., `--upload-token $USERTOKEN`), the token may be visible to process inspection tools (e.g., `ps` on Unix, Process Explorer on Windows, or `/proc/*/cmdline` inspection). This is a fundamental limit of CLI argument passing and cannot be eliminated by the CLI itself. **Users are responsible for choosing the input method**: prefer `SHADOWDROP_UPLOAD_TOKEN` environment variable or config file for sensitive deployments. Document this explicitly in user-facing help text and CLI usage docs.
 
-### 2026-05-19T18:02:15.900+02:00: Invalid Mode Overload Fail-Closed
-**By:** Tara (Platform Engineer), approved by Parker (Tester)
-**Area:** public download negotiation / service overload parity
+**Why:** Prevents misunderstanding that the CLI can hide flags. Aligns the CLI token handling with the bootstrap-token decision in `.squad/decisions.md` (where the same trade-off was documented for `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`).
 
-The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` overload must fail closed with `InvalidRequest` for any explicit mode value other than `cli`, including blank strings, instead of silently treating it as direct HTTP.
+---
 
-**Rationale:** `DownloadEndpoints.TryCreateDownloadRequest` already rejects explicit invalid or blank `mode` query values with a 400. Keeping the service overload permissive creates a negotiation mismatch that can make tests or alternative call paths succeed as direct HTTP when the HTTP contract would reject the request.
+## Recommendation 2: Clarify Share-Level Secret Emission Semantics
 
-**Details:**
-- Omitted mode (`null`) still means direct HTTP.
-- Explicit `cli` still selects streamed CLI behavior.
-- Explicit invalid/blank mode values now stay aligned with endpoint fail-closed behavior.
-- Regression coverage exists in both service and API layers, so the contract is pinned through the endpoint and not just the helper.
-- `PublicDownloadEndpoint_ShouldReturn404_WhenStreamedCliBlobIsMissing` now clearly names the streamed CLI path.
-- `ResolveAsync_ShouldReturnNotFound_WhenStreamedCliMetadataExistsButBlobIsMissing` now clearly names the streamed CLI metadata path.
+**Location:** "Share-Level Secret Lifecycle" section  
+**Current language:** Roughly correct but scattered across multiple paragraphs. The key points are there but the implementation boundary is ambiguous.
 
-### 2026-05-19T18:32:18.455+02:00: Final PR #29 review assessment
-**By:** Nate (Lead)
+**Issue:** The plan says the CLI "may emit the plaintext secret to stdout (if `--output-secret` flag or equivalent is provided)" but doesn't specify:
+- Whether this flag is part of **this slice** or a later enhancement
+- Whether the flag is mandatory, optional, or non-existent for MVP
+- What "equivalent" means (separate command? config option?)
 
-**Decision:** Treat the remaining Copilot note on `CliDownloadResponseParser` as a real hardening issue worth fixing before merge, but for a narrower reason than stated.
+**Change:** Lock down the secret emission boundary explicitly. Two options:
 
-**Why:**
-- Current parser path is `Int64.TryParse(materializedValues[0], out var value)` in `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`.
-- Empirically, default `Int64.TryParse` already rejects culture-specific thousands/grouped inputs such as `1,234` and `1.234`, so the locale-separator part of the note is weaker than it sounds.
-- However, the default overload uses `NumberStyles.Integer`, which still accepts header values with leading/trailing whitespace and explicit `+` signs. For protocol metadata headers, that is looser than the contract should be.
-- Existing parser tests cover missing, duplicated, and obviously malformed headers, but not these semantically malformed numeric forms.
+**Option A (Preferred: Narrower scope):**
+> This slice does NOT implement secret emission. The CLI reads the plaintext secret from the caller, encrypts files with it, and uploads encrypted content only. The plaintext secret is **not** emitted, printed, or returned by the upload command. After upload completes, the caller is responsible for obtaining the plaintext secret from wherever it generated it. A separate `shadowdrop secret` management command or equivalent can be added in a future slice to support secret generation, storage, and retrieval workflows.
 
-**Expected fix shape:**
-- Parse numeric headers with an explicit invariant culture.
-- Tighten accepted syntax to the exact header contract (prefer ASCII digits only / no whitespace / no explicit plus sign).
-- Add regression tests proving malformed-but-currently-accepted values are rejected.
-- For symmetry, emit CLI numeric response headers using invariant formatting in `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`.
+**Option B (Broader scope):**
+> The CLI supports an optional `--output-secret` flag. If provided, the plaintext secret is written to stdout immediately after successful upload of all files. If the flag is absent, the secret is not emitted. Whether to capture and persist the secret is the caller's responsibility.
 
-### 2026-05-19T18:34:53.970+02:00: Strict CLI download header parsing
-**By:** Tara (Platform Engineer)
-**Area:** CLI download response validation
+I recommend **Option A** (narrower scope) to keep this slice focused on intake. It simplifies the mental model: "this command takes a secret, encrypts files, uploads them, and exits." All secret management (generation, storage, retrieval) is downstream. This matches the decision pattern for upload scope in the existing API plan.
 
-**Decision:** Treat streamed numeric download metadata headers as canonical ASCII digit-only integers only. `CliDownloadResponseParser` should reject any header value with leading/trailing whitespace, explicit plus signs, minus signs, or any non-ASCII digit characters before attempting numeric conversion.
+---
 
-**Rationale:** These values are transport metadata, not user-facing numbers. Accepting culture-sensitive or permissive parsing widens the wire contract, makes behavior dependent on parser defaults, and can let malformed headers pass normalization unexpectedly. A strict invariant parser keeps local and CI behavior identical and preserves fail-closed validation for hostile or sloppy intermediaries.
+## Recommendation 3: Sharpen the "All-or-Nothing per File" Boundary
 
-**Applied In:**
-- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
-- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+**Location:** "HTTP Status & Retry Behavior" section, subsection "Partial failure"  
+**Current language:**
+> If one file succeeds and another fails, the command exits non-zero. Failed files are not retried automatically; user must re-run the command with the failed file paths.
 
-### 2026-05-19T18:34:53.970+02:00: Strict Header Parse Review
-**By:** Parker (Tester)
-**Area:** CLI download response validation
+**Issue:** Correct high-level statement, but creates a subtle ambiguity for the caller:
+- Does "re-run the command" mean the CLI will skip already-uploaded files? (No—the caller must manually list only failed files.)
+- Can the same file be uploaded twice? (Yes, upload API accepts new file id for the same plaintext.)
+- Is there a way to deduplicate files already in the server? (Out of scope for this slice; not addressed.)
 
-**Decision:** Approve the strict integer-header parsing change for CLI download metadata.
+**Change:** Tighten the statement:
+> If one file succeeds and another fails, the command exits non-zero and reports which files failed (on stderr). The CLI does not automatically retry failed files or track upload state between invocations. The caller must re-run the command with only the failed file paths. If a file is uploaded successfully once and then re-uploaded, the server assigns a new file id each time; deduplication is not performed in this slice.
 
-**Basis:** Parsing now accepts only canonical digit-only header values, which closes the earlier acceptance of space-padded and plus-prefixed numerics; regression tests explicitly cover those failure modes.
+**Why:** Prevents the caller from incorrectly assuming the CLI tracks state or deduplicates uploads. Keeps the contract clear: CLI is stateless, file-at-a-time, no smarts about already-uploaded content.
 
-**Validation:** 
-- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` passed
-- `dotnet test ShadowDrop.slnx --no-restore` passed
+---
 
-### 2026-05-19T18:49:22.425+02:00: Nate — PR #29 Latest Review Assessment
-**By:** Nate (Lead)
-**Area:** PR #29 Review & Assessment
+## Architectural Consistency Checks
 
-**Decision:** Assess the three open Copilot review notes on PR #29 as follows:
+**✅ Dependency Alignment:**
+- Builds on 0011 (upload API) and 0013 (share creation, tokens) with correct boundaries
+- Token handling matches bootstrap-token pattern from API decisions
+- Encryption/streaming uses existing `ShadowDrop.Shared` contracts
+- AOT compatibility requirement consistent with existing platform decisions
 
-1. **`DownloadEndpoints.cs` culture-sensitive numeric header emission — valid, fix now.**
-   - CLI response headers are written with plain `ToString()` for chunk indices, range bounds, total size, chunk size, and final chunk length.
-   - `CliDownloadResponseParser` now enforces canonical ASCII digit-only integers, so a server running under a culture that emits non-ASCII digits can produce headers the CLI rejects.
-   - Expected fix shape: format every CLI numeric metadata header with `CultureInfo.InvariantCulture`, then add an API/CLI regression proving canonical wire values stay parseable.
+**✅ Slice Boundary:**
+- Upload intake only; does not create shares, assign permissions, or manage secrets
+- Separates caller-owned secret generation from server-owned file storage
+- Non-interactive and automation-friendly as stated
 
-2. **`CliDownloadResponseParser.cs` missing final-chunk consistency check — valid, fix now.**
-   - `ValidateMetadata()` bounds `FinalChunkPlaintextLength` to `1..ChunkSize`, but it does not prove that `TotalPlaintextSize == ((chunkCount - 1) * ChunkSize) + FinalChunkPlaintextLength`.
-   - That leaves room for metadata that names a smaller total plaintext size but a larger final chunk length to pass validation and influence expected encrypted-length math.
-   - Expected fix shape: derive the expected final chunk plaintext length from total size + chunk size (with checked arithmetic) and require equality before accepting metadata; add hostile-metadata parser tests.
+**✅ Error Handling & Security:**
+- Generic error messages follow the API error-safety pattern
+- Token confidentiality enforced at multiple layers (trimming, no logging, no caching)
+- Validation errors are clear without exposing secrets or paths
 
-3. **`DownloadRequest.cs` suffix-range overload on `EndInclusive` — not worth fixing in this PR.**
-   - Current code contains the ambiguity inside one narrow model and immediately disambiguates by checking `Start is null` in `ResolveDirectHttpRequestedRange()`.
-   - CLI mode rejects suffix/open-ended forms outright, and no current caller assumes `EndInclusive` is always a literal inclusive end index.
-   - This is a design smell worth cleaning up only if range handling expands; preferred future shape would be an explicit range kind or dedicated suffix-length field.
+**✅ Acceptance Criteria:**
+- All criteria are testable and concrete
+- No contradictions detected
+- Test surface includes config precedence, token handling, streaming, error cases
 
-**Supporting paths:**
-- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
-- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
-- `src/ShadowDrop.Api/Downloads/DownloadRequest.cs`
-- `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`
-- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
-- `tests/ShadowDrop.Api.Tests/Downloads/DownloadFileServiceTests.cs`
-- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
+---
 
-# Tara Decision — Latest PR Fixes
+## Blockers
 
-- **Date:** 2026-05-19T18:54:27.229+02:00
-- **Agent:** Tara
-- **Area:** CLI download wire contract and parser validation
+None. Plan is ready for implementation assignment.
+
+---
+
+## Summary
+
+**Verdict:** Plan is **sound**. Make the three surgical edits above to tighten the token leakage boundary, lock down secret emission scope, and clarify the all-or-nothing per-file semantics. After those edits, the plan is implementation-ready with clear acceptance criteria and no ambiguity on scope boundaries.
+
+--- nate-empty-file-rejection.md ---
+---
+decision_date: 2026-05-23T22:50:24.228+02:00
+issue: "#16"
+scope: "CLI upload command"
+status: "locked"
+---
+
+# Empty File Rejection — Permanent Design
 
 ## Decision
 
-Treat streamed CLI numeric metadata headers as culture-invariant wire values and validate the final chunk semantics from the total plaintext size instead of trusting the last-chunk header in isolation.
+**Empty files (zero-byte size) are intentionally rejected by the CLI upload command.**
 
-## Why
+The command validates file size before attempting upload and rejects any zero-byte file with non-zero exit code and a generic validation error message.
 
-- Response headers must stay identical across developer machines and CI runners, even under non-default cultures.
-- The CLI parser needs a fail-closed check that the derived last chunk length matches `TotalPlaintextSize`/`ChunkSize`, otherwise inconsistent metadata can advertise an impossible final chunk.
+## Rationale
 
-## Applied In
+Empty files have no plaintext to encrypt and add no cryptographic value to the chunked AES-256-GCM contract. Accepting them would:
+- Create semantic confusion in the encryption format (what does zero plaintext with a key mean?).
+- Pollute file lists with zero-value entries.
+- Add complexity to downstream share-creation and download workflows for no benefit.
 
-- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
-- `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs`
-- `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`
-- `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs`
+Rejecting empty files at the CLI boundary is cleaner than accepting them server-side or filtering them downstream.
 
-## Validation
+## Binding
 
-- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore`
-- `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-restore`
+- This is a **permanent design decision**, not a deferred feature or future enhancement.
+- Empty file validation is part of the contract in issue #16 acceptance criteria.
+- Plan `ai-plans/0016-cli-upload-command.md` documents this explicitly in the "Empty File Handling" section.
+- Clients must pre-filter empty files or handle the validation error at the CLI boundary.
 
-## 2026-05-19T18:54:27.229+02:00 — Parker Review: Latest PR Fixes Approved
+## Implementation Scope
 
-**Requested by:** Christian Flessa  
-**Reviewed author:** Tara
+- File size validation occurs **before** upload attempt.
+- Error message must be generic (e.g., "Validation error: file invalid") — no path exposure.
+- Exit code: non-zero on empty file detection.
+- Tests must cover empty file rejection with hard assertions on exit code and error message content.
 
-### Outcome
+## Related Files
 
-Approved. Both reported defects are fixed and the regression coverage is sufficient for the two review notes.
+- `ai-plans/0016-cli-upload-command.md` — updated 2026-05-23
+- GitHub issue #16 — body and acceptance criteria updated 2026-05-23
+- Team decision comment: issue #16, comment referencing empty file rejection
 
-### What I verified
+--- nate-plan-0016-secret-emission.md ---
+---
+date: 2026-05-23T22:20:29.165+02:00
+author: Nate (Lead)
+subject: Plan 0016 — Secret Emission & Surgical Refinements
+status: decision
+---
 
-1. **Invariant/canonical CLI metadata headers**
-   - `DownloadEndpoints` now formats every numeric CLI metadata header with `CultureInfo.InvariantCulture`.
-   - `ApiWalkingSkeletonTests.PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture` forces `ar-SA` current/UI culture and asserts canonical ASCII header values, which directly covers the localization regression risk.
+# Plan 0016 — Secret Emission Decision & Surgical Refinements
 
-2. **Final-chunk metadata consistency**
-   - `CliDownloadResponseParser.ValidateMetadata()` now derives the expected final chunk plaintext length from `TotalPlaintextSize` and `ChunkSize` and rejects mismatches.
-   - `CliDownloadResponseParserTests.Parse_ShouldThrowInvalidDataException_WhenFinalChunkLengthDoesNotMatchTotalPlaintextSize` proves inconsistent hostile metadata is rejected.
+## Decision: Secret Emission Is In Scope for Slice 0016
 
-### Test evidence
+After reviewing `nate-0016-cli-upload-review.md` Recommendation 2, the team chose **Option B** (not Option A):
 
-- `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` ✅
-- `dotnet test tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj --no-restore --filter ApiWalkingSkeletonTests.PublicDownloadEndpoint_ShouldEmitCliNumericHeadersUsingInvariantCulture` ✅
+> The `--output-secret` flag is implemented in this slice. When passed, the plaintext share secret is emitted to stdout
+> as a final line formatted `secret:<hex-encoded-value>` after all file id lines, **only on full success (exit 0)**. On
+> any failure, no secret is emitted.
 
-### Reviewer judgment
+**Rationale:** Without any mechanism to receive the share-level secret, the upload command is unusable in practice — the
+caller has no way to create shares from the uploaded files. Keeping it in this slice avoids a stranded intake-only
+command with no follow-on workflow. The emission is opt-in (flag required), bounded (stdout, full-success only), and
+explicit in format. The secret never appears in stderr, logs, or telemetry.
 
-- No code changes requested.
-- No reassignment needed.
+## Supporting Refinements Applied to Plan 0016
 
-# Nate Decision — PR #29 DownloadAsync Resume Session Preflight Validation
+All four refinements are surgical edits to `ai-plans/0016-cli-upload-command.md`:
 
-- **Date:** 2026-05-19T19:32:56.771+02:00
-- **Agent:** Nate
-- **Area:** CLI resumable download stream validation
+### 1. Environment Variable Names Locked
+- `SHADOWDROP_SERVER_URL` — server URL
+- `SHADOWDROP_UPLOAD_TOKEN` — upload authorization token
 
-## Decision
+These names are binding. Implementations must not use alternate names. Follows the `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`
+naming convention already established in the API.
 
-Treat the remaining Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` as a real issue worth fixing before the resumable CLI contract is considered hardened.
+### 2. Multi-File stdout/Exit Semantics Made Deterministic
+- File ids written in argument order as each upload completes
+- On partial failure: successful file ids still appear on stdout; exit code is non-zero; callers must check exit code
+- Partial failure reports which files failed on stderr
+- No deduplication; re-upload assigns a new file id
 
-## Why
+### 3. Token Non-Leakage Is a Tested Invariant
+Not just convention: tests **must** assert the upload authorization token never appears in captured stdout, stderr, or
+log output. Hard assertion, not grep-and-hope.
 
-`CliDownloadSession.DownloadAsync()` currently trusts the constructor's `durablePlaintextLength` as the next plaintext offset to request and, when the destination stream is seekable, blindly sets `destination.Position = DurablePlaintextLength`.
+Symmetric invariant: when `--output-secret` is not passed, the share secret must also be absent from all output
+channels.
 
-That is safe only if the destination already contains exactly that many durable bytes. If the seekable stream is shorter than the supplied durable length, the next write can create a gap/zero-fill region. If resume state is stale in the other direction, the session can request data starting too far ahead and silently preserve or skip the wrong bytes. Current coverage exercises only fresh `MemoryStream` destinations and an in-memory interrupted-session retry, so this mismatch is not currently caught by tests.
+### 4. Token Visibility Risk Documentation Required
+CLI help text and usage docs must explicitly name `SHADOWDROP_UPLOAD_TOKEN` and explain that `--upload-token` flag
+exposes the token to process inspection tools (`ps`, `/proc/*/cmdline`). Aligned with bootstrap-token handling in API.
 
-## Expected Fix Shape
+## Impact on Other Work
 
-- Validate resumable state before issuing the HTTP request.
-- For seekable destinations, fail closed unless `destination.Length == DurablePlaintextLength`.
-- Throw an argument/state exception with a clear contract message rather than trying to reconcile mismatched caller state automatically.
-- Add regression tests for seekable destinations where length is shorter and longer than the supplied durable length; both should reject before sending any request.
+- Slice 0016 implementer owns `--output-secret` flag implementation and secret hex-encoding
+- Secret format: `secret:<lowercase-hex-encoded-256-bit-value>` (64 hex chars)
+- Share-creation slice (future) must accept this secret as input; plan that slice to read `secret:` prefix from stdin
+  or a flag
+- Token non-leakage test pattern should be considered for the download CLI slice (0027) as well
 
-# Tara Decision — Resume Destination Length Must Match Durable Plaintext
+--- parker-resume-destination-length-review.md ---
+# Parker Review — Resume Destination Length Guard
 
 - **Date:** 2026-05-19T19:35:51.788+02:00
-- **Agent:** Tara
-- **Area:** CLI resumable download fail-closed validation
+- **Reviewer:** Parker
+- **Artifact:** `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs`, `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs`
+- **Outcome:** Approved
+
+## What I verified
+
+1. `CliDownloadSession.DownloadAsync()` now calls `ValidateSeekableDestinationForResume()` before seeking or issuing the resume request.
+2. The guard throws when `destination.Length != DurablePlaintextLength`, so seekable resume attempts fail closed instead of trusting a corrupted local stream length.
+3. Regression coverage uses `[TestCase(-1)]` and `[TestCase(1)]`, proving both shorter and longer destination-length mismatches reject before a second HTTP request is sent.
+4. `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --filter CliDownloadSessionTests` passed during review.
 
 ## Decision
 
-When `CliDownloadSession` resumes into a seekable destination stream, the stream length must exactly equal `DurablePlaintextLength` before any seek or HTTP resume request occurs. If the destination is shorter or longer than the durable byte count, the session now throws `InvalidOperationException` and does not issue a resume request.
+Approve. The fix closes the preflight validation gap and the new tests cover the risky mismatch cases that were previously missing.
+
+--- parker-upload-metadata-contract-order.md ---
+# 2026-05-23T23:28:14.726+02:00 — Parker: Upload metadata contract order must stay stable
+
+The CLI `UploadMetadataPayload` can be simplified to a positional record, but the multipart JSON contract must keep the established property names and property order (`fileId`, `originalFileName`, `plaintextLength`, `encryptedLength`, `contentType`, `encryptionFormatVersion`, `algorithmId`, `chunkSize`, `chunkCount`, `kdfSalt`, `plaintextSha256`).
+
+Why this matters:
+- reviewer-driven cleanup changed the record shape and silently reordered serialized properties
+- we now have regression coverage proving the wire contract and should preserve it explicitly with JSON attributes/orders
+- future refactors in the CLI upload path should treat that serialization shape as externally observable behavior
+
+--- sophie-download-queue-manifest.md ---
+# Sophie — Download queue + manifest shape
+Date: 2026-05-29T00:41:01.379+02:00
+
+## Decision
+For the non-interactive download slice, the CLI now resolves share contents through a public share manifest endpoint (`GET /d/{token}`) before downloading encrypted file data. Shared queue validation was updated so each queue entry carries its own `serverUrl`, `shareId`, `fileId`, `fileName`, `length`, and `outputPath` (plus optional `plaintextSha256`) instead of relying on top-level target/share state.
+
+## Why
+The CLI needs file discovery for single-file stdout downloads, `--file` selection on multi-file shares, and queue processing that can target individual files without storing secrets. Per-entry queue fields keep batch inputs explicit and secret-free, while the manifest lets the CLI fetch KDF metadata needed for local decryption without prompting or server-side key handling.
+
+## Impact
+- Download queue files are now validated per file entry.
+- The CLI can reuse one manifest fetch per share during queue runs.
+- Public download tests should treat `/d/{token}` as part of the recipient contract alongside `/d/{token}/files/{fileId}`.
+
+--- sophie-issue-16-upload-command.md ---
+# Sophie — Issue 16 upload command
+
+Date: 2026-05-23T22:26:23.766+02:00
+
+## Decision
+
+Lock the new `shadowdrop upload` contract to script-first channel semantics:
+
+- stdout emits only successful file ids, one per line, in argument order
+- `--output-secret` may add exactly one final stdout line as `secret:<hex>` and only when every file succeeded
+- stderr owns all diagnostics, including partial-failure reporting by file ordinal rather than path
+- config precedence is flags > environment > config file, with upload tokens trimmed before use
 
 ## Why
 
-Resume state is only trustworthy when the persisted plaintext boundary and local durable metadata agree exactly. Allowing shorter or longer seekable destinations would silently splice decrypted bytes onto inconsistent local state and make resumes machine-dependent.
+This keeps automation predictable, avoids accidental secret leakage into mixed output, and still leaves enough stderr detail for operators to recover from partial failures without exposing paths, server URLs, or tokens.
 
-## Implementation
+--- tara-ca1416-linux-guards.md ---
+# Tara Decision: CA1416 Linux guards
 
-- Implemented in `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs`
-- Regression coverage added in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` for both shorter-than-durable and longer-than-durable destination lengths
+- Date: 2026-05-23T23:15:47.318+02:00
+- Context: CI runs `bash build.sh Test`, which builds test projects in Release and turns analyzer warnings into errors.
+- Decision: keep the fix local to the Linux-only CLI test helpers by using analyzer-visible `OperatingSystem.IsLinux()` guards around `File.SetUnixFileMode` instead of relying on method-level platform attributes.
+- Why: this clears CA1416 on the CI build path without broad warning suppressions and leaves existing Unix permission assertions unchanged.
+

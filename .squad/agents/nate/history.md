@@ -150,3 +150,11 @@ Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Park
 - 2026-05-24T08:31:51.321+02:00: Review notes that cite plan compliance should be checked against the plan's binding
   language; `may implement exponential backoff` is advisory, so linear bounded retries can still satisfy the accepted
   upload contract even if exponential backoff would be a stronger resilience improvement.
+
+## 2026-05-29: Sophie — Plan #17 Completion Notification
+
+- **Date:** 2026-05-29T00:41:01Z
+- **Status:** ✅ Complete
+- **Plan:** squad/0017-cli-download-command-and-queue-processing
+- **Summary:** Non-interactive CLI download with share-key, file selection, queue processing, stdout/stderr separation, and manifest support. All acceptance criteria met.
+- **Dependency note:** Download queue structure now uses per-file entries. Public manifest endpoint `/d/{token}` now part of public download contract.

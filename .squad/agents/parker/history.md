@@ -183,3 +183,11 @@ Parker reviewed Tara's strict header parser hardening:
   uploads must fail with `File is empty.`, `UploadApiClient.UploadAsync` must propagate caller cancellation without
   retrying, and `UploadMetadataPayload` positional-record cleanup must preserve the existing multipart JSON property
   order and names.
+
+## 2026-05-29: Sophie — Plan #17 Completion Notification
+
+- **Date:** 2026-05-29T00:41:01Z
+- **Status:** ✅ Complete
+- **Plan:** squad/0017-cli-download-command-and-queue-processing
+- **Summary:** Non-interactive CLI download with share-key, file selection, queue processing, stdout/stderr separation, and manifest support. All acceptance criteria met.
+- **Dependency note:** Download queue structure now uses per-file entries. Public manifest endpoint `/d/{token}` now part of public download contract.
