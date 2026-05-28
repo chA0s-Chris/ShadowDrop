@@ -110,6 +110,8 @@ Parker reviewed Tara's invalid-mode fail-closed fix:
 **Decision tracked:** `.squad/decisions.md` → "Invalid Mode Overload Fail-Closed"
 
 ## Learnings
+- 2026-05-29T01:05:43.969+02:00 — `src/ShadowDrop.Cli/Downloads/ShareDownloadUriFactory.cs` centralizes manifest/file URI composition so CLI download requests preserve configured app path prefixes and absolute share URLs like `/base-path/d/{token}` round-trip without dropping the base path.
+- 2026-05-29T01:05:43.969+02:00 — `src/ShadowDrop.Cli/Downloads/ShareManifestClient.cs` now normalizes manifest transport failures (`HttpRequestException`, stream `IOException`, timeout without caller cancellation) into `DownloadCommandException("Server connection failed.")`, which lets `DownloadCommandHandler` return exit code 1 for direct downloads and keep queue processing on later entries.
 - 2026-05-19T19:35:51.788+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` now fails closed before resume when a seekable destination stream length differs from `DurablePlaintextLength`; `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` covers both shorter (`-1`) and longer (`+1`) mismatches and targeted `CliDownloadSessionTests` passed.
 
 - 2026-05-19T18:34:53.970+02:00 — `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now enforces canonical digit-only integer headers via `TryParseCanonicalInt64HeaderValue`, so CLI download metadata rejects whitespace-prefixed/suffixed and plus-prefixed numerics before semantic validation.
@@ -191,3 +193,32 @@ Parker reviewed Tara's strict header parser hardening:
 - **Plan:** squad/0017-cli-download-command-and-queue-processing
 - **Summary:** Non-interactive CLI download with share-key, file selection, queue processing, stdout/stderr separation, and manifest support. All acceptance criteria met.
 - **Dependency note:** Download queue structure now uses per-file entries. Public manifest endpoint `/d/{token}` now part of public download contract.
+
+## 2026-05-29T01:05:43.969+02:00: Issue #17 Review Findings Addressed
+
+- **Task:** Address review findings for issue #17 (CLI download public share URLs and manifest failures)
+- **Outcome:** ✅ Complete
+- **Tests:** 261 total (CLI focused suite: 75)
+
+### Key Changes
+
+1. **Base-path preservation:** `ShareDownloadUriFactory` now treats configured server URLs as directory bases and appends relative paths (`d/{share}` / `d/{share}/files/{file}`), so deployments behind a path base keep their prefix for both manifest and file requests.
+
+2. **Manifest failure handling:** `ShareManifestClient` now normalizes transport failures to `DownloadCommandException("Server connection failed.")`, so direct downloads fail with exit code 1 and queue processing records per-file failures and continues.
+
+### Files Modified
+
+- `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`
+- `src/ShadowDrop.Cli/Downloads/ShareManifestClient.cs`
+- `src/ShadowDrop.Cli/Downloads/ShareDownloadUriFactory.cs` (new)
+- `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`
+
+### Regression Coverage
+
+- Base-path requests with configured server URLs
+- Direct manifest read failure handling
+- Queue continuation after manifest fetch failure
+
+### Decision Captured
+
+- Decision recorded in `decisions.md`: `parker-cli-download-pathbase-and-manifest-failures.md`

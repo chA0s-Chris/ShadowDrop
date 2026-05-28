@@ -491,3 +491,13 @@ This keeps automation predictable, avoids accidental secret leakage into mixed o
 - Decision: keep the fix local to the Linux-only CLI test helpers by using analyzer-visible `OperatingSystem.IsLinux()` guards around `File.SetUnixFileMode` instead of relying on method-level platform attributes.
 - Why: this clears CA1416 on the CI build path without broad warning suppressions and leaves existing Unix permission assertions unchanged.
 
+
+--- parker-cli-download-pathbase-and-manifest-failures.md ---
+- **Date:** 2026-05-29T01:05:43.969+02:00
+- **Scope:** Issue #17 review revision
+
+## Decision
+
+CLI public-download URI generation now treats configured server URLs as directory bases and appends `d/{share}` / `d/{share}/files/{file}` as relative paths, so deployments behind a path base keep their prefix for both manifest and file requests. Absolute share URLs are parsed the same way: everything before the trailing `/d/{token}` is preserved as the server base.
+
+Manifest transport failures are normalized inside `ShareManifestClient` to `DownloadCommandException("Server connection failed.")`. That keeps direct downloads on the documented exit-code-1 path and lets queue processing record a per-file failure line and continue with the remaining entries.
