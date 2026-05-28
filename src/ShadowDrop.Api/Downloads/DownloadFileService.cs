@@ -73,36 +73,13 @@ public sealed class DownloadFileService
 
     public async Task<DownloadLookupResult> ResolveAsync(DownloadRequest request, CancellationToken cancellationToken)
     {
-        if (String.IsNullOrWhiteSpace(request.ShareToken))
+        var shareResolution = await TryResolveShareAsync(request.ShareToken, request.AuthorizationBearerToken, cancellationToken);
+        if (shareResolution.Status != DownloadLookupStatus.Success || shareResolution.Context is null)
         {
-            return new(DownloadLookupStatus.InvalidShare);
+            return new(shareResolution.Status);
         }
 
-        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(request.ShareToken), cancellationToken);
-        if (share is null || share.RevokedAtUtc is not null)
-        {
-            return new(DownloadLookupStatus.InvalidShare);
-        }
-
-        var now = _timeProvider.GetUtcNow();
-        if (share.ExpiresAtUtc < now)
-        {
-            return new(DownloadLookupStatus.ExpiredShare);
-        }
-
-        if (share.DownloadBearerToken is not null)
-        {
-            if (String.IsNullOrWhiteSpace(request.AuthorizationBearerToken))
-            {
-                return new(DownloadLookupStatus.Forbidden);
-            }
-
-            if (share.DownloadBearerToken.ExpiresAtUtc < now
-                || !TokenHashing.MatchesStoredHash(request.AuthorizationBearerToken, share.DownloadBearerToken.TokenHashBase64))
-            {
-                return new(DownloadLookupStatus.Forbidden);
-            }
-        }
+        var share = shareResolution.Context.Share;
 
         var fileEntry = share.Files.SingleOrDefault(file => file.FileId == request.FileId);
         if (fileEntry is null)
@@ -201,6 +178,45 @@ public sealed class DownloadFileService
                        uploadedFile.PlaintextLength,
                        cliRangeResolution.IsPartial ? cliRangeResolution.RequestedRange : null,
                        cliOpenResult.Metadata));
+    }
+
+    public async Task<ShareManifestLookupResult> ResolveManifestAsync(String shareToken,
+                                                                      String? authorizationBearerToken,
+                                                                      CancellationToken cancellationToken)
+    {
+        var shareResolution = await TryResolveShareAsync(shareToken, authorizationBearerToken, cancellationToken);
+        if (shareResolution.Status != DownloadLookupStatus.Success || shareResolution.Context is null)
+        {
+            return new(shareResolution.Status);
+        }
+
+        var files = new List<ShareManifestFileContract>(shareResolution.Context.Share.Files.Count);
+        foreach (var file in shareResolution.Context.Share.Files)
+        {
+            var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(file.FileId, cancellationToken);
+            if (uploadedFile is null)
+            {
+                return new(DownloadLookupStatus.NotFound);
+            }
+
+            files.Add(new()
+            {
+                FileId = file.FileId.ToString(),
+                FileName = file.DisplayName ?? file.OriginalFileName,
+                Length = uploadedFile.PlaintextLength,
+                EncryptionFormatVersion = uploadedFile.EncryptionFormatVersion,
+                AlgorithmId = uploadedFile.AlgorithmId,
+                ChunkSize = uploadedFile.ChunkSize,
+                ChunkCount = uploadedFile.ChunkCount,
+                KdfSalt = uploadedFile.KdfSaltBase64,
+                PlaintextSha256 = uploadedFile.PlaintextSha256
+            });
+        }
+
+        return new(DownloadLookupStatus.Success, new()
+        {
+            Files = files
+        });
     }
 
     internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(String keyMaterial,
@@ -557,6 +573,42 @@ public sealed class DownloadFileService
         }
     }
 
+    private async Task<ShareResolution> TryResolveShareAsync(String shareToken, String? authorizationBearerToken, CancellationToken cancellationToken)
+    {
+        if (String.IsNullOrWhiteSpace(shareToken))
+        {
+            return new(DownloadLookupStatus.InvalidShare, null);
+        }
+
+        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(shareToken), cancellationToken);
+        if (share is null || share.RevokedAtUtc is not null)
+        {
+            return new(DownloadLookupStatus.InvalidShare, null);
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        if (share.ExpiresAtUtc < now)
+        {
+            return new(DownloadLookupStatus.ExpiredShare, null);
+        }
+
+        if (share.DownloadBearerToken is not null)
+        {
+            if (String.IsNullOrWhiteSpace(authorizationBearerToken))
+            {
+                return new(DownloadLookupStatus.Forbidden, null);
+            }
+
+            if (share.DownloadBearerToken.ExpiresAtUtc < now
+                || !TokenHashing.MatchesStoredHash(authorizationBearerToken, share.DownloadBearerToken.TokenHashBase64))
+            {
+                return new(DownloadLookupStatus.Forbidden, null);
+            }
+        }
+
+        return new(DownloadLookupStatus.Success, new(share, now));
+    }
+
     private sealed record CliOpenResult(DownloadLookupStatus Status, Stream? Content, Int64 ContentLength, CliDownloadMetadataContract? Metadata);
 
     private sealed class DirectHttpDecryptingStream : Stream
@@ -886,4 +938,8 @@ public sealed class DownloadFileService
     private sealed record ParsedRangeHeader(RequestedByteRange? Range, Boolean IsMalformed);
 
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
+
+    private sealed record ResolvedShareContext(ShareRecord Share, DateTimeOffset Now);
+
+    private sealed record ShareResolution(DownloadLookupStatus Status, ResolvedShareContext? Context);
 }

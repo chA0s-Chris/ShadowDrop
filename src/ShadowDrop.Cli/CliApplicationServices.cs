@@ -7,12 +7,20 @@ using ShadowDrop.Cli.Configuration;
 internal sealed record CliApplicationServices(
     CliConfigurationResolver ConfigurationResolver,
     HttpClient HttpClient,
+    Stream StandardOutStream,
     TextWriter StandardOut,
     TextWriter StandardError)
 {
+    public CliApplicationServices(CliConfigurationResolver configurationResolver,
+                                  HttpClient httpClient,
+                                  TextWriter standardOut,
+                                  TextWriter standardError)
+        : this(configurationResolver, httpClient, Stream.Null, standardOut, standardError) { }
+
     public static CliApplicationServices CreateDefault() =>
         new(new(new(), new EnvironmentReader()),
             new(),
+            Console.OpenStandardOutput(),
             Console.Out,
             Console.Error);
 }

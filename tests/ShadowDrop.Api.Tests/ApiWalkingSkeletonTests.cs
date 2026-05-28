@@ -1642,7 +1642,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                                     RequestedPlaintextRangeContract? requestedRange,
                                                                                     Int64? stopAfterDurableBytes)
     {
-        using var request = CliDownloadRequestFactory.CreateGetRequest(downloadUri, requestedRange);
+        using var request = CliDownloadRequestFactory.CreateGetRequest(downloadUri, requestedRange: requestedRange);
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 

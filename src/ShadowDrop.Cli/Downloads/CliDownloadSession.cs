@@ -11,6 +11,7 @@ using ShadowDrop.Crypto;
 public sealed class CliDownloadSession : IDisposable
 {
     private const Int32 AesGcmTagLength = 16;
+    private readonly String? _bearerToken;
 
     private readonly ContentKey _contentKey;
     private readonly Stream _destination;
@@ -27,6 +28,7 @@ public sealed class CliDownloadSession : IDisposable
     /// <param name="destination">The destination stream for durable plaintext bytes.</param>
     /// <param name="shareSecret">The share secret used to derive the file-scoped content key.</param>
     /// <param name="encryptionContext">The file encryption context.</param>
+    /// <param name="bearerToken">The optional bearer token sent with each download request.</param>
     /// <param name="durablePlaintextLength">The already-persisted plaintext byte count.</param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="httpClient"/>, <paramref name="downloadUri"/>, <paramref name="destination"/>,
@@ -39,6 +41,7 @@ public sealed class CliDownloadSession : IDisposable
                               Stream destination,
                               ShareSecret shareSecret,
                               FileEncryptionContext encryptionContext,
+                              String? bearerToken = null,
                               Int64 durablePlaintextLength = 0)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -57,6 +60,7 @@ public sealed class CliDownloadSession : IDisposable
         _downloadUri = downloadUri;
         _destination = destination;
         _encryptionContext = encryptionContext;
+        _bearerToken = bearerToken;
         _contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
         DurablePlaintextLength = durablePlaintextLength;
     }
@@ -93,7 +97,7 @@ public sealed class CliDownloadSession : IDisposable
         }
 
         var expectedRange = CreateExpectedRange();
-        using var request = CliDownloadRequestFactory.CreateGetRequest(_downloadUri, expectedRange);
+        using var request = CliDownloadRequestFactory.CreateGetRequest(_downloadUri, _bearerToken, expectedRange);
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
 

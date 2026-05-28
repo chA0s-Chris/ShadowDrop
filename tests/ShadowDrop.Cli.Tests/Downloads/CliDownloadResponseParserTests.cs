@@ -14,7 +14,7 @@ public sealed class CliDownloadResponseParserTests
     public void CreateGetRequest_ShouldAppendCliModeAndRangeHeader()
     {
         var request = CliDownloadRequestFactory.CreateGetRequest(new("https://example.test/d/token/files/123"),
-                                                                 new()
+                                                                 requestedRange: new()
                                                                  {
                                                                      Start = 64,
                                                                      End = 120
