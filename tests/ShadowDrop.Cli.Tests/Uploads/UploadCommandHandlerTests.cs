@@ -11,6 +11,7 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Tests.Fakes;
 using System.Text;
 
 [NonParallelizable]
@@ -156,6 +157,41 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Authentication token invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldGuideInteractiveUploadAndKeepSecretsOutOfDiagnostics()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var inputFile = fixture.CreateInputFile("interactive.bin", 96);
+        using var httpClient = fixture.CreateClient();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession();
+        interactiveSession.EnqueueSelection(1);
+        interactiveSession.EnqueueConfirmation(false);
+        interactiveSession.EnqueueConfirmation(true);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            [
+                "upload", "--interactive", "--output-secret", "--server-url", httpClient.BaseAddress!.ToString(), "--upload-token", fixture.BootstrapToken,
+                inputFile
+            ],
+            CreateServices(standardOut, standardError, httpClient: httpClient, interactiveSession: interactiveSession),
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        stdoutLines.Should().HaveCount(2);
+        var shareKeyLine = stdoutLines.Single(line => line.StartsWith("secret:", StringComparison.Ordinal));
+        var bearerTokenLine = stdoutLines.Single(line => line.StartsWith("download-bearer-token:", StringComparison.Ordinal));
+        standardError.ToString().Should().NotContain(shareKeyLine)
+                     .And.NotContain(bearerTokenLine)
+                     .And.NotContain(fixture.BootstrapToken);
+        interactiveSession.TextPrompts.Should().BeEmpty();
+        interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Share created"
+                                                                 && summary.Rows.Any(row => row.Label == "Download bearer token"
+                                                                                            && row.Value == "Required"));
     }
 
     [Test]
@@ -532,20 +568,25 @@ public sealed class UploadCommandHandlerTests
                    .And.Contain("files")
                    .And.Contain("--server-url")
                    .And.Contain("--upload-token")
-                   .And.Contain("--output-secret");
+                   .And.Contain("--output-secret")
+                   .And.Contain("--interactive");
     }
 
     private static CliApplicationServices CreateServices(StringWriter standardOut,
                                                          StringWriter standardError,
                                                          String? configPath = null,
                                                          IReadOnlyDictionary<String, String?>? environmentValues = null,
-                                                         HttpClient? httpClient = null)
+                                                         HttpClient? httpClient = null,
+                                                         FakeInteractiveSession? interactiveSession = null)
     {
         var resolvedHttpClient = httpClient ?? new HttpClient(new NeverCalledHandler());
         return new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
                    resolvedHttpClient,
+                   Stream.Null,
                    standardOut,
-                   standardError);
+                   standardError,
+                   interactiveSession ?? new FakeInteractiveSession(),
+                   TimeProvider.System);
     }
 
     private static CliApplicationServices CreateServices(
@@ -553,11 +594,15 @@ public sealed class UploadCommandHandlerTests
         TextWriter standardError,
         String? configPath = null,
         IReadOnlyDictionary<String, String?>? environmentValues = null,
-        HttpClient? httpClient = null) =>
+        HttpClient? httpClient = null,
+        FakeInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
             httpClient ?? new HttpClient(new NeverCalledHandler()),
+            Stream.Null,
             standardOut,
-            standardError);
+            standardError,
+            interactiveSession ?? new FakeInteractiveSession(),
+            TimeProvider.System);
 
     private static void RestoreReadableFileMode(String path)
     {

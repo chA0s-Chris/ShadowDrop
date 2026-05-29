@@ -9,23 +9,23 @@ download).
 
 ## Acceptance Criteria
 
-- [ ] An interactive CLI mode exists that is invoked with an explicit `--interactive` flag or equivalent subcommand
+- [x] An interactive CLI mode exists that is invoked with an explicit `--interactive` flag or equivalent subcommand
   structure, making the mode unambiguous and orthogonal to non-interactive System.CommandLine parsing.
-- [ ] The interactive mode uses Spectre.Console prompts and terminal rendering.
-- [ ] The interactive flow can guide a user through uploading files and creating a share.
-- [ ] The interactive flow can guide a user through choosing expiration, direct-HTTP mode, and optional download bearer
+- [x] The interactive mode uses Spectre.Console prompts and terminal rendering.
+- [x] The interactive flow can guide a user through uploading files and creating a share.
+- [x] The interactive flow can guide a user through choosing expiration, direct-HTTP mode, and optional download bearer
   token behavior.
-- [ ] The interactive flow can display resulting link information and any separately delivered key material clearly.
-- [ ] The interactive flow can guide a user through selecting and downloading files from a share.
-- [ ] Interactive actions delegate to the same underlying command/use-case logic as non-interactive commands.
-- [ ] Non-interactive command behavior remains available and unchanged.
-- [ ] When invoked in a non-TTY environment or unsupported terminal, the interactive mode fails immediately with a clear
+- [x] The interactive flow can display resulting link information and any separately delivered key material clearly.
+- [x] The interactive flow can guide a user through selecting and downloading files from a share.
+- [x] Interactive actions delegate to the same underlying command/use-case logic as non-interactive commands.
+- [x] Non-interactive command behavior remains available and unchanged.
+- [x] When invoked in a non-TTY environment or unsupported terminal, the interactive mode fails immediately with a clear
   error message indicating TTY requirement; it does not fall back to non-interactive behavior.
-- [ ] Interactive mode enforces the same secret-handling guarantees as non-interactive commands: share keys shown only
+- [x] Interactive mode enforces the same secret-handling guarantees as non-interactive commands: share keys shown only
   on explicit opt-in (`--output-secret` flag or equivalent), token input masked in terminal prompts, secrets never
   rendered in normal diagnostics/output, no weakening of prior secret-lifecycle rules from upload/download/share plans.
-- [ ] Automated tests cover the non-UI orchestration behind the interactive flows, including secret-handling paths.
-- [ ] Orchestration and output tests explicitly assert that secrets (share keys, bearer tokens, plaintext key material)
+- [x] Automated tests cover the non-UI orchestration behind the interactive flows, including secret-handling paths.
+- [x] Orchestration and output tests explicitly assert that secrets (share keys, bearer tokens, plaintext key material)
   do not appear in rendered stderr or log output.
 
 ## Technical Details

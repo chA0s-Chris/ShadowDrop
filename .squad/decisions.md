@@ -286,7 +286,7 @@ Three surgical recommendations strengthen the plan before implementation starts:
 
 ## Recommendation 1: Harden Token Leakage Boundary
 
-**Location:** "Configuration Precedence & Token Handling" section  
+**Location:** "Configuration Precedence & Token Handling" section
 **Current language:** "If users pass token via CLI flag (e.g., `--upload-token $USERTOKEN`), the token may be visible to process inspection tools..."
 
 **Issue:** The statement is correct but passive. Add explicit guidance on what "process inspection" means and tie it to the bootstrap token pattern already used in the API:
@@ -300,7 +300,7 @@ Three surgical recommendations strengthen the plan before implementation starts:
 
 ## Recommendation 2: Clarify Share-Level Secret Emission Semantics
 
-**Location:** "Share-Level Secret Lifecycle" section  
+**Location:** "Share-Level Secret Lifecycle" section
 **Current language:** Roughly correct but scattered across multiple paragraphs. The key points are there but the implementation boundary is ambiguous.
 
 **Issue:** The plan says the CLI "may emit the plaintext secret to stdout (if `--output-secret` flag or equivalent is provided)" but doesn't specify:
@@ -322,7 +322,7 @@ I recommend **Option A** (narrower scope) to keep this slice focused on intake. 
 
 ## Recommendation 3: Sharpen the "All-or-Nothing per File" Boundary
 
-**Location:** "HTTP Status & Retry Behavior" section, subsection "Partial failure"  
+**Location:** "HTTP Status & Retry Behavior" section, subsection "Partial failure"
 **Current language:**
 > If one file succeeds and another fails, the command exits non-zero. Failed files are not retried automatically; user must re-run the command with the failed file paths.
 
@@ -709,3 +709,28 @@ domain: feature-planning, sequencing
 ## Implementation Note
 
 This decision reflects the current merge cycle status (PR #31 completed, range-requests slice closed) and the team's availability to shift focus toward feature-layer work. If infrastructure work (#19/#20) becomes urgent before #18 completes, revisit this sequencing.
+
+---
+title: Sophie decision — interactive upload wraps share creation
+date: 2026-05-29T09:11:29.068+02:00
+issue: Issue #18 interactive Spectre.Console UX
+priority: implementation
+domain: cli-ux, interactive-flows
+---
+
+## Decision
+
+Keep the new guided share-creation experience under `shadowdrop upload --interactive` instead of adding a separate CLI share-create command in this slice.
+
+## Why
+
+- The existing public CLI already exposes `upload` and `download`; wrapping share creation inside guided upload is the smallest behavior-safe operator workflow.
+- It preserves the current scripted surface while still guiding operators through upload, share settings, and secret output.
+- The flow still delegates to the same upload/download use-case logic and the existing share API contract.
+
+### 2026-05-29T09:11:29.068+02:00: Sophie initial decision
+
+**By:** Sophie (CLI Dev)
+**What:** Keep guided share-creation under `--interactive` flag.
+**Why:** Minimizes surface area, preserves scripting, and focuses on UX cohesion.
+

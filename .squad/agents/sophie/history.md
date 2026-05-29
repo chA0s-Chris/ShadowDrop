@@ -14,6 +14,8 @@
 - **Issue 15 CLI contract (2026-05-18T11:19:54.273+02:00):** Locked the CLI resumable-download shape as JSON with explicit chunk-span and plaintext-range metadata, and kept response-discovery details in stable headers instead of burying filename/content-type inside the encrypted payload contract. Also had to switch the parser onto shared `System.Text.Json` source generation immediately, because the CLI's Native AOT constraint makes reflection-based deserialization the wrong default even for small transport DTOs.
 - **PR 29 follow-up (2026-05-19T14:38:07.521+02:00):** `CliDownloadRequestFactory` now treats `mode` as a normalized singleton query parameter: any pre-existing `mode` entries are removed before appending `mode=cli`, so scripted callers cannot accidentally send duplicate or conflicting mode values. Regression coverage lives in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadRequestFactoryTests.cs`, and the shared metadata smoke test name in `tests/ShadowDrop.Shared.Tests/Contracts/CliDownloadMetadataContractTests.cs` was tightened to match what it actually asserts. Validated with existing CLI/shared test slices.
 
+- **Issue 18 interactive UX (2026-05-29T09:11:29.068+02:00):** `upload --interactive` now owns the guided upload/share flow, while `download --interactive` handles masked share-key and bearer-token prompting plus file selection. The production adapter lives under `src/ShadowDrop.Cli/Interactive/`, the shared upload orchestration moved into `src/ShadowDrop.Cli/Uploads/UploadCommandExecutor.cs`, and the fakeable session pattern for orchestration tests lives in `tests/ShadowDrop.Cli.Tests/Fakes/FakeInteractiveSession.cs`. Help detection now relies on `ParseResult.Action is HelpAction`, which keeps explicit interactive flags compatible with existing `--help` behavior.
+
 ## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
 
 - Joined team deployment for issue #15
@@ -101,3 +103,44 @@ Ready for integration.
 **Sequencing rationale:** #19 (Docker) and #20 (Native AOT) deferred pending scope clarification from Christian.
 
 **Decision:** Recorded in canonical `.squad/decisions.md`
+
+## 2026-05-29 09:32:00 UTC — Plan #18 Interactive Spectre.Console UX Implementation Complete
+
+Completed full end-to-end implementation of plan #18 via the implement-plan skill.
+
+### Work Completed
+
+- **Branch Created:** `squad/0018-interactive-spectre-console-ux`
+- **Core Changes:**
+  - Modified `CliApplication.cs` and `CliApplicationServices.cs` for interactive routing and command dispatch
+  - Refactored `UploadCommandHandler.cs` with guided workflow: server URL → share mode → file selection → share creation → upload metadata
+  - Refactored `DownloadCommandHandler.cs` with interactive prompting for server URL, share ID, share key (masked), bearer token (masked), and file selection
+  - Interactive orchestration adapter under `src/ShadowDrop.Cli/Interactive/`
+  - Shared upload orchestration extracted to `UploadCommandExecutor.cs` for test reuse
+  - Help action detection via `ParseResult.Action is HelpAction` preserves `--help` compatibility with `--interactive`
+
+### Test Status
+
+- **All tests passing:** 271 total via `dotnet test ShadowDrop.slnx`
+- Test double framework (`FakeInteractiveSession.cs`) enabled orchestration testing
+- Updated upload/download handler tests with interactive flow coverage
+
+### Decision Captured
+
+- **Decision:** Keep guided share-creation under `--interactive` instead of separate CLI command
+- **Rationale:** Minimizes public surface, preserves scripting capability, delegates to existing upload/share logic
+
+### Acceptance Criteria Status
+
+- ✓ `--interactive` flag implemented and routed correctly
+- ✓ Interactive upload flow with guided share creation complete
+- ✓ Interactive download flow with secret masking and file selection complete
+- ✓ Help detection compatible with interactive mode
+- ✓ All tests passing (271)
+- ✓ Plan #18 acceptance criteria marked complete
+
+### Readiness
+
+- Branch ready for review and merge workflow
+- No post-implementation blockers identified
+- Scribe decision merged into canonical decisions.md
