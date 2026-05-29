@@ -3,8 +3,10 @@
 namespace ShadowDrop.Cli;
 
 using ShadowDrop.Cli.Downloads;
+using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
+using System.CommandLine.Help;
 
 internal static class CliApplication
 {
@@ -23,7 +25,7 @@ internal static class CliApplication
 
         var commandModel = CreateCommandModel();
         var parseResult = commandModel.RootCommand.Parse(args);
-        if (IsHelpRequest(args))
+        if (parseResult.Action is HelpAction)
         {
             return parseResult.InvokeAsync(new()
             {
@@ -40,7 +42,7 @@ internal static class CliApplication
         var filesArgument = new Argument<FileInfo[]>("files")
         {
             Description = "One or more local files to encrypt and upload.",
-            Arity = ArgumentArity.OneOrMore
+            Arity = ArgumentArity.ZeroOrMore
         };
 
         var serverOption = new Option<String?>("--server-url")
@@ -57,6 +59,11 @@ internal static class CliApplication
         var outputSecretOption = new Option<Boolean>("--output-secret")
         {
             Description = "Emit the generated share secret as the final stdout line after full success only."
+        };
+
+        var uploadInteractiveOption = new Option<Boolean>("--interactive")
+        {
+            Description = "Run the guided Spectre.Console upload and share workflow."
         };
 
         var shareIdArgument = new Argument<String?>("share-id")
@@ -90,6 +97,11 @@ internal static class CliApplication
             Description = "Optional download bearer token. This is sourced only from this CLI argument."
         };
 
+        var downloadInteractiveOption = new Option<Boolean>("--interactive")
+        {
+            Description = "Run the guided Spectre.Console download workflow."
+        };
+
         var downloadCommand = new Command("download", "Download encrypted content and decrypt it locally.");
         downloadCommand.Arguments.Add(shareIdArgument);
         downloadCommand.Options.Add(serverOption);
@@ -98,18 +110,18 @@ internal static class CliApplication
         downloadCommand.Options.Add(shareKeyOption);
         downloadCommand.Options.Add(shareKeyFileOption);
         downloadCommand.Options.Add(bearerTokenOption);
+        downloadCommand.Options.Add(downloadInteractiveOption);
 
         var uploadCommand = new Command("upload", "Encrypt local files and upload encrypted content to ShadowDrop.");
         uploadCommand.Arguments.Add(filesArgument);
         uploadCommand.Options.Add(serverOption);
         uploadCommand.Options.Add(uploadTokenOption);
         uploadCommand.Options.Add(outputSecretOption);
+        uploadCommand.Options.Add(uploadInteractiveOption);
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
         rootCommand.Subcommands.Add(uploadCommand);
         return new(rootCommand,
-                   downloadCommand,
-                   uploadCommand,
                    shareIdArgument,
                    filesArgument,
                    serverOption,
@@ -119,7 +131,9 @@ internal static class CliApplication
                    shareKeyFileOption,
                    bearerTokenOption,
                    uploadTokenOption,
-                   outputSecretOption);
+                   outputSecretOption,
+                   uploadInteractiveOption,
+                   downloadInteractiveOption);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -138,18 +152,27 @@ internal static class CliApplication
         var commandName = parseResult.CommandResult.Command.Name;
         if (String.Equals(commandName, "download", StringComparison.Ordinal))
         {
+            var options = new DownloadCommandOptions(parseResult.GetValue(commandModel.ShareIdArgument),
+                                                     parseResult.GetValue(commandModel.ServerOption),
+                                                     parseResult.GetValue(commandModel.FileOption),
+                                                     parseResult.GetValue(commandModel.QueueOption),
+                                                     parseResult.GetValue(commandModel.ShareKeyOption),
+                                                     parseResult.GetValue(commandModel.ShareKeyFileOption),
+                                                     parseResult.GetValue(commandModel.BearerTokenOption));
+
+            if (parseResult.GetValue(commandModel.DownloadInteractiveOption))
+            {
+                return await new InteractiveDownloadCommandHandler(services.ConfigurationResolver,
+                                                                   services.HttpClient,
+                                                                   services.InteractiveSession,
+                                                                   services.StandardError).ExecuteAsync(options, cancellationToken);
+            }
+
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
                                                              services.HttpClient,
                                                              services.StandardOutStream,
                                                              services.StandardError);
-            return await downloadHandler.ExecuteAsync(new(parseResult.GetValue(commandModel.ShareIdArgument),
-                                                          parseResult.GetValue(commandModel.ServerOption),
-                                                          parseResult.GetValue(commandModel.FileOption),
-                                                          parseResult.GetValue(commandModel.QueueOption),
-                                                          parseResult.GetValue(commandModel.ShareKeyOption),
-                                                          parseResult.GetValue(commandModel.ShareKeyFileOption),
-                                                          parseResult.GetValue(commandModel.BearerTokenOption)),
-                                                      cancellationToken);
+            return await downloadHandler.ExecuteAsync(options, cancellationToken);
         }
 
         if (!String.Equals(commandName, "upload", StringComparison.Ordinal))
@@ -158,52 +181,35 @@ internal static class CliApplication
             return 1;
         }
 
-        if (parseResult.GetResult(commandModel.FilesArgument) is null)
+        var uploadOptions = new UploadCommandOptions(parseResult.GetValue(commandModel.FilesArgument) ?? [],
+                                                     parseResult.GetValue(commandModel.ServerOption),
+                                                     parseResult.GetValue(commandModel.UploadTokenOption),
+                                                     parseResult.GetValue(commandModel.OutputSecretOption));
+
+        if (parseResult.GetValue(commandModel.UploadInteractiveOption))
+        {
+            return await new InteractiveUploadCommandHandler(services.ConfigurationResolver,
+                                                             services.HttpClient,
+                                                             services.InteractiveSession,
+                                                             services.StandardOut,
+                                                             services.StandardError,
+                                                             services.TimeProvider).ExecuteAsync(uploadOptions, cancellationToken);
+        }
+
+        if (uploadOptions.Files.Length == 0)
         {
             await services.StandardError.WriteLineAsync("Required argument missing for command: 'upload'.");
             return 1;
         }
 
-        var handler = new UploadCommandHandler(services.ConfigurationResolver,
-                                               services.HttpClient,
-                                               services.StandardOut,
-                                               services.StandardError);
-
-        return await handler.ExecuteAsync(new(parseResult.GetValue(commandModel.FilesArgument) ?? [],
-                                              parseResult.GetValue(commandModel.ServerOption),
-                                              parseResult.GetValue(commandModel.UploadTokenOption),
-                                              parseResult.GetValue(commandModel.OutputSecretOption)),
-                                          cancellationToken);
-    }
-
-    private static Boolean IsHelpFlag(String value) =>
-        String.Equals(value, "--help", StringComparison.Ordinal) || String.Equals(value, "-h", StringComparison.Ordinal);
-
-    private static Boolean IsHelpRequest(String[] args)
-    {
-        var reachedEndOfOptions = false;
-
-        foreach (var arg in args)
-        {
-            if (String.Equals(arg, "--", StringComparison.Ordinal))
-            {
-                reachedEndOfOptions = true;
-                continue;
-            }
-
-            if (!reachedEndOfOptions && IsHelpFlag(arg))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return await new UploadCommandHandler(services.ConfigurationResolver,
+                                              services.HttpClient,
+                                              services.StandardOut,
+                                              services.StandardError).ExecuteAsync(uploadOptions, cancellationToken);
     }
 
     private sealed record CliCommandModel(
         RootCommand RootCommand,
-        Command DownloadCommand,
-        Command UploadCommand,
         Argument<String?> ShareIdArgument,
         Argument<FileInfo[]> FilesArgument,
         Option<String?> ServerOption,
@@ -213,5 +219,7 @@ internal static class CliApplication
         Option<FileInfo?> ShareKeyFileOption,
         Option<String?> BearerTokenOption,
         Option<String?> UploadTokenOption,
-        Option<Boolean> OutputSecretOption);
+        Option<Boolean> OutputSecretOption,
+        Option<Boolean> UploadInteractiveOption,
+        Option<Boolean> DownloadInteractiveOption);
 }

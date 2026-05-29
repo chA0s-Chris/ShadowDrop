@@ -3,8 +3,6 @@
 namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Configuration;
-using ShadowDrop.Contracts;
-using ShadowDrop.Crypto;
 using System.Text.Json;
 
 internal sealed class UploadCommandHandler(
@@ -13,8 +11,6 @@ internal sealed class UploadCommandHandler(
     TextWriter standardOut,
     TextWriter standardError)
 {
-    private const Int32 ChunkSize = 1024 * 1024;
-
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -53,82 +49,27 @@ internal sealed class UploadCommandHandler(
             return 1;
         }
 
-        using var shareSecret = ShareSecret.Generate();
-        var uploadApiClient = new UploadApiClient(httpClient);
-        var allSucceeded = true;
+        var executor = new UploadCommandExecutor(httpClient);
+        var executionResult = await executor.ExecuteAsync(options.Files, serverUrl, configuration.UploadToken, cancellationToken);
 
-        for (var index = 0; index < options.Files.Length; index++)
+        for (var index = 0; index < executionResult.Files.Count; index++)
         {
-            try
+            var fileResult = executionResult.Files[index];
+            if (fileResult.UploadedFileId is not null)
             {
-                var plan = await CreatePlanAsync(options.Files[index], uploadApiClient, serverUrl, configuration.UploadToken, cancellationToken);
-                var uploadedFileId = await uploadApiClient.UploadAsync(serverUrl, configuration.UploadToken, plan, shareSecret, cancellationToken);
-                await standardOut.WriteLineAsync(uploadedFileId.ToString());
+                await standardOut.WriteLineAsync(fileResult.UploadedFileId.Value.ToString());
                 await standardError.WriteLineAsync($"Uploaded file {index + 1} of {options.Files.Length}.");
+                continue;
             }
-            catch (UploadCommandException exception)
-            {
-                allSucceeded = false;
-                await standardError.WriteLineAsync($"File {index + 1} failed: {exception.Message}");
-            }
-            catch (UnauthorizedAccessException)
-            {
-                allSucceeded = false;
-                await standardError.WriteLineAsync($"File {index + 1} failed: File is unreadable.");
-            }
-            catch (IOException)
-            {
-                allSucceeded = false;
-                await standardError.WriteLineAsync($"File {index + 1} failed: File is unreadable.");
-            }
+
+            await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
         }
 
-        if (allSucceeded && options.OutputSecret)
+        if (executionResult.AllSucceeded && options.OutputSecret && !String.IsNullOrWhiteSpace(executionResult.ShareSecretHex))
         {
-            await standardOut.WriteLineAsync($"secret:{Convert.ToHexStringLower(shareSecret.KeyMaterial)}");
+            await standardOut.WriteLineAsync($"secret:{executionResult.ShareSecretHex}");
         }
 
-        return allSucceeded ? 0 : 1;
-    }
-
-    private static async Task<UploadFilePlan> CreatePlanAsync(FileInfo file,
-                                                              UploadApiClient uploadApiClient,
-                                                              Uri serverUrl,
-                                                              String uploadToken,
-                                                              CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(file);
-
-        if (!file.Exists)
-        {
-            throw new UploadCommandException("File is missing.");
-        }
-
-        if (file.Length <= 0)
-        {
-            throw new UploadCommandException("File is empty.");
-        }
-
-        await using var probe = file.OpenRead();
-        _ = probe.Length;
-
-        var fileId = await uploadApiClient.ReserveFileIdAsync(serverUrl, uploadToken, cancellationToken);
-        var plaintextLength = file.Length;
-        var chunkCount = checked(((plaintextLength - 1) / ChunkSize) + 1);
-        var encryptedLength = checked(plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength));
-        var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
-        var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
-        var metadata = new UploadMetadataPayload(fileId,
-                                                 file.Name,
-                                                 plaintextLength,
-                                                 encryptedLength,
-                                                 "application/octet-stream",
-                                                 FormatConstants.EncryptionFormatVersion,
-                                                 FormatConstants.Aes256GcmAlgorithmId,
-                                                 ChunkSize,
-                                                 chunkCount,
-                                                 Convert.ToBase64String(kdfSalt),
-                                                 null);
-        return new(file, fileId, encryptionContext, metadata, ChunkSize);
+        return executionResult.AllSucceeded ? 0 : 1;
     }
 }

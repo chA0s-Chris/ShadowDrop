@@ -6,10 +6,49 @@ using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Tests.Fakes;
 
 [NonParallelizable]
 public sealed class CliApplicationTests
 {
+    [Test]
+    public async Task InvokeAsync_ShouldFailInteractiveDownloadImmediately_WhenTerminalSupportIsUnavailable()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession
+        {
+            IsInteractiveSupported = false
+        };
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--interactive"], CreateServices(standardOut, standardError, interactiveSession),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Trim().Should()
+                     .Be("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailInteractiveUploadImmediately_WhenTerminalSupportIsUnavailable()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession
+        {
+            IsInteractiveSupported = false
+        };
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--interactive"], CreateServices(standardOut, standardError, interactiveSession),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Trim().Should()
+                     .Be("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments.");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldHonorSeparatorBeforeHelpLikeOperands()
     {
@@ -38,11 +77,20 @@ public sealed class CliApplicationTests
         standardError.ToString().Should().BeEmpty();
         standardOut.ToString().Should().Contain("Encrypt local files and upload encrypted content to ShadowDrop.")
                    .And.Contain("--server-url")
-                   .And.Contain("--upload-token");
+                   .And.Contain("--upload-token")
+                   .And.Contain("--interactive");
     }
 
-    private static CliApplicationServices CreateServices(StringWriter standardOut, StringWriter standardError) =>
-        new(new(new StubConfigPathResolver(), new StubEnvironmentReader()), new HttpClient(new NeverCalledHandler()), standardOut, standardError);
+    private static CliApplicationServices CreateServices(StringWriter standardOut,
+                                                         StringWriter standardError,
+                                                         FakeInteractiveSession? interactiveSession = null) =>
+        new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
+            new(new NeverCalledHandler()),
+            Stream.Null,
+            standardOut,
+            standardError,
+            interactiveSession ?? new FakeInteractiveSession(),
+            TimeProvider.System);
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {

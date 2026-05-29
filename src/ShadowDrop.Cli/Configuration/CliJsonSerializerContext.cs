@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Configuration;
 
+using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Contracts;
 using System.Text.Json.Serialization;
@@ -11,4 +12,6 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(UploadReservationResponse))]
 [JsonSerializable(typeof(UploadResponse))]
 [JsonSerializable(typeof(UploadMetadataPayload))]
+[JsonSerializable(typeof(CreateShareCliRequest))]
+[JsonSerializable(typeof(CreateShareCliResult))]
 internal sealed partial class CliJsonSerializerContext : JsonSerializerContext;

@@ -83,26 +83,9 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
-    private static Byte[] DecodeBase64(String? base64Value, String errorMessage)
-    {
-        if (String.IsNullOrWhiteSpace(base64Value))
-        {
-            throw new DownloadCommandException(errorMessage);
-        }
+    internal static Byte[] DecodeShareKey(String shareKey) => DecodeShareKey(shareKey.AsSpan());
 
-        try
-        {
-            return Convert.FromBase64String(base64Value);
-        }
-        catch (FormatException)
-        {
-            throw new DownloadCommandException(errorMessage);
-        }
-    }
-
-    private static Byte[] DecodeShareKey(String shareKey) => DecodeShareKey(shareKey.AsSpan());
-
-    private static Byte[] DecodeShareKey(ReadOnlySpan<Char> shareKey)
+    internal static Byte[] DecodeShareKey(ReadOnlySpan<Char> shareKey)
     {
         var trimmedValue = TrimAsciiWhitespace(shareKey);
         if (trimmedValue.StartsWith(SecretPrefix, StringComparison.OrdinalIgnoreCase))
@@ -127,7 +110,7 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
-    private static Guid ParseFileId(String? fileId)
+    internal static Guid ParseFileId(String? fileId)
     {
         if (!Guid.TryParse(fileId, out var parsedFileId) || parsedFileId == Guid.Empty)
         {
@@ -137,18 +120,7 @@ internal sealed class DownloadCommandHandler(
         return parsedFileId;
     }
 
-    private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
-    {
-        if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
-            || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new DownloadCommandException("Server URL invalid or missing.");
-        }
-
-        return new(serverUrl, entry.ShareId!);
-    }
-
-    private static ShareManifestFileContract SelectDirectDownloadFile(ShareManifestContract manifest, String? fileId)
+    internal static ShareManifestFileContract SelectDirectDownloadFile(ShareManifestContract manifest, String? fileId)
     {
         if (!String.IsNullOrWhiteSpace(fileId))
         {
@@ -160,7 +132,7 @@ internal sealed class DownloadCommandHandler(
             : throw new DownloadCommandException("Share contains multiple files; specify --file.");
     }
 
-    private static ShareManifestFileContract SelectFileById(IReadOnlyList<ShareManifestFileContract> files, Guid fileId)
+    internal static ShareManifestFileContract SelectFileById(IReadOnlyList<ShareManifestFileContract> files, Guid fileId)
     {
         ShareManifestFileContract? match = null;
         foreach (var file in files)
@@ -181,39 +153,13 @@ internal sealed class DownloadCommandHandler(
         return match ?? throw new DownloadCommandException("Requested file not found in share.");
     }
 
-    private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
-    {
-        var match = SelectFileById(manifest.Files!, ParseFileId(entry.FileId));
-        if (!String.Equals(match.FileName, entry.FileName, StringComparison.Ordinal) || match.Length != entry.Length)
-        {
-            throw new DownloadCommandException("Queue entry does not match share metadata.");
-        }
-
-        return match;
-    }
-
-    private static ReadOnlySpan<Char> TrimAsciiWhitespace(ReadOnlySpan<Char> value)
-    {
-        while (value.Length > 0 && Char.IsWhiteSpace(value[0]))
-        {
-            value = value[1..];
-        }
-
-        while (value.Length > 0 && Char.IsWhiteSpace(value[^1]))
-        {
-            value = value[..^1];
-        }
-
-        return value;
-    }
-
-    private async Task DownloadToFileAsync(Uri serverUrl,
-                                           String shareId,
-                                           ShareManifestFileContract file,
-                                           Byte[] shareKeyBytes,
-                                           String? bearerToken,
-                                           String outputPath,
-                                           CancellationToken cancellationToken)
+    internal async Task DownloadToFileAsync(Uri serverUrl,
+                                            String shareId,
+                                            ShareManifestFileContract file,
+                                            Byte[] shareKeyBytes,
+                                            String? bearerToken,
+                                            String outputPath,
+                                            CancellationToken cancellationToken)
     {
         var directoryPath = Path.GetDirectoryName(outputPath);
         if (!String.IsNullOrWhiteSpace(directoryPath))
@@ -243,6 +189,108 @@ internal sealed class DownloadCommandHandler(
 
             throw;
         }
+    }
+
+    internal async Task<ShareManifestContract> GetManifestAsync(Uri serverUrl, String shareId, String? bearerToken, CancellationToken cancellationToken)
+    {
+        var manifestClient = new ShareManifestClient(httpClient);
+        return await manifestClient.GetAsync(serverUrl, shareId, bearerToken, cancellationToken);
+    }
+
+    internal async Task<Byte[]?> ResolveShareKeyBytesAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
+    {
+        if (!String.IsNullOrWhiteSpace(options.ShareKey))
+        {
+            return DecodeShareKey(options.ShareKey);
+        }
+
+        if (options.ShareKeyFile is null)
+        {
+            return null;
+        }
+
+        Byte[]? fileBytes = null;
+        Char[]? fileChars = null;
+        try
+        {
+            fileBytes = await File.ReadAllBytesAsync(options.ShareKeyFile.FullName, cancellationToken);
+            fileChars = Encoding.UTF8.GetChars(fileBytes);
+            return DecodeShareKey(fileChars);
+        }
+        catch (IOException)
+        {
+            throw new DownloadCommandException("Share key invalid or missing.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new DownloadCommandException("Share key invalid or missing.");
+        }
+        finally
+        {
+            if (fileBytes is not null)
+            {
+                CryptographicOperations.ZeroMemory(fileBytes);
+            }
+
+            if (fileChars is not null)
+            {
+                Array.Clear(fileChars, 0, fileChars.Length);
+            }
+        }
+    }
+
+    private static Byte[] DecodeBase64(String? base64Value, String errorMessage)
+    {
+        if (String.IsNullOrWhiteSpace(base64Value))
+        {
+            throw new DownloadCommandException(errorMessage);
+        }
+
+        try
+        {
+            return Convert.FromBase64String(base64Value);
+        }
+        catch (FormatException)
+        {
+            throw new DownloadCommandException(errorMessage);
+        }
+    }
+
+    private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
+    {
+        if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
+            || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new DownloadCommandException("Server URL invalid or missing.");
+        }
+
+        return new(serverUrl, entry.ShareId!);
+    }
+
+    private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
+    {
+        var match = SelectFileById(manifest.Files!, ParseFileId(entry.FileId));
+        if (!String.Equals(match.FileName, entry.FileName, StringComparison.Ordinal) || match.Length != entry.Length)
+        {
+            throw new DownloadCommandException("Queue entry does not match share metadata.");
+        }
+
+        return match;
+    }
+
+    private static ReadOnlySpan<Char> TrimAsciiWhitespace(ReadOnlySpan<Char> value)
+    {
+        while (value.Length > 0 && Char.IsWhiteSpace(value[0]))
+        {
+            value = value[1..];
+        }
+
+        while (value.Length > 0 && Char.IsWhiteSpace(value[^1]))
+        {
+            value = value[..^1];
+        }
+
+        return value;
     }
 
     private async Task DownloadToStreamAsync(Uri serverUrl,
@@ -408,48 +456,6 @@ internal sealed class DownloadCommandHandler(
         catch (JsonException)
         {
             throw new DownloadCommandException("Configuration file invalid or unreadable.");
-        }
-    }
-
-    private async Task<Byte[]?> ResolveShareKeyBytesAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
-    {
-        if (!String.IsNullOrWhiteSpace(options.ShareKey))
-        {
-            return DecodeShareKey(options.ShareKey);
-        }
-
-        if (options.ShareKeyFile is null)
-        {
-            return null;
-        }
-
-        Byte[]? fileBytes = null;
-        Char[]? fileChars = null;
-        try
-        {
-            fileBytes = await File.ReadAllBytesAsync(options.ShareKeyFile.FullName, cancellationToken);
-            fileChars = Encoding.UTF8.GetChars(fileBytes);
-            return DecodeShareKey(fileChars);
-        }
-        catch (IOException)
-        {
-            throw new DownloadCommandException("Share key invalid or missing.");
-        }
-        catch (UnauthorizedAccessException)
-        {
-            throw new DownloadCommandException("Share key invalid or missing.");
-        }
-        finally
-        {
-            if (fileBytes is not null)
-            {
-                CryptographicOperations.ZeroMemory(fileBytes);
-            }
-
-            if (fileChars is not null)
-            {
-                Array.Clear(fileChars, 0, fileChars.Length);
-            }
         }
     }
 

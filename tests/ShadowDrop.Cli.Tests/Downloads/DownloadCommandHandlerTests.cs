@@ -13,6 +13,7 @@ using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
+using ShadowDrop.Tests.Fakes;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -265,6 +266,43 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Share key invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldGuideInteractiveDownloadWithMaskedSecretsAndNoLeakage()
+    {
+        await using var fixture = new CliDownloadApiFactory();
+        var inputFile = fixture.CreateInputFile("interactive-download.bin", 72);
+        var upload = await fixture.UploadFilesAsync([inputFile]);
+        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        using var httpClient = fixture.CreateClient();
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession();
+        var outputPath = Path.Combine(fixture.RootDirectory, "interactive-download.bin");
+        interactiveSession.EnqueueTextResponse(upload.ShareKey);
+        interactiveSession.EnqueueTextResponse(share.DownloadBearerToken!);
+        interactiveSession.EnqueueMultiSelection(0);
+        interactiveSession.EnqueueTextResponse(outputPath);
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), share.ShareToken],
+                                                        CreateServices(binaryOutput,
+                                                                       standardOut,
+                                                                       standardError,
+                                                                       fixture.ConfigFilePath,
+                                                                       httpClient: httpClient,
+                                                                       interactiveSession: interactiveSession),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardOut.ToString().Should().BeEmpty();
+        (await File.ReadAllBytesAsync(outputPath)).Should().BeEquivalentTo(await File.ReadAllBytesAsync(inputFile));
+        standardError.ToString().Should().NotContain(upload.ShareKey)
+                     .And.NotContain(share.DownloadBearerToken!);
+        interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Download complete");
+        interactiveSession.TextPrompts.Should().Contain(("Share key:", true))
+                          .And.Contain(("Download bearer token:", true));
     }
 
     [Test]
@@ -637,6 +675,38 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldSurfaceAuthorizationFailureAfterRejectedInteractiveBearerToken()
+    {
+        await using var fixture = new CliDownloadApiFactory();
+        var inputFile = fixture.CreateInputFile("interactive-protected.bin", 72);
+        var upload = await fixture.UploadFilesAsync([inputFile]);
+        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession();
+        interactiveSession.EnqueueTextResponse(upload.ShareKey);
+        interactiveSession.EnqueueTextResponse("wrong-token");
+        using var httpClient = fixture.CreateClient();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), share.ShareToken],
+                                                        CreateServices(binaryOutput,
+                                                                       standardOut,
+                                                                       standardError,
+                                                                       fixture.ConfigFilePath,
+                                                                       httpClient: httpClient,
+                                                                       interactiveSession: interactiveSession),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.Length.Should().Be(0);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Download authorization failed.");
+        interactiveSession.TextPrompts.Should().ContainInOrder(("Share key:", true), ("Download bearer token:", true));
+        interactiveSession.TextPrompts.Count(prompt => prompt == ("Download bearer token:", true)).Should().Be(1);
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldWriteQueueSuccessLinesBeforeProcessingLaterEntries()
     {
         var fixture = DownloadHttpFixture.Create();
@@ -724,12 +794,15 @@ public sealed class DownloadCommandHandlerTests
                                                          TextWriter standardError,
                                                          String? configPath = null,
                                                          IReadOnlyDictionary<String, String?>? environmentValues = null,
-                                                         HttpClient? httpClient = null) =>
+                                                         HttpClient? httpClient = null,
+                                                         FakeInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
             httpClient ?? new HttpClient(new NeverCalledHandler()),
             standardOutStream,
             standardOut,
-            standardError);
+            standardError,
+            interactiveSession ?? new FakeInteractiveSession(),
+            TimeProvider.System);
 
     private sealed class CliDownloadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {
