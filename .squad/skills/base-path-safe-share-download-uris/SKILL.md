@@ -20,6 +20,9 @@ transport exceptions into higher-level queue or command handlers.
 
 - Treat configured server URLs as **directory bases** before appending public share paths. Normalize the base URI to a
   trailing slash, then append relative `d/...` paths without a leading slash.
+- When caching share manifests, key the cache by the **canonical manifest URI** (or an equivalent canonical server base
+  plus share id), not by the raw input server URL string. This keeps `https://host/base-path` and
+  `https://host/base-path/` on the same cache entry.
 - When parsing an absolute share URL, preserve every path segment before the trailing `/d/{token}` as the server base.
   Do not collapse back to `scheme://authority/`.
 - Normalize manifest transport faults (`HttpRequestException`, stream `IOException`, non-user-cancelled timeouts) into
@@ -30,6 +33,8 @@ transport exceptions into higher-level queue or command handlers.
 ## Examples
 
 - `https://shadowdrop.test/base-path/` + `d/share-token` → `https://shadowdrop.test/base-path/d/share-token`
+- `https://shadowdrop.test/base-path` and `https://shadowdrop.test/base-path/` for the same share both cache under
+  `https://shadowdrop.test/base-path/d/share-token`
 - `https://shadowdrop.test/base-path/d/share-token` parsed as an absolute share URL → server base
   `https://shadowdrop.test/base-path/`, share token `share-token`
 - `ShareManifestClient.GetAsync(...)` catches manifest stream/network faults and rethrows
@@ -39,6 +44,7 @@ transport exceptions into higher-level queue or command handlers.
 ## Anti-Patterns
 
 - Building share URLs with `new Uri(serverUrl, "/d/...")`
+- Caching manifests with the raw `serverUrl.ToString()` when equivalent trailing-slash variants are allowed
 - Stripping an absolute share URL down to `scheme://authority` and losing `/base-path/`
 - Letting raw `HttpRequestException` or manifest stream `IOException` escape the manifest client
 - Mapping manifest transport failures to local filesystem error messages

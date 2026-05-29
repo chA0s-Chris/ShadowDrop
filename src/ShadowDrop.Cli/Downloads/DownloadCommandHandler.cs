@@ -141,8 +141,7 @@ internal sealed class DownloadCommandHandler(
     {
         if (!String.IsNullOrWhiteSpace(fileId))
         {
-            var match = manifest.Files!.SingleOrDefault(file => String.Equals(file.FileId, fileId, StringComparison.Ordinal));
-            return match ?? throw new DownloadCommandException("Requested file not found in share.");
+            return SelectFileById(manifest.Files!, ParseFileId(fileId));
         }
 
         return manifest.Files!.Count == 1
@@ -150,14 +149,13 @@ internal sealed class DownloadCommandHandler(
             : throw new DownloadCommandException("Share contains multiple files; specify --file.");
     }
 
+    private static ShareManifestFileContract SelectFileById(IReadOnlyList<ShareManifestFileContract> files, Guid fileId) =>
+        files.SingleOrDefault(file => ParseFileId(file.FileId) == fileId)
+        ?? throw new DownloadCommandException("Requested file not found in share.");
+
     private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
     {
-        var match = manifest.Files!.SingleOrDefault(file => String.Equals(file.FileId, entry.FileId, StringComparison.Ordinal));
-        if (match is null)
-        {
-            throw new DownloadCommandException("Requested file not found in share.");
-        }
-
+        var match = SelectFileById(manifest.Files!, ParseFileId(entry.FileId));
         if (!String.Equals(match.FileName, entry.FileName, StringComparison.Ordinal) || match.Length != entry.Length)
         {
             throw new DownloadCommandException("Queue entry does not match share metadata.");
@@ -326,7 +324,7 @@ internal sealed class DownloadCommandHandler(
                                                                String? bearerToken,
                                                                CancellationToken cancellationToken)
     {
-        var cacheKey = $"{shareReference.ServerUrl}|{shareReference.ShareId}";
+        var cacheKey = ShareDownloadUriFactory.CreateManifestUri(shareReference.ServerUrl, shareReference.ShareId).AbsoluteUri;
         if (manifestCache.TryGetValue(cacheKey, out var cachedManifest))
         {
             return cachedManifest;

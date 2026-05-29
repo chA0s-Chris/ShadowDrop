@@ -528,3 +528,18 @@ This keeps automation predictable, avoids accidental secret leakage into mixed o
 CLI public-download URI generation now treats configured server URLs as directory bases and appends `d/{share}` / `d/{share}/files/{file}` as relative paths, so deployments behind a path base keep their prefix for both manifest and file requests. Absolute share URLs are parsed the same way: everything before the trailing `/d/{token}` is preserved as the server base.
 
 Manifest transport failures are normalized inside `ShareManifestClient` to `DownloadCommandException("Server connection failed.")`. That keeps direct downloads on the documented exit-code-1 path and lets queue processing record a per-file failure line and continue with the remaining entries.
+
+--- eliot-queue-contract-and-cache-key.md ---
+- **Date:** 2026-05-29T02:49:00.341+02:00
+- **Author:** Eliot
+
+## Decision
+
+Queue download docs should describe the full per-file contract: `serverUrl`, `shareId`, `fileId`, `fileName`,
+`length`, and `outputPath`.
+
+CLI queue validation should stay strict; those manifest-bound fields are required so queued work fails closed when the
+live share metadata changes.
+
+Manifest caching should use the canonical manifest URI rather than the raw server URL string so equivalent trailing-slash
+variants reuse one cache entry.

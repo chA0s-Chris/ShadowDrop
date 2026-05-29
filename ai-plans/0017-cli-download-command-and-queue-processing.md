@@ -37,6 +37,9 @@ Each queue entry in a valid download queue file must contain the following field
 - `serverUrl` (string): The base URL of the ShadowDrop server hosting the share (e.g.,
   `https://api.shadowdrop.example.com`)
 - `shareId` (string): The unique identifier for the share to download
+- `fileId` (string): The unique identifier of the file within the share
+- `fileName` (string): The expected file name from the share manifest
+- `length` (number): The expected plaintext length from the share manifest
 - `outputPath` (string): The local file system path where the decrypted content should be written
 
 Queue entries **do not and must not ever contain** share keys, bearer tokens, or other secrets. All secrets are provided
@@ -46,11 +49,14 @@ via CLI arguments only (`--share-key`, `--bearer-token`).
 required fields or is malformed, the validation fails and the command exits with code 1. No downloads are attempted if
 validation fails.
 
+The `fileId`, `fileName`, and `length` fields intentionally duplicate share-manifest metadata so queue processing can bind each entry to exactly one manifest file and fail closed if the server-side metadata no longer matches the queued expectation.
+
 ## Technical Details
 
 Implement the non-interactive download command in `ShadowDrop.Cli` using System.CommandLine. The command should work
-both from explicit arguments and from a queue file that already contains the target server and share id. Reuse the
-shared queue models and validator rather than duplicating parsing rules in the CLI.
+both from explicit arguments and from a queue file that already contains the target server, share id, and per-file
+manifest metadata (`fileId`, `fileName`, `length`). Reuse the shared queue models and validator rather than duplicating
+parsing rules in the CLI.
 
 **Share Key Input:**
 The share key is required and must be provided via `--share-key <key>` (CLI argument) or `--share-key-file <path>` (read
