@@ -29,18 +29,4 @@ public sealed record QueueFile
     [JsonPropertyName("shadowDrop")]
     [JsonPropertyOrder(0)]
     public String? ShadowDrop { get; init; }
-
-    /// <summary>
-    /// Gets or sets the share identifier.
-    /// </summary>
-    [JsonPropertyName("shareId")]
-    [JsonPropertyOrder(3)]
-    public String? ShareId { get; init; }
-
-    /// <summary>
-    /// Gets or sets the target base URL used for the queue.
-    /// </summary>
-    [JsonPropertyName("target")]
-    [JsonPropertyOrder(2)]
-    public String? Target { get; init; }
 }

@@ -19,6 +19,17 @@ public sealed class CliDownloadRequestFactoryTests
         request.Headers.Range.Should().BeNull();
     }
 
+    [Test]
+    public void CreateGetRequest_ShouldAttachAuthorizationHeader_WhenBearerTokenIsProvided()
+    {
+        var request = CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
+                                                                 "download-token");
+
+        request.Headers.Authorization.Should().NotBeNull();
+        request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+        request.Headers.Authorization.Parameter.Should().Be("download-token");
+    }
+
     [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?mode=cli", "?mode=cli")]
     [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?mode=direct-http", "?mode=cli")]
     [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1&mode=direct-http&mode=cli", "?download=1&mode=cli")]
@@ -35,7 +46,7 @@ public sealed class CliDownloadRequestFactoryTests
     public void CreateGetRequest_ShouldPreserveExistingQueryString_AndAddByteRangeHeader()
     {
         var request = CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1"),
-                                                                 new()
+                                                                 requestedRange: new()
                                                                  {
                                                                      Start = 64,
                                                                      End = 120
@@ -56,7 +67,7 @@ public sealed class CliDownloadRequestFactoryTests
     public void CreateGetRequest_ShouldRejectInvalidRequestedRanges(Int64 start, Int64 end)
     {
         var act = () => CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
-                                                                   new()
+                                                                   requestedRange: new()
                                                                    {
                                                                        Start = start,
                                                                        End = end

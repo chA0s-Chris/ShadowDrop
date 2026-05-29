@@ -13,13 +13,21 @@ public static class CliDownloadRequestFactory
     /// Creates a GET request that explicitly negotiates the CLI download contract.
     /// </summary>
     /// <param name="downloadUri">The public download URI.</param>
+    /// <param name="bearerToken">The optional bearer token.</param>
     /// <param name="requestedRange">The optional plaintext range to request.</param>
     /// <returns>The configured HTTP request.</returns>
-    public static HttpRequestMessage CreateGetRequest(Uri downloadUri, RequestedPlaintextRangeContract? requestedRange = null)
+    public static HttpRequestMessage CreateGetRequest(Uri downloadUri,
+                                                      String? bearerToken = null,
+                                                      RequestedPlaintextRangeContract? requestedRange = null)
     {
         ArgumentNullException.ThrowIfNull(downloadUri);
 
         var request = new HttpRequestMessage(HttpMethod.Get, AppendCliMode(downloadUri));
+        if (!String.IsNullOrWhiteSpace(bearerToken))
+        {
+            request.Headers.Authorization = new("Bearer", bearerToken);
+        }
+
         if (requestedRange is not null)
         {
             if (requestedRange.Start < 0 || requestedRange.End <= requestedRange.Start)

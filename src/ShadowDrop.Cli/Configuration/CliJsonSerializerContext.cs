@@ -3,9 +3,11 @@
 namespace ShadowDrop.Cli.Configuration;
 
 using ShadowDrop.Cli.Uploads;
+using ShadowDrop.Contracts;
 using System.Text.Json.Serialization;
 
 [JsonSerializable(typeof(CliConfigFile))]
+[JsonSerializable(typeof(ShareManifestContract))]
 [JsonSerializable(typeof(UploadReservationResponse))]
 [JsonSerializable(typeof(UploadResponse))]
 [JsonSerializable(typeof(UploadMetadataPayload))]

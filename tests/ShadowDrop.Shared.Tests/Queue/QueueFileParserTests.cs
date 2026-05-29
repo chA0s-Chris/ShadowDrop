@@ -42,13 +42,14 @@ public sealed class QueueFileParserTests
                             {
                               "shadowDrop": "1.0",
                               "queueVersion": "1.0",
-                              "target": "https://example.com/upload",
-                              "shareId": "share-123",
                               "files": [
                                 {
+                                  "serverUrl": "https://example.com",
+                                  "shareId": "share-123",
                                   "fileId": "file-1",
                                   "fileName": "report.txt",
-                                  "length": 4096
+                                  "length": 4096,
+                                  "outputPath": "downloads/report.txt"
                                 }
                               ]
                             }
@@ -62,11 +63,17 @@ public sealed class QueueFileParserTests
 
     [TestCase("ftp://example.com/upload")]
     [TestCase("file:///tmp/report.txt")]
-    public void Parse_ShouldRejectAbsoluteTargetWithNonHttpScheme(String target)
+    public void Parse_ShouldRejectAbsoluteTargetWithNonHttpScheme(String serverUrl)
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Target = target
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    ServerUrl = serverUrl
+                }
+            ]
         };
         var json = QueueFileParser.Serialize(queueFile);
 
@@ -75,8 +82,8 @@ public sealed class QueueFileParserTests
         act.Should()
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "target" &&
-                                                    error.Message == "The target value must be an absolute HTTP or HTTPS URL.");
+                                                    error.Path == "files[0].serverUrl" &&
+                                                    error.Message == "The serverUrl value must be an absolute HTTP or HTTPS URL.");
     }
 
     [Test]
@@ -86,12 +93,13 @@ public sealed class QueueFileParserTests
                             {
                               "shadowDrop": "1.0",
                               "queueVersion": "1.0",
-                              "target": "https://example.com/upload",
-                              "shareId": "share-123",
                               "files": [
                                 {
+                                  "serverUrl": "https://example.com",
+                                  "shareId": "share-123",
                                   "fileId": "file-1",
-                                  "fileName": "report.txt"
+                                  "fileName": "report.txt",
+                                  "outputPath": "downloads/report.txt"
                                 }
                               ]
                             }
@@ -113,14 +121,15 @@ public sealed class QueueFileParserTests
                             {
                               "shadowDrop": "2.0",
                               "queueVersion": "1.0",
-                              "target": "notaurl",
-                              "shareId": "",
                               "files": [
                                 {
-                                 "fileId": "",
-                                 "fileName": "",
-                                 "length": -1,
-                                 "plaintextSha256": "nope"
+                                  "serverUrl": "notaurl",
+                                  "shareId": "",
+                                  "fileId": "",
+                                  "fileName": "",
+                                  "length": -1,
+                                  "outputPath": "",
+                                  "plaintextSha256": "nope"
                                 }
                               ]
                             }
@@ -132,12 +141,13 @@ public sealed class QueueFileParserTests
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().BeEquivalentTo(
                [
-                   new("shareId", "The shareId value is required."),
-                   new("target", "The target value must be an absolute HTTP or HTTPS URL."),
                    new("shadowDrop", "The shadowDrop value must be '1.0'."),
+                   new("files[0].serverUrl", "The serverUrl value must be an absolute HTTP or HTTPS URL."),
+                   new("files[0].shareId", "The shareId value is required."),
                    new("files[0].fileId", "The fileId value is required."),
                    new("files[0].fileName", "The fileName value is required."),
                    new("files[0].length", "The file length must be zero or greater."),
+                   new("files[0].outputPath", "The outputPath value is required."),
                    new QueueFileValidationError("files[0].plaintextSha256",
                                                 "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.")
                ],
@@ -190,11 +200,17 @@ public sealed class QueueFileParserTests
     [TestCase("https://example.com/upload?sd-key=secret")]
     [TestCase("https://example.com/upload?foo=bar")]
     [TestCase("https://example.com/upload#fragment")]
-    public void Parse_ShouldRejectTargetWithQueryOrFragment(String target)
+    public void Parse_ShouldRejectTargetWithQueryOrFragment(String serverUrl)
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Target = target
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    ServerUrl = serverUrl
+                }
+            ]
         };
         var json = QueueFileParser.Serialize(queueFile);
 
@@ -203,8 +219,8 @@ public sealed class QueueFileParserTests
         act.Should()
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "target" &&
-                                                    error.Message == "The target value must not include query string or fragment components.");
+                                                    error.Path == "files[0].serverUrl" &&
+                                                    error.Message == "The serverUrl value must not include query string or fragment components.");
     }
 
     [Test]
@@ -212,7 +228,13 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Target = "https://user:pass@example.com/upload"
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    ServerUrl = "https://user:pass@example.com/upload"
+                }
+            ]
         };
         var json = QueueFileParser.Serialize(queueFile);
 
@@ -221,8 +243,8 @@ public sealed class QueueFileParserTests
         act.Should()
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "target" &&
-                                                    error.Message == "The target value must not include user information.");
+                                                    error.Path == "files[0].serverUrl" &&
+                                                    error.Message == "The serverUrl value must not include user information.");
     }
 
     [Test]
@@ -234,9 +256,12 @@ public sealed class QueueFileParserTests
             [
                 new()
                 {
+                    ServerUrl = "https://example.com",
+                    ShareId = "share-123",
                     FileId = "file-1",
                     FileName = "report.txt",
-                    Length = 4096
+                    Length = 4096,
+                    OutputPath = "downloads/report.txt"
                 }
             ]
         };
@@ -258,11 +283,11 @@ public sealed class QueueFileParserTests
         var root = document.RootElement;
 
         root.EnumerateObject().Select(property => property.Name).Should()
-            .Equal("shadowDrop", "queueVersion", "target", "shareId", "files");
+            .Equal("shadowDrop", "queueVersion", "files");
 
         var entry = root.GetProperty("files")[0];
         entry.EnumerateObject().Select(property => property.Name).Should()
-             .Equal("fileId", "fileName", "length", "plaintextSha256");
+             .Equal("serverUrl", "shareId", "fileId", "fileName", "length", "outputPath", "plaintextSha256");
     }
 
     [Test]
@@ -272,8 +297,6 @@ public sealed class QueueFileParserTests
         {
             ShadowDrop = null,
             QueueVersion = null,
-            Target = null,
-            ShareId = null,
             Files = []
         };
 
@@ -283,8 +306,6 @@ public sealed class QueueFileParserTests
             [
                 new("shadowDrop", "The shadowDrop value is required."),
                 new("queueVersion", "The queueVersion value is required."),
-                new("shareId", "The shareId value is required."),
-                new("target", "The target value is required."),
                 new QueueFileValidationError("files", "The files collection must contain at least one entry.")
             ],
             options => options.WithoutStrictOrdering());
@@ -295,15 +316,16 @@ public sealed class QueueFileParserTests
         {
             ShadowDrop = FormatConstants.ShadowDropVersion,
             QueueVersion = FormatConstants.QueueVersion,
-            Target = "https://example.com",
-            ShareId = "share-123",
             Files =
             [
                 new()
                 {
+                    ServerUrl = "https://example.com",
+                    ShareId = "share-123",
                     FileId = "file-1",
                     FileName = "report.txt",
                     Length = 4096,
+                    OutputPath = "downloads/report.txt",
                     PlaintextSha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                 }
             ]

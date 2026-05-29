@@ -17,6 +17,7 @@ public static class DownloadEndpoints
         if (options.ApiExposure.EnablePublicDownloads)
         {
             var downloadRoutes = app.MapGroup("/d");
+            downloadRoutes.MapGet("/{token}", GetShareManifestAsync);
             downloadRoutes.MapGet("/{token}/files/{fileId:guid}", DownloadAsync);
         }
 
@@ -79,6 +80,29 @@ public static class DownloadEndpoints
         !String.IsNullOrWhiteSpace(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
             ? contentType
             : "application/octet-stream";
+
+    private static async Task<IResult> GetShareManifestAsync(String token,
+                                                             HttpRequest request,
+                                                             DownloadFileService downloadFileService,
+                                                             ILoggerFactory loggerFactory,
+                                                             CancellationToken cancellationToken)
+    {
+        var result = await downloadFileService.ResolveManifestAsync(token, TryGetBearerToken(request), cancellationToken);
+        if (result.Status != DownloadLookupStatus.Success)
+        {
+            loggerFactory.CreateLogger(typeof(DownloadEndpoints))
+                         .LogInformation("Share manifest request failed with status {Status}.", result.Status);
+        }
+
+        return result.Status switch
+        {
+            DownloadLookupStatus.Success => Results.Json(result.Manifest),
+            DownloadLookupStatus.InvalidShare or DownloadLookupStatus.ExpiredShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
+            DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
+            DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
+            _ => new StatusDownloadResult(StatusCodes.Status500InternalServerError)
+        };
+    }
 
     private static RequestedByteRange? ParseCliRangeHeader(String rangeHeader)
     {

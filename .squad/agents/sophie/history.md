@@ -75,3 +75,9 @@ Ready for integration.
   emitted only as the final stdout line on full success behind `--output-secret`, and all diagnostics stay on stderr.
   Config resolution is locked to flags > `SHADOWDROP_SERVER_URL` / `SHADOWDROP_UPLOAD_TOKEN` > config file, with token
   trimming before use and Native AOT-safe JSON source generation for config and upload DTOs.
+- **Issue 17 download CLI (2026-05-29T00:41:01.379+02:00):** The recipient download path now hinges on a lightweight
+  public share manifest at `GET /d/{token}` plus the streamed CLI download endpoint. Shared queue validation moved to
+  per-file entries (`serverUrl`, `shareId`, `fileId`, `fileName`, `length`, `outputPath`, optional `plaintextSha256`),
+  which keeps queue files secret-free while letting the CLI batch downloads predictably. Key implementation paths:
+  `src/ShadowDrop.Cli/Downloads/`, `src/ShadowDrop.Api/Downloads/`, `src/ShadowDrop.Shared/Queue/`,
+  `tests/ShadowDrop.Cli.Tests/Downloads/`.

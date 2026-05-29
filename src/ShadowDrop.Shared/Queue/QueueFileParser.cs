@@ -78,8 +78,6 @@ public static partial class QueueFileParser
 
         ValidateRequiredString(queueFile.ShadowDrop, "shadowDrop", errors);
         ValidateRequiredString(queueFile.QueueVersion, "queueVersion", errors);
-        ValidateRequiredString(queueFile.ShareId, "shareId", errors);
-        ValidateTarget(queueFile.Target, errors);
 
         if (!String.IsNullOrWhiteSpace(queueFile.ShadowDrop) &&
             !String.Equals(queueFile.ShadowDrop, FormatConstants.ShadowDropVersion, StringComparison.Ordinal))
@@ -122,6 +120,9 @@ public static partial class QueueFileParser
 
         ValidateRequiredString(entry.FileId, $"{prefix}.fileId", errors);
         ValidateRequiredString(entry.FileName, $"{prefix}.fileName", errors);
+        ValidateRequiredString(entry.OutputPath, $"{prefix}.outputPath", errors);
+        ValidateRequiredString(entry.ShareId, $"{prefix}.shareId", errors);
+        ValidateServerUrl(entry.ServerUrl, $"{prefix}.serverUrl", errors);
 
         if (entry.Length is null)
         {
@@ -157,33 +158,33 @@ public static partial class QueueFileParser
         }
     }
 
-    private static void ValidateTarget(String? target, List<QueueFileValidationError> errors)
+    private static void ValidateServerUrl(String? serverUrl, String path, List<QueueFileValidationError> errors)
     {
-        if (String.IsNullOrWhiteSpace(target))
+        if (String.IsNullOrWhiteSpace(serverUrl))
         {
-            errors.Add(new("target", "The target value is required."));
+            errors.Add(new(path, $"The {path.Split('.').Last()} value is required."));
             return;
         }
 
-        var isAbsoluteHttpUrl = Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
+        var isAbsoluteHttpUrl = Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri) &&
                                 uri is not null &&
                                 (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
         if (!isAbsoluteHttpUrl)
         {
-            errors.Add(new("target", "The target value must be an absolute HTTP or HTTPS URL."));
+            errors.Add(new(path, "The serverUrl value must be an absolute HTTP or HTTPS URL."));
             return;
         }
 
         var validatedUri = uri!;
         if (!String.IsNullOrEmpty(validatedUri.UserInfo))
         {
-            errors.Add(new("target", "The target value must not include user information."));
+            errors.Add(new(path, "The serverUrl value must not include user information."));
         }
 
         if (!String.IsNullOrEmpty(validatedUri.Query) || !String.IsNullOrEmpty(validatedUri.Fragment))
         {
-            errors.Add(new("target", "The target value must not include query string or fragment components."));
+            errors.Add(new(path, "The serverUrl value must not include query string or fragment components."));
         }
     }
 }
