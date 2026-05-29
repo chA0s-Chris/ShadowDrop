@@ -1,73 +1,72 @@
-# SUMMARY — Generated 2026-05-29T10:53:39Z
+# SUMMARY — Generated 2026-05-29T14:37:34Z
 
 **Coverage:** May 29, 2026 (current session)
-**Focus:** Plan 0019 Docker deployment finalization and acceptance criteria polish
-**Status:** Plan 0019 locked for implementation. Awaiting Platform (Tara) for Dockerfile authoring.
+**Focus:** Plan 0020 Native AOT CLI Publishing — MVP locked; Issue #20 finalized
+**Status:** Plan 0020 ready for implementation. Flat artifact schema, NUKE Publish target, GitHub Actions workflow, and validation split now concrete. Issue #20 finalized with 7 concrete criteria (blocker protocol removed). README work moved to issue #35.
 
-## Current Session Highlights
+## Current Session Outcomes
 
-- **Plan 0019 Assessment:** Identified three ambiguities in acceptance criteria (smoke test, volume mount, runtime defaults).
-- **Plan 0019 Finalization:** Embedded all five user-directed MVP decisions into concrete, testable criteria. Route separation deferred to issue #33.
-- **Plan 0019 Polish:** Applied final wording refinements to smoke test, volume mount requirement, and runtime defaults for implementation clarity.
-- **Status:** Zero ambiguous acceptance criteria. Plan ready for Dockerfile authoring by Tara (Platform).
+1. **Plan 0019 (Docker) — FINALIZED**
+  - All acceptance criteria concrete and testable
+  - Zero ambiguity remaining
+  - Ready for Dockerfile authoring by Tara
 
-## Key Decisions Embedded in Plan 0019 MVP
+2. **Plan 0020 (Native AOT CLI) — MVP LOCKED**
+  - RID matrix: All 6 confirmed
+  - Artifact contract: Flat schema `artifacts/cli/{version}/`
+  - NUKE Publish target: In scope
+  - GitHub Actions workflow: Native macOS + Linux cross-compile
+  - Smoke-test split: Native targets validated, cross-compile build-only
+  - Blocker protocol: REMOVED per user directive
+  - Issue #20 updated with 7 concrete acceptance criteria
+  - **Status:** Implementation-ready, awaiting assignment
 
-- **Base Image:** Ubuntu Chiseled ASP.NET 10.0 (`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`)
-- **Port:** Single port `19423` (both public downloads and admin routes together)
-- **Storage:** `/app/data/shadowdrop.db` (LiteDB), `/app/data/blobs/` (blob storage)
-- **Permissions:** `700` for `/app/data`, `600` for database file
-- **Non-root Execution:** uid/gid `1000:1000`
-- **Multi-arch:** amd64 and arm64 only
-- **HTTPS:** None in MVP; reverse-proxy pattern documented
-- **Health Check:** None in MVP
-- **Smoke Test:** Concrete single-container validation (starts, loads config, responds to request)
+3. **GitHub Issue #20 — SCOPE CORRECTION APPLIED**
+  - Fallback/blocker-protocol language removed
+  - Acceptance criteria tightened from 8 to 7
+  - Implementation-oriented; no policy language
+  - Ready for assignment to Sophie or appropriate specialist
 
----
+## Key Learnings
 
-## Archived Details
-
-### PR #31 Review Cycle (May 29T03:13–07:28)
-
-See `.squad/agents/nate/history-archive.md` for detailed PR #31 reassessment work (three separate triage passes, duplicate fileId defense-in-depth analysis, queue contract documentation validation). **Outcome:** PR #31 merge-ready from correctness standpoint; two optimization suggestions deferred.
-
-### Issue Triage (May 29T09:02)
-
-See history-archive.md for #18/#19/#20 sequencing recommendation. **Outcome:** #18 (Interactive UX) READY NEXT; #19/#20 defer pending scope clarification.
-
-### Pre-Plan 0019 Assessment Work (May 29T09:45–12:25)
-
-See history-archive.md for initial plan assessments, port-split review, HTTPS MVP analysis, and user input interpretation. **Outcome:** All five user inputs sound; issue was wording clarity, not architecture. Plan 0019 becomes implementation-ready after criteria refinement.
-
----
+- **Policy Bleeding:** GitHub issue scope creep often stems from policy language in acceptance criteria. When a decision is settled, remove the policy wrapper and keep only the implementation contract.
+- **Specificity Matters:** "Blockers documented" → "documented in `.squad/decisions.md` with evidence (error, dependency, rationale) before fallback considered" removes ambiguity and closes the loop.
+- **Smoke Test Clarity:** Concrete validation contract (logs, endpoint, readiness proof) prevents implementer guesswork.
+- **Explicit Volume Mounts:** Implicit assumptions about Docker mount points lead to persistent data loss; explicit requirement is non-negotiable.
+- **Proven Over Policy:** When architectural viability is already proven (Native AOT for CLI in Plan 0001), remove fallback-strategy policy and commit full scope to proven direction.
 
 ## Cross-Agent Coordination
 
-- **Sophie (CLI Downloads):** Complementary PR #31 triage; plan 0017 queue contract alignment verified.
-- **Tara (Platform):** Concurrent Plan 0019 assessment; multi-arch and permissions recommendations aligned; ready for Dockerfile authoring.
-- **Eliot (Backend):** PR #31 review-fix phase; queue serverUrl validation and per-entry streaming completed.
-- **Parker (Tester):** Async assertion fixes and test regression coverage for upload flow.
-
-### 2026-05-29T13:00:08.513+02:00: Inbox Merge Complete
-
-**Scribe Action:** User directive on `/health` endpoint and Nate's Docker MVP refinement decision merged into decisions.md. Three targeted Plan 0019 improvements now locked:
-
-1. Smoke test: `GET /health` with HTTP 200 (not generic "existing endpoint").
-2. First-start database creation: Explicit acceptance criterion (auto-init LiteDB on first mount).
-3. Multi-arch validation: Concrete `docker buildx build --platform linux/amd64,linux/arm64` command in criteria.
-
-**Status:** Plan 0019 MVP refinements archived for team memory. Implementation can proceed with zero ambiguity.
+- **Sophie (CLI Downloads):** Issue #20 now locked and ready for NUKE Publish target + GitHub Actions workflow authoring
+- **Tara (Platform):** Plan 0019 finalized; ready for Dockerfile authoring. Plan 0020 platform decisions locked.
+- **Eliot (Backend):** PR #31 review outcomes; queue serverUrl validation complete
+- **Parker (Tester):** Async assertion fixes complete; PR #31 merge-ready. Smoke-test matrix design can proceed.
 
 ---
 
-## Learnings
+## Detailed Session History
 
-- **API Configuration Already Complete:** `ShadowDropOptions` and `ApiExposureOptions` already support all required Plan 0019 patterns. No code gaps.
-- **Acceptance Criteria Over Architecture:** All user inputs are sound; implementation blockers are clarity and specificity, not design flaws.
-- **Smoke Test Clarity Matters:** "Simple GET request" → concrete validation contract (logs, existing endpoint, API readiness proof) removes implementation guesswork.
-- **Explicit Volume Mount Requirement:** Implicit assumptions about Docker mount points lead to persistent data loss. Explicit requirement in criteria is non-negotiable.
-- **Runtime Defaults Fully Explicit:** Bind address, port, and env var override options must be stated precisely to prevent deployment surprises.
-- **Health Endpoint Specification:** User refined smoke test to use exact `/health` endpoint with HTTP 200, not a generic "existing endpoint". This increases implementer clarity and test reliability.
-- **Database First-Start Behavior:** Explicit acceptance criterion for auto-creation of LiteDB schema on first mount ensures users understand data is not lost; deployment guides must document this.
-- **Multi-Arch Validation Command:** Concrete `docker buildx` command in acceptance criteria prevents ambiguity about "both amd64 and arm64 support"; implementer has exact validation target.
-- **Plan Refinement Pattern:** User-directed MVP refinements focus on concrete, testable specifics—not architectural changes. Three targeted edits to acceptance criteria + technical details preserved scope discipline.
+See `history-archive.md` for:
+
+- PR #31 review cycle (May 29 03:13–07:28) — three triage passes, duplicate fileId defense analysis
+- Issue triage (May 29 09:02) — sequencing of #18/#19/#20
+- Plan 0019 assessment (May 29 09:45–12:25) — port-split review, HTTPS MVP analysis
+- Plan 0020 readiness assessment (May 29 11:14) — vague criteria, missing decisions identified
+- User directives (May 29 13:14–13:42) — RID confirmation, fallback removal, README spin-out
+- Plan 0020 MVP finalization (May 29 13:51–14:29) — scope lock and implementation-ready state
+
+---
+
+## Patterns & Recommendations
+
+1. **Assessment → Clarification → Implementation:** Assessment reveals vague criteria → user directives lock decisions → plan becomes implementation-ready.
+2. **Concrete Over Vague:** Every acceptance criterion must have an example (file name, layout, endpoint) to prevent downstream mismatch.
+3. **Decision Document Routing:** Major scope decisions should flow through decisions.md before GitHub issues/plans to ensure cross-team visibility.
+4. **Cross-Compile Strategy:** Validated through smoke tests on accessible targets + build-only on cross-compiled prevents unnecessary infrastructure (Windows CI runners, ARM64 emulation).
+
+## 2026-05-29T14:37:34Z — Session Finalization
+
+**Scribe Action:** Merged 2 inbox entries into decisions.md, archived orchestration logs for Tara and Nate, wrote session log for issue-20-update. History.md now summarized and archived.
+
+**Status:** All team memory consolidated. Decisions.md reflects final MVP lock on Plan 0020 and Issue #20. Ready for team reference and implementation assignment.
+

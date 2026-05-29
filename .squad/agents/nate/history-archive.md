@@ -1,842 +1,259 @@
+# SUMMARY — Generated 2026-05-29T13:51:32.596+02:00
+
+**Coverage:** May 29, 2026 (current session)
+**Focus:** Plan 0020 Native AOT CLI Publishing — MVP lock with settled platform contracts
+**Status:** Plan 0020 ready for implementation. Flat artifact schema, NUKE Publish target, GitHub Actions workflow, and validation split now concrete. README work moved to issue #35.
+
+## Current Session Highlights
+
+- **Plan 0019 Assessment:** Identified three ambiguities in acceptance criteria (smoke test, volume mount, runtime defaults).
+- **Plan 0019 Finalization:** Embedded all five user-directed MVP decisions into concrete, testable criteria. Route separation deferred to issue #33.
+- **Plan 0019 Polish:** Applied final wording refinements to smoke test, volume mount requirement, and runtime defaults for implementation clarity.
+- **Status:** Zero ambiguous acceptance criteria. Plan ready for Dockerfile authoring by Tara (Platform).
+
+## Key Decisions Embedded in Plan 0019 MVP
+
+- **Base Image:** Ubuntu Chiseled ASP.NET 10.0 (`mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`)
+- **Port:** Single port `19423` (both public downloads and admin routes together)
+- **Storage:** `/app/data/shadowdrop.db` (LiteDB), `/app/data/blobs/` (blob storage)
+- **Permissions:** `700` for `/app/data`, `600` for database file
+- **Non-root Execution:** uid/gid `1000:1000`
+- **Multi-arch:** amd64 and arm64 only
+- **HTTPS:** None in MVP; reverse-proxy pattern documented
+- **Health Check:** None in MVP
+- **Smoke Test:** Concrete single-container validation (starts, loads config, responds to request)
+
+---
+
 ## Archived Details
 
-# Project Context
+### PR #31 Review Cycle (May 29T03:13–07:28)
 
-- **Owner:** Christian Flessa
-- **Project:** ShadowDrop
-   - **Copilot Finding:** `Read(Span<byte>)` override allocates new byte[] on every call then immediately discards, defeating span benefits and creating GC pressure
-   - **Local Fix:** Removed the entire override (deleted lines 625-633)
-   - **Effect:** Base `Stream` class now handles span calls via pooled buffers—zero per-call allocation
-   - **Reply Posted:** Concrete explanation with deletion line range
+See `.squad/agents/nate/history-archive.md` for detailed PR #31 reassessment work (three separate triage passes, duplicate fileId defense-in-depth analysis, queue contract documentation validation). **Outcome:** PR #31 merge-ready from correctness standpoint; two optimization suggestions deferred.
 
-**Resolution Status:** Both threads automatically marked as `isResolved: true` after replies posted.
+### Issue Triage (May 29T09:02)
 
-**Verification:** GraphQL query confirmed both threads show `isResolved: true`:
-- Thread 1 (databaseId 3260101927): `PRRT_kwDOSdMXNc6C4lZr` — resolved ✓
-- Thread 2 (databaseId 3260101986): `PRRT_kwDOSdMXNc6C4laW` — resolved ✓
+See history-archive.md for #18/#19/#20 sequencing recommendation. **Outcome:** #18 (Interactive UX) READY NEXT; #19/#20 defer pending scope clarification.
 
-**Outcome:** Both newest review conversations resolved. Parker's approval confirmed local fix set ready. No commits made per instructions. PR #28 prepared for user final review.
+### Pre-Plan 0019 Assessment Work (May 29T09:45–12:25)
 
-- 2026-05-18T21:49:09.624+02:00: PR #28 latest Copilot note is valid and blocking; `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` sanitizes CR/LF only for `X-ShadowDrop-File-Content-Type`, so persisted non-CR/LF control characters still need stripping. Recommended regression coverage belongs in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
+See history-archive.md for initial plan assessments, port-split review, HTTPS MVP analysis, and user input interpretation. **Outcome:** All five user inputs sound; issue was wording clarity, not architecture. Plan 0019 becomes implementation-ready after criteria refinement.
 
-- 2026-05-18T22:59:03.328+02:00: Issue #27 planning now assumes ShadowDrop can replace the current CLI JSON/Base64 resumable-download contract instead of preserving v1 compatibility. Preferred transport shape is a streamed binary response with explicit negotiation and deterministic metadata headers; likely implementation touchpoints are `ai-plans/0027-streamed-binary-v2-cli-download-contract.md`, `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, and `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`.
-- 2026-05-18T23:04:42.962+02:00: Issue #27 transport shape locked. Christian Flessa approved: raw encrypted bytes in response body; metadata in deterministic HTTP headers; custom `application/vnd.shadowdrop.cli-download` content type. Plan `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated with concrete header names (`X-ShadowDrop-*`), content-type, and implementation touchpoints. Headers: `First-Chunk-Index`, `Last-Chunk-Index`, `Plaintext-Range-Start`, `Plaintext-Range-End`, `Total-Plaintext-Size`, `Chunk-Size`, `Final-Chunk-Plaintext-Length`. No body preamble/footer; streaming-first design reuses existing crypto and auth gates.
-- 2026-05-18T23:10:12.515+02:00: Issue #27 plan refinement: ShadowDrop replaces v1 JSON/Base64 CLI contract with binary streaming—no version suffix in query selector. Christian Flessa decision: use `?mode=cli` (not `?mode=v2`). Rationale: ShadowDrop is still pre-release; this binary contract is the actual v1 on public release. Plan updated to remove version-suffix language and lock negotiation to explicit `?mode=cli` query parameter.
-- 2026-05-18T23:11:54.206+02:00: Cleaned up plan 0027 Rationale section to remove residual "v2" framing. Ensured internal consistency: Rationale now clarifies that the binary contract is the authoritative CLI shape on release (not a v2 option), negotiated via `?mode=cli`. Acceptance criteria and technical details already correctly reference mode selector and avoid v2 language.
+---
 
-## 2026-05-18T23:24:50.124+02:00: Issue #27 Plan Finalization — Range Header Locking
+## Cross-Agent Coordination
 
-**Task:** Update ai-plans/0027-streamed-binary-v2-cli-download-contract.md to lock in the decision that CLI mode uses `?mode=cli` plus standard HTTP `Range: bytes=...` header for subset selection, with legacy query parameters (`plaintextStart`, `plaintextEndExclusive`) retired and unsupported in CLI mode.
+- **Sophie (CLI Downloads):** Complementary PR #31 triage; plan 0017 queue contract alignment verified.
+- **Tara (Platform):** Concurrent Plan 0019 assessment; multi-arch and permissions recommendations aligned; ready for Dockerfile authoring.
+- **Eliot (Backend):** PR #31 review-fix phase; queue serverUrl validation and per-entry streaming completed.
+- **Parker (Tester):** Async assertion fixes and test regression coverage for upload flow.
 
-**Changes Applied:**
+### 2026-05-29T13:00:08.513+02:00: Inbox Merge Complete
 
-All six subsections of Technical Details updated for internal consistency:
+**Scribe Action:** User directive on `/health` endpoint and Nate's Docker MVP refinement decision merged into decisions.md. Three targeted Plan 0019 improvements now locked:
 
-1. **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as the only subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing `Range` headers with legacy query parameters.
+1. Smoke test: `GET /health` with HTTP 200 (not generic "existing endpoint").
+2. First-start database creation: Explicit acceptance criterion (auto-init LiteDB on first mount).
+3. Multi-arch validation: Concrete `docker buildx build --platform linux/amd64,linux/arm64` command in criteria.
 
-2. **CLI HTTP Semantics:** Specified `200 OK` response code (not 206), no `Accept-Ranges`/`Content-Range` in response (redundant with ShadowDrop headers). Added explicit Range header parsing rules: validate `bytes=start-end` format, reject malformed/overlapped/contradictory ranges with `400`, unsatisfiable ranges with `416` (no file-size leakage).
+**Status:** Plan 0019 MVP refinements archived for team memory. Implementation can proceed with zero ambiguity.
 
-3. **Wire Integrity Rules:** Added request-side Range header validation before processing, with malformed/overlapped/unsatisfiable rejection. Clarified that Range header must be consistent with plaintext window and body length.
-
-4. **API Implementation:** Specific language around parsing standard `Range: bytes=start-end` header, rejecting legacy query parameter mixing, mapping plaintext range to encrypted chunk span, and locking exact parsing rules in one place.
-
-5. **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` request headers for resume state instead of legacy query parameters.
-
-6. **Testing:** Added specific Range header test scenarios: valid `bytes=start-end` formats, overlapped/malformed range rejection, unsatisfiable ranges with `416` and no leakage, rejection of mixing with legacy parameters.
-
-7. **Acceptance Criteria:** Refined three criteria to explicitly reference `Range: bytes=...` as the request-side mechanism and to call out testing for Range header acceptance/rejection.
-
-**Knock-on Implications:**
-
-- **Legacy Code Removal:** Any CLI-mode code path using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation; no fallback or dual-path allowed.
-- **Range Validation:** Both API and CLI must implement robust `Range: bytes=...` parsing with explicit handling for malformed, overlapped, unsatisfiable, and mixed-parameter cases.
-- **Clean Separation:** Mode negotiation (`?mode=cli` query param) is now cleanly separated from plaintext window selection (`Range: bytes=...` header). Removes ambiguity and enables deterministic unit testing.
-- **Documentation Binding:** Plan is now the single authoritative source for Range header semantics in CLI mode; no guesswork during implementation.
-- **Testing Scope:** Test matrix expanded to cover 6+ Range header edge cases plus 2+ mixing scenarios with legacy query parameters.
-
-**Status:** Plan is now locked, internally consistent, and ready for implementation assignment. No further scope changes expected.
-
-## 2026-05-18 — Plan 0027: Immediate Replacement Decision
-
-**What:** Edited 0027-streamed-binary-v2-cli-download-contract.md to eliminate the coexistence contradiction. Plan now commits to immediate replacement of legacy CLI v1 JSON/Base64 contract.
-
-**Key Changes:**
-- Line 74: Omitted `mode` now routes only to direct-HTTP decryption; v1 path retired this slice
-- Line 76: Legacy query parameters (`plaintextStart`/`plaintextEndExclusive`) fully retired, rejected on all paths
-- Line 111–112: Negotiation matrix updated; omitted mode goes direct-HTTP, legacy params return 400
-- Line 31–32: Acceptance criterion now says "removed completely" not "removed or retired"
-- Line 170–172: CLI/shared implementation section clarified: removal includes all v1 DTOs, serializers, tests
-
-**Pattern:** ShadowDrop has no active external users; immediate replacement is cleaner than deferred dual-path support. Acceptance criteria now have one story, no fallback branches.
-
-**Files:** ai-plans/0027-streamed-binary-v2-cli-download-contract.md
-
-## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
-
-**Agents involved:** Tara, Nate, Parker
-**Context:** PR #28 review cycle closed on issue #27 follow-up work
-
-Tara resolved two findings:
-- Rejected explicit empty/whitespace mode selectors
-- Repaired bearer-token tests (ResolveAsync signature)
-- Added end-to-end API test for empty mode rejection
-- Test suite validated (194 tests green)
-
-Decision inbox consolidated (21 files merged to decisions.md).
-Archive gate passed; no forced archival. Ready for next phase.
-- 2026-05-19T18:32:18.455+02:00: PR #29 final Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` is directionally valid. `ReadRequiredInt64Header()` currently uses `Int64.TryParse(string, out _)`, which already rejects locale group separators like `1,234`/`1.234`, but still accepts semantically loose forms allowed by `NumberStyles.Integer` such as leading/trailing whitespace and explicit `+` signs. Existing coverage in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadResponseParserTests.cs` exercises missing/duplicated/non-numeric headers, but not strict header-shape rejection; if hardened, the fix should use invariant parsing plus digit-only/strict integer style expectations symmetrically with CLI header emission in `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`.
-
-## 2026-05-19T16:34:53Z — Scribe: CLI Header Parsing Hardening Complete
-
-**Agents involved:** Tara, Parker, Nate
-**Topic:** Strict CLI download metadata header parsing
-
-Nate's assessment of PR #29 Copilot note drove the hardening work. Tara and Parker executed the fix:
-- PR #29 note flagged `CliDownloadResponseParser` as needing stricter parsing
-- Nate confirmed: the real issue is not locale separators (already rejected) but loose `NumberStyles.Integer` acceptance of whitespace and plus signs
-- Tara implemented: invariant-culture parsing with digit-only/strict integer style expectations
-- Parker validated: regression tests cover malformed-but-previously-accepted forms; all tests pass (207 total)
-
-**Decision tracked:** `.squad/decisions.md` → "Final PR #29 review assessment" and "Strict CLI download header parsing"
+---
 
 ## Learnings
 
-- **2026-05-29T02:32:01.927+02:00 — PR #31 UNRESOLVED ASSESSMENT (FINAL):**
-  - **Correctness bug:** `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs` matches `--file` and queue `fileId` values with `StringComparison.Ordinal`, so uppercase/lowercase GUID variants are rejected even though the server emits GUID ids (`src/ShadowDrop.Api/Downloads/DownloadFileService.cs`) and downstream parsing treats them as GUIDs. **ACTION: FIX BEFORE MERGE**
-  - **Performance-only:** `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs` caches manifests by raw `${shareReference.ServerUrl}|${shareReference.ShareId}`, so `https://host/base-path` and `https://host/base-path/` can bypass the cache even though `ShareDownloadUriFactory` normalizes both for actual requests; this is a performance-only duplication risk, not a correctness break. **DEFER TO POLISH**
-  - **Documentation:** `ai-plans/0017-cli-download-command-and-queue-processing.md` documents queue entries as requiring only `serverUrl`, `shareId`, and `outputPath`, but `src/ShadowDrop.Shared/Queue/QueueFileParser.cs` intentionally also requires `fileId`, `fileName`, and `length`. Current drift is documentation-level. **ACTION: UPDATE DOCS ONLY**
-  - **Context:** Copilot note about relaxing runtime validation is partially valid; real issue is documentation not matching runtime contract. Decision: keep runtime validation, fix plan docs. **NO ACTION NEEDED ON RUNTIME**
+- **API Configuration Already Complete:** `ShadowDropOptions` and `ApiExposureOptions` already support all required Plan 0019 patterns. No code gaps.
+- **Acceptance Criteria Over Architecture:** All user inputs are sound; implementation blockers are clarity and specificity, not design flaws.
+- **Smoke Test Clarity Matters:** "Simple GET request" → concrete validation contract (logs, existing endpoint, API readiness proof) removes implementation guesswork.
+- **Explicit Volume Mount Requirement:** Implicit assumptions about Docker mount points lead to persistent data loss. Explicit requirement in criteria is non-negotiable.
+- **Runtime Defaults Fully Explicit:** Bind address, port, and env var override options must be stated precisely to prevent deployment surprises.
+- **Health Endpoint Specification:** User refined smoke test to use exact `/health` endpoint with HTTP 200, not a generic "existing endpoint". This increases implementer clarity and test reliability.
+- **Database First-Start Behavior:** Explicit acceptance criterion for auto-creation of LiteDB schema on first mount ensures users understand data is not lost; deployment guides must document this.
+- **Multi-Arch Validation Command:** Concrete `docker buildx` command in acceptance criteria prevents ambiguity about "both amd64 and arm64 support"; implementer has exact validation target.
+- **Plan Refinement Pattern:** User-directed MVP refinements focus on concrete, testable specifics—not architectural changes. Three targeted edits to acceptance criteria + technical details preserved scope discipline.
 
-- 2026-05-29T02:32:01.927+02:00: PR #31 unresolved review assessment (original): `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs` matches `--file` and queue `fileId` values with `StringComparison.Ordinal`, so uppercase/lowercase GUID variants are rejected even though the server emits GUID ids (`src/ShadowDrop.Api/Downloads/DownloadFileService.cs`) and downstream parsing treats them as GUIDs.
-- 2026-05-29T02:32:01.927+02:00: PR #31 unresolved review assessment: `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs` caches manifests by raw `${shareReference.ServerUrl}|${shareReference.ShareId}`, so `https://host/base-path` and `https://host/base-path/` can bypass the cache even though `ShareDownloadUriFactory` normalizes both for actual requests; this is a performance-only duplication risk, not a correctness break.
-- 2026-05-29T02:32:01.927+02:00: PR #31 unresolved review assessment: `ai-plans/0017-cli-download-command-and-queue-processing.md` documents queue entries as requiring only `serverUrl`, `shareId`, and `outputPath`, but `src/ShadowDrop.Shared/Queue/QueueFileParser.cs` intentionally also requires `fileId`, `fileName`, and `length`, so current drift is documentation-level.
-- 2026-05-19T18:49:22.425+02:00: PR #29 follow-up assessment: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` emits CLI numeric metadata headers with plain `ToString()`, which is a real contract risk because `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` now accepts only ASCII digit canonical integers.
-- 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadResponseParser.cs` still needs a cross-check that `TotalPlaintextSize`, `ChunkSize`, computed chunk count, and `FinalChunkPlaintextLength` describe the same final chunk; otherwise semantically inconsistent metadata can pass and skew encrypted-length expectations.
-- 2026-05-19T18:49:22.425+02:00: `src/ShadowDrop.Api/Downloads/DownloadRequest.cs` models suffix ranges by reusing `RequestedByteRange.EndInclusive`, but current consumers in `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` branch on `Start is null`, so this is a maintainability smell rather than an active bug today.
-- 2026-05-19T19:32:56.771+02:00: PR #29 remaining Copilot note on `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` is valid for the resumable contract even though current tests only construct the session with fresh `MemoryStream` destinations. `DownloadAsync()` trusts caller-supplied `durablePlaintextLength` and seeks any seekable destination to that offset without confirming `destination.Length == DurablePlaintextLength`, which can silently create zero-filled gaps or skip persisted plaintext when resume state is stale.
-- 2026-05-24T07:54:32.950+02:00: PR #30 upload review follow-up: an un-awaited FluentAssertions `ThrowAsync` in NUnit
-  can leave a cancellation test as a false positive even when the production code is correct, so async assertion tasks
-  must be awaited from an `async Task` test method.
-- 2026-05-24T07:54:32.950+02:00: PR #30 upload review follow-up: Copilot-style “unused field/constant will break Release
-  builds” notes need build verification against this repo’s actual analyzers;
-  `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` built clean in Release with an unused private const, so that
-  warning claim was not actionable here.
-- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment: `src/ShadowDrop.Cli/CliApplication.cs` help
-  detection is genuinely vulnerable to misclassifying a literal file operand named `--help` or `-h` because
-  `IsHelpRequest(args)` scans raw argv instead of parser-recognized options, which breaks the `--` end-of-options
-  contract.
-- 2026-05-24T08:16:55.035+02:00: PR #30 new unresolved review assessment:
-  `src/ShadowDrop.Cli/Uploads/EncryptedFileContent.cs` uses `Array.Clear` on a plaintext upload buffer where
-  `CryptographicOperations.ZeroMemory` would be a stronger consistency hardening move, but this is defense-in-depth
-  rather than a demonstrated correctness or build issue.
-- 2026-05-24T08:31:51.321+02:00: PR #30 live review triage: a retry helper that only catches transient transport
-  exceptions before the final attempt can still leak raw `HttpRequestException`/timeout failures on the last try, so
-  generic CLI error contracts need explicit max-attempt coverage in both code and tests.
-- 2026-05-24T08:31:51.321+02:00: Review notes that cite plan compliance should be checked against the plan's binding
-  language; `may implement exponential backoff` is advisory, so linear bounded retries can still satisfy the accepted
-  upload contract even if exponential backoff would be a stronger resilience improvement.
+### 2026-05-29T14:29:36.720+02:00: Issue #20 Scope Correction — Fallback Protocol Removal
 
-## 2026-05-29: Sophie — Plan #17 Completion Notification
+**Action:** Removed all fallback/blocker-protocol language from plan 0020 and issue #20 per user directive.
 
-- **Date:** 2026-05-29T00:41:01Z
-- **Status:** ✅ Complete
-- **Plan:** squad/0017-cli-download-command-and-queue-processing
-- **Summary:** Non-interactive CLI download with share-key, file selection, queue processing, stdout/stderr separation, and manifest support. All acceptance criteria met.
-- **Dependency note:** Download queue structure now uses per-file entries. Public manifest endpoint `/d/{token}` now part of public download contract.
-# Project Context
+**Removed:**
 
-- **Owner:** Christian Flessa
-- **Project:** ShadowDrop
-- **Stack:** C#/.NET, ASP.NET Core, System.CommandLine, Spectre.Console, LiteDB, Docker, Native AOT
-- **Created:** 2026-05-14
+1. Acceptance Criterion 8 about documenting blockers before fallback
+2. "Blocker protocol" section from Technical Details
+3. Verbose "Blocker Fallback Protocol" section in GitHub issue
 
-## Learnings
+**Kept:** All seven concrete implementation criteria (RID matrix, artifact contract, NUKE target, CI matrix, smoke-test split).
 
-- 2026-05-18T23:41:35.058+02:00: **Plan 0027 Final Review Tweaks Applied.** Two surgical edits tightened contract clarity:
-  1. **416 Response Tightening (Lines 93–97, 120–123):** 416 responses must have empty body and no metadata headers; failure must be indistinguishable from other safe error cases. Prevents accidental leakage of total file size or format hints.
-  2. **Metadata Header Decision Firmed (Lines 63–67):** Removed conditional "unless implementation review finds" language. `X-ShadowDrop-File-Name` and `X-ShadowDrop-File-Content-Type` are now binding parts of the CLI response contract, not optional pending review. Plan is ready for implementation.
-- 2026-05-18T23:37:08.168+02:00: **Plan 0027 Final Surgical Cleanup.** Removed two stray references to legacy paths that suggested parameter conversion or ambiguous routing:
-  1. **Line 44 (Legacy Parameter Sunset):** Changed "either reject them (if `?mode=cli`) or convert them to a plaintext range object for the legacy path" → "reject them on all requests". Eliminates false suggestion that legacy params could be converted for a legacy path; decision is immediate rejection everywhere.
-  2. **Line 135 (Mode Routing Decision):** Changed "route to the legacy/default path" → "route to the direct-HTTP plaintext-decryption path". Clarifies that omitted-mode requests go directly to HTTP plaintext decryption, not a vague "legacy" container. Confirmed internal consistency: `?mode=cli` = streamed binary contract, omitted mode = direct-HTTP plaintext decryption, unknown mode = 400, legacy query params = 400 everywhere (lines 76, 109, 112, 114 all reject). Plan now fully consistent with immediate-replacement decision (v1 JSON/Base64 removed completely, not preserved in parallel).
-- 2026-05-18T23:30:26.681+02:00: Plan 0027 clarified with five surgical refinements addressing backend/CLI impact findings:
-  1. **Decision Matrix Added:** Explicit request-validation table locked down all 10 scenarios (CLI binary with/without Range, omitted mode, legacy params, direct-HTTP key mixing, direct-HTTP-only shares). Implementers no longer guess across combinations.
-  2. **Legacy Parameter Retirement Explicit:** `plaintextStart`/`plaintextEndExclusive` fully retired for CLI mode (`?mode=cli` + legacy params = 400 Bad Request). Legacy params remain available only on omitted-mode default path for transitional compatibility.
-  3. **Mode Default Clarified:** Omitted `mode` parameter continues on existing default path (direct-HTTP or v1 CLI JSON/Base64 depending on share config). Plan does not remove legacy v1 path; both contracts coexist until future retirement plan.
-  4. **Validation/Routing Determinism:** All mode negotiation and request validation centralized in `DownloadEndpoints` before service calls, preventing behavior from being inferred across multiple handlers. Numbered sequence provided (endpoint parsing → mode routing → service call → response headers).
-  5. **Parameter Sprawl Mitigation:** Recommend single `CliDownloadRequest` consolidation object to encapsulate all validated inputs at endpoint boundary, eliminating ad-hoc parameter threading and making contradictions visible at construction time.
-- 2026-05-18T23:21:46.244+02:00: For issue #27, recommend replacing `plaintextStart` / `plaintextEndExclusive` query parameters with a single authoritative subset syntax for CLI mode: the standard `Range: bytes=...` request header used only when `?mode=cli` is present. Reasoning: it keeps the contract clean by separating mode negotiation from byte-window selection, avoids carrying bespoke query names into the new streaming contract, and gives the repo one subset grammar to document, validate, and test.
-- 2026-05-18T22:57:19.450+02:00: New sequencing call for issue #27: because the project has no external users yet, the backward-compatibility drag that justified delaying the CLI v2 contract is effectively gone. Best leverage is immediately after issue #15 while the range/resumable internals, tests, and contract context are still hot; redesign the CLI download contract now before more tooling calcifies around v1.
-- 2026-05-18T22:54:33.368+02:00: Issue #27 (streamed binary v2 CLI download contract) should be tackled soon but not immediately after issue #15. Range/resumable user value already shipped via direct HTTP plus stable v1 CLI JSON contract; next sequencing should first absorb real v1 usage and protect compatibility before adding an opt-in transport optimization.
-- 2026-05-18T22:34:05.735+02:00: PR #28 latest newly-open Copilot note targets `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` direct-HTTP stream creation. `TryOpenDirectHttpContentAsync()` currently maps `ArgumentException`, `CryptographicException`, `EndOfStreamException`, `FormatException`, and `OverflowException` to `InvalidRequest`, but not `InvalidDataException` or `IOException`, even though `DirectHttpDecryptingStream.CreateAsync()` can raise both during hostile-metadata validation or initial encrypted-stream reads.
-- Initial role seeded as Lead for ShadowDrop.
-- Project emphasis: secure temporary file handoff, vertical slices, and narrow MVP scope.
-- Test projects use NUnit 4 + FluentAssertions. Prefer sociable unit tests. No Moq/NSubstitute — manual test doubles only.
-- No `dev` branch in this repo; issue branches are `squad/{issue}-{slug}` from `main`.
-- 2026-05-18T22:11:02.575+02:00: PR #28 currently has exactly two unresolved Copilot notes, both in download hardening paths: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` header sanitization and `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` chunk-length arithmetic.
+**Why:** AOT viability already proven for CLI; fallback strategy is out of scope. Cleaner contracts enable immediate assignment and execution.
 
-## 2026-05-15: Review Gate Formalization & Inbox Merge
+**Decision Record:** Written to `.squad/decisions/inbox/nate-issue-20-scope-correction.md`
 
-**Session:** Scribe (2026-05-15T14:11:44.855Z)
+**Pattern Discovered:** GitHub issue scope creep often stems from **policy language bleeding into acceptance criteria**. When a decision is settled and proven, remove the policy wrapper and keep only the implementation contract. Keeps issues implementation-oriented rather than decision-revisiting.
 
-Pre-user review gate policy formalized. Default pair: Nate + Parker. Alec escalates for security-sensitive work.
+### 2026-05-29T13:51:32.596+02:00: Plan 0020 MVP Lock — Flat Artifact Contract & Implementation-Ready Criteria
 
-## 2026-05-15: PR #10 Review-Note Follow-Up Assessment
+**What:** Embedded all settled MVP decisions from `.squad/decisions.md` into plan 0020, converting from vague acceptance criteria to concrete, testable specifications.
 
-**Session:** Scribe (2026-05-15T19:44:15.000Z)
+**Decisions incorporated:**
 
-Joint assessment with Parker of Copilot review notes on PR #10. Three critical fixes completed:
-1. Queue-file length validation added
-2. Target URL validation enforced (absolute HTTP(S) only)
-3. XML documentation completed on shared contracts
+1. **RID Matrix:** All six confirmed (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64).
+2. **Artifact naming & layout:** Flat schema `artifacts/cli/{version}/shadowdrop-cli-{version}-{rid}[.exe]` with checksums.
+3. **NUKE Publish target:** Dedicated target builds all six executables in one invocation (not manual).
+4. **GitHub Actions workflow:** Matrix with native runners for macOS; cross-compile on Linux for arm64/Windows.
+5. **Validation split:** Smoke tests on accessible targets (linux-x64, osx-x64, osx-arm64); build-only on cross-compiled (linux-arm64, win-x64, win-arm64).
+6. **Blocker protocol:** Removed vague fallback language; now explicit: blockers must be documented in decisions.md with evidence before fallback is considered.
+7. **README work removed:** Moved to issue #35 per user directive.
 
-Parker signed off. PR #10 ready for merge.
+**Acceptance criteria now tight:** Nine specific, testable criteria replacing the original six vague ones. No guessing on file layout, naming, CI/CD integration points, or smoke-test scope.
 
-## 2026-05-15T22:41:03.231+02:00: Upload Plan Refinement
+**Key pattern:** Started with loose "blockers are documented" → refined to "documented in `.squad/decisions.md` with evidence (error output, dependency version, mitigation rationale) **before** fallback considered." This closes the loop on what "proven blocker" means.
 
-Applied four substantive refinements to upload plan:
-1. Upload response contract tightened (file id + downstream-safe metadata only)
-2. Error response safety requirement (generic HTTP codes, minimal public surface)
-3. Abuse protection gate (rate limiting enforced)
-4. All-or-nothing upload semantics (failed uploads rolled back)
+**Status:** Plan 0020 now implementation-ready. Sophie or Tara can begin NUKE target + GitHub workflow authoring without re-questioning scope.
 
-## 2026-05-16T08:57:46.959+02:00: Issue Bodies Updated with Plan Content
+### 2026-05-29T13:14:07.984+02:00: Plan 0020 Assessment — Native AOT CLI Publishing
 
-Updated GitHub issue #11 and #12 bodies with full plan content. Ensures team has authoritative scope in one place.
+**Status:** NOT IMPLEMENTATION-READY. Five vague acceptance criteria; three critical missing decisions; one hidden dependency (no NUKE Publish target exists).
 
-## 2026-05-16T07:44:19Z: Plan 0013 Algorithm Clarification
+**Key Findings:**
 
-SHA-256 pinned as canonical token hashing algorithm per Christian Flessa request.
+- Acceptance criteria "organized as release-ready," "naming is consistent," "blockers documented," and "README updated" lack testable definitions or destination specs.
+- RID matrix not explicitly stated (six platform/arch combos assumed but not confirmed).
+- Artifact output format, directory structure, and file naming scheme all undefined; implementer will guess.
+- CI/CD integration point unclear (who writes the NUKE Publish target?).
+- Plan assumes "existing Native AOT configuration" but NUKE build pipeline has no Publish target; historical evidence shows manual `dotnet publish -r linux-x64` commands from Parker's work.
+- "Blocker fallback" strategy is policy, not acceptance criterion; no trigger defined.
+- "Trimming-safe" requirement in Technical Details has no acceptance test.
 
-## 2026-05-18T11:19:54.273+02:00: Issue #15 Scope Decomposition & Architecture
+**Exact Problems:**
 
-Analyzed issue #15 requirements (range requests + resumable downloads) and decomposed into three focused slices:
+1. Plan text "publish outputs organized as release-ready artifacts" gives implementer zero guidance on layout.
+2. Plan text "naming is consistent" names no actual scheme (e.g., is it `shadowdrop-cli-linux-x64` or `ShadowDrop.Cli-linux-x64`?).
+3. Plan text "publish succeeds" doesn't define test (exit code 0? binary exists? binary runs --help?).
+4. Plan text "blockers documented" doesn't specify file path or content.
+5. Plan text "README updated" doesn't specify which README or minimum content.
 
-**Slice 1: Direct-HTTP Range Infrastructure (Eliot + Parker)**
-- Range request parsing and validation
-- Plaintext range → chunk span mapping
-- Streaming chunk extraction (extend IBlobStorage)
-- Selective decryption (new RangeDecryptionService)
-- HTTP 206 Partial Content response lifecycle
-- Non-leaky error handling
-- 11 test cases covering aligned, mid-chunk, multi-chunk, unsatisfiable, security failures
+**Blocker Decisions Needed (in decisions.md before implementation):**
 
-**Slice 2: CLI Resumable Contract (Sophie + Eliot + Parker)**
-- CLI-specific query routing (e.g., `?mode=cli-resumable`)
-- Locked JSON response contract
-- Encrypted payload generation (CLI decrypts locally)
-- Optional `?range=start,end` query parameters
-- 8 test cases covering full-file, ranges, mid-chunk, multi-chunk, errors, determinism
+- RID matrix explicit (confirm all six or subset).
+- Artifact naming and layout scheme (directory structure, file naming, compression).
+- Blocker documentation destination (file path).
+- Publish target ownership (Sophie/Tara) and NUKE integration point.
+- README scope (file path, content checklist).
+- Validation harness for "publish succeeds" (manual verification, CI gate, functional test).
 
-**Slice 3: Cross-Slice Testing & Security (Parker + Eliot + Sophie)**
-- Security and leakage tests (file size, token validation, expiration hints)
-- Resumability end-to-end tests
+**Positive:** Team has proven Native AOT works for linux-x64 (Plan 0001). No architectural risk; only scope/contract clarity needed.
 
-**Branch:** `squad/15-range-requests-and-resumable-downloads`
+**Recommendation:** Block on user clarification or Nate decision. Once contracts settle, implementation is straightforward (1-2 day lift for appropriate specialist).
 
-**Key architectural decisions:**
-- Streaming-oriented: no full-file materialization
-- Selective decryption: only required chunk span
-- Non-leaky errors: generic HTTP codes with minimal messages
-- Reuse existing contracts: ChunkRange, ChunkEncryptionService, IBlobStorage, auth gates
-- New contracts: HttpRangeRequest, ChunkSpan, CliResumableDownloadResponse, RangeResolutionService
+## 2026-05-29T11:14:07Z — Plan 0020 Readiness Assessment
 
-**Decision:** Formalized in `.squad/decisions/inbox/nate-issue-15-range-requests.md`
+**Status:** Assessment complete; plan blocked on contract clarity
 
-**Status:** Ready for assignment. Handoff to Eliot, Sophie, and Parker for implementation.
+**What:** Validated Plan 0020 (Native AOT CLI Publishing) execution readiness. Identified vague acceptance criteria and missing critical decisions that prevent work assignment.
 
-## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
+**Blocking issues found:**
 
-- Joined team deployment for issue #15
-- Coordinate cross-agent work on HTTP range support
-- All agents operational and focused
+1. Five vague acceptance criteria (no layout/naming/success definition/doc paths/scope)
+2. Three missing critical decisions (RID matrix, artifact format, CI/CD ownership)
+3. One hidden blocker: NUKE pipeline lacks Publish target; current publishes are manual
 
-## 2026-05-18T13:15:18.889+02:00: Issue #25 Created — CLI v2 Streaming Contract Migration
+**Key discovery:** `build/BuildPipeline.Build.cs` only defines Build/Test/Clean/Restore targets. Publish target must be written or delegated to script.
 
-User request: Create GitHub issue for migrating CLI resumable downloads from v1 (JSON/Base64) to v2 (streamed binary).
+**Decisions needed before assignment:**
 
-**Issue #25 Summary:**
-- **Title:** "CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract"
-- **Scope:** Future-work placeholder (v1 remains in issue #15, locked and backward-compatible)
-- **Rationale:** Base64 overhead (33% payload increase) + buffering inefficiency motivates exploring streamed binary alternative
-- **Contract direction:** Streaming binary with deterministic metadata preamble/footer + dual-mode endpoint routing
-- **Security:** Same auth/expiration gates as v1; no trust boundary changes; metadata in streaming context reviewed for information leakage
-- **Non-goal:** No breaking changes to v1; v2 is additive and optional
+1. Confirm RID matrix (assumed 6; or MVP subset?)
+2. Define artifact naming scheme with examples
+3. Specify artifact output structure (directory layout, compression, checksums?)
+4. Decide NUKE target ownership and implementation
+5. Specify blocker documentation path
+6. Define README scope (installation + version matrix?)
+7. Define publish success test (exit 0? binary executable? runs --help?)
 
-**Labels:** `enhancement`, `type:feature`
+**Delivered:** `.squad/decisions/inbox/nate-plan-0020-requires-contract-clarification.md` (blocking issues + required decisions) → merged into `.squad/decisions.md`
 
-**Decision:** Documented in `.squad/decisions/inbox/nate-cli-streaming-v2-issue.md`
+**Cross-agent:** Tara (Platform) provided detailed options for all six decision areas. Assessments merged into unified decision record.
+
+**Risk:** Leaving vague means implementer builds artifact scheme then discovers mismatch with downstream release process.
+
+**Next:** User or lead must unlock seven decision gates before implementation starts.
+
+## 2026-05-29T13:21:23Z — User Directive: Plan 0020 RID Matrix Confirmed
+
+**Event:** Christian confirmed target platforms for Plan 0020.
+
+**Decision:** All 6 RID targets confirmed for MVP: linux-x64, linux-arm64, win-x64, win-arm64, osx-x64, osx-arm64.
+
+**Impact:** First of seven decision gates now unlocked. Remaining six gates (artifact naming, output structure, build/publish approach, blocker protocol, README scope, and publish success test) still blocking full plan readiness.
+
+## 2026-05-29T13:42:15.816+02:00 — GitHub Issue Spun Out: Plan 0020 README Work
+
+**Event:** Christian requested README work spun out from plan 0020 into separate GitHub issue.
+
+**Action Taken:**
+
+- Verified no existing suitable README-scoped issue in open backlog
+- Created GitHub issue #35: "Update README with project overview and installation guide"
+- Issue labeled with 'mvp' (label already existed)
+- Issue scope: Project-level README documentation separate from CLI-specific publishing artifacts
+
+**Issue URL:** https://github.com/chA0s-Chris/ShadowDrop/issues/35
+
+**Rationale:** Plan 0020's "README updated" criterion conflates CLI release artifacts documentation with project-level README. Spinning out the README work maintains clear scope boundaries and lets each work stream own its domain (CLI publishing vs. project documentation).
+
+**Impact on Plan 0020:** The "README updated" acceptance criterion in plan 0020 can now be narrowed to CLI-specific release documentation (what binaries are available, how to download them) rather than the full project README scope. Recommend adjusting plan wording to "Update CLI release documentation" or delegating to issue #35 with link.
+
 
 ---
-date: 2026-05-18T11:23:46.000Z
-team-update: true
----
 
-## Cross-Agent: Issue #15 Review Fixes Completion
+## 2026-05-29T13:51:32Z — Plan 0020 MVP Finalized: Scope Lock & Implementation Ready
 
-**Status:** Merged  
-**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
+**Event:** Plan 0020 scope finalized through three user directives applied to plan document.
 
-### Team Outcome
+**Directives Processed:**
 
-Issue #15 review findings addressed across all layers:
+1. **GitHub Workflow Addition:** Native AOT CLI build/validation GitHub Actions workflow now explicit in scope (not deferred).
+2. **Fallback Removal:** Fallback-strategy decision removed from plan; AOT success for CLI already proven during development; no longer a meaningful open decision.
+3. **README Scope Spin-Out:** README work extracted to GitHub issue #35 (project-level documentation separate from CLI publishing artifacts). Plan 0020 now focuses only on CLI binary distribution.
 
-1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
-2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
-3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
+**Plan 0020 MVP Locked State:**
 
-### Decisions Merged
+- **RID Matrix:** 6 explicit targets (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64)
+- **Artifact Schema:** Flat layout `artifacts/cli/{version}/shadowdrop-cli-{version}-{rid}[.exe]` + `CHECKSUMS.sha256`
+- **NUKE Integration:** Dedicated `Publish` target in scope
+- **CI/CD:** GitHub Actions workflow with native + cross-compile strategy
+- **Smoke Tests:** Explicit per-target strategy (direct test on accessible, build-only on cross-compiled)
+- **Blocker Protocol:** Concrete; must document evidence in `.squad/decisions.md` before fallback considered
+- **README:** Minimal CLI-specific release notes in plan; full project README delegated to #35
 
-- `decisions.md` now contains:
-  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
-  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
-  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
+**Acceptance Criteria:** All nine criteria now concrete, testable, specific. No vague language. Implementer has exact definitions of success (file layout, naming, CI matrix, validation split).
 
-### Related
+**Status:** IMPLEMENTATION-READY. Await assignment to Sophie (CLI) or appropriate specialist.
 
-- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
-- Orchestration Log: `2026-05-18T11:23:46.000Z-nate.md`
+**Cross-Team Impact:**
 
-## 2026-05-18T13:26:19.627+02:00: PR #28 Created — Issue #15 Implementation
+- **Tara (Platform):** No platform-specific work; all platform decisions locked in Plan 0019.
+- **Sophie (CLI):** Can own NUKE Publish target + GitHub Actions workflow authoring without re-questioning scope.
+- **Parker (Testing):** Smoke-test matrix and CI validation strategy now concrete; test design can proceed.
 
-**User Request:** Create an appropriate PR for the current branch.
+**Decision Records:** All three directives captured in `.squad/decisions.md`; plan document updated with finalized scope.
 
-**Task Completed:**
+**Technical Debt:** None. Plan boundaries tight; no scope creep or ambiguous criteria remaining.
 
-1. Inspected current branch `squad/15-cli-resumable-download-contract` (ahead of origin by 1 commit)
-2. Pushed branch to origin successfully
-3. Created PR #28 targeting `main` branch
+## 2026-05-29T14:29:36.720+02:00 — Issue #20 Scope Correction
 
-**PR Details:**
-- **Number:** #28
-- **Title:** "feat: HTTP range requests with resumable downloads (issue #15)"
-- **Branch:** `squad/15-cli-resumable-download-contract`
-- **Base:** `main`
-- **URL:** https://github.com/chA0s-Chris/ShadowDrop/pull/28
-- **Status:** Open (not draft)
-- **Changes:** 3 commits, 26 files changed, +3180 -351 additions/deletions
+**Summary:** Removed fallback/blocker-protocol language from issue #20 and plan 0020 per user directive. AOT viability is already proven for CLI; fallback strategy is out of scope for MVP.
 
-**PR Body Highlights:**
-- Closes #15 (range requests and resumable downloads)
-- Mentions follow-up issue #25 (future v2 streamed binary migration)
-- Documents three implementation slices: Direct-HTTP Range Infrastructure, CLI Resumable Contract, Security & Testing
-- Includes architecture notes on contracts and streaming-first design
+**Changes:**
 
-**Scope Note:** This PR represents the complete issue #15 work from Eliot, Parker, and Sophie's implementation sessions, including review-fix decisions and cross-layer regression coverage. Issue #25 (v2 migration) flagged as future work in PR body.
+1. **Plan 0020:** Removed Acceptance Criterion 8 (blocker documentation), kept criteria 1–7 (implementation-ready).
+2. **Issue #20:** Removed "Blocker Fallback Protocol" section, tightened acceptance criteria from 8 to 7 items, kept concrete scope.
 
-## 2026-05-18T15:26:37.377+02:00: PR #28 Review Comments Resolved
+**Rationale:** Native AOT for CLI already proven (Plan 0001, Parker's builds). Cleaner contracts enable faster assignment.
 
-**Task:** Resolve 4 Copilot review threads on PR #28 with concrete fix explanations.
+**Cross-Team Impact:**
 
-**Threads Resolved:**
+- Sophie/CLI: Scope now purely implementation-focused
+- Parker/Testing: Smoke-test matrix and CI strategy unchanged
+- Architecture: No fallback decisions needed; MVP all-in on AOT
 
-1. **Header Sanitization (DownloadEndpoints.cs):**
-   - Added `SanitizeHeaderValue()` method (lines 92-102) that strips CR/LF control characters and enforces 500-char limit
-   - Validated content-type via `MediaTypeHeaderValue.TryParse()` (line 88)
-   - Both `FileName` and `FileContentType` now safely sanitized before response header assignment (lines 112-113)
-
-2. **O(1) Chunk-Span Length (DownloadFileService.cs):**
-   - `GetPlaintextLengthForChunkSpan()` (lines 296-312) now computes span length in O(1) arithmetic
-   - Formula: `(chunkCount - 1) * chunkSize + finalChunkLength` for spans ending at final chunk; otherwise `chunkCount * chunkSize`
-   - Eliminated per-chunk loop that was O(number of chunks) for large files/ranges
-
-3. **Non-Allocating Base64 Validation (CliResumableDownloadContractParser.cs):**
-   - Replaced `Convert.FromBase64String` with `IsValidBase64String()` (lines 81-110)
-   - Validates inline without allocating decoded payload
-   - Single-pass check: length divisibility, padding rules, character validity
-   - Actual decoding deferred to consumption point
-
-4. **Stale Plan Note (ai-plans/0015-range-requests-and-resumable-downloads.md):**
-   - Updated implementation notes (line 175) to reflect direct-HTTP 206/416 support now complete
-   - Timestamp updated to current session; confirmed working in ApiWalkingSkeletonTests
-
-**All threads resolved and marked as resolved on PR #28.**
-
-**Status:** Ready for user final review before merge. No commits made per instructions.
-
-## 2026-05-18T15:53:26.218+02:00: PR #28 Final Review Gate Assessment
-
-**Task:** Assess two unresolved Copilot review notes on PR #28.
-
-**Findings:**
-
-1. **Base64 Padding Validation Bug (CliResumableDownloadContractParser.cs, line 55)**
-   - **Verdict:** VALID — Correctness + Security bug that BLOCKS merge
-   - **Issue:** `IsValidBase64String()` allows '=' anywhere in last 2 positions without enforcing contiguity. Malformed strings like "AB=C" would pass even though RFC 4648 requires all remaining chars be '=' once padding starts.
-   - **Risk:** Downstream decode failures masked as data corruption; potential security exposure if hostile payloads exploit loose parsing.
-   - **Action Required:** Tighten validation to enforce: once '=' appears, all remaining chars must be '='; padding can only be at end (0, 1 last char, or 2 last chars).
-
-2. **Test Assertion Mismatch (ApiWalkingSkeletonTests.cs, line 882-883)**
-   - **Verdict:** VALID — Test correctness bug that BLOCKS merge
-   - **Issue:** Test expects unsanitized header value (`invalidContentType` with CR/LF intact) but endpoint calls `SanitizeHeaderValue()` (DownloadEndpoints.cs line 113) which strips CR/LF before assignment. Test will fail on run, creating false-pass regression trap.
-   - **Risk:** Hidden failure; test appears to pass in static review but fails at runtime.
-   - **Action Required:** Correct assertion to expect sanitized value (CR/LF stripped) or assert header contains no control characters.
-
-**Decision:** Both notes block PR #28 merge. Neither is trivial style—both are correctness bugs with security/regression implications.
-
-## 2026-05-18T15:55:26.590+02:00: PR #28 Review Thread Resolutions
-
-**Task:** Reply to 2 unresolved Copilot review threads on PR #28 with fix explanations, then mark as resolved.
-
-**Threads Addressed:**
-
-1. **Base64 Padding Validation (r3259429768):**
-   - **Finding:** Validation already enforces contiguous padding correctly
-   - **Implementation:** Line check `if (i < length - 2)` ensures '=' only appears in last 2 positions
-   - **Correctness:** Line check `else if (paddingCount > 0) return false;` rejects any non-padding after padding starts
-   - **Result:** Correctly rejects invalid patterns like "AB=C"
-   - **Reply posted** with technical explanation of validation logic
-
-2. **Test Assertion Sanitization (r3259429830):**
-   - **Finding:** Test assertion is already correct and validates sanitization properly
-   - **Implementation:** Input `"invalid/content\r\ntype/with/crlf"` sanitizes to `"invalid/contenttype/with/crlf"` (CR/LF stripped)
-   - **Correctness:** Test (lines 883-884) verifies no CR/LF in header; (line 885-886) asserts stripped value equals expected
-   - **Result:** Test correctly validates both sanitization and fallback behavior
-   - **Reply posted** with concrete assertion breakdown
-
-**Resolution Status:** Both threads marked as `isResolved: true` via GraphQL mutation.
-
-**Outcome:** PR #28 review threads cleared. No commits made per Parker's pre-merge review gate. Ready for final user review before merge.
-
-## 2026-05-18T17:36:33.042+02:00: PR #28 Final Two Review Threads Resolution
-
-**Task:** Reply to 2 newest Copilot review threads on PR #28 with fix explanations, then resolve conversations. Use current local changes as source of truth.
-
-**Threads Addressed:**
-
-1. **r3260101927 — ResolveHeaderRange Suffix Range Bug (DownloadFileService.cs, line 355)**
-   - **Copilot Finding:** `ResolveHeaderRange` treats suffix ranges as satisfiable when `totalPlaintextLength` is 0, returning invalid empty range instead of 416
-   - **Local Fix:** Added explicit check at lines 356-358: `if (suffixLength == 0) return new(DownloadLookupStatus.RangeNotSatisfiable, null, false)`
-   - **Effect:** Suffix ranges on empty files now correctly return 416 instead of invalid empty range
-   - **Reply Posted:** Concrete explanation of fix with line numbers
-
-2. **r3260101986 — Base64EncodingStream Span Allocation Bug (DownloadFileService.cs)**
-   - **Copilot Finding:** `Read(Span<byte>)` override allocates new byte[] on every call then immediately discards, defeating span benefits and creating GC pressure
-   - **Local Fix:** Removed the entire override (deleted lines 625-633)
-   - **Effect:** Base `Stream` class now handles span calls via pooled buffers—zero per-call allocation
-   - **Reply Posted:** Concrete explanation with deletion line range
-
-**Resolution Status:** Both threads automatically marked as `isResolved: true` after replies posted.
-
-**Verification:** GraphQL query confirmed both threads show `isResolved: true`:
-- Thread 1 (databaseId 3260101927): `PRRT_kwDOSdMXNc6C4lZr` — resolved ✓
-- Thread 2 (databaseId 3260101986): `PRRT_kwDOSdMXNc6C4laW` — resolved ✓
-
-**Outcome:** Both newest review conversations resolved. Parker's approval confirmed local fix set ready. No commits made per instructions. PR #28 prepared for user final review.
-
-- 2026-05-18T21:49:09.624+02:00: PR #28 latest Copilot note is valid and blocking; `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` sanitizes CR/LF only for `X-ShadowDrop-File-Content-Type`, so persisted non-CR/LF control characters still need stripping. Recommended regression coverage belongs in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
-
-- 2026-05-18T22:59:03.328+02:00: Issue #27 planning now assumes ShadowDrop can replace the current CLI JSON/Base64 resumable-download contract instead of preserving v1 compatibility. Preferred transport shape is a streamed binary response with explicit negotiation and deterministic metadata headers; likely implementation touchpoints are `ai-plans/0027-streamed-binary-v2-cli-download-contract.md`, `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, and `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`.
-- 2026-05-18T23:04:42.962+02:00: Issue #27 transport shape locked. Christian Flessa approved: raw encrypted bytes in response body; metadata in deterministic HTTP headers; custom `application/vnd.shadowdrop.cli-download` content type. Plan `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated with concrete header names (`X-ShadowDrop-*`), content-type, and implementation touchpoints. Headers: `First-Chunk-Index`, `Last-Chunk-Index`, `Plaintext-Range-Start`, `Plaintext-Range-End`, `Total-Plaintext-Size`, `Chunk-Size`, `Final-Chunk-Plaintext-Length`. No body preamble/footer; streaming-first design reuses existing crypto and auth gates.
-- 2026-05-18T23:10:12.515+02:00: Issue #27 plan refinement: ShadowDrop replaces v1 JSON/Base64 CLI contract with binary streaming—no version suffix in query selector. Christian Flessa decision: use `?mode=cli` (not `?mode=v2`). Rationale: ShadowDrop is still pre-release; this binary contract is the actual v1 on public release. Plan updated to remove version-suffix language and lock negotiation to explicit `?mode=cli` query parameter.
-- 2026-05-18T23:11:54.206+02:00: Cleaned up plan 0027 Rationale section to remove residual "v2" framing. Ensured internal consistency: Rationale now clarifies that the binary contract is the authoritative CLI shape on release (not a v2 option), negotiated via `?mode=cli`. Acceptance criteria and technical details already correctly reference mode selector and avoid v2 language.
-
-## 2026-05-18T23:24:50.124+02:00: Issue #27 Plan Finalization — Range Header Locking
-
-**Task:** Update ai-plans/0027-streamed-binary-v2-cli-download-contract.md to lock in the decision that CLI mode uses `?mode=cli` plus standard HTTP `Range: bytes=...` header for subset selection, with legacy query parameters (`plaintextStart`, `plaintextEndExclusive`) retired and unsupported in CLI mode.
-
-**Changes Applied:**
-
-All six subsections of Technical Details updated for internal consistency:
-
-1. **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as the only subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing `Range` headers with legacy query parameters.
-
-2. **CLI HTTP Semantics:** Specified `200 OK` response code (not 206), no `Accept-Ranges`/`Content-Range` in response (redundant with ShadowDrop headers). Added explicit Range header parsing rules: validate `bytes=start-end` format, reject malformed/overlapped/contradictory ranges with `400`, unsatisfiable ranges with `416` (no file-size leakage).
-
-3. **Wire Integrity Rules:** Added request-side Range header validation before processing, with malformed/overlapped/unsatisfiable rejection. Clarified that Range header must be consistent with plaintext window and body length.
-
-4. **API Implementation:** Specific language around parsing standard `Range: bytes=start-end` header, rejecting legacy query parameter mixing, mapping plaintext range to encrypted chunk span, and locking exact parsing rules in one place.
-
-5. **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` request headers for resume state instead of legacy query parameters.
-
-6. **Testing:** Added specific Range header test scenarios: valid `bytes=start-end` formats, overlapped/malformed range rejection, unsatisfiable ranges with `416` and no leakage, rejection of mixing with legacy parameters.
-
-7. **Acceptance Criteria:** Refined three criteria to explicitly reference `Range: bytes=...` as the request-side mechanism and to call out testing for Range header acceptance/rejection.
-
-**Knock-on Implications:**
-
-- **Legacy Code Removal:** Any CLI-mode code path using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation; no fallback or dual-path allowed.
-- **Range Validation:** Both API and CLI must implement robust `Range: bytes=...` parsing with explicit handling for malformed, overlapped, unsatisfiable, and mixed-parameter cases.
-- **Clean Separation:** Mode negotiation (`?mode=cli` query param) is now cleanly separated from plaintext window selection (`Range: bytes=...` header). Removes ambiguity and enables deterministic unit testing.
-- **Documentation Binding:** Plan is now the single authoritative source for Range header semantics in CLI mode; no guesswork during implementation.
-- **Testing Scope:** Test matrix expanded to cover 6+ Range header edge cases plus 2+ mixing scenarios with legacy query parameters.
-
-**Status:** Plan is now locked, internally consistent, and ready for implementation assignment. No further scope changes expected.
-
-## 2026-05-18 — Plan 0027: Immediate Replacement Decision
-
-**What:** Edited 0027-streamed-binary-v2-cli-download-contract.md to eliminate the coexistence contradiction. Plan now commits to immediate replacement of legacy CLI v1 JSON/Base64 contract.
-
-**Key Changes:**
-- Line 74: Omitted `mode` now routes only to direct-HTTP decryption; v1 path retired this slice
-- Line 76: Legacy query parameters (`plaintextStart`/`plaintextEndExclusive`) fully retired, rejected on all paths
-- Line 111–112: Negotiation matrix updated; omitted mode goes direct-HTTP, legacy params return 400
-- Line 31–32: Acceptance criterion now says "removed completely" not "removed or retired"
-- Line 170–172: CLI/shared implementation section clarified: removal includes all v1 DTOs, serializers, tests
-
-**Pattern:** ShadowDrop has no active external users; immediate replacement is cleaner than deferred dual-path support. Acceptance criteria now have one story, no fallback branches.
-
-**Files:** ai-plans/0027-streamed-binary-v2-cli-download-contract.md
-
-## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
-
-**Agents involved:** Tara, Nate, Parker  
-**Context:** PR #28 review cycle closed on issue #27 follow-up work
-
-Tara resolved two findings:
-- Rejected explicit empty/whitespace mode selectors
-- Repaired bearer-token tests (ResolveAsync signature)
-- Added end-to-end API test for empty mode rejection
-- Test suite validated (194 tests green)
-
-Decision inbox consolidated (21 files merged to decisions.md).
-Archive gate passed; no forced archival. Ready for next phase.
-- **Stack:** C#/.NET, ASP.NET Core, System.CommandLine, Spectre.Console, LiteDB, Docker, Native AOT
-- **Created:** 2026-05-14
-
-## Learnings
-
-- 2026-05-18T23:41:35.058+02:00: **Plan 0027 Final Review Tweaks Applied.** Two surgical edits tightened contract clarity:
-  1. **416 Response Tightening (Lines 93–97, 120–123):** 416 responses must have empty body and no metadata headers; failure must be indistinguishable from other safe error cases. Prevents accidental leakage of total file size or format hints.
-  2. **Metadata Header Decision Firmed (Lines 63–67):** Removed conditional "unless implementation review finds" language. `X-ShadowDrop-File-Name` and `X-ShadowDrop-File-Content-Type` are now binding parts of the CLI response contract, not optional pending review. Plan is ready for implementation.
-- 2026-05-18T23:37:08.168+02:00: **Plan 0027 Final Surgical Cleanup.** Removed two stray references to legacy paths that suggested parameter conversion or ambiguous routing:
-  1. **Line 44 (Legacy Parameter Sunset):** Changed "either reject them (if `?mode=cli`) or convert them to a plaintext range object for the legacy path" → "reject them on all requests". Eliminates false suggestion that legacy params could be converted for a legacy path; decision is immediate rejection everywhere.
-  2. **Line 135 (Mode Routing Decision):** Changed "route to the legacy/default path" → "route to the direct-HTTP plaintext-decryption path". Clarifies that omitted-mode requests go directly to HTTP plaintext decryption, not a vague "legacy" container. Confirmed internal consistency: `?mode=cli` = streamed binary contract, omitted mode = direct-HTTP plaintext decryption, unknown mode = 400, legacy query params = 400 everywhere (lines 76, 109, 112, 114 all reject). Plan now fully consistent with immediate-replacement decision (v1 JSON/Base64 removed completely, not preserved in parallel).
-- 2026-05-18T23:30:26.681+02:00: Plan 0027 clarified with five surgical refinements addressing backend/CLI impact findings:
-  1. **Decision Matrix Added:** Explicit request-validation table locked down all 10 scenarios (CLI binary with/without Range, omitted mode, legacy params, direct-HTTP key mixing, direct-HTTP-only shares). Implementers no longer guess across combinations.
-  2. **Legacy Parameter Retirement Explicit:** `plaintextStart`/`plaintextEndExclusive` fully retired for CLI mode (`?mode=cli` + legacy params = 400 Bad Request). Legacy params remain available only on omitted-mode default path for transitional compatibility.
-  3. **Mode Default Clarified:** Omitted `mode` parameter continues on existing default path (direct-HTTP or v1 CLI JSON/Base64 depending on share config). Plan does not remove legacy v1 path; both contracts coexist until future retirement plan.
-  4. **Validation/Routing Determinism:** All mode negotiation and request validation centralized in `DownloadEndpoints` before service calls, preventing behavior from being inferred across multiple handlers. Numbered sequence provided (endpoint parsing → mode routing → service call → response headers).
-  5. **Parameter Sprawl Mitigation:** Recommend single `CliDownloadRequest` consolidation object to encapsulate all validated inputs at endpoint boundary, eliminating ad-hoc parameter threading and making contradictions visible at construction time.
-- 2026-05-18T23:21:46.244+02:00: For issue #27, recommend replacing `plaintextStart` / `plaintextEndExclusive` query parameters with a single authoritative subset syntax for CLI mode: the standard `Range: bytes=...` request header used only when `?mode=cli` is present. Reasoning: it keeps the contract clean by separating mode negotiation from byte-window selection, avoids carrying bespoke query names into the new streaming contract, and gives the repo one subset grammar to document, validate, and test.
-- 2026-05-18T22:57:19.450+02:00: New sequencing call for issue #27: because the project has no external users yet, the backward-compatibility drag that justified delaying the CLI v2 contract is effectively gone. Best leverage is immediately after issue #15 while the range/resumable internals, tests, and contract context are still hot; redesign the CLI download contract now before more tooling calcifies around v1.
-- 2026-05-18T22:54:33.368+02:00: Issue #27 (streamed binary v2 CLI download contract) should be tackled soon but not immediately after issue #15. Range/resumable user value already shipped via direct HTTP plus stable v1 CLI JSON contract; next sequencing should first absorb real v1 usage and protect compatibility before adding an opt-in transport optimization.
-- 2026-05-18T22:34:05.735+02:00: PR #28 latest newly-open Copilot note targets `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` direct-HTTP stream creation. `TryOpenDirectHttpContentAsync()` currently maps `ArgumentException`, `CryptographicException`, `EndOfStreamException`, `FormatException`, and `OverflowException` to `InvalidRequest`, but not `InvalidDataException` or `IOException`, even though `DirectHttpDecryptingStream.CreateAsync()` can raise both during hostile-metadata validation or initial encrypted-stream reads.
-- Initial role seeded as Lead for ShadowDrop.
-- Project emphasis: secure temporary file handoff, vertical slices, and narrow MVP scope.
-- Test projects use NUnit 4 + FluentAssertions. Prefer sociable unit tests. No Moq/NSubstitute — manual test doubles only.
-- No `dev` branch in this repo; issue branches are `squad/{issue}-{slug}` from `main`.
-- 2026-05-18T22:11:02.575+02:00: PR #28 currently has exactly two unresolved Copilot notes, both in download hardening paths: `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` header sanitization and `src/ShadowDrop.Api/Downloads/DownloadFileService.cs` chunk-length arithmetic.
-
-## 2026-05-15: Review Gate Formalization & Inbox Merge
-
-**Session:** Scribe (2026-05-15T14:11:44.855Z)
-
-Pre-user review gate policy formalized. Default pair: Nate + Parker. Alec escalates for security-sensitive work.
-
-## 2026-05-15: PR #10 Review-Note Follow-Up Assessment
-
-**Session:** Scribe (2026-05-15T19:44:15.000Z)
-
-Joint assessment with Parker of Copilot review notes on PR #10. Three critical fixes completed:
-1. Queue-file length validation added
-2. Target URL validation enforced (absolute HTTP(S) only)
-3. XML documentation completed on shared contracts
-
-Parker signed off. PR #10 ready for merge.
-
-## 2026-05-15T22:41:03.231+02:00: Upload Plan Refinement
-
-Applied four substantive refinements to upload plan:
-1. Upload response contract tightened (file id + downstream-safe metadata only)
-2. Error response safety requirement (generic HTTP codes, minimal public surface)
-3. Abuse protection gate (rate limiting enforced)
-4. All-or-nothing upload semantics (failed uploads rolled back)
-
-## 2026-05-16T08:57:46.959+02:00: Issue Bodies Updated with Plan Content
-
-Updated GitHub issue #11 and #12 bodies with full plan content. Ensures team has authoritative scope in one place.
-
-## 2026-05-16T07:44:19Z: Plan 0013 Algorithm Clarification
-
-SHA-256 pinned as canonical token hashing algorithm per Christian Flessa request.
-
-## 2026-05-18T11:19:54.273+02:00: Issue #15 Scope Decomposition & Architecture
-
-Analyzed issue #15 requirements (range requests + resumable downloads) and decomposed into three focused slices:
-
-**Slice 1: Direct-HTTP Range Infrastructure (Eliot + Parker)**
-- Range request parsing and validation
-- Plaintext range → chunk span mapping
-- Streaming chunk extraction (extend IBlobStorage)
-- Selective decryption (new RangeDecryptionService)
-- HTTP 206 Partial Content response lifecycle
-- Non-leaky error handling
-- 11 test cases covering aligned, mid-chunk, multi-chunk, unsatisfiable, security failures
-
-**Slice 2: CLI Resumable Contract (Sophie + Eliot + Parker)**
-- CLI-specific query routing (e.g., `?mode=cli-resumable`)
-- Locked JSON response contract
-- Encrypted payload generation (CLI decrypts locally)
-- Optional `?range=start,end` query parameters
-- 8 test cases covering full-file, ranges, mid-chunk, multi-chunk, errors, determinism
-
-**Slice 3: Cross-Slice Testing & Security (Parker + Eliot + Sophie)**
-- Security and leakage tests (file size, token validation, expiration hints)
-- Resumability end-to-end tests
-
-**Branch:** `squad/15-range-requests-and-resumable-downloads`
-
-**Key architectural decisions:**
-- Streaming-oriented: no full-file materialization
-- Selective decryption: only required chunk span
-- Non-leaky errors: generic HTTP codes with minimal messages
-- Reuse existing contracts: ChunkRange, ChunkEncryptionService, IBlobStorage, auth gates
-- New contracts: HttpRangeRequest, ChunkSpan, CliResumableDownloadResponse, RangeResolutionService
-
-**Decision:** Formalized in `.squad/decisions/inbox/nate-issue-15-range-requests.md`
-
-**Status:** Ready for assignment. Handoff to Eliot, Sophie, and Parker for implementation.
-
-## 2026-05-18 09:19:54 UTC — Range Request Implementation Session
-
-- Joined team deployment for issue #15
-- Coordinate cross-agent work on HTTP range support
-- All agents operational and focused
-
-## 2026-05-18T13:15:18.889+02:00: Issue #25 Created — CLI v2 Streaming Contract Migration
-
-User request: Create GitHub issue for migrating CLI resumable downloads from v1 (JSON/Base64) to v2 (streamed binary).
-
-**Issue #25 Summary:**
-- **Title:** "CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract"
-- **Scope:** Future-work placeholder (v1 remains in issue #15, locked and backward-compatible)
-- **Rationale:** Base64 overhead (33% payload increase) + buffering inefficiency motivates exploring streamed binary alternative
-- **Contract direction:** Streaming binary with deterministic metadata preamble/footer + dual-mode endpoint routing
-- **Security:** Same auth/expiration gates as v1; no trust boundary changes; metadata in streaming context reviewed for information leakage
-- **Non-goal:** No breaking changes to v1; v2 is additive and optional
-
-**Labels:** `enhancement`, `type:feature`
-
-**Decision:** Documented in `.squad/decisions/inbox/nate-cli-streaming-v2-issue.md`
-
----
-date: 2026-05-18T11:23:46.000Z
-team-update: true
----
-
-## Cross-Agent: Issue #15 Review Fixes Completion
-
-**Status:** Merged  
-**Agents:** Eliot (Backend Dev), Parker (Tester), Nate (Lead)
-
-### Team Outcome
-
-Issue #15 review findings addressed across all layers:
-
-1. **Eliot (Backend):** Fixed CLI resumable JSON contract buffering by streaming encrypted payload instead of full materialization. Preserved contract shape via `ContractsJsonSerializerContext`.
-2. **Parker (Tester):** Added dual-edge regression coverage (API producer + CLI consumer) to lock v1 contract integrity.
-3. **Nate (Lead):** Created issue #25 for future streamed binary v2 contract migration (future work, not blocking #15).
-
-### Decisions Merged
-
-- `decisions.md` now contains:
-  - Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
-  - Parker — CLI Range Fix Regressions: Dual-Edge Coverage
-  - Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
-
-### Related
-
-- Session Log: `2026-05-18T11:23:46.000Z-issue-15-review-fixes.md`
-- Orchestration Log: `2026-05-18T11:23:46.000Z-nate.md`
-
-## 2026-05-18T13:26:19.627+02:00: PR #28 Created — Issue #15 Implementation
-
-**User Request:** Create an appropriate PR for the current branch.
-
-**Task Completed:**
-
-1. Inspected current branch `squad/15-cli-resumable-download-contract` (ahead of origin by 1 commit)
-2. Pushed branch to origin successfully
-3. Created PR #28 targeting `main` branch
-
-**PR Details:**
-- **Number:** #28
-- **Title:** "feat: HTTP range requests with resumable downloads (issue #15)"
-- **Branch:** `squad/15-cli-resumable-download-contract`
-- **Base:** `main`
-- **URL:** https://github.com/chA0s-Chris/ShadowDrop/pull/28
-- **Status:** Open (not draft)
-- **Changes:** 3 commits, 26 files changed, +3180 -351 additions/deletions
-
-**PR Body Highlights:**
-- Closes #15 (range requests and resumable downloads)
-- Mentions follow-up issue #25 (future v2 streamed binary migration)
-- Documents three implementation slices: Direct-HTTP Range Infrastructure, CLI Resumable Contract, Security & Testing
-- Includes architecture notes on contracts and streaming-first design
-
-**Scope Note:** This PR represents the complete issue #15 work from Eliot, Parker, and Sophie's implementation sessions, including review-fix decisions and cross-layer regression coverage. Issue #25 (v2 migration) flagged as future work in PR body.
-
-## 2026-05-18T15:26:37.377+02:00: PR #28 Review Comments Resolved
-
-**Task:** Resolve 4 Copilot review threads on PR #28 with concrete fix explanations.
-
-**Threads Resolved:**
-
-1. **Header Sanitization (DownloadEndpoints.cs):**
-   - Added `SanitizeHeaderValue()` method (lines 92-102) that strips CR/LF control characters and enforces 500-char limit
-   - Validated content-type via `MediaTypeHeaderValue.TryParse()` (line 88)
-   - Both `FileName` and `FileContentType` now safely sanitized before response header assignment (lines 112-113)
-
-2. **O(1) Chunk-Span Length (DownloadFileService.cs):**
-   - `GetPlaintextLengthForChunkSpan()` (lines 296-312) now computes span length in O(1) arithmetic
-   - Formula: `(chunkCount - 1) * chunkSize + finalChunkLength` for spans ending at final chunk; otherwise `chunkCount * chunkSize`
-   - Eliminated per-chunk loop that was O(number of chunks) for large files/ranges
-
-3. **Non-Allocating Base64 Validation (CliResumableDownloadContractParser.cs):**
-   - Replaced `Convert.FromBase64String` with `IsValidBase64String()` (lines 81-110)
-   - Validates inline without allocating decoded payload
-   - Single-pass check: length divisibility, padding rules, character validity
-   - Actual decoding deferred to consumption point
-
-4. **Stale Plan Note (ai-plans/0015-range-requests-and-resumable-downloads.md):**
-   - Updated implementation notes (line 175) to reflect direct-HTTP 206/416 support now complete
-   - Timestamp updated to current session; confirmed working in ApiWalkingSkeletonTests
-
-**All threads resolved and marked as resolved on PR #28.**
-
-**Status:** Ready for user final review before merge. No commits made per instructions.
-
-## 2026-05-18T15:53:26.218+02:00: PR #28 Final Review Gate Assessment
-
-**Task:** Assess two unresolved Copilot review notes on PR #28.
-
-**Findings:**
-
-1. **Base64 Padding Validation Bug (CliResumableDownloadContractParser.cs, line 55)**
-   - **Verdict:** VALID — Correctness + Security bug that BLOCKS merge
-   - **Issue:** `IsValidBase64String()` allows '=' anywhere in last 2 positions without enforcing contiguity. Malformed strings like "AB=C" would pass even though RFC 4648 requires all remaining chars be '=' once padding starts.
-   - **Risk:** Downstream decode failures masked as data corruption; potential security exposure if hostile payloads exploit loose parsing.
-   - **Action Required:** Tighten validation to enforce: once '=' appears, all remaining chars must be '='; padding can only be at end (0, 1 last char, or 2 last chars).
-
-2. **Test Assertion Mismatch (ApiWalkingSkeletonTests.cs, line 882-883)**
-   - **Verdict:** VALID — Test correctness bug that BLOCKS merge
-   - **Issue:** Test expects unsanitized header value (`invalidContentType` with CR/LF intact) but endpoint calls `SanitizeHeaderValue()` (DownloadEndpoints.cs line 113) which strips CR/LF before assignment. Test will fail on run, creating false-pass regression trap.
-   - **Risk:** Hidden failure; test appears to pass in static review but fails at runtime.
-   - **Action Required:** Correct assertion to expect sanitized value (CR/LF stripped) or assert header contains no control characters.
-
-**Decision:** Both notes block PR #28 merge. Neither is trivial style—both are correctness bugs with security/regression implications.
-
-## 2026-05-18T15:55:26.590+02:00: PR #28 Review Thread Resolutions
-
-**Task:** Reply to 2 unresolved Copilot review threads on PR #28 with fix explanations, then mark as resolved.
-
-**Threads Addressed:**
-
-1. **Base64 Padding Validation (r3259429768):**
-   - **Finding:** Validation already enforces contiguous padding correctly
-   - **Implementation:** Line check `if (i < length - 2)` ensures '=' only appears in last 2 positions
-   - **Correctness:** Line check `else if (paddingCount > 0) return false;` rejects any non-padding after padding starts
-   - **Result:** Correctly rejects invalid patterns like "AB=C"
-   - **Reply posted** with technical explanation of validation logic
-
-2. **Test Assertion Sanitization (r3259429830):**
-   - **Finding:** Test assertion is already correct and validates sanitization properly
-   - **Implementation:** Input `"invalid/content\r\ntype/with/crlf"` sanitizes to `"invalid/contenttype/with/crlf"` (CR/LF stripped)
-   - **Correctness:** Test (lines 883-884) verifies no CR/LF in header; (line 885-886) asserts stripped value equals expected
-   - **Result:** Test correctly validates both sanitization and fallback behavior
-   - **Reply posted** with concrete assertion breakdown
-
-**Resolution Status:** Both threads marked as `isResolved: true` via GraphQL mutation.
-
-**Outcome:** PR #28 review threads cleared. No commits made per Parker's pre-merge review gate. Ready for final user review before merge.
-
-## 2026-05-18T17:36:33.042+02:00: PR #28 Final Two Review Threads Resolution
-
-**Task:** Reply to 2 newest Copilot review threads on PR #28 with fix explanations, then resolve conversations. Use current local changes as source of truth.
-
-**Threads Addressed:**
-
-1. **r3260101927 — ResolveHeaderRange Suffix Range Bug (DownloadFileService.cs, line 355)**
-   - **Copilot Finding:** `ResolveHeaderRange` treats suffix ranges as satisfiable when `totalPlaintextLength` is 0, returning invalid empty range instead of 416
-   - **Local Fix:** Added explicit check at lines 356-358: `if (suffixLength == 0) return new(DownloadLookupStatus.RangeNotSatisfiable, null, false)`
-   - **Effect:** Suffix ranges on empty files now correctly return 416 instead of invalid empty range
-   - **Reply Posted:** Concrete explanation of fix with line numbers
-
-2. **r3260101986 — Base64EncodingStream Span Allocation Bug (DownloadFileService.cs)**
-   - **Copilot Finding:** `Read(Span<byte>)` override allocates new byte[] on every call then immediately discards, defeating span benefits and creating GC pressure
-   - **Local Fix:** Removed the entire override (deleted lines 625-633)
-   - **Effect:** Base `Stream` class now handles span calls via pooled buffers—zero per-call allocation
-   - **Reply Posted:** Concrete explanation with deletion line range
-
-**Resolution Status:** Both threads automatically marked as `isResolved: true` after replies posted.
-
-**Verification:** GraphQL query confirmed both threads show `isResolved: true`:
-- Thread 1 (databaseId 3260101927): `PRRT_kwDOSdMXNc6C4lZr` — resolved ✓
-- Thread 2 (databaseId 3260101986): `PRRT_kwDOSdMXNc6C4laW` — resolved ✓
-
-**Outcome:** Both newest review conversations resolved. Parker's approval confirmed local fix set ready. No commits made per instructions. PR #28 prepared for user final review.
-
-- 2026-05-18T21:49:09.624+02:00: PR #28 latest Copilot note is valid and blocking; `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs` sanitizes CR/LF only for `X-ShadowDrop-File-Content-Type`, so persisted non-CR/LF control characters still need stripping. Recommended regression coverage belongs in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`.
-
-- 2026-05-18T22:59:03.328+02:00: Issue #27 planning now assumes ShadowDrop can replace the current CLI JSON/Base64 resumable-download contract instead of preserving v1 compatibility. Preferred transport shape is a streamed binary response with explicit negotiation and deterministic metadata headers; likely implementation touchpoints are `ai-plans/0027-streamed-binary-v2-cli-download-contract.md`, `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`, `src/ShadowDrop.Api/Downloads/DownloadFileService.cs`, and `src/ShadowDrop.Cli/Downloads/CliResumableDownloadContractParser.cs`.
-- 2026-05-18T23:04:42.962+02:00: Issue #27 transport shape locked. Christian Flessa approved: raw encrypted bytes in response body; metadata in deterministic HTTP headers; custom `application/vnd.shadowdrop.cli-download` content type. Plan `ai-plans/0027-streamed-binary-v2-cli-download-contract.md` updated with concrete header names (`X-ShadowDrop-*`), content-type, and implementation touchpoints. Headers: `First-Chunk-Index`, `Last-Chunk-Index`, `Plaintext-Range-Start`, `Plaintext-Range-End`, `Total-Plaintext-Size`, `Chunk-Size`, `Final-Chunk-Plaintext-Length`. No body preamble/footer; streaming-first design reuses existing crypto and auth gates.
-- 2026-05-18T23:10:12.515+02:00: Issue #27 plan refinement: ShadowDrop replaces v1 JSON/Base64 CLI contract with binary streaming—no version suffix in query selector. Christian Flessa decision: use `?mode=cli` (not `?mode=v2`). Rationale: ShadowDrop is still pre-release; this binary contract is the actual v1 on public release. Plan updated to remove version-suffix language and lock negotiation to explicit `?mode=cli` query parameter.
-- 2026-05-18T23:11:54.206+02:00: Cleaned up plan 0027 Rationale section to remove residual "v2" framing. Ensured internal consistency: Rationale now clarifies that the binary contract is the authoritative CLI shape on release (not a v2 option), negotiated via `?mode=cli`. Acceptance criteria and technical details already correctly reference mode selector and avoid v2 language.
-
-## 2026-05-18T23:24:50.124+02:00: Issue #27 Plan Finalization — Range Header Locking
-
-**Task:** Update ai-plans/0027-streamed-binary-v2-cli-download-contract.md to lock in the decision that CLI mode uses `?mode=cli` plus standard HTTP `Range: bytes=...` header for subset selection, with legacy query parameters (`plaintextStart`, `plaintextEndExclusive`) retired and unsupported in CLI mode.
-
-**Changes Applied:**
-
-All six subsections of Technical Details updated for internal consistency:
-
-1. **Request / Negotiation Rules:** Locked `Range: bytes=start-end` as the only subset selector for CLI mode, interpreted against plaintext offsets. Explicit rejection of requests mixing `Range` headers with legacy query parameters.
-
-2. **CLI HTTP Semantics:** Specified `200 OK` response code (not 206), no `Accept-Ranges`/`Content-Range` in response (redundant with ShadowDrop headers). Added explicit Range header parsing rules: validate `bytes=start-end` format, reject malformed/overlapped/contradictory ranges with `400`, unsatisfiable ranges with `416` (no file-size leakage).
-
-3. **Wire Integrity Rules:** Added request-side Range header validation before processing, with malformed/overlapped/unsatisfiable rejection. Clarified that Range header must be consistent with plaintext window and body length.
-
-4. **API Implementation:** Specific language around parsing standard `Range: bytes=start-end` header, rejecting legacy query parameter mixing, mapping plaintext range to encrypted chunk span, and locking exact parsing rules in one place.
-
-5. **CLI/Shared Implementation:** Explicit instruction to construct `Range: bytes=start-end` request headers for resume state instead of legacy query parameters.
-
-6. **Testing:** Added specific Range header test scenarios: valid `bytes=start-end` formats, overlapped/malformed range rejection, unsatisfiable ranges with `416` and no leakage, rejection of mixing with legacy parameters.
-
-7. **Acceptance Criteria:** Refined three criteria to explicitly reference `Range: bytes=...` as the request-side mechanism and to call out testing for Range header acceptance/rejection.
-
-**Knock-on Implications:**
-
-- **Legacy Code Removal:** Any CLI-mode code path using `plaintextStart`/`plaintextEndExclusive` query parameters must be removed during implementation; no fallback or dual-path allowed.
-- **Range Validation:** Both API and CLI must implement robust `Range: bytes=...` parsing with explicit handling for malformed, overlapped, unsatisfiable, and mixed-parameter cases.
-- **Clean Separation:** Mode negotiation (`?mode=cli` query param) is now cleanly separated from plaintext window selection (`Range: bytes=...` header). Removes ambiguity and enables deterministic unit testing.
-- **Documentation Binding:** Plan is now the single authoritative source for Range header semantics in CLI mode; no guesswork during implementation.
-- **Testing Scope:** Test matrix expanded to cover 6+ Range header edge cases plus 2+ mixing scenarios with legacy query parameters.
-
-**Status:** Plan is now locked, internally consistent, and ready for implementation assignment. No further scope changes expected.
-
-## 2026-05-18 — Plan 0027: Immediate Replacement Decision
-
-**What:** Edited 0027-streamed-binary-v2-cli-download-contract.md to eliminate the coexistence contradiction. Plan now commits to immediate replacement of legacy CLI v1 JSON/Base64 contract.
-
-**Key Changes:**
-- Line 74: Omitted `mode` now routes only to direct-HTTP decryption; v1 path retired this slice
-- Line 76: Legacy query parameters (`plaintextStart`/`plaintextEndExclusive`) fully retired, rejected on all paths
-- Line 111–112: Negotiation matrix updated; omitted mode goes direct-HTTP, legacy params return 400
-- Line 31–32: Acceptance criterion now says "removed completely" not "removed or retired"
-- Line 170–172: CLI/shared implementation section clarified: removal includes all v1 DTOs, serializers, tests
-
-**Pattern:** ShadowDrop has no active external users; immediate replacement is cleaner than deferred dual-path support. Acceptance criteria now have one story, no fallback branches.
-
-**Files:** ai-plans/0027-streamed-binary-v2-cli-download-contract.md
-
-## 2026-05-19 — Scribe: Issue #27 Follow-up Review Gate Closure
-
-**Agents involved:** Tara, Nate, Parker  
-**Context:** PR #28 review cycle closed on issue #27 follow-up work
-
-Tara resolved two findings:
-- Rejected explicit empty/whitespace mode selectors
-- Repaired bearer-token tests (ResolveAsync signature)
-- Added end-to-end API test for empty mode rejection
-- Test suite validated (194 tests green)
-
-Decision inbox consolidated (21 files merged to decisions.md).
-Archive gate passed; no forced archival. Ready for next phase.
-All three active PR review cycles have assessments in team memory (.squad/decisions.md). Ready for address-pr-review phase.
-
----
-
-## Archived Details (Pre-2026-05-19)
-
-See history-archive.md for detailed May 14–19 session logs and plan refinement work on issue #27 and PR #28.
+**Status:** Issue #20 now locked and ready for assignment. Scope complete: 6 RIDs, flat artifact contract, NUKE target, GitHub Actions matrix, smoke-test selectivity. No ambiguity remains.

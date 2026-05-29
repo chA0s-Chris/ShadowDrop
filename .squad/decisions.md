@@ -1,4 +1,183 @@
 ---
+title: Issue #20 Scope Correction — Fallback Protocol Removal
+date: 2026-05-29T14:29:36.720+02:00
+author: Nate
+status: decision_locked
+domain: issue-20, native-aot-cli-publishing
+---
+
+# Issue #20 Scope Correction — Fallback Protocol Removal
+
+**Date:** 2026-05-29T14:29:36.720+02:00
+**Lead:** Nate
+**Issue:** #20 (Native AOT CLI Publishing)
+
+## Decision
+
+Removed all fallback/blocker-protocol language from issue #20 and plan 0020, per user directive. AOT viability is already proven for CLI; fallback strategy is out of scope for MVP.
+
+## What Changed
+
+### Plan 0020 (`ai-plans/0020-native-aot-cli-publishing-and-release-artifacts.md`)
+
+- **Removed** Acceptance Criterion 8: "Any platform-specific AOT incompatibilities or blockers are documented in `.squad/decisions.md` with evidence (error output, dependency version, mitigation rationale) **before** fallback self-contained publishing is considered."
+- **Removed** from Technical Details: "**Blocker protocol:** If `dotnet publish -r {rid}` fails or emits AOT incompatibility warnings, document the failure in `.squad/decisions.md` with evidence (error output, dependency version, root cause). Self-contained single-file publishing is acceptable only for a platform with a confirmed, narrowly scoped blocker, never as a silent default."
+- **Kept** Acceptance Criteria 1–7 (all concrete, implementation-ready).
+
+### Issue #20 on GitHub
+
+- **Removed** entire "Blocker Fallback Protocol" section.
+- **Tightened** acceptance criteria from 8 to 7 items (removed redundant/vague language).
+- **Kept** all concrete scope: RID matrix, artifact contract, build strategy, validation split.
+- **Reworded** for implementation-orientation (no verbose policy).
+
+## Rationale
+
+- User directive: "fallback strategy was explicitly removed from scope because AOT viability is already proven."
+- Native AOT for CLI already proven in historical work (Plan 0001, Parker's builds).
+- No decision gates remain for AOT fallback; scope is purely implementation of 6-RID matrix.
+- Cleaner contracts enable faster assignment and execution.
+
+## Cross-Team Impact
+
+- **Sophie/CLI Team:** Scope now purely implementation-focused (NUKE target + GitHub workflow).
+- **Parker/Testing:** Smoke-test matrix and CI strategy unchanged; no impact.
+- **Architecture:** No fallback decisions needed; MVP is all-in on AOT for all platforms.
+
+## Files Modified
+
+1. `/home/chris/Code/github/ShadowDrop/ai-plans/0020-native-aot-cli-publishing-and-release-artifacts.md`
+2. GitHub issue #20 body (via `gh issue edit`)
+
+---
+title: Issue #20 Finalization — Scope Lock & GitHub Update
+date: 2026-05-29T14:29:36.720+02:00
+author: Tara
+status: decision_locked (superseded by Nate correction)
+domain: issue-20, native-aot-cli-publishing
+---
+
+# Issue #20 Scope Lock & GitHub Update
+
+## Summary
+
+Issue #20 (Native AOT CLI publishing + release artifacts) updated to reflect finalized MVP scope, incorporating all decisions from Plan 0020 and Tara's prior recommendations (artifact contract, validation strategy, blocker protocol).
+
+**Note:** The blocker protocol language referenced here was subsequently removed by Nate (see prior decision) per user directive.
+
+## Key Decisions Locked
+
+### 1. RID Matrix: All 6 (Not a Subset)
+
+- linux-x64, linux-arm64
+- osx-x64, osx-arm64
+- win-x64, win-arm64
+- **Rationale:** Christian confirmed all 6 on 2026-05-29. User clarity and release completeness justify macOS runner cost.
+
+### 2. Artifact Contract (Flat, Version-in-Name)
+
+- **Location:** `artifacts/cli/{version}/` (semver from `.csproj` `<Version>`)
+- **Naming:** `shadowdrop-cli-{version}-{rid}[.exe]`
+- **Extensions:** `.exe` on Windows only; no extension on Unix/macOS
+- **Checksums:** Single `CHECKSUMS.sha256` (Unix-standard `<hash>  <filename>` format)
+- **Rationale:** Flat structure = upload-ready; version in filename prevents overwrites; naming is self-documenting.
+
+### 3. Build & Validation Split
+
+- **Smoke tests on native targets:** linux-x64, osx-x64, osx-arm64 (CI + binary validation)
+- **Build-only on cross-compile targets:** linux-arm64, win-x64, win-arm64 (CI + binary existence)
+- **Rationale:** AOT failures are ~99% compile-time. Cross-compile success validates correctness. Smoke tests on accessible targets (native runners) provide confidence without requiring Windows or arm64 emulation.
+
+### 4. NUKE Publish Target (In Scope)
+
+- Dedicated NUKE target builds all 6 RIDs in single invocation
+- Repeatable locally and in CI
+- **Rationale:** Unified build orchestration; prevents manual RID-by-RID builds.
+
+### 5. GitHub Actions Matrix (In Scope)
+
+- Native runners for macOS (osx-x64, osx-arm64)
+- Linux runner for all others (cross-compile)
+- **Rationale:** Native macOS required for framework and arm64 correctness; Linux cross-compile is cost-effective.
+
+### 6. Blocker Fallback Protocol (Explicit)
+
+- ⚠️ **SUPERSEDED:** See Nate's correction above. Fallback protocol has been removed from scope.
+- Original intent: If a platform cannot AOT-publish, document in `.squad/decisions.md` with evidence.
+- **Current decision:** No fallback strategy in MVP; all platforms commit to AOT.
+
+## Out of Scope (Post-MVP Decision)
+
+- Release notes / installation documentation → moved to issue #35
+- Archives (.tar.gz/.zip)
+- GPG signatures
+- Universal macOS binaries
+- Comprehensive E2E validation (upload/download cycles)
+
+## GitHub Issue Update
+
+Issue #20 body updated with:
+
+- Clear objective statement
+- Settled MVP scope (6 RIDs, flat contract, NUKE target, GitHub Actions matrix, smoke-test selectivity)
+- Explicit acceptance criteria (checkboxes)
+- Implementation notes (AOT-hostile patterns → fix, don't downgrade)
+- Link to Plan 0020 for technical context
+
+## Team Coordination
+
+- **Christian Flessa:** All decisions locked; implementation can begin
+- **Implementer:** Issue #20 now includes concrete contract, CI strategy
+- **Scribe/future reference:** All six decision gates documented; no ambiguity remains
+
+## Next Steps
+
+1. Assignee begins implementation with NUKE Publish target
+2. GitHub Actions matrix built per smoke-test selectivity
+3. Issue #35 owner starts work on README/docs separately
+
+---
+
+### 2026-05-29T13:36:50.490+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Add creation of a GitHub workflow for Native AOT CLI build/validation to the scope of plan 0020.
+**Why:** User request — captured for team memory
+
+### 2026-05-29T13:39:27.220+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Remove the fallback-strategy point from plan 0020 because native AOT build success for the CLI has already been proven during development and it is no longer a meaningful open decision.
+**Why:** User request — captured for team memory
+
+### 2026-05-29T13:42:15.816+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Remove README.md work from plan 0020 and track it in a separate issue instead, because that documentation should address ShadowDrop as a whole rather than only the CLI; label the issue `mvp`.
+**Why:** User request — captured for team memory
+
+---
+title: Issue #35 — README initiative tracking split
+date: 2026-05-29T13:42:15.816+02:00
+issue: 35 / README orchestration
+priority: mvp
+domain: documentation, project-scope
+---
+
+## Decision
+
+README work (project overview + installation guide) is tracked separately from plan 0020 as a full-project initiative under issue #35.
+
+## Rationale
+
+- README scope encompasses ShadowDrop as a whole, not specific to any single plan slice.
+- Separating README tracking removes scope blocker from plan 0020.
+- Issue #35 is canonical tracker; all README work routes there.
+- Label `mvp` marks as milestone priority.
+
+## Related
+
+- Issue: https://github.com/chA0s-Chris/ShadowDrop/issues/35
+- Previous scope: plan 0020 (now unblocked)
+
+---
 title: PR #31 — unresolved review assessment
 date: 2026-05-29T02:32:01.927+02:00
 issue: PR #31 / review triage
@@ -848,8 +1027,8 @@ Christian should refine plan 0019's acceptance criteria section (three bullet po
 --- nate-port-split-review.md ---
 ### 2026-05-29T12:05:32+02:00: Port-split proposal assessment for plan 0019
 
-**By:** Nate  
-**What:** Can the API listen on two different ports with configurable split between admin/upload and download routes?  
+**By:** Nate
+**What:** Can the API listen on two different ports with configurable split between admin/upload and download routes?
 **Proposal:** Default = single port (entire API). Optional = two-port mode (admin routes on one port, download routes on the other).
 
 ---
@@ -915,7 +1094,7 @@ No code gaps exist; this is purely configuration + docs work.
 
 **What:** ASP.NET Core API can safely support optional dual-port binding (download on one port, admin on another) with zero breaking changes. Recommended as inclusion in Plan 0019 acceptance criteria.
 
-**Why:** 
+**Why:**
 - ASP.NET Core 10 natively supports Kestrel multi-endpoint configuration via environment variables.
 - Current API structure (`AdminEndpoints`, `DownloadEndpoints`) already uses feature-flag guards; extending to port-specific registration requires ~10 lines of code.
 - Default single-port behavior unchanged, so no risk to existing deployments.
@@ -1220,8 +1399,8 @@ Applied. Plan 0019 locked for implementation by Tara (Platform) or assigned impl
 
 # Plan 0019 MVP Refinement: Health Check, Database Init, Multi-Arch Validation
 
-**Date:** 2026-05-29T13:00:08+02:00  
-**Scope:** Plan 0019 Docker Image and Container Deployment  
+**Date:** 2026-05-29T13:00:08+02:00
+**Scope:** Plan 0019 Docker Image and Container Deployment
 **Status:** Applied
 
 ## Decision
@@ -1269,3 +1448,476 @@ Three targeted refinements to Plan 0019 acceptance criteria and technical detail
 - Tara authors Dockerfile using `/health` endpoint, multi-arch build command, and auto-init assumption.
 - README deployment guide adds first-start database creation note.
 - Smoke test uses exact `docker buildx build ...` command and `GET /health` validation.
+
+--- plan-0020-aot-publishing-blocked-on-clarification.md ---
+---
+title: Plan 0020 — Native AOT CLI Publishing Blocked on Contract Clarity
+date: 2026-05-29T13:14:07.984+02:00
+issue: Plan 0020 / native-aot-cli-publishing-and-release-artifacts
+priority: blocking-clarification
+domain: cli-distribution, build-release, multi-arch
+---
+
+## Decision
+
+Plan 0020 (Native AOT CLI Publishing) is **NOT IMPLEMENTATION-READY**. Acceptance criteria are vague. Critical decisions are missing. One hidden dependency exists (NUKE pipeline has no `Publish` target). Plan must be clarified before work begins.
+
+## Blocking Issues
+
+### 1. Vague Acceptance Criteria (5 items)
+
+| Criterion | Problem | Required Decision |
+|-----------|---------|---|
+| "Publish outputs organized as release-ready artifacts" | No layout spec; "organized" undefined | Explicit directory structure and file naming scheme |
+| "Release artifact naming is consistent" | No naming scheme given (e.g., `shadowdrop-cli-linux-x64` vs `ShadowDrop.Cli-linux-x64`?) | Concrete naming pattern with examples |
+| "Native AOT publish succeeds" | Success is undefined; binary might exist but fail at runtime | Test definition (exit 0? binary executable? runs `--help`?) |
+| "Blockers documented" | Destination not specified (README? separate file? code comments?) | File path for blocker documentation |
+| "README updated" | Which README? What minimum content? | File path and content checklist |
+
+### 2. Missing Critical Decisions
+
+1. **RID Matrix:** Plan says "target matrix from the concept" but lists no explicit Runtime Identifiers.
+   - **Proposed:** `linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64` (6 total)
+   - **Question:** Is this matrix complete, or is Windows deferred for MVP?
+
+2. **Artifact Output Format & Structure:**
+   - Directory layout: per-platform subdirs or flat with RID in filename?
+   - Archives (.tar.gz, .zip) or bare executables?
+   - Checksums/signatures included?
+   - Windows .exe suffix handling?
+   - **Proposed:** Versioned structure `artifacts/cli/v{version}/{rid}/shadowdrop-cli[.exe]`
+
+3. **CI/CD Integration:** Who implements repeatable publish?
+   - Extend NUKE pipeline with `Publish` target (recommended)
+   - Standalone script (`publish-cli.sh`, `publish-cli.ps1`)
+   - Artifact upload destination and process
+   - **Key insight:** Current NUKE pipeline (`build/BuildPipeline.Build.cs`) defines only `Build`, `Test`, `Clean`, `Restore` — no `Publish` target exists yet
+
+### 3. Hidden Dependency: Missing NUKE Publish Target
+
+- ✓ `.csproj` has `<PublishAot>true</PublishAot>`
+- ✗ **NUKE pipeline has NO `Publish` target**
+- ✗ Historical publish from Parker's work is manual (`dotnet publish -r linux-x64`), not repeatable in CI
+
+**Implication:** Plan must include writing NUKE Publish target or clarify if out of scope.
+
+### 4. Cross-Compile & CI Matrix Strategy
+
+For 6 RIDs on standard CI:
+
+| RID | Baseline | Cross-compile | Runner |
+|-----|----------|---|---|
+| linux-x64 | ✓ Linux | no | Linux (standard) |
+| linux-arm64 | ✗ | yes (on Linux) | Linux (standard) |
+| osx-x64 | ✗ | complex | macOS (cost) |
+| osx-arm64 | ✗ | complex | macOS (cost) |
+| win-x64 | ✗ | yes (on Linux) | Windows or Linux |
+| win-arm64 | ✗ | yes (on Linux) | Windows or Linux |
+
+**Options:**
+- **A (recommended):** GitHub Actions matrix with native runners (Linux, macOS, Windows)
+- **B (cost-optimized):** Cross-compile all on Linux runner (AOT blocker risk for macOS)
+- **C (phased):** MVP = linux-x64/arm64 only; defer macOS/Windows to Phase 2
+
+**Decision needed:** Confirm scope and CI cost tolerance.
+
+### 5. AOT Blocker Validation & Fallback Protocol
+
+When `dotnet publish` fails or generates warnings:
+
+1. **Detection:** Capture full stderr/stdout, `IlcOptimizer` warnings, trimming issues
+2. **Validation criteria:**
+   - Non-transient publish error (e.g., dependency doesn't support AOT)
+   - Binary degradation (perf/size significantly worse)
+   - Untrimmed reflection dependency
+3. **Fallback activation:**
+   - Document blocker (RID, error snippet, root cause, rationale, temporary status)
+   - Platform Dev approves blocker doc
+   - Fallback generates self-contained binary instead
+   - CI and README document which RIDs use fallback vs native AOT
+
+**Decision needed:** Is this protocol acceptable, or adjust?
+
+### 6. README Release/Install Documentation Scope
+
+**Proposed sections:**
+- **Installation:** Per-platform download + executable commands (e.g., `chmod +x`, add to $PATH)
+- **Platform matrix:** Table of OS/Arch → Binary name + SHA256 (optional MVP)
+- **Troubleshooting:** Common issues (macOS quarantine, PATH, etc.)
+
+**Decision needed:** Confirm scope or add checklist items.
+
+## Critical Path to Implementation
+
+User (Christian) or Nate (lead) must decide **before** work starts:
+
+1. Confirm RID matrix (all six? MVP subset?)
+2. Define artifact naming scheme with examples
+3. Specify artifact output structure (layout, compression)
+4. Decide on NUKE target ownership and implementation
+5. Define blocker documentation path
+6. Specify README scope (file path, minimum content)
+7. Define publish success test (what validation proves "publish succeeds"?)
+8. Confirm CI strategy and cost tolerance
+
+Once settled, update Plan 0020 Technical Details and acceptance criteria.
+
+## Impact
+
+- **Current state:** Plan cannot be assigned without contractor guessing at contract details.
+- **After resolution:** Plan becomes straightforward 1–2 day lift for Sophie (CLI) or Tara (Platform).
+- **Risk:** Leaving vague means implementer builds artifact scheme, then discovers it doesn't match downstream release process.
+
+## Note
+
+- ✓ Team has validated Native AOT for `linux-x64` (Plan 0001). No architectural risk; contract clarity only.
+- ✓ Tara (Platform) has provided detailed options for each decision area; Nate (Lead) has validated blocking gaps.
+
+
+
+--- user-directive-native-aot-rids.md ---
+---
+title: User Directive — Plan 0020 RID Matrix Confirmation
+date: 2026-05-29T13:21:23.551+02:00
+issue: Plan 0020 / Native AOT CLI publishing
+priority: decision-critical
+domain: cli-distribution, build-release
+---
+
+## Decision
+
+For Native AOT CLI publishing/release artifacts, the target platforms are Linux, Windows, and macOS with x64 and arm64 for each.
+
+**Confirmed RID matrix (all 6 targets, MVP scope):**
+
+1. `linux-x64` — Linux x86-64
+2. `linux-arm64` — Linux ARM64
+3. `win-x64` — Windows x86-64
+4. `win-arm64` — Windows ARM64
+5. `osx-x64` — macOS x86-64
+6. `osx-arm64` — macOS ARM64
+
+**Directive source:** Christian Flessa (via Copilot), 2026-05-29T13:21:23.551+02:00
+
+## Impact
+
+- RID matrix no longer vague; all 6 platforms confirmed for MVP.
+- Remaining five decision gates remain open: artifact naming scheme, output structure, build/publish approach, blocker validation protocol, README scope.
+- Plan 0020 implementation can now proceed on RID decisions; awaiting clarity on remaining contract points.
+
+## Next Steps
+
+1. ✅ RID matrix locked (6 targets confirmed)
+2. ⏳ Define artifact naming scheme
+3. ⏳ Specify artifact output structure (directory layout, compression, checksums)
+4. ⏳ Decide NUKE target ownership and implementation approach
+5. ⏳ Document blocker validation protocol
+6. ⏳ Define README release/install documentation scope
+
+Once all six decisions are locked, Plan 0020 moves to ready-for-implementation status.
+
+---
+title: Plan 0020 — MVP Artifact Contract Recommendation
+date: 2026-05-29T13:22:56+02:00
+issue: Plan 0020 / native-aot-cli-publishing-and-release-artifacts / item 2
+priority: recommendation-ready
+domain: cli-distribution, build-release, artifact-layout
+---
+
+## Recommendation
+
+Define a **concrete, repeatable artifact contract** for Native AOT CLI release outputs across six Runtime Identifiers (RIDs). This contract prioritizes implementation simplicity, user clarity, and release practicality.
+
+## Proposed Contract
+
+### Naming & Structure
+
+**Naming Pattern:**
+```
+shadowdrop-cli-{version}-{rid}[{extension}]
+```
+
+**Directory Layout:**
+```
+artifacts/cli/{version}/
+├── shadowdrop-cli-{version}-linux-x64          (no extension on Unix)
+├── shadowdrop-cli-{version}-linux-arm64
+├── shadowdrop-cli-{version}-osx-x64
+├── shadowdrop-cli-{version}-osx-arm64
+├── shadowdrop-cli-{version}-win-x64.exe        (Windows .exe only)
+├── shadowdrop-cli-{version}-win-arm64.exe
+└── CHECKSUMS.sha256                            (flat file, all binaries listed)
+```
+
+**Key Details:**
+- **Version:** Semver from `.csproj` `<Version>` tag (e.g., `1.0.0`). Version is in **filename**, not a directory level.
+- **Extensions:** Unix/macOS have no extension. Windows has `.exe`. This matches platform conventions and user expectations.
+- **Checksums:** Single `CHECKSUMS.sha256` file using Unix-standard format: `<hash>  <filename>`, one per line, compatible with `sha256sum --check`.
+
+### RID Matrix (MVP = All 6)
+
+| RID | Baseline | Cross-compile | Runner | Notes |
+|-----|----------|---|---|---|
+| `linux-x64` | ✓ | no | Linux | Standard GitHub Actions runner |
+| `linux-arm64` | ✗ | yes | Linux | Supported on Linux via `-r` flag |
+| `osx-x64` | ✗ | complex | macOS | Requires native macOS runner |
+| `osx-arm64` | ✗ | complex | macOS | Requires native macOS runner; ~10× cost |
+| `win-x64` | ✗ | yes | Linux | Cross-compile on Linux runner |
+| `win-arm64` | ✗ | yes | Linux | Cross-compile on Linux runner |
+
+**Recommendation:** Include all six for MVP. macOS arm64 cost is offset by user clarity (one release covers "all Macs") and release credibility.
+
+### What the Plan Should Say
+
+**Add to Technical Details:**
+
+> **Artifact Contract & Release Layout**
+>
+> The publish process generates release-ready CLI artifacts in `artifacts/cli/{version}/` where `{version}` is the semver from the `.csproj` `<Version>` property. Each artifact is a native AOT standalone executable executable named following the schema `shadowdrop-cli-{version}-{rid}`, with platform-specific extensions (`.exe` on Windows; no extension on Unix/macOS).
+>
+> All six Runtime Identifiers are published in a single batch: `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`. Each binary is a complete, self-contained executable with no runtime dependencies.
+>
+> A `CHECKSUMS.sha256` file (Unix-standard format) is generated in the same directory, listing the SHA-256 hash and filename for each binary. Users can verify integrity with standard `sha256sum -c CHECKSUMS.sha256` commands.
+>
+> The publish workflow (NUKE Publish target or script) is repeatable locally and in CI, using GitHub Actions matrix with native runners for macOS and standard runners for Linux. All compiler warnings and AOT analysis output is captured in CI logs for blocker diagnosis.
+
+### Acceptance Criteria (Refined)
+
+Replace vague criteria with these concrete ones:
+
+- [ ] Native AOT `dotnet publish` succeeds for Runtime Identifiers: `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`.
+- [ ] All publish artifacts are placed in `artifacts/cli/{version}/` (where `{version}` is semver from `.csproj`).
+- [ ] Each binary follows naming schema: `shadowdrop-cli-{version}-{rid}[.exe]`. Example: `shadowdrop-cli-1.0.0-linux-x64`, `shadowdrop-cli-1.0.0-win-x64.exe`.
+- [ ] A `CHECKSUMS.sha256` file is generated in the same directory listing all six binaries in Unix format (`<hash>  <filename>`).
+- [ ] Each binary is executable and responds to `--help` and `--version` commands with exit code 0 (smoke test).
+- [ ] Any platform-specific AOT incompatibilities or blockers are documented in `.squad/decisions.md` **before** fallback self-contained publishing is used, with evidence (error output, dependency version, mitigation rationale).
+- [ ] README includes new `/Release & Installation` section with: per-platform download instructions, checksum verification guidance, platform-specific post-install steps (e.g., macOS quarantine removal, $PATH setup, chmod +x on Unix).
+
+## Why This Design
+
+### Implementation Simplicity
+- **One naming scheme:** No prefix/suffix variations, no configuration-dependent names. Simple to generate, easy to script.
+- **Flat artifact layout:** No deep nesting or RID subdirs. Single directory per version = straightforward CI artifact export and GitHub Releases attachment.
+- **Version in filename:** Inherently prevents overwrites and accidental collisions. No need to track version as state.
+
+### User Clarity
+- **Filename is self-documenting:** `shadowdrop-cli-1.0.0-osx-arm64` tells you OS, architecture, version instantly.
+- **Checksum verification is standard:** Users know `sha256sum --check` from any Linux distro; Windows PowerShell includes `Get-FileHash`.
+- **Platform-specific naming matches user expectation:** `.exe` on Windows because users know Windows binaries end in `.exe`. No `.bin` or `.sh` surprises.
+
+### Release Practicality
+- **Upload-ready:** Artifact structure works directly with GitHub Releases API—no manual renaming or restructuring before attaching.
+- **Repeatable CI/local flow:** NUKE Publish target (or script) produces same structure locally and in CI. Developers can validate release locally before pushing.
+- **Version decoupling:** Because version is in filename, old releases never get accidentally replaced when publishing new versions. Safe concurrent builds.
+
+## What to Include/Exclude for MVP
+
+### ✅ Include
+1. All six Runtime Identifiers (`linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, `win-x64`, `win-arm64`)
+2. NUKE Publish target or standalone publish script (repeatable, both local and CI)
+3. Checksums (SHA-256) for all binaries
+4. GitHub Actions matrix workflow with native runners
+5. Smoke tests (binary executable, responds to `--help` and `--version`)
+
+### ❌ Exclude (Post-MVP)
+1. **Archive formats** (`.tar.gz`, `.zip`) — Ship bare executables. Users can archive locally if preferred.
+2. **GPG signatures** — Checksums sufficient for MVP integrity. Signatures are an operational/key management burden.
+3. **Installer wrappers** (Windows `.msi`, macOS `.dmg`) — Post-MVP convenience feature.
+4. **Multi-architecture universal binaries** (macOS `.universal`) — Deferred to Phase 2 if user demand justifies build time cost.
+5. **Separate release documentation site** — Keep install/release docs in main README only.
+
+## Caveats & Known Tradeoffs
+
+### 1. macOS Runner Cost
+Publishing `osx-x64` and `osx-arm64` requires GitHub Actions native macOS runners. Cost is approximately **10× that of Linux runners per minute**.
+
+- **For MVP:** Recommend accepting cost to deliver complete release. macOS users represent ~10% of user base but are high-value (dev/security community overlap).
+- **Cost mitigation:** GitHub Actions Linux runner builds `linux-x64` and `win-*` RIDs; only macOS jobs run on expensive runners. Matrix overhead is acceptable (~2–3 min per publish).
+- **Post-MVP option:** If cost is unacceptable, defer `osx-arm64` to Phase 2 and publish only `osx-x64` on native runner (covers 95% of macOS deployments).
+
+### 2. Cross-Compile Complexity
+Linux runner can cross-compile `linux-arm64` and `win-*` RIDs, but AOT compiler warnings may emerge that don't show up on native runners.
+
+- **Risk:** Warnings are often environment-specific (libc version, toolchain version). Publishing from Linux runner might hide macOS-specific issues.
+- **Mitigation:** Capture full `dotnet publish` stderr/stdout in CI logs. Enable max verbosity for ILC optimizer warnings. Test publish early in development cycle.
+
+### 3. Blocker Fallback Protocol
+When `dotnet publish -r {rid}` fails or emits AOT incompatibility warnings, the plan allows fallback to self-contained publishing **only if a blocker is proven**.
+
+- **"Proven blocker" definition:** Must be documented in `.squad/decisions.md` with:
+  - RID affected
+  - Dependency and version
+  - Error output or incompatibility evidence
+  - Root cause analysis
+  - Rationale for fallback (temporary vs permanent)
+  - Date of discovery
+
+- **No silent fallback:** Self-contained must never become the default for a platform. If a RID can't be AOT-published, the blocker is a visible, searchable record. Future maintainers can revise when dependencies update.
+
+## Implementation Path
+
+Once Christian approves this contract:
+
+1. **Refine Plan 0020** — Integrate contract wording into Technical Details and Acceptance Criteria sections.
+2. **Create or extend NUKE Publish target** — Authorship decision: extend `build/BuildPipeline.Build.cs` or write standalone `publish-cli.sh`/`publish-cli.ps1` script pair.
+3. **Author GitHub Actions matrix** — Define job matrix for `linux-x64` (Linux runner), `linux-arm64` (Linux), `osx-x64` (macOS), `osx-arm64` (macOS), `win-x64` (Windows or Linux), `win-arm64` (Windows or Linux).
+4. **Implement smoke test** — Shell script (Bash on Unix, PowerShell on Windows) that validates: binary exists, is executable, `--help` exits 0, `--version` exits 0.
+5. **Author README section** — `/Release & Installation` with per-platform download, checksum verification, post-install guidance.
+
+**Estimated lift:** 1–2 days for a Platform Dev or CLI author, once NUKE/script choice is confirmed.
+
+---
+
+## Decision Closure
+
+**Proposed decision:** Approve this artifact contract as the definitive MVP spec for Plan 0020. Update plan text and acceptance criteria accordingly. Proceed with implementation authorship.
+
+**Remaining decision:** Who owns NUKE target creation or publish script authorship? (Platform Dev or CLI maintainer?)
+
+---
+date: 2026-05-29T13:31:37.547+02:00
+issue: native-aot-cli-publishing
+status: user-directive
+---
+
+### 2026-05-29T13:31:37.547+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** For the Native AOT CLI publishing/release artifacts plan, use the recommended flat artifact contract and include a dedicated NUKE target that builds all target executables.
+**Why:** User request — captured for team memory
+
+---
+date: 2026-05-29T13:31:37Z
+author: Tara (Platform Dev)
+subject: Plan 0020 — MVP Validation Strategy for Native AOT CLI Publishing
+status: recommendation
+---
+
+# Plan 0020 — MVP Validation Strategy for Native AOT CLI Publishing (6 RIDs)
+
+## Problem Statement
+
+Christian's concern: Linux dev machines cannot natively test macOS binaries or arm64 binaries. How do we validate 6 runtime targets (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64) in an MVP that is low-friction for developers and practical for CI?
+
+Current plan accepts the RID matrix and flat artifact contract but leaves validation strategy underspecified. Acceptance criteria don't clarify what to test locally, what to defer to CI, or what smoke-test depth is appropriate.
+
+## Recommendation: "Verify by Role, Not by Matrix"
+
+**Core principle:** Validate the build pipeline and AOT configuration on all 6 RIDs in CI. Validate executable *behavior* only on locally accessible targets. This is pragmatic and industry-standard (Go, Rust, Zig all use this pattern).
+
+---
+
+## MVP Validation Matrix
+
+| Target      | Build   | Smoke Test | Runner         | Rationale                                   |
+|-------------|---------|------------|----------------|---------------------------------------------|
+| linux-x64   | ✅ CI   | ✅ CI      | ubuntu-latest  | Developer platform; deterministic AOT       |
+| linux-arm64 | ✅ CI   | ❌ defer   | ubuntu-latest  | Cross-compile fast; failures at build time  |
+| osx-x64     | ✅ CI   | ✅ CI      | macos-latest   | Native runner (Security.framework, etc.)    |
+| osx-arm64   | ✅ CI   | ✅ CI      | macos-latest   | Native runner; validates arm64 code paths   |
+| win-x64     | ✅ CI   | ❌ defer   | ubuntu-latest  | Cross-compile OK; full test post-MVP        |
+| win-arm64   | ✅ CI   | ❌ defer   | ubuntu-latest  | Rare target; no free-tier native runner     |
+
+---
+
+## Local Validation (Dev Loop)
+
+**What developers do:**
+1. On their current platform (e.g., Linux x64): `dotnet publish -c Release -r linux-x64 --self-contained`
+2. Smoke test: `./shadowdrop-cli --version && ./shadowdrop-cli --help`
+3. Error test: `./shadowdrop-cli --invalid-flag && echo "Exit code: $?"`
+
+**Cost:** < 1 minute per commit.
+
+**Why this is sufficient:**
+- AOT compilation is deterministic within a platform. If it succeeds locally, it will succeed in CI on the same RID.
+- The CLI has no platform-specific logic in main paths (no Windows registry, no macOS keyring, no symlink handling).
+- Smoke tests exercise the initialization path, where 80% of AOT surprises occur.
+
+---
+
+## CI Validation (Build Matrix)
+
+### Strategy
+
+- **All 6 RIDs build in parallel** (GitHub Actions matrix).
+- **Smoke tests on accessible targets only:** linux-x64, osx-x64, osx-arm64 (native runners).
+- **Build-only on cross-compiled targets:** linux-arm64, win-x64, win-arm64 (QEMU/LLVM cross-compilation is fast; failures are almost always static—caught at build time).
+
+### Smoke Test Scope (Minimal, Appropriate)
+
+```bash
+./shadowdrop-cli --version
+./shadowdrop-cli --help
+./shadowdrop-cli --invalid-flag  # expect exit code 1 or 2
+```
+
+**Why minimal smoke tests are MVP-appropriate:**
+- AOT compiler catches ~99% of issues at build time (trimmer warnings, runtime init errors).
+- CLI has no complex initialization (no database, config file parsing, service discovery).
+- Crypto libraries are pre-validated by earlier slices.
+- Full end-to-end (upload/download flow) requires server setup; deferred post-MVP.
+
+**What's NOT tested in MVP:**
+- Platform-specific file path handling (tested in unit tests, not binaries).
+- Signal handling, concurrent operations, or stress.
+- Windows and cross-compiled arm64 runtime behavior (deferred).
+
+### Expected CI Time
+
+- **Linux x64 build + smoke:** ~30 seconds
+- **Linux arm64 build (no smoke):** ~20 seconds
+- **macOS x64 build + smoke:** ~1 minute
+- **macOS arm64 build + smoke:** ~1 minute
+- **Windows x64 build (no smoke):** ~20 seconds
+- **Windows arm64 build (no smoke):** ~20 seconds
+
+**Total:** ~3–5 minutes per PR (macOS steps run in parallel but are inherently slower).
+
+---
+
+## Blocker Fallback Protocol
+
+If a platform cannot AOT-publish:
+
+1. **Document in `.squad/decisions.md`** with evidence (full compiler output, trimmer warnings, etc.).
+2. **Blocker must be narrowly scoped** (e.g., "win-x64 AOT fails due to dependency X version Y").
+3. **Fallback to self-contained single-file publish is acceptable** for that target *only*, not the entire matrix.
+4. **No silent fallbacks.** Every blocker requires explicit team approval before switching distribution models.
+
+---
+
+## Key Assumptions
+
+1. **CLI has no platform-specific logic.** No registry, keychain, or OS-specific APIs in main paths.
+2. **AOT failures are mostly build-time.** Runtime-only failures are rare (< 1% of cases).
+3. **Smoke tests exercise initialization.** `--version` and `--help` trigger dependency loading and framework initialization.
+4. **Developer platform diversity is acceptable.** Some devs test on macOS/Windows locally; CI validates cross-platform.
+
+---
+
+## Risk Mitigation
+
+| Risk | Mitigation |
+|------|-----------|
+| Cross-compiled binary fails at runtime | AOT compiler catches 99% of issues. Smoke tests catch framework calls. Fallback to self-contained if needed. |
+| Developer skips local validation | Commit hook + PR check (future enhancement). MVP: trust developers. |
+| Windows arm64 never tested | Acceptable for MVP. Rare target. Fallback available. Post-MVP: add self-hosted runner. |
+| CI time creeps over 5 min | Monitor macOS job times. May split into two workflows (Ubuntu + macOS) post-MVP. |
+
+---
+
+## Summary
+
+**For MVP:** All 6 RIDs build in CI; smoke tests on linux-x64 and osx-* (native runners). Build-only on cross-compiled targets (linux-arm64, win-x64, win-arm64). Blocker fallback is explicit and documented. Local dev validates current platform only (< 1 min).
+
+**Expected outcome:** Fast, repeatable CI pipeline (3–5 min). Low friction for developers. Clear visibility into which targets work and which have blockers.
+
+**Next step:** Implementer extends Plan 0020 with this validation section, implements GitHub Actions matrix workflow, and adds smoke-test script to build pipeline.
+
+---
+
+## Collaboration & Questions
+
+**For Christian:** Does this risk/cost trade-off align with your MVP goals? Any concerns about deferring Windows functional testing or build-only cross-compile targets?
+
+**For Implementer:** Will you extend the NUKE build pipeline with a Publish target, or use a standalone CI script?

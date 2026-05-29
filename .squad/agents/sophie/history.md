@@ -144,3 +144,21 @@ Completed full end-to-end implementation of plan #18 via the implement-plan skil
 - Branch ready for review and merge workflow
 - No post-implementation blockers identified
 - Scribe decision merged into canonical decisions.md
+
+## 2026-05-29T14:29:36.720+02:00 — Issue #20 Finalization (Native AOT CLI)
+
+**Cross-Agent Update:** Issue #20 is now locked and ready for your assignment.
+
+**Final MVP Scope:**
+
+- **RID Matrix:** All 6 confirmed (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64)
+- **Artifact Contract:** `artifacts/cli/{version}/`, naming `shadowdrop-cli-{version}-{rid}[.exe]`, single CHECKSUMS.sha256
+- **Build Strategy:** NUKE Publish target for unified orchestration
+- **Validation Split:** Smoke tests on native targets (linux-x64, osx-x64, osx-arm64) only
+- **CI:** GitHub Actions with native macOS runners + Linux cross-compile
+
+**Acceptance Criteria:** 7 concrete, implementation-ready items (blocker protocol removed per user directive)
+
+**Team Readiness:** All decision gates locked. No open gates. Ready for assignment and implementation.
+
+**Next:** Begin with NUKE Publish target, then GitHub Actions matrix per smoke-test selectivity.
