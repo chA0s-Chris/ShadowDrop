@@ -1,3 +1,30 @@
+---
+title: PR #31 — unresolved review assessment
+date: 2026-05-29T02:32:01.927+02:00
+issue: PR #31 / review triage
+priority: mixed
+domain: cli-downloads, queue-contracts
+---
+
+## Decision
+
+Current unresolved PR #31 review notes split cleanly into three buckets:
+
+1. **Should fix before merge:** `DownloadCommandHandler` compares manifest/queue `fileId` values with `StringComparison.Ordinal`, so valid GUID inputs that differ only by casing are rejected.
+2. **Should fix only if polishing this slice:** manifest cache keys use raw `ShareReference.ServerUrl` strings, so trailing-slash variants can trigger duplicate manifest fetches within one queue run.
+3. **Do not weaken runtime validation:** the top-level Copilot note is only partially valid; the real issue is documentation drift because plan `0017` still documents queue entries as requiring only `serverUrl`, `shareId`, and `outputPath`, while parser/runtime intentionally also require `fileId`, `fileName`, and `length`.
+
+## Rationale
+
+- File ids are semantically GUIDs across API, CLI, and queue handling, so case-sensitive string matching is the wrong contract boundary.
+- Cache-key normalization affects efficiency only; requests themselves are already normalized through `ShareDownloadUriFactory`.
+- Queue entries need metadata fields for deterministic file selection and validation, so relaxing parser requirements would be scope creep in the wrong direction; documentation should catch up instead.
+
+### 2026-05-29T01:56:28.384+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Request Copilot code review with `gh pr edit <pr> --add-reviewer @copilot`.
+**Why:** User request — captured for team memory
+
 # Squad Decisions
 
 ## Active Decisions
