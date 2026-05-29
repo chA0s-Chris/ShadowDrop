@@ -59,3 +59,10 @@ Final reassessment of remaining unresolved PR #31 review items after Copilot rea
 **Outcome:** PR #31 merge-ready from correctness standpoint. Two valid optimization suggestions documented for future queue-path work.
 
 **Records:** Decision merged to `.squad/decisions.md` (`nate-pr31-review-readiness.md`).
+
+## 2026-05-29T07:28 — PR #31 review follow-up work completed by Eliot
+
+- Eliot's PR #31 review-fix phase completed
+- Two items resolved: queue serverUrl handling + per-entry status streaming
+- New decision captured: Queue download runtime should trust validated serverUrl and stream per-entry feedback
+- Team memory synchronized

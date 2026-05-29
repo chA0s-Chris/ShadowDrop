@@ -49,3 +49,14 @@ User directed Scribe to address remaining PR #31 actions:
   - GitHub review thread reply posted with implementation rationale
   - Decision recorded: `eliot-duplicate-manifest-file-ids.md` → decisions.md
 - **Item 3 pending** (documentation updates for plan 0017 — assigned to Ralph/Scribe)
+- 2026-05-29T07:28:43.247+02:00 — Queue downloads should treat the queue file's validated `serverUrl` as authoritative and parse it directly instead of reopening CLI config for every entry; malformed local config must not break explicit queue-driven downloads. Key paths: `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`, `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`.
+- 2026-05-29T07:28:43.247+02:00 — Per-entry queue download status belongs on stderr as each entry completes so long runs surface partial progress immediately and interrupted runs keep already-emitted results. Key paths: `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`, `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`.
+
+## 2026-05-29T07:28 — PR #31 review-fix captured to team decisions
+
+- Addressed review items 2 & 3 per user choice
+- Item 2: Queue processing now uses validated entry serverUrl directly
+- Item 3: Queue execution emits SUCCESS/FAILED per entry
+- Regression coverage updated in tests
+- Decision merged: `eliot-queue-download-runtime-behavior.md`
+- Orchestration log: `2026-05-29T07-28-43-eliot.md`

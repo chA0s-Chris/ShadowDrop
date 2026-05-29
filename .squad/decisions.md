@@ -626,3 +626,32 @@ Treat the remaining unresolved PR #31 review items as follows:
 
 - PR #31 can be reviewed as merge-ready from a correctness standpoint.
 - The two inline `DownloadCommandHandler` notes can be addressed later if the team wants queue-path polish before resume work expands this area.
+
+--- eliot-queue-download-runtime-behavior.md ---
+---
+title: Queue download runtime should trust validated queue server URLs and stream per-entry status
+date: 2026-05-29T07:28:43.247+02:00
+issue: PR #31 / CLI queue download follow-up
+priority: should-fix-before-merge
+domain: cli-downloads, queue-processing
+---
+
+## Decision
+
+When executing queue downloads, use each queue entry's validated `serverUrl` directly and write the SUCCESS/FAILED status line as soon as that entry finishes.
+
+## Why
+
+- Queue parsing already validates `serverUrl`, so reopening CLI config for every queued file adds avoidable filesystem and JSON work.
+- Explicit queue metadata should stay authoritative even if the local CLI config file is missing or malformed.
+- Streaming result lines preserves operator feedback and keeps completed-entry outcomes visible even if a later entry or process termination stops the run.
+
+## Impact
+
+- Queue runs no longer depend on local config readability when the queue already provides `serverUrl`.
+- Large queues emit progress incrementally instead of buffering all status until the end.
+
+## Related Files
+
+- `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`

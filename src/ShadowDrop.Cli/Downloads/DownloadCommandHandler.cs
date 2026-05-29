@@ -137,6 +137,17 @@ internal sealed class DownloadCommandHandler(
         return parsedFileId;
     }
 
+    private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
+    {
+        if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
+            || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new DownloadCommandException("Server URL invalid or missing.");
+        }
+
+        return new(serverUrl, entry.ShareId!);
+    }
+
     private static ShareManifestFileContract SelectDirectDownloadFile(ShareManifestContract manifest, String? fileId)
     {
         if (!String.IsNullOrWhiteSpace(fileId))
@@ -295,7 +306,6 @@ internal sealed class DownloadCommandHandler(
         var queue = await LoadQueueAsync(queuePath, cancellationToken);
         var manifestClient = new ShareManifestClient(httpClient);
         Dictionary<String, ShareManifestContract> manifestCache = [];
-        List<String> results = [];
         var allSucceeded = true;
 
         foreach (var entry in queue.Files!)
@@ -303,33 +313,28 @@ internal sealed class DownloadCommandHandler(
             var summaryLabel = entry.FileName ?? entry.FileId ?? "unknown";
             try
             {
-                var shareReference = ResolveShareReference(entry.ShareId!, entry.ServerUrl);
+                var shareReference = ResolveQueueShareReference(entry);
                 var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, cancellationToken);
                 var file = SelectQueuedFile(manifest, entry);
                 await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareId, file, shareKeyBytes, bearerToken, entry.OutputPath!,
                                           cancellationToken);
-                results.Add($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
+                await WriteQueueResultAsync($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
             }
             catch (DownloadCommandException exception)
             {
                 allSucceeded = false;
-                results.Add($"FAILED {summaryLabel} -> {entry.OutputPath}: {exception.Message}");
+                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: {exception.Message}");
             }
             catch (IOException)
             {
                 allSucceeded = false;
-                results.Add($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
             }
             catch (UnauthorizedAccessException)
             {
                 allSucceeded = false;
-                results.Add($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
             }
-        }
-
-        foreach (var result in results)
-        {
-            await standardError.WriteLineAsync(result);
         }
 
         return allSucceeded ? 0 : 1;
@@ -478,6 +483,8 @@ internal sealed class DownloadCommandHandler(
 
         return new(serverUrl, shareId);
     }
+
+    private Task WriteQueueResultAsync(String result) => standardError.WriteLineAsync(result);
 
     private sealed record ShareReference(Uri ServerUrl, String ShareId);
 }
