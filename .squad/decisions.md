@@ -733,3 +733,55 @@ Keep the new guided share-creation experience under `shadowdrop upload --interac
 **By:** Sophie (CLI Dev)
 **What:** Keep guided share-creation under `--interactive` flag.
 **Why:** Minimizes surface area, preserves scripting, and focuses on UX cohesion.
+
+---
+title: Plan 0019 Assessment — Docker Image & Container Deployment
+date: 2026-05-29T11:45:18Z
+issue: Issue #19 / Docker & container deployment
+priority: blocking
+domain: planning, acceptance-criteria, infrastructure
+---
+
+## Assessment by Nate
+
+Plan 0019 requires three refinements to acceptance criteria before implementation can proceed. All are clarifications, not architecture changes.
+
+### Refinement 1: Public/Protected Routes Independence
+
+**Current:** Criterion "Separate handling of public/protected routes" is untestable as written.
+
+**Clarification:** API already supports independent enable/disable via `ApiExposureOptions` (boolean flags). Criterion should mean: both features can be independently disabled via `SHADOWDROP_APEXPOSURE_*` env vars.
+
+**Action:** Add example Docker Compose config to README showing the two flags in use.
+
+### Refinement 2: Containerized Smoke Test
+
+**Current:** Criterion "Containerized smoke test" lacks definition. Plan text says "proves API starts successfully with expected configuration shape" but defines no test method.
+
+**Clarification:** Add health check endpoint (`/health`) to acceptance criteria, or explicitly defer it and test startup logs instead.
+
+**Action:** Decide: implement `/health` endpoint or use log-based validation? Update criterion accordingly.
+
+### Refinement 3: Production-Readiness Under-Specified
+
+**Current:** Plan says "production-ready multi-stage build" but doesn't define it.
+
+**Clarification:** Add checklist to acceptance criteria:
+- Base image selection (Alpine/Debian/Ubuntu?)
+- Non-root user configuration
+- Health check contract
+- Layer caching strategy
+- .NET version pinning
+
+**Action:** Add checklist items to plan acceptance criteria section.
+
+## Why These Matter
+
+Implementation cannot begin without clear acceptance criteria. The three items above are blockers for implementation review.
+
+## Next Step
+
+Christian should refine plan 0019's acceptance criteria section (three bullet points) before routing to implementation teams. No code work needed at this stage.
+
+**Assessment artifact:** `.squad/assessment-plan-0019.md`
+

@@ -30,6 +30,7 @@ See history-archive.md for detailed May 14–19 session logs and plan refinement
 
 ## Learnings
 
+- 2026-05-29T11:45:18Z — Plan 0019 (Docker) assessment: API configuration is already complete and environment-variable-driven. `ShadowDropOptions` binds from `ShadowDrop:` config section; `ApiExposureOptions` exposes boolean controls for `EnableAdminOperations` and `EnablePublicDownloads`. LiteDB path and storage root are both configurable and validated at startup. Plan's acceptance criteria are vague on route separation and smoke test specifics; needs refinement before implementation. No code gaps discovered.
 - 2026-05-29T03:13:10.683+02:00 — PR #31 review triage: the binding queue-entry contract is documented in `ai-plans/0017-cli-download-command-and-queue-processing.md`, and it now explicitly requires `serverUrl`, `shareId`, `fileId`, `fileName`, `length`, and `outputPath`; top-level review notes should be checked against that current plan text, not older PR summary wording.
 - 2026-05-29T03:13:10.683+02:00 — Duplicate share file ids are already rejected in `src/ShadowDrop.Api/Shares/CreateShareService.cs`, with coverage in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`; unresolved duplicate-id review notes on CLI selection are therefore defense-in-depth, not current correctness blockers.
 - 2026-05-29T03:31:32.936+02:00 — PR #31 still has two unresolved `DownloadCommandHandler` review threads, but both are queue-path performance/feedback suggestions (`ResolveShareReference` re-reads CLI config per entry; `ExecuteQueueAsync` buffers stderr lines until the end) rather than correctness blockers.
@@ -86,3 +87,25 @@ Final reassessment of remaining unresolved PR #31 review items after Copilot rea
 ### Decision Artifact
 
 Written to `.squad/decisions/inbox/nate-next-issue-priority.md` with routing guidance for each issue.
+
+## 2026-05-29T09:45:18Z — Plan 0019 Docker Assessment Complete
+
+**Event:** Nate assessed plan 0019-docker-image-and-container-deployment.md from MVP planning/scope angle.
+
+**Assessment Focus:**
+- Architecture completeness: API configuration already supports environment-variable-driven exposure controls
+- Acceptance criteria clarity: Three refinements identified as blockers before implementation
+
+**Findings:**
+
+1. **Public/Protected Routes Independence:** Criterion is untestable as written. API already supports both `EnableAdminOperations` and `EnablePublicDownloads` via `ApiExposureOptions` boolean flags. Need clarification that criterion means "both features independently disabled via env vars." Example Docker Compose config needed for README.
+
+2. **Containerized Smoke Test:** Definition missing. Current text says "proves API starts successfully with expected configuration shape" but defines no test method. Recommend either: implement `/health` endpoint or defer to log-based validation. Criterion must specify one.
+
+3. **Production-Readiness Under-Specified:** "Production-ready multi-stage build" lacks definition. Add checklist: base image selection (Alpine/Debian/Ubuntu?), non-root user, health check, layer caching, .NET version pinning.
+
+**Why:** Implementation cannot begin without clear acceptance criteria. All three items are blockers for implementation team.
+
+**Outcome:** Assessment merged to `.squad/decisions.md`. Christian should refine plan 0019 acceptance criteria before routing to Tara (platform) and other teams for implementation.
+
+**Artifact:** `.squad/orchestration-log/2026-05-29T09-45-18Z-nate-plan-0019-assessment.md`
