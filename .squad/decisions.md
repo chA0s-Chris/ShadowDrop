@@ -599,3 +599,30 @@ status: decision
 ## Blockers
 
 None. PR #31 is ready to merge after these notes are closed.
+
+--- nate-pr31-review-readiness.md ---
+---
+title: PR #31 — remaining unresolved review items are non-blocking
+date: 2026-05-29T03:31:32.936+02:00
+issue: PR #31 / review triage
+priority: mixed
+domain: cli-downloads, review-readiness
+---
+
+## Decision
+
+Treat the remaining unresolved PR #31 review items as follows:
+
+1. The top-level queue-contract complaint is already stale because `ai-plans/0017-cli-download-command-and-queue-processing.md` now matches the parser's required fields.
+2. The two still-open inline notes in `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs` are valid performance/UX suggestions, but neither is a merge blocker for this slice.
+
+## Why
+
+- Queue-entry validation and plan language are aligned today.
+- Re-reading CLI config per queue entry is unnecessary work, but it does not break correctness because queue entries already supply and validate `serverUrl`.
+- Buffering per-file stderr lines delays feedback and adds avoidable memory growth, but current behavior still satisfies the accepted "summary report" contract.
+
+## Impact
+
+- PR #31 can be reviewed as merge-ready from a correctness standpoint.
+- The two inline `DownloadCommandHandler` notes can be addressed later if the team wants queue-path polish before resume work expands this area.
