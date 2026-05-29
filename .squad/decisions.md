@@ -73,6 +73,53 @@ Treat duplicate manifest `fileId` values as invalid share metadata in the CLI do
 
 ## Recent Decisions
 
+--- plan-0019-mvp-runtime-finalized.md ---
+---
+title: Plan 0019 — MVP Docker Runtime & Deployment Finalized
+date: 2026-05-29T12:25:53.733+02:00
+issue: Plan 0019 / Docker image and container deployment
+priority: plan-finalization
+domain: container-deployment, docker, multi-arch, runtime-hardening
+---
+
+## Decision
+
+Plan 0019 MVP Docker runtime and deployment is finalized for implementation. All five runtime details assessed by Tara (platform) and Nate (validation) are MVP-ready with refined wording. No architectural changes needed.
+
+## Finalized Requirements
+
+1. **Multi-Architecture:** Docker image built for `linux/amd64` and `linux/arm64` via `docker buildx`. These cover 95%+ of self-hosted deployments (x86 VPS, ARM Raspberry Pi, Apple Silicon dev). Additional architectures deferred to post-MVP.
+
+2. **Skip Registry Publishing:** Docker image publication to external registries (Docker Hub, etc.) out of scope for MVP. Image designed for local `docker build` and `docker buildx` workflows for self-hosted deployments. Registry publishing added post-MVP.
+
+3. **Multi-Stage Production Build:** Dockerfile uses multi-stage build, targeting Ubuntu Chiseled ASP.NET base (`mcr.microsoft.com/dotnet/aspnet:*-chiseled`). Produces minimal production image with no intermediate layers exposed.
+
+4. **Non-Root Execution:** Container enforces execution as uid 1000 (unprivileged) via `USER 1000` in Dockerfile. Chiseled base image designed for this security model. Smoke test validates API starts successfully as non-root; uid 0 unsupported.
+
+5. **File Permissions & Volume Mounts:**
+   - Directories (`/app/data`, `/app/data/metadata`, `/app/data/storage`): `755` (readable+executable by all, writable by owner)
+   - LiteDB metadata file (`/app/data/metadata/shadowdrop.db`): `600` (owner-only read/write)
+   - Storage blobs (`/app/data/storage/*`): `600` (owner-only read/write for encrypted content protection)
+
+6. **Logging Configuration:** Reuse existing API Serilog integration. Runtime override via environment variable (`Serilog__MinimumLevel__Default=Debug`) or mounted custom `appsettings.json`. Example: `docker run --env Serilog__MinimumLevel__Default=Debug shadowdrop` for verbose logging.
+
+## Smoke Test Contract
+
+- Image builds locally: `docker build -t shadowdrop-test .`
+- Container starts: `docker run --rm -p 8080:8080 -e SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN=test-token shadowdrop-test`
+- Within 5 seconds: HTTP GET `/health` (or equivalent) returns 200
+- Admin API endpoint responsive: validates config injection and non-root execution
+- Test runs repeatably in CI without external dependencies (local volume mount only for appsettings override)
+
+## Reviewed By
+
+- **Tara** (Platform): Confirmed runtime contract, multi-arch coverage, non-root execution, file permissions alignment with Chiseled security model.
+- **Nate** (Validation): Validated acceptance criteria wording, smoke-test measurability, environment variable patterns, configuration injection.
+
+## Consultants
+
+- Christian Flessa: User directive on architecture, logging, and non-root preference
+
 --- alec-pr30-retry-exception-handling.md ---
 ---
 title: PR #30 — SendWithRetryAsync Error Contract Breach
@@ -785,3 +832,440 @@ Christian should refine plan 0019's acceptance criteria section (three bullet po
 
 **Assessment artifact:** `.squad/assessment-plan-0019.md`
 
+
+--- copilot-directive-2026-05-29T12-00-29.406+02-00.md ---
+### 2026-05-29T12:00:29.406+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Use `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` as the base image. Use `/app/data/` as the writable base path, with `/app/data/shadowdrop.db` as the default LiteDB file and `/app/data/blobs/` for blob storage. Debugging should rely on logs/console output with a configuration option to increase verbosity. Healthchecks are not required for the MVP.
+**Why:** User request — captured for team memory
+
+--- copilot-directive-2026-05-29T12-05-32.374+02-00.md ---
+### 2026-05-29T12:05:32.374+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Prefer configurable port exposure. Default behavior should expose one port with the entire API, with an optional second port that exposes the download API separately from the admin/upload API on the other port.
+**Why:** User request — captured for team memory
+
+--- nate-port-split-review.md ---
+### 2026-05-29T12:05:32+02:00: Port-split proposal assessment for plan 0019
+
+**By:** Nate  
+**What:** Can the API listen on two different ports with configurable split between admin/upload and download routes?  
+**Proposal:** Default = single port (entire API). Optional = two-port mode (admin routes on one port, download routes on the other).
+
+---
+
+## Verdict: Sound design pattern, but defer from 0019 MVP scope.
+
+### Why It's Sound
+
+1. **Already Half-Built:** `ApiExposureOptions` boolean flags (`EnableAdminOperations`, `EnablePublicDownloads`) already support selective route exposure. The infrastructure for conditional mapping exists in `AdminEndpoints.cs` and `DownloadEndpoints.cs`.
+
+2. **Clean Separation:** Public downloads (/d/*) and protected admin routes (/api/admin/*) are logically separate. Multi-port binding lets deployment teams isolate public-facing traffic (read-only downloads, high throughput) from protected management traffic (token-gated, lower frequency).
+
+3. **Zero Breaking Change:** Single-port default behavior unchanged. Two-port mode is purely additive configuration.
+
+4. **Environment-Variable Friendly:** ASP.NET Core supports port binding via `ASPNETCORE_URLS` environment variable, aligning with plan 0019's existing env-driven config philosophy.
+
+### Scope Risk If Included Now
+
+1. **Acceptance Criteria Ambiguity:**
+   - Is two-port mode mandatory or optional? (Plan currently says "optional")
+   - What is the naming convention? (e.g., `SHADOWDROP_ADMIN_PORT` / `SHADOWDROP_DOWNLOAD_PORT`?)
+   - How does health check (currently no `/health` endpoint) map to two-port scenario?
+   - Docker Compose example: single-port only, or dual-port variations too?
+
+2. **Containerized Smoke Test Expansion:** Current plan mentions a "containerized smoke test" but doesn't define it. Two-port testing doubles complexity: must verify both ports respond correctly and route segregation is enforced.
+
+3. **Implementation Coupling:** Decision on Kestrel URL binding strategy affects how middleware is organized. Deferring lets plan 0019 focus on single-port Docker validation first, then add multi-port as a follow-up slice.
+
+### Cleanest Requirement Phrasing (If Included)
+
+If you decide to add this to 0019, phrase it like this to stay testable and non-overcommitting:
+
+---
+
+**Acceptance Criterion:** "The API supports multi-port binding via `ASPNETCORE_URLS` configuration (e.g., `http://*:5000;http://*:5001`). When two ports are configured, admin routes (`/api/admin/*`) map to the first URL and download routes (`/d/*`) map to the second. When a single port is configured (default), both route groups are served on that port. No code changes to route handlers are required; binding is purely configuration-driven."
+
+**Smoke Test Update:** "Containerized smoke test runs the API in dual-port mode (e.g., `ASPNETCORE_URLS=http://+:8080;http://+:8081`) and verifies: (1) admin POST to `:8080/api/admin/shares` returns 401 (missing token), (2) download GET to `:8081/d/{token}` returns 404 (invalid share), (3) requests to wrong port return connection errors or 404."
+
+---
+
+### Recommendation
+
+**Include in 0019:** Only if you want plan 0019 to be "API configuration + deployment flexibility." This keeps Docker work cohesive.
+
+**Defer to 0020:** If you want 0019 to focus purely on "make a working single-port Docker image," then multi-port becomes a natural 0020 enhancement (even better: it becomes a zero-code change once ASPNETCORE_URLS is documented).
+
+**Risk if deferred:** Users who want port isolation must work around it post-deployment. Low risk if documentation mentions `ASPNETCORE_URLS` as a future option.
+
+---
+
+## Files to Check Before Implementation
+
+- `src/ShadowDrop.Api/CompositionRoot/Middleware.cs` — Current route mapping (line 21-22)
+- `src/ShadowDrop.Api/Configuration/ApiExposureOptions.cs` — Boolean flags (already present)
+- `README.md` deployment section — Where to document port binding
+
+No code gaps exist; this is purely configuration + docs work.
+
+--- tara-multiport-api-feasibility.md ---
+### 2026-05-29: Multi-Port API Configuration is MVP-Ready
+
+**By:** Tara
+
+**What:** ASP.NET Core API can safely support optional dual-port binding (download on one port, admin on another) with zero breaking changes. Recommended as inclusion in Plan 0019 acceptance criteria.
+
+**Why:** 
+- ASP.NET Core 10 natively supports Kestrel multi-endpoint configuration via environment variables.
+- Current API structure (`AdminEndpoints`, `DownloadEndpoints`) already uses feature-flag guards; extending to port-specific registration requires ~10 lines of code.
+- Default single-port behavior unchanged, so no risk to existing deployments.
+- Enables security improvements (separate firewall rules, public/private network segregation) without operational overhead.
+
+**Impact:**
+- **Plan 0019 Criterion 4:** Refined wording suggested to document both single-port and multi-port modes.
+- **Implementation scope:** Low. Add optional `DownloadPort` and `AdminPort` config to `ApiExposureOptions`. Update `Middleware.cs` to conditionally bind Kestrel endpoints. Extend smoke test to cover both modes.
+- **Deployment:** Docker/Compose files just set `ASPNETCORE_URLS` env var or appsettings.json section.
+
+**Testing:** Dual-path smoke test required (single-port happy path, dual-port happy path). Existing containerized test strategy covers both.
+
+**Related Files:**
+- `src/ShadowDrop.Api/Configuration/ApiExposureOptions.cs`
+- `src/ShadowDrop.Api/CompositionRoot/Middleware.cs`
+- `src/ShadowDrop.Api/Admin/AdminEndpoints.cs`
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+---
+title: HTTPS Support in Plan 0019 MVP — Scope Recommendation
+date: 2026-05-29T12:11:18.705+02:00
+issue: Plan 0019 / MVP scope
+priority: architecture-decision
+domain: api-exposure, deployment
+---
+
+## Question
+Should HTTPS support be included in the Docker API MVP scope?
+
+## Recommendation: **Exclude from MVP, defer to post-MVP**
+
+### Rationale
+
+1. **Reverse Proxy is the Standard Deployment Model**
+   - Most self-hosted and cloud deployments (Kubernetes, Docker Compose, VPS) use a reverse proxy (nginx, Caddy, Traefik) for TLS termination.
+   - This is the industry standard for microservices and containerized APIs.
+   - The API binds to localhost/container-internal network; TLS happens at ingress.
+
+2. **MVP Goal is Simplicity**
+   - Exposing plain HTTP inside a container is correct. TLS complexity belongs at the deployment/orchestration layer.
+   - Certificate management (Let's Encrypt, manual renewal, secrets injection) adds surface area and operational burden for MVP.
+   - Single-port, single-protocol binding is simpler to test, document, and troubleshoot.
+
+3. **Unblocking Blocker**
+   - HTTPS is not required for a functional MVP. Feature completeness (upload, share, download) is already live and tested.
+   - Users who need direct HTTPS exposure can deploy with a reverse proxy without code changes.
+
+4. **Existing Capability**
+   - ASP.NET Core supports `HTTPS_PORT` env var and certificate injection if needed later. This is a future addition, not a current gap.
+
+### What MVP Should Clarify
+
+Add this to plan 0019 documentation:
+
+- **Default:** API listens on plain HTTP (port 5000 or configured via `ASPNETCORE_URLS`)
+- **For TLS:** Deploy behind a reverse proxy (nginx, Caddy, etc.) or use ASP.NET Core's certificate binding at post-MVP phase
+- **Why:** Simpler one-container model, aligns with container/orchestration patterns, certificates managed at infrastructure layer
+
+### Decision
+**Remove HTTPS from plan 0019 acceptance criteria.** It is a valuable post-MVP enhancement but not required for the Docker packaging MVP to deliver value.
+
+## Next Steps
+- Clarify in plan 0019 final text that MVP is HTTP-only inside container
+- Create a follow-up issue ("Optional: HTTPS and Certificate Management") for post-MVP if Christian requests it
+### 2026-05-29T12:11:18+02:00: HTTPS Support Scope for Plan 0019 MVP
+
+**By:** Tara (Platform Dev)
+
+**What:** HTTPS support (TLS termination in app/container) should **NOT** be part of Plan 0019 MVP. Plain HTTP behind reverse proxy is sufficient and recommended.
+
+**Why:**
+
+1. **MVP Deployment Model Alignment**
+   - Plan 0019 targets "home lab and small VPS use cases" with one-container deployments
+   - Reverse proxy (nginx, Caddy, Traefik) is the standard pattern in this segment and already handles HTTPS termination cleanly
+   - Users deploying at this scale either: (a) already use a reverse proxy, or (b) can easily add one
+   - **No operational burden transfer** — reverse proxy is a solved problem in DevOps
+
+2. **Certificate Management Complexity (Critical for MVP)**
+   - App-managed HTTPS requires certificate provisioning, renewal, and mounting
+   - Pain points:
+     - Where do certs come from? (Let's Encrypt on each container startup? Secret storage?)
+     - Certificate renewal automation across container restarts
+     - User docs must explain cert paths, volume mounts, certificate format
+     - Self-signed certs for testing add another config path
+   - This is a *support tax* on an MVP — every user question adds friction
+   - Reverse proxies abstract this entirely (Caddy auto-renews; Traefik integrates with cert providers)
+
+3. **Configuration Surface Area**
+   - App-managed HTTPS adds: `ASPNETCORE_HTTPS_PORT`, cert paths, certificate file handling
+   - Post-MVP, adding this is straightforward (ASP.NET Core supports it natively)
+   - Pre-MVP, it delays shipping and complicates initial deployment docs
+
+4. **Reverse Proxy is Best Practice, Not Workaround**
+   - Reverse proxy provides more than just TLS: request logging, rate limiting, auth headers, traffic inspection
+   - Security best practice: app listens on localhost/private network, reverse proxy handles untrusted traffic
+   - Adding HTTPS to the app doesn't improve security posture — moving it to the proxy does
+   - Adding app-level HTTPS *adds* surface area (certificate handling bugs, key rotation issues)
+
+5. **Post-MVP Path is Clean**
+   - If users demand direct HTTPS (without proxy), adding it is a straightforward acceptance criterion for a future plan
+   - ASP.NET Core's `AddHttpsRedirection()` middleware and Kestrel HTTPS binding are well-documented
+   - No architectural debt created by deferring
+
+**Recommendation for Plan 0019:**
+
+- **MVP:** Container exposes plain HTTP on a single port (default `8080` or configured port)
+- **Docs (README.md):** Include a quick Docker Compose example with a reverse proxy (Caddy or nginx) handling HTTPS
+  - Document the simplified approach: "Reverse proxy handles HTTPS; container speaks plain HTTP"
+  - Show `docker-compose.yml` with both single-container and proxy+container patterns
+- **Future Plan:** "Direct HTTPS in Container" as a post-MVP enhancement if demand surfaces
+
+**Implementation Notes for Acceptance Criteria:**
+No change needed. Existing criterion "The image exposes the API in a way that supports... API exposure settings" covers plain HTTP exposure. Just document that HTTPS is reverse-proxy-provided, not container-provided.
+
+**Team Decision:**
+This assessment is shared with Christian for plan 0019 acceptance criteria finalization. Nate (DevOps/Release) may have additional deployment context; flagging for review if needed.
+
+---
+
+**Key Tradeoff Summary:**
+- **Plain HTTP + Reverse Proxy:** Simpler MVP, standard pattern, no new support surface
+- **App-Managed HTTPS:** Delays MVP, adds cert/key management burden, duplicates what reverse proxies do better
+### 2026-05-29T12:11:18.705+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** Keep the optional two-port exposure idea, but defer it from the MVP. MVP should start with a simpler single-port configuration that exposes the entire API.
+**Why:** User request — captured for team memory
+
+--- plan-0019-wording-assessment.md ---
+---
+title: Plan 0019 — User Input Assessment & Refined Acceptance Criteria
+date: 2026-05-29T12:25:53Z
+issue: Issue #19 / Plan 0019 / Docker & Container Deployment
+priority: blocker
+domain: plan-scoping, acceptance-criteria
+---
+
+## Assessment Summary
+
+Christian provided five numbered clarifications for plan 0019 (Docker image and container deployment). Assessment: Points 1, 2, 5 are ready to embed in criteria; Points 3–4 require wording refinement to eliminate ambiguity before implementation team can proceed.
+
+## Decisions
+
+### Point 1: Multi-architecture (amd64 + arm64)
+**Status:** ✅ Ready to settle
+**Decision:** Acceptance criterion should explicitly name both architectures in build output.
+
+### Point 2: No registry publishing (MVP only)
+**Status:** ✅ Deferred correctly
+**Decision:** Skip registry push in MVP. Document as future work post-MVP.
+
+### Point 3: Validation Contract (Route Separation)
+**Status:** 🔴 Needs clarification before implementation
+**Issue:** Current criterion 4 says "supports separate handling of public download routes and protected management routes through deployment configuration" but defines no test method.
+
+### Point 4: Non-root User & File Permissions
+**Status:** ✅ Sound requirement; needs specific wording
+**Decision:** Chiseled images require non-root by design. Directory `/app/data` should be `700`, LiteDB file `600`.
+
+### Point 5: Log Level Configuration
+**Status:** ✅ Ready to settle
+**Decision:** Use existing environment variable pattern already supported by API (Serilog via appsettings).
+
+## Remaining Ambiguities Addressed
+
+1. **Smoke test definition:** Plan text untestable; recommend log-based check or simple `/health` GET.
+2. **Base image:** Recommend `mcr.microsoft.com/dotnet/aspnet:9.0-alpine` or `10.0-noble-chiseled`.
+3. **Volume mount defaults:** Dockerfile creates `/app/data` with `700` permissions; Compose mounts host path.
+
+## Recommended Next Step
+
+Christian should refine plan 0019 acceptance criteria using wording suggestions above before routing to Tara (Platform) for implementation.
+
+## Impact
+
+- Plan 0019 becomes implementation-ready once Christian applies these refinements
+- No code gaps discovered; API already supports all required configuration
+- Docker work can proceed in parallel with CLI/Platform work after this refinement
+
+--- plan-0019-runtime-contract-review.md ---
+---
+title: Plan 0019 — Docker Runtime Contract Assessment
+date: 2026-05-29T12:25:53.733+02:00
+issue: Plan 0019 / Docker image and container deployment
+priority: scope-clarification
+domain: container-deployment, multi-arch, runtime-configuration
+---
+
+## Summary
+
+Assessed five open runtime details for Plan 0019's Docker image and container deployment MVP. All five are sound MVP choices with minor clarification wording needed for acceptance criteria.
+
+## Assessment & Recommendations
+
+### 1. Multi-Arch Contract: amd64 + arm64 Only
+**Finding:** ✅ Correct MVP scope.
+**Rationale:** amd64 + arm64 cover 95%+ of self-hosted deployments. Keeping MVP tight ensures one reliable publish path.
+
+### 2. Skip Registry Publication for MVP
+**Finding:** ✅ Sound scope choice.
+**Rationale:** Publication adds operational burden MVP is not ready for. Self-hosted deployments build locally. CI/CD push can be post-MVP.
+
+### 3. Validation & Smoke-Test Contract
+**Finding:** ⚠️ Needs concrete measurable specification.
+**Current Criterion 7 is vague.** Recommend concrete validation steps: image builds locally, container starts, HTTP `/health` returns 200, admin API responds, runs as non-root uid.
+
+### 4. Non-Root Execution Requirement for Chiseled Image
+**Finding:** ✅ Yes, should be explicitly required.
+**Why:** Chiseled image designed for distroless best practices. Running as root defeats the attack surface reduction goal. `USER 1000` in Dockerfile is trivial; smoke test should verify startup succeeds as non-root.
+
+### 5. File Permissions: /app/data
+**Finding:** ✅ `600` for files is correct; distinguish database file vs. directory structure.
+**Clarification:**
+- **Directory structure** (`/app/data`, `/app/data/metadata`, `/app/data/storage`): `755` (readable+executable by all)
+- **LiteDB file** (`/app/data/metadata/shadowdrop.db`): `600` (owner-only)
+- **Storage files**: `600` (owner-only, protecting encrypted blob content)
+
+## Decision
+
+**All five runtime details are MVP-appropriate.** Minor wording refinements to acceptance criteria improve measurability and align with platform best practices.
+
+**No architectural changes needed.** Proposed wording is editorial; no code work required until criteria are finalized.
+
+### 2026-05-29T12:25:53.733+02:00: Platform assessment
+**By:** Tara (Platform Dev)
+**What:** Assessed five runtime details for Plan 0019. All sound MVP choices; acceptance criteria need minor clarification wording. Multi-arch (amd64+arm64), registry skip, smoke-test specification, non-root uid 1000, and file permissions (755 dirs, 600 files) are all recommended for inclusion.
+**Why:** Platform responsibility to validate deployment model and runtime configuration before implementation; no blockers found.
+
+--- plan-0019-final-mvp-scope.md ---
+### 2026-05-29T12:44:50.404+02:00: Plan 0019 MVP Scope — Finalized
+
+**By:** Nate
+
+**What:** Updated `ai-plans/0019-docker-image-and-container-deployment.md` with all five settled MVP decisions into concrete, testable acceptance criteria. Removed ambiguous criterion on route separation (deferred to issue #33). Plan is now implementation-ready.
+
+**Settled Decisions Embedded:**
+1. **Base Image:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`
+2. **Port:** `19423` (single port; both public downloads and admin routes together)
+3. **Paths:** `/app/data/shadowdrop.db` (LiteDB), `/app/data/blobs/` (blob storage)
+4. **Permissions:** `700` for `/app/data`, `600` for database file
+5. **Non-root Execution:** uid/gid `1000:1000`
+6. **Multi-arch:** amd64 and arm64 only
+7. **Debugging:** Existing Serilog env vars (e.g., `Serilog__MinimumLevel__Default=Debug`)
+8. **Config Override:** Custom `appsettings.json` mount supported
+9. **HTTPS:** None in MVP; reverse-proxy pattern documented
+10. **Health Check:** None in MVP
+11. **Smoke Test:** Concrete single-container validation (starts, loads config, responds to request)
+
+**Why:** Previous plan had three blockers:
+- Route separation criterion was untestable and conflicted with Christian's single-port decision
+- Smoke test definition was vague
+- Production-readiness was under-specified
+
+Finalized wording eliminates all ambiguity while keeping criteria testable and actionable for implementation team.
+
+**Key Changes:**
+- Removed old criterion 4 (now #33 backlog item for optional two-port mode)
+- Added specific base image, port, paths, permissions, uid/gid, multi-arch, and smoke test validation
+- Clarified log-level control via existing Serilog configuration
+- Documented reverse-proxy pattern for HTTPS (no app-level HTTPS)
+- Specified single-port default with both route groups served together
+
+**Related Files:**
+- `ai-plans/0019-docker-image-and-container-deployment.md` (updated)
+- `ai-plans/AGENTS.md` (no changes needed; plan follows three-section structure)
+- Issue #33 (multi-port deferral — already created)
+
+**Status:** Implementation-ready. Awaiting Tara (Platform) or implementation team to begin Dockerfile authoring.
+
+--- nate-0019-acceptance-criteria-polish.md ---
+---
+title: Plan 0019 Acceptance Criteria Polish
+date: 2026-05-29T12:53:39.755+02:00
+issue: Plan 0019 / Docker image and container deployment
+priority: implementation-clarity
+domain: acceptance-criteria, docker, runtime-specification
+---
+
+## Decision
+
+Three targeted refinements to `ai-plans/0019-docker-image-and-container-deployment.md` acceptance criteria eliminate implementation ambiguities:
+
+1. **Smoke Test Specificity:** "Simple GET request" now explicitly states: validate startup via logs, use existing endpoint, prove API readiness (no external dependencies).
+2. **Volume Mount Requirement:** Explicitly requires `/app/data` be mounted as a volume for data persistence beyond container lifetime.
+3. **Runtime Defaults:** "Exposes API on port 19423" now explicitly states bind address `0.0.0.0:19423`, single port in MVP, and that `ASPNETCORE_URLS` env var can override.
+
+## Rationale
+
+These clarifications remove implementation ambiguities while maintaining scope. All criteria remain testable and concrete.
+
+## Status
+
+Applied. Plan 0019 locked for implementation by Tara (Platform) or assigned implementer.
+
+**Related Files:**
+- `ai-plans/0019-docker-image-and-container-deployment.md` (updated)
+
+
+### 2026-05-29T13:00:08.513+02:00: User directive
+**By:** Christian Flessa (via Copilot)
+**What:** For Docker MVP plan validation, use `GET /health` as the smoke-test endpoint and require HTTP 200 as the expected result. Also make first-start database creation and the explicit multi-arch build validation command part of the plan.
+**Why:** User request — captured for team memory
+
+# Plan 0019 MVP Refinement: Health Check, Database Init, Multi-Arch Validation
+
+**Date:** 2026-05-29T13:00:08+02:00  
+**Scope:** Plan 0019 Docker Image and Container Deployment  
+**Status:** Applied
+
+## Decision
+
+Three targeted refinements to Plan 0019 acceptance criteria and technical details:
+
+### 1. Smoke Test Endpoint: `/health` with HTTP 200
+
+**Rationale:** Specificity removes ambiguity. "Existing endpoint" leaves implementer guessing which endpoint to use. `/health` is a conventional choice and signals explicit intent.
+
+**Applied:** Acceptance criterion 10 now specifies `GET /health` returning HTTP 200, not generic "existing API endpoint."
+
+**Impact:** Smoke test is now unambiguously testable; Tara (Platform) knows exact validation target.
+
+### 2. First-Start Database Creation Behavior
+
+**Rationale:** Implicit assumptions about database schema creation cause deployment surprises. Users need to know data is safe on mount; implementer needs to know schema init is automatic, not manual.
+
+**Applied:** New acceptance criterion (11) explicitly states: "On first start, if `/app/data/shadowdrop.db` does not exist, LiteDB creates the database and schema automatically; subsequent starts reuse the existing database."
+
+**Impact:** Deployment guide will document this behavior; users gain confidence in persistence; implementer knows this is already handled by application startup logic.
+
+### 3. Multi-Arch Build Validation Command
+
+**Rationale:** "Both amd64 and arm64" is a requirement, but lacks a concrete validation method. Exact command reduces guesswork and allows CI to verify compliance.
+
+**Applied:** New acceptance criterion (12) specifies: "`docker buildx build --platform linux/amd64,linux/arm64 -t shadowdrop:latest .` builds successfully on both architectures without errors."
+
+**Impact:** Clear validation path for Dockerfile authoring; Tara can test immediately; CI/CD can enforce this gate.
+
+## Scope Boundary
+
+**Not Changed:** Rationale, core architecture, port, user, permissions, configuration patterns, HTTPS deferral, reverse-proxy assumption. These remain locked and were already sound.
+
+**Changed:** Acceptance criteria specificity and technical details clarity only.
+
+## Cross-Agent Alignment
+
+- **Tara (Platform):** Explicit /health endpoint and multi-arch command enable immediate Dockerfile authoring without returning for clarification.
+- **Parker (Tester):** Smoke test is now concrete and reproducible; test design has a fixed target.
+- **Eliot (Backend):** LiteDB auto-init behavior confirms application startup logic already handles schema creation; no code changes needed.
+
+## Implementation Path
+
+- Tara authors Dockerfile using `/health` endpoint, multi-arch build command, and auto-init assumption.
+- README deployment guide adds first-start database creation note.
+- Smoke test uses exact `docker buildx build ...` command and `GET /health` validation.
