@@ -25,6 +25,35 @@ Current unresolved PR #31 review notes split cleanly into three buckets:
 **What:** Request Copilot code review with `gh pr edit <pr> --add-reviewer @copilot`.
 **Why:** User request — captured for team memory
 
+
+--- eliot-duplicate-manifest-file-ids.md ---
+---
+title: CLI manifest selection must fail closed on duplicate file ids
+date: 2026-05-29T03:18:53.122+02:00
+issue: PR #31 / CLI download hardening
+priority: defense-in-depth
+domain: cli-downloads, metadata-validation
+---
+
+## Decision
+
+Treat duplicate manifest `fileId` values as invalid share metadata in the CLI download flow.
+
+## Why
+
+- `fileId` is the contract key used for direct `--file` selection and queue entry validation.
+- `SingleOrDefault(...)` throws `InvalidOperationException` on duplicates, which escapes the command-error boundary and can abort queue processing.
+- Failing closed with `DownloadCommandException("Share metadata invalid or missing.")` preserves the CLI's existing error contract and per-entry queue isolation.
+
+## Impact
+
+- Direct downloads with malformed duplicate ids now return the generic metadata error instead of crashing.
+- Queue processing continues after a malformed manifest entry and still reports later entries.
+
+## Related Files
+
+- `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`
 # Squad Decisions
 
 ## Active Decisions
@@ -543,3 +572,30 @@ live share metadata changes.
 
 Manifest caching should use the canonical manifest URI rather than the raw server URL string so equivalent trailing-slash
 variants reuse one cache entry.
+
+--- nate-pr31-review-assessment.md ---
+---
+date: 2026-05-29T03:13:10.683+02:00
+author: Nate
+subject: PR #31 — unresolved review assessment reassessment
+status: decision
+---
+
+# PR #31 Review Assessment — Final Triage
+
+## Decision
+
+**Two items resolved:**
+
+1. **Queue contract documentation:** Plan `ai-plans/0017-cli-download-command-and-queue-processing.md` is current and correctly specifies the full queue entry contract (`serverUrl`, `shareId`, `fileId`, `fileName`, `length`, `outputPath`). The earlier "partially valid" concern noted in the top-level review is **resolved**; documentation matches validator logic and runtime requirements. No correction needed.
+
+2. **Duplicate fileId defense-in-depth note:** The inline suggestion about duplicate `fileId` values in manifest processing is treated as **non-blocking defense-in-depth**. Current share creation rejects duplicate file ids server-side, so this note does not describe a live correctness bug on supported data. Archive as polish-only.
+
+## Rationale
+
+- Top-level documentation mismatch was an apparent gap between plan text and runtime requirements. Current plan text is authoritative and current.
+- Duplicate-fileId handling is defensive but not required for correctness under the supported-data assumption (no duplicates from server).
+
+## Blockers
+
+None. PR #31 is ready to merge after these notes are closed.

@@ -27,3 +27,19 @@ All three active PR review cycles have assessments in team memory (.squad/decisi
 ## Archived Details (Pre-2026-05-19)
 
 See history-archive.md for detailed May 14–19 session logs and plan refinement work on issue #27 and PR #28.
+
+## Learnings
+
+- 2026-05-29T03:13:10.683+02:00 — PR #31 review triage: the binding queue-entry contract is documented in `ai-plans/0017-cli-download-command-and-queue-processing.md`, and it now explicitly requires `serverUrl`, `shareId`, `fileId`, `fileName`, `length`, and `outputPath`; top-level review notes should be checked against that current plan text, not older PR summary wording.
+- 2026-05-29T03:13:10.683+02:00 — Duplicate share file ids are already rejected in `src/ShadowDrop.Api/Shares/CreateShareService.cs`, with coverage in `tests/ShadowDrop.Api.Tests/ApiWalkingSkeletonTests.cs`; unresolved duplicate-id review notes on CLI selection are therefore defense-in-depth, not current correctness blockers.
+
+---
+
+## Update: 2026-05-29T03:13:10.683+02:00 — Final PR #31 Reassessment
+
+After latest review-fix pass, re-assessed unresolved feedback:
+
+- **Queue contract doc:** Current plan `ai-plans/0017-cli-download-command-and-queue-processing.md` matches validator. No correction needed. Earlier concern was stale.
+- **Duplicate fileId defense:** Non-blocking polish. Server-side creation prevents the scenario.
+
+**Outcome:** PR #31 ready to merge. Both items closed and recorded in `.squad/decisions.md`.

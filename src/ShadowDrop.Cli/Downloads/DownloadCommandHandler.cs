@@ -149,9 +149,26 @@ internal sealed class DownloadCommandHandler(
             : throw new DownloadCommandException("Share contains multiple files; specify --file.");
     }
 
-    private static ShareManifestFileContract SelectFileById(IReadOnlyList<ShareManifestFileContract> files, Guid fileId) =>
-        files.SingleOrDefault(file => ParseFileId(file.FileId) == fileId)
-        ?? throw new DownloadCommandException("Requested file not found in share.");
+    private static ShareManifestFileContract SelectFileById(IReadOnlyList<ShareManifestFileContract> files, Guid fileId)
+    {
+        ShareManifestFileContract? match = null;
+        foreach (var file in files)
+        {
+            if (ParseFileId(file.FileId) != fileId)
+            {
+                continue;
+            }
+
+            if (match is not null)
+            {
+                throw new DownloadCommandException("Share metadata invalid or missing.");
+            }
+
+            match = file;
+        }
+
+        return match ?? throw new DownloadCommandException("Requested file not found in share.");
+    }
 
     private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
     {

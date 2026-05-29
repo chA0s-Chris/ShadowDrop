@@ -142,6 +142,90 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldContinueQueueProcessingWhenManifestContainsDuplicateFileIds()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var firstOutputPath = Path.Combine(rootDirectory, "broken.bin");
+            var secondOutputPath = Path.Combine(rootDirectory, "good.bin");
+            var queuePath = Path.Combine(rootDirectory, "queue.json");
+            var queueJson = QueueFileParser.Serialize(new()
+            {
+                ShadowDrop = "1.0",
+                QueueVersion = "1.0",
+                Files =
+                [
+                    new QueueFileEntry
+                    {
+                        ServerUrl = "https://shadowdrop.test/base-path/",
+                        ShareId = "broken-share",
+                        FileId = fixture.FileId.ToString(),
+                        FileName = "broken.bin",
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = firstOutputPath
+                    },
+                    new QueueFileEntry
+                    {
+                        ServerUrl = "https://shadowdrop.test/base-path/",
+                        ShareId = "good-share",
+                        FileId = fixture.FileId.ToString(),
+                        FileName = fixture.FileName,
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = secondOutputPath
+                    }
+                ]
+            });
+            await File.WriteAllTextAsync(queuePath, queueJson);
+
+            using var handler = new SequenceHttpMessageHandler(
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/broken-share"));
+                    return fixture.CreateManifestResponseWithFiles(
+                        fixture.CreateManifestFile(fileName: "broken.bin"),
+                        fixture.CreateManifestFile(fileName: "duplicate.bin"));
+                },
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/good-share"));
+                    return fixture.CreateManifestResponse();
+                },
+                request =>
+                {
+                    request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/good-share/files/{fixture.FileId:D}?mode=cli"));
+                    return fixture.CreateDownloadResponse();
+                });
+            using var httpClient = new HttpClient(handler);
+            var binaryOutput = new MemoryStream();
+            var standardOut = new StringWriter();
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", fixture.ShareKey],
+                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            binaryOutput.Length.Should().Be(0);
+            standardOut.ToString().Should().BeEmpty();
+            File.Exists(firstOutputPath).Should().BeFalse();
+            (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
+            standardError.ToString().Should().Contain($"FAILED broken.bin -> {firstOutputPath}: Share metadata invalid or missing.")
+                         .And.Contain($"SUCCESS {fixture.FileName} -> {secondOutputPath}");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldDownloadSingleFileToStdout_WhenCliShareKeyOverridesKeyFile()
     {
         await using var fixture = new CliDownloadApiFactory();
@@ -709,25 +793,30 @@ public sealed class DownloadCommandHandlerTests
             return response;
         }
 
+        public ShareManifestFileContract CreateManifestFile(String? fileName = null) =>
+            new()
+            {
+                AlgorithmId = "aes-256-gcm",
+                ChunkCount = EncryptedChunks.Length,
+                ChunkSize = ChunkSize,
+                EncryptionFormatVersion = "1",
+                FileId = FileId.ToString(),
+                FileName = fileName ?? FileName,
+                KdfSalt = Convert.ToBase64String(KdfSalt),
+                Length = Plaintext.LongLength,
+                PlaintextSha256 = null
+            };
+
         public HttpResponseMessage CreateManifestResponse(String? fileName = null)
+        {
+            return CreateManifestResponseWithFiles(CreateManifestFile(fileName));
+        }
+
+        public HttpResponseMessage CreateManifestResponseWithFiles(params ShareManifestFileContract[] files)
         {
             var manifest = new ShareManifestContract
             {
-                Files =
-                [
-                    new ShareManifestFileContract
-                    {
-                        AlgorithmId = "aes-256-gcm",
-                        ChunkCount = EncryptedChunks.Length,
-                        ChunkSize = ChunkSize,
-                        EncryptionFormatVersion = "1",
-                        FileId = FileId.ToString(),
-                        FileName = fileName ?? FileName,
-                        KdfSalt = Convert.ToBase64String(KdfSalt),
-                        Length = Plaintext.LongLength,
-                        PlaintextSha256 = null
-                    }
-                ]
+                Files = files
             };
             return new(HttpStatusCode.OK)
             {
