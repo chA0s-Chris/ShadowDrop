@@ -128,7 +128,7 @@ internal sealed class InteractiveDownloadCommandHandler(
                 return new(shareReference.ServerUrl, shareReference.ShareId, manifest, currentBearerToken);
             }
             catch (DownloadCommandException exception) when (String.Equals(exception.Message, "Download authorization failed.", StringComparison.Ordinal)
-                                                             && String.IsNullOrWhiteSpace(bearerToken))
+                                                             && String.IsNullOrWhiteSpace(currentBearerToken))
             {
                 currentBearerToken = interactiveSession.PromptText("Download bearer token:", secret: true, validate: static value =>
                                                                        String.IsNullOrWhiteSpace(value) ? "Enter the bearer token." : null);

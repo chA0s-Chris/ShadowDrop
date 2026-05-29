@@ -733,4 +733,3 @@ Keep the new guided share-creation experience under `shadowdrop upload --interac
 **By:** Sophie (CLI Dev)
 **What:** Keep guided share-creation under `--interactive` flag.
 **Why:** Minimizes surface area, preserves scripting, and focuses on UX cohesion.
-

@@ -53,7 +53,7 @@ internal sealed class FakeInteractiveSession : ICliInteractiveSession
             return indexes.Select(index => choices[index]).ToArray();
         }
 
-        return ((IEnumerable<T>)response.Cast<T>()).ToArray();
+        return response.Cast<T>().ToArray();
     }
 
     public T PromptSelection<T>(String title, IReadOnlyList<T> choices, Func<T, String> displaySelector) where T : notnull

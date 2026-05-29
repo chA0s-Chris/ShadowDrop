@@ -675,6 +675,38 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldSurfaceAuthorizationFailureAfterRejectedInteractiveBearerToken()
+    {
+        await using var fixture = new CliDownloadApiFactory();
+        var inputFile = fixture.CreateInputFile("interactive-protected.bin", 72);
+        var upload = await fixture.UploadFilesAsync([inputFile]);
+        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession();
+        interactiveSession.EnqueueTextResponse(upload.ShareKey);
+        interactiveSession.EnqueueTextResponse("wrong-token");
+        using var httpClient = fixture.CreateClient();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), share.ShareToken],
+                                                        CreateServices(binaryOutput,
+                                                                       standardOut,
+                                                                       standardError,
+                                                                       fixture.ConfigFilePath,
+                                                                       httpClient: httpClient,
+                                                                       interactiveSession: interactiveSession),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.Length.Should().Be(0);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Download authorization failed.");
+        interactiveSession.TextPrompts.Should().ContainInOrder(("Share key:", true), ("Download bearer token:", true));
+        interactiveSession.TextPrompts.Count(prompt => prompt == ("Download bearer token:", true)).Should().Be(1);
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldWriteQueueSuccessLinesBeforeProcessingLaterEntries()
     {
         var fixture = DownloadHttpFixture.Create();
