@@ -66,3 +66,23 @@ Final reassessment of remaining unresolved PR #31 review items after Copilot rea
 - Two items resolved: queue serverUrl handling + per-entry status streaming
 - New decision captured: Queue download runtime should trust validated serverUrl and stream per-entry feedback
 - Team memory synchronized
+
+## 2026-05-29T09:02:48.323+02:00 — Issue Triage & Sequencing Decision
+
+**Issues #18, #19, #20 reviewed; recommendation finalized.**
+
+### Summary
+
+- **#18 (Interactive UX):** Rich 12-point acceptance criteria; orthogonal to merged PRs; clear routing (Sophie + Alec + Parker); unblocked. **READY NEXT.**
+- **#19 (Docker):** Empty body; platform-tier infrastructure; unblocks staging/demo, not feature work; **DEFER pending scope clarification.**
+- **#20 (Native AOT Release):** Empty body; platform-tier infrastructure; late-phase concern for external distribution; **DEFER pending scope clarification.**
+
+### Key Insights
+
+- #18 is feature-rich, well-scoped, and unblocks user-facing UX. All dependencies (upload, share, download) merged and stable.
+- #19/#20 are infrastructure-layer work with no acceptance criteria. Useful for deployment but do not block feature completeness. Should await Christian's body text defining scope, artifact policies, and CI/CD integration points.
+- Sequencing: #18 → #19 → #20 is optimal. Delivers feature value quickly; defers infrastructure clarification.
+
+### Decision Artifact
+
+Written to `.squad/decisions/inbox/nate-next-issue-priority.md` with routing guidance for each issue.

@@ -81,3 +81,23 @@ Ready for integration.
   which keeps queue files secret-free while letting the CLI batch downloads predictably. Key implementation paths:
   `src/ShadowDrop.Cli/Downloads/`, `src/ShadowDrop.Api/Downloads/`, `src/ShadowDrop.Shared/Queue/`,
   `tests/ShadowDrop.Cli.Tests/Downloads/`.
+
+## 2026-05-29: Issue Prioritization — Next Target: #18 (Interactive UX)
+
+**Event:** Nate prioritized open GitHub issues (#18, #19, #20) and recommended #18 (Interactive Spectre.Console UX) as the next implementation target.
+
+**Assignment:** Sophie leads #18 implementation.
+- **Role:** CLI lead on interactive guided workflows
+- **Collaborators:** Alec (secret handling review), Parker (orchestration tests)
+- **Dependencies:** None — upload (#30), share creation (#23), and download (#31) already merged
+- **Scope:** 12 acceptance criteria covering guided workflows, TTY detection, orchestration contracts, and testing
+
+**Why #18 first:**
+- Clear acceptance criteria and unambiguous team routing
+- Orthogonal to existing slices; no API changes needed
+- Unblocks interactive user experience without blocking end-user features
+- All underlying operations (upload, share, download) are complete and merged
+
+**Sequencing rationale:** #19 (Docker) and #20 (Native AOT) deferred pending scope clarification from Christian.
+
+**Decision:** Recorded in canonical `.squad/decisions.md`

@@ -143,3 +143,14 @@ Tara delivered strict CLI response header parser hardening:
 - Status: Implementation complete, regression tests passing
 
 - 2026-05-19T19:35:51.788+02:00: `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs` resume flow must fail closed before any seek/network call when a seekable destination stream length differs from `DurablePlaintextLength`; shorter and longer mismatch regressions belong in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs`.
+
+## 2026-05-29: Issue Prioritization — Deferred Issues Pending Scope
+
+**Event:** Nate prioritized open GitHub issues (#18, #19, #20) and recommended #18 as next target.
+
+**Assignment:** Tara holds #19 (Docker) and #20 (Native AOT) pending scope clarification from Christian.
+- **Reason:** Both #19 and #20 lack acceptance criteria and scope definition
+- **Blocker:** #19 requires Christian to define Docker registry, base image policy, build context, health check contract, multi-architecture support, CI/CD hookup
+- **Blocker:** #20 requires Christian to define target platforms, artifact format, notarization/signing, CI/CD integration, compatibility matrix
+- **Sequencing:** Will prioritize #19 after #18 feature completes, #20 after #19 provides canonical container image
+- **Decision:** Recorded in canonical `.squad/decisions.md`

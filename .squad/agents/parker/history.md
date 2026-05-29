@@ -222,3 +222,12 @@ Parker reviewed Tara's strict header parser hardening:
 ### Decision Captured
 
 - Decision recorded in `decisions.md`: `parker-cli-download-pathbase-and-manifest-failures.md`
+
+## 2026-05-29: Issue #18 Prioritization — Orchestration Testing Role
+
+**Event:** Nate prioritized open GitHub issues and recommended #18 (Interactive Spectre.Console UX) as next target.
+
+**Assignment:** Parker writes orchestration tests for Sophie's #18 implementation.
+- **Role:** Test coverage for interactive guided workflows, secret handling, TTY detection, mode switching
+- **Scope:** Orchestration test pairs ensuring guided flows work end-to-end with CLI, share, and download operations
+- **Decision:** Recorded in canonical `.squad/decisions.md`

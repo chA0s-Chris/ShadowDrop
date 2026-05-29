@@ -655,3 +655,57 @@ When executing queue downloads, use each queue entry's validated `serverUrl` dir
 
 - `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`
 - `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`
+---
+title: Prioritization decision — #18 (Interactive UX) next
+date: 2026-05-29T09:02:48.323+02:00
+issue: #18, #19, #20 / sequencing
+priority: strategic
+domain: feature-planning, sequencing
+---
+
+## Decision
+
+**Issue #18 — Interactive Spectre.Console UX** should be the next feature to implement after the current PR merge cycle completes.
+
+**Issues #19 (Docker) and #20 (Native AOT release artifacts) should follow in that order.**
+
+## Rationale
+
+### Issue #18: Rich Foundation for UX
+
+- **Rich detailed acceptance criteria:** 12 specific checkboxes covering guided workflows, secret handling, TTY detection, orchestration contracts, testing strategy, and scope boundaries. No ambiguity.
+- **Orthogonal to existing slices:** Wraps already-delivered upload (PR #30), share creation (PR #23), and download (PR #31) logic. Does not require API changes.
+- **Clear team roles:** Sophie (CLI) leads implementation; Alec reviews secret handling; Parker writes orchestration tests. Routing unambiguous.
+- **Unlocks usability:** Users get guided terminal flows. Automation remains via non-interactive flags.
+- **No blocking dependencies:** All underlying operations (upload, share, download) are complete and merged.
+
+### Issue #19: Infrastructure Underspecified
+
+- **Empty body:** No acceptance criteria, scope, or boundary definition.
+- **Platform-tier work:** Belongs to Tara (Platform Dev). Requires collaboration with Eliot (Backend) on container runtime decisions.
+- **Unblocks deployment only:** Useful for staging/demo, but does not unlock end-user features while #18 waits.
+- **Defer pending clarification:** Need Christian to define: Docker registry, base image policy, build context, health check contract, multi-architecture support, CI/CD hookup.
+
+### Issue #20: Release Artifact Underspecified
+
+- **Empty body:** No acceptance criteria or artifact definitions.
+- **Platform-tier work:** Belongs to Tara. Depends on .NET 9 Native AOT compilation pipeline.
+- **Late-phase concern:** Unblocks external distribution, but does not block feature completeness.
+- **Defer pending clarification:** Need Christian to define: target platforms, artifact format (zip/tarball/msi), notarization/signing, CI/CD integration, compatibility matrix.
+
+## Sequencing Logic
+
+1. **#18 first:** Feature work with clear scope. Unblocks interactive user experience. Team has all required expertise and dependencies ready.
+2. **#19 second:** Infrastructure for deployment. Useful after #18 is testable and ready for staging validation.
+3. **#20 third:** Release artifacts. Useful for external distribution after #19 provides a canonical container image.
+
+## Action Items
+
+- **For #18:** Route to Sophie (squad:sophie) with orchestration test pair (Alec review secret paths, Parker test coverage).
+- **For #19/#20:** Hold pending Christian's clarification on scope and acceptance criteria. Nate to triage when body text is provided.
+
+---
+
+## Implementation Note
+
+This decision reflects the current merge cycle status (PR #31 completed, range-requests slice closed) and the team's availability to shift focus toward feature-layer work. If infrastructure work (#19/#20) becomes urgent before #18 completes, revisit this sequencing.

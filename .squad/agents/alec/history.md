@@ -20,3 +20,12 @@ Sophie (CLI Dev) completed plan #17 (CLI download with queue processing and mani
 - No new secret-handling surfaces introduced; existing error contract maintained
 
 **Dependency:** If future auth/token work touches download queue, Alec escalation required for bearer-token handling review
+
+## 2026-05-29: Issue #18 Prioritization — Secret Handling Review Role
+
+**Event:** Nate prioritized open GitHub issues and recommended #18 (Interactive Spectre.Console UX) as next target.
+
+**Assignment:** Alec reviews secret handling in Sophie's #18 implementation.
+- **Role:** Security gate for interactive secret input flows (bearer token, share key, etc.)
+- **Scope:** Verify that interactive mode enforces secret boundaries and masks terminal input appropriately
+- **Decision:** Recorded in canonical `.squad/decisions.md`
