@@ -139,12 +139,12 @@ Treat `EncryptedChunk` like other crypto-adjacent buffers: copy inbound/publicly
 
 Two surgical fixes applied to `AdminTokenService`:
 
-**1. Bootstrap token whitespace normalization**  
+**1. Bootstrap token whitespace normalization**
 `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` is now `.Trim()`-ed before hashing at bootstrap time, matching normalization in `TryReadBearerToken`. Without this, trailing newline or leading space in env var would produce permanent mismatch hash.
 
 **Trust boundary:** Token comparison uses `CryptographicOperations.FixedTimeEquals`; normalization happens before hashing (not before comparison), so no timing channel introduced.
 
-**2. Disposal guard extended to collection/index setup**  
+**2. Disposal guard extended to collection/index setup**
 The `try/catch { _database.Dispose(); throw; }` block now wraps `GetCollection` and `EnsureIndex` as well as `EnsureBootstrapCredential`. Previously, exception during index creation (schema conflict on existing DB) would leave handle open with no cleanup.
 
 **No behavior change** for the happy path.
@@ -172,16 +172,16 @@ For issue #4, the shared queue format in `ShadowDrop.Shared` uses simple JSON-bo
 
 Applied four substantive refinements to `ai-plans/0011-upload-api-and-encrypted-file-intake.md` based on accepted review feedback:
 
-**1. Upload Response Contract Tightened**  
+**1. Upload Response Contract Tightened**
 Upload response now explicitly returns **only** file id and downstream-safe metadata (plaintext length, encrypted length, chunk count, encryption format version, algorithm id, chunk size) with **no secrets, derived keys, or internal state**. Prevents accidental exposure of `KdfSalt`, `ShadowDrop-Key`, or session tokens.
 
-**2. Error Response Safety Requirement**  
+**2. Error Response Safety Requirement**
 Error responses must not expose secrets, key material, system paths, or internal validation details. Errors are generic HTTP status codes (400, 401, 413, 429) with minimal public message surface. Attackers use validation error messages to infer presence of files, guess metadata structure, or detect side-channel information leaks.
 
-**3. Abuse Protection Gate**  
+**3. Abuse Protection Gate**
 Upload endpoint enforces rate limiting or equivalent abuse protection to prevent high-volume upload spam. Without rate limits, a malicious client can fill storage or exhaust I/O with concurrent/sequential uploads.
 
-**4. All-or-Nothing Upload Semantics**  
+**4. All-or-Nothing Upload Semantics**
 Failed uploads must use all-or-nothing / cleanup semantics. If validation fails after metadata is accepted, or if streaming fails mid-upload, all partially committed metadata and file content must be rolled back. No orphaned or partial records remain in the store.
 
 **Scope Boundary Reinforced:** The plan explicitly does **not** expand into share creation, download setup, or authentication token refresh. Upload is intake-only. Later slices own the contracts for sharing and retrieval.
@@ -196,16 +196,16 @@ Failed uploads must use all-or-nothing / cleanup semantics. If validation fails 
 ## Upload Plan Clarifications — Metadata Validation & Cross-Layer Cleanup
 
 ### 2026-05-15T22:48:25+02:00: Upload Plan Clarifications
-**By:** Nate (Lead)  
-**Request:** Christian Flessa  
+**By:** Nate (Lead)
+**Request:** Christian Flessa
 **Area:** `ai-plans/0011-upload-api-and-encrypted-file-intake.md` Technical Details section
 
 Two clarifications tighten the upload implementation contract:
 
-**1. Metadata Validation Before Stream Consumption**  
+**1. Metadata Validation Before Stream Consumption**
 Reject malformed envelope metadata (invalid lengths, inconsistent format, missing required fields) **before starting to consume the request body stream**. Metadata parsing is synchronous and complete before any I/O begins; prevents wasting bandwidth on format errors and establishes a clear validation gate.
 
-**2. Cross-Layer Cleanup Semantics**  
+**2. Cross-Layer Cleanup Semantics**
 All-or-nothing rollback must span **every persistence layer** in the upload path. If blob content is written before metadata commit succeeds, or if streaming fails mid-upload, that content must be deleted and no orphaned state may remain (database, filesystem, or other persistence backend). Use database transactions with deferred writes or multi-phase commit; test surfaces verify the invariant directly by simulating failure at each boundary.
 
 **Scope Boundary:** Neither clarification expands into share creation, download setup, token refresh, or other downstream concerns. Upload remains intake-only; implementation team owns the vertical slice with binding acceptance criteria.
@@ -276,8 +276,8 @@ Eight substantive refinements applied; all now formalized as binding acceptance 
 - Review gate applies on PR submission
 # Plan 0013 — Cleanup State Representation Clarification
 
-**Date:** 2026-05-16T09:49:47+02:00  
-**Author:** Nate (Lead)  
+**Date:** 2026-05-16T09:49:47+02:00
+**Author:** Nate (Lead)
 **Context:** Polish pass on `ai-plans/0013-share-creation-expiration-and-hashed-bearer-tokens.md`
 
 ## Decision
@@ -334,8 +334,8 @@ Applied two binding clarifications to `ai-plans/0014-basic-download-endpoint.md`
 Plan is now **implementation-ready**. Acceptance criteria are binding and explicit. Review gate (Nate + Parker, escalate Alec for auth/tokens/security) applies on PR submission.
 # Plan 0015 Clarifications: Range Requests & Resumable Downloads
 
-**Date:** 2026-05-16T21:18:02+02:00  
-**Author:** Nate (Lead)  
+**Date:** 2026-05-16T21:18:02+02:00
+**Author:** Nate (Lead)
 **Status:** Ready for team review and implementation
 
 ## Changes Applied
@@ -379,7 +379,7 @@ Reinforced that local blob backend must:
 - Enforce authentication and expiration the same way as full-file downloads
 
 ### 7. Structure & Scope Preserved
-Plan structure remains unchanged: Rationale, Acceptance Criteria (now with two new security criteria), and Technical Details (now with concrete mappings and header contracts).  
+Plan structure remains unchanged: Rationale, Acceptance Criteria (now with two new security criteria), and Technical Details (now with concrete mappings and header contracts).
 No slice expansion: download endpoint is still in-scope; share creation, token refresh, revocation belong to later slices.
 
 ### 8. Implementation-Ready Status
@@ -403,9 +403,9 @@ These clarifications remove ambiguity around:
 Plan is now implementation-ready. Backend team (Eliot) and testing team (Parker, Tara) can use the concrete mapping algorithm and HTTP contract as implementation targets. Review gate applies on PR.
 # Plan 0015: CLI Contract Lock-Down & Error Handling Polish
 
-**Date:** 2026-05-16T21:22:43.120+02:00  
-**By:** Nate (Lead)  
-**Area:** CLI Integration & Security  
+**Date:** 2026-05-16T21:22:43.120+02:00
+**By:** Nate (Lead)
+**Area:** CLI Integration & Security
 
 ## Summary
 
@@ -487,8 +487,8 @@ Plan is **now implementation-ready:**
 - Review gate (Nate + Parker, escalate Alec for token/auth/security) applies on PR.
 # Plan 0015 Polish Items: Accept-Ranges Consistency & Token Validation Pattern Reuse
 
-**Date:** 2026-05-16T21:26:32+02:00  
-**Lead:** Nate  
+**Date:** 2026-05-16T21:26:32+02:00
+**Lead:** Nate
 **Requested by:** Christian Flessa
 
 ## Summary
@@ -497,7 +497,7 @@ Added two clarifying polish notes to `ai-plans/0015-range-requests-and-resumable
 
 ### 1. Accept-Ranges Header Scope Clarification
 
-**Location:** HTTP 206 Response Contract section  
+**Location:** HTTP 206 Response Contract section
 **Change:** Added polish note that `Accept-Ranges: bytes` must be returned consistently:
 - On full-file (non-206) responses
 - On all HTTP 4xx/5xx error responses to full-file requests
@@ -506,7 +506,7 @@ Added two clarifying polish notes to `ai-plans/0015-range-requests-and-resumable
 
 ### 2. Bearer-Token Validation Pattern Reuse
 
-**Location:** Technical Details section, end of general guidance  
+**Location:** Technical Details section, end of general guidance
 **Change:** Added polish note clarifying that optional download bearer-token validation must:
 - Hash the bearer token using the same algorithm as share-creation
 - Compare using fixed-time string comparison
@@ -525,8 +525,8 @@ Both polish notes:
 **Status:** Ready for implementation team reference during PR review gate.
 # CLI Upload Command (Plan 0016) — Five Clarifications Applied
 
-**Date:** 2026-05-16T21:52:25.986+02:00  
-**By:** Nate (Lead)  
+**Date:** 2026-05-16T21:52:25.986+02:00
+**By:** Nate (Lead)
 **Area:** `ai-plans/0016-cli-upload-command.md` — Plan refinement and acceptance criteria tightening
 
 ## Summary
@@ -605,8 +605,8 @@ No changes to slice scope. CLI remains:
 Implementation team (CLI ownership, likely Sophie or assigned) uses these clarifications as validation checklist during code review. All acceptance criteria are binding. Reviewer gate applies on PR submission.
 # Plan 0016: CLI Upload Command — Final Polish Applied
 
-**Date:** 2026-05-16T22:00:47+02:00  
-**Owner:** Nate  
+**Date:** 2026-05-16T22:00:47+02:00
+**Owner:** Nate
 **Request From:** chA0s-Chris
 
 ## Changes Applied
@@ -643,13 +643,13 @@ Enhanced the Encryption & Streaming section with explicit statement: **"This com
 
 ## Decision Status
 
-**Accepted by:** Christian Flessa  
-**Applied:** Yes  
+**Accepted by:** Christian Flessa
+**Applied:** Yes
 **Ready for Implementation:** Yes
 # Plan 0016: CLI Upload Command — Final Polishing (Last Two Suggestions)
 
-**Date:** 2026-05-16T22:09:27+02:00  
-**Owner:** Nate  
+**Date:** 2026-05-16T22:09:27+02:00
+**Owner:** Nate
 **Request From:** chA0s-Chris
 
 ## Changes Applied
@@ -692,9 +692,9 @@ Makes explicit the ownership and lifecycle of the share-level secret so downstre
 
 ## Decision Status
 
-**Requested by:** Christian Flessa  
-**Applied:** Yes  
-**Test coverage required:** 
+**Requested by:** Christian Flessa
+**Applied:** Yes
+**Test coverage required:**
 - Retry behavior: Verify immediate-fail status codes exit with non-zero, retriable codes permit retry logic
 - Secret lifecycle: Verify plaintext secret is not logged/persisted by default, only emitted on explicit flag
 
@@ -705,7 +705,7 @@ Makes explicit the ownership and lifecycle of the share-level secret so downstre
 Implementation team uses these two clarifications as validation checklist. All acceptance criteria (including new retry and secret-lifecycle behavior) are binding for PR review gate.
 # Plan 0017 Clarifications: CLI Download Command and Queue Processing
 
-**Date:** 2026-05-16  
+**Date:** 2026-05-16
 **Context:** Edited plan document to resolve ambiguities identified during team review.
 
 ## Decisions Made
@@ -721,7 +721,7 @@ Implementation team uses these two clarifications as validation checklist. All a
 - **Practical:** Callers must explicitly pass bearer tokens each time or script them in, making it clear that auth is happening.
 
 ### 3. Output and Exit Code Behavior
-**Decision:** 
+**Decision:**
 - **Direct downloads:** Content to stdout, errors/status to stderr, exit 0/1.
 - **Queue processing:** Summary report to stderr, exit 0 if all succeed, exit 1 if any fails. Partial failures do not stop processing.
 - **Rationale:** Allows easy piping (stdout for content), clear diagnostics (stderr), and predictable batch error handling (continue on failure, report summary).
@@ -758,8 +758,8 @@ Tightened the secrets handling language from "masked values if needed for diagno
 These three clarifications strengthen the security contract and reduce the surface area for implementation mistakes. Teams building on this plan will have clear, unambiguous requirements for queue structure, validation flow, and secret handling.
 # Plan 0018: Interactive Spectre Console UX — Clarifications
 
-**Decision Maker:** Nate (Lead)  
-**Date:** 2026-05-16  
+**Decision Maker:** Nate (Lead)
+**Date:** 2026-05-16
 **Status:** Applied to plan
 
 ---
@@ -866,8 +866,8 @@ Assert.DoesNotMatch(@"Bearer.*[A-Za-z0-9]", output);  // No bearer tokens
 ---
 # Plan 0018 Final Clarifications — Interactive Spectre.Console UX
 
-**Date:** 2026-05-16T22:34:31.673+02:00  
-**Lead:** Nate  
+**Date:** 2026-05-16T22:34:31.673+02:00
+**Lead:** Nate
 **Requested by:** chA0s-Chris
 
 ## Summary
@@ -940,8 +940,8 @@ Applied four clarifying edits to plan 0018 to lock down the interactive UX desig
 No GitHub issue update required at this time; plan clarifications are editorial and do not change acceptance criteria or scope.
 # Scribe Decision: Issue #15 Sync
 
-**Date:** 2026-05-16T21:28:18.558+02:00  
-**Agent:** Scribe  
+**Date:** 2026-05-16T21:28:18.558+02:00
+**Agent:** Scribe
 **Action:** Updated GitHub issue #15 body to mirror finalized plan
 
 ## What
@@ -969,9 +969,9 @@ This sync ensures:
 - Security and technical details (polish notes, token validation pattern, error handling) captured for implementer reference
 # PR #24 Security Review — Direct-HTTP Key Material Cleanup
 
-**Reviewer:** Alec (Security Engineer)  
-**Date:** 2026-05-17T23:05:01.413+02:00  
-**Status Review:** 2026-05-18T00:28:54.318+02:00  
+**Reviewer:** Alec (Security Engineer)
+**Date:** 2026-05-17T23:05:01.413+02:00
+**Status Review:** 2026-05-18T00:28:54.318+02:00
 **Verdict:** ✅ **APPROVED FOR MERGE — SECURITY FIX VERIFIED**
 
 ## Issue
@@ -1210,8 +1210,8 @@ This keeps upload reservation behavior correct even if no subsequent reservation
 
 # Issue #14 Remediation & Security Review — Assessment & Next Steps
 
-**Lead:** Nate  
-**Date:** 2026-05-17T23:50:41.301+02:00  
+**Lead:** Nate
+**Date:** 2026-05-17T23:50:41.301+02:00
 **Verdict:** ✅ Architecture Fixed | 🟡 Security Verification Pending
 
 ---
@@ -1272,7 +1272,7 @@ Commit 1717f87 introduced a helper method with proper ownership-transfer semanti
 
 ```csharp
 internal static async Task<T> WithDecodedDirectHttpKeyMaterialAsync<T>(
-    String keyMaterial, 
+    String keyMaterial,
     Func<Byte[], Task<T>> action)
 {
     Byte[]? secretBytes = null;
@@ -1377,7 +1377,7 @@ Download: Client provides share token + key material
 
 ### Original Intent (PROJECT_CONCEPT.md)
 
-> *"Direct-HTTP mode: the server receives the decryption key during download"*  
+> *"Direct-HTTP mode: the server receives the decryption key during download"*
 > *"Download links that can optionally include the decryption key for direct HTTP retrieval"*
 
 **Alignment:**
@@ -1459,7 +1459,7 @@ All criteria from `ai-plans/0014-basic-download-endpoint.md`:
 
 - **Issue:** #14 (Basic Download Endpoint)
 - **Sub-issue:** Direct-HTTP/Upload Mismatch + Security Verification
-- **Decision:** 
+- **Decision:**
   1. **Architecture:** File-scoped binding (Option 1) is correct and implemented
   2. **Security:** Alec's concern is fixed by WithDecodedDirectHttpKeyMaterialAsync, but test coverage gap must be closed
 - **Action Items:**
@@ -1939,8 +1939,8 @@ date: 2026-05-18T13:15:18.889+02:00
 
 # Eliot — CLI Range Fix: Streaming Encrypted Payload (v1 Contract Lock)
 
-**Date:** 2026-05-18T13:15:18.889+02:00  
-**Author:** Eliot  
+**Date:** 2026-05-18T13:15:18.889+02:00
+**Author:** Eliot
 **Scope:** API download / CLI resumable contract
 
 ## Decision
@@ -1960,8 +1960,8 @@ Keep the current CLI resumable-download JSON contract for v1, but stream the enc
 
 # Nate — Issue #25 Created: CLI Resumable Downloads v2 Contract Migration
 
-**Date:** 2026-05-18T13:15:18.889+02:00  
-**Author:** Nate (Lead)  
+**Date:** 2026-05-18T13:15:18.889+02:00
+**Author:** Nate (Lead)
 **Area:** CLI Downloads & API Contracts
 
 ## Decision
@@ -2022,7 +2022,7 @@ Create a GitHub issue to track migration from CLI resumable download contract v1
 
 # Parker — CLI Range Fix Regressions: Dual-Edge Coverage
 
-**Date:** 2026-05-18T13:15:18.889+02:00  
+**Date:** 2026-05-18T13:15:18.889+02:00
 **Author:** Parker (Tester)
 
 ## Decision
@@ -2074,8 +2074,8 @@ Treat all persisted metadata echoed into custom HTTP headers as untrusted header
 
 # Header Injection Prevention Pattern
 
-**Date:** 2026-05-18T15:26:37.377+02:00  
-**By:** Eliot (Backend Dev)  
+**Date:** 2026-05-18T15:26:37.377+02:00
+**By:** Eliot (Backend Dev)
 **Context:** PR #28 review fix — sanitize user-controlled metadata before writing to response headers
 
 ## Decision
@@ -2111,9 +2111,9 @@ Even custom headers like `X-ShadowDrop-FileName` are vulnerable if not sanitized
 
 # Plan 0027 Clarifications — CLI Binary Download Contract
 
-**Date:** 2026-05-18T23:30:26.681+02:00  
-**Agent:** Nate (Lead)  
-**Status:** Ready for merge into decisions.md  
+**Date:** 2026-05-18T23:30:26.681+02:00
+**Agent:** Nate (Lead)
+**Status:** Ready for merge into decisions.md
 
 ## Problem
 
@@ -2246,8 +2246,8 @@ Update `SanitizeHeaderValue()` to filter `Char.IsControl` characters (or equival
 
 # Immediate Replacement: Legacy CLI v1 Contract Retired This Slice
 
-**Date:** 2026-05-18T23:34:55.793+02:00  
-**Author:** Nate  
+**Date:** 2026-05-18T23:34:55.793+02:00
+**Author:** Nate
 **Plan:** 0027-streamed-binary-v2-cli-download-contract.md
 
 ## Decision
@@ -2277,8 +2277,8 @@ ShadowDrop has no active external users yet. Carrying dual contracts adds implem
 
 # Issue #27: CLI Binary Download Contract — Mode Negotiation Locked
 
-**Date:** 2026-05-18T23:10:12.515+02:00  
-**Decided By:** Christian Flessa  
+**Date:** 2026-05-18T23:10:12.515+02:00
+**Decided By:** Christian Flessa
 **Scope:** Issue #27 plan finalization
 
 ## Decision
@@ -2322,10 +2322,10 @@ No change to planned touchpoints; `?mode=cli` fits cleanly into existing `Downlo
 
 # Nate — Issue #27 CLI v2 Transport Shape: Approved
 
-**Date:** 2026-05-18T23:04:42.962+02:00  
-**Author:** Nate (Lead)  
-**Area:** CLI Downloads & API Contracts  
-**Status:** Locked  
+**Date:** 2026-05-18T23:04:42.962+02:00
+**Author:** Nate (Lead)
+**Area:** CLI Downloads & API Contracts
+**Status:** Locked
 **Issue:** #27 (CLI Resumable Downloads: Migrate to Streamed Binary v2 Contract)
 
 ## Decision
@@ -2357,7 +2357,7 @@ Requested by Christian Flessa. This shape:
 - `X-ShadowDrop-Chunk-Size` — plaintext bytes per encrypted chunk
 - `X-ShadowDrop-Final-Chunk-Plaintext-Length` — plaintext length of final chunk
 
-**Response Body:** Raw encrypted bytes (no framing, no encoding)  
+**Response Body:** Raw encrypted bytes (no framing, no encoding)
 **Content-Type:** `application/vnd.shadowdrop.cli-download-v2`
 
 ### Implementation Scope
@@ -2527,7 +2527,7 @@ All four Copilot PR review notes on PR #28 (issue #15 range requests & resumable
 
 **Issue:** `resolution.FileName` and `resolution.FileContentType` written directly to response headers without validation in `DownloadEndpoints.cs:102`. Risk: header injection via CR/LF, 500 errors from invalid media types.
 
-**Fix Applied:** 
+**Fix Applied:**
 - `SanitizeHeaderValue(value)`: Strips `\r` and `\n`, truncates to 500 chars
 - `GetResponseContentType(contentType)`: Validates with `MediaTypeHeaderValue.TryParse`, fallbacks to `application/octet-stream`
 
@@ -2543,7 +2543,7 @@ All four Copilot PR review notes on PR #28 (issue #15 range requests & resumable
 
 **Issue:** `remainingSpanPlaintextLength` computed by iterating every chunk in span (`for (chunkIndex = first; chunkIndex <= last; chunkIndex++)`) in `DownloadFileService.cs:978`. O(number of chunks) latency before any I/O.
 
-**Fix Applied:** 
+**Fix Applied:**
 - `GetPlaintextLengthForChunkSpan(uploadedFile, firstChunkIndex, lastChunkIndex)` uses O(1) arithmetic:
   - `chunkCount = lastChunkIndex - firstChunkIndex + 1`
   - Returns `(chunkCount - 1) * chunkSize + finalChunkLength` if last chunk is final
@@ -2786,7 +2786,7 @@ The string-based `DownloadFileService.ResolveAsync(..., string? mode, ...)` over
 
 **Basis:** Parsing now accepts only canonical digit-only header values, which closes the earlier acceptance of space-padded and plus-prefixed numerics; regression tests explicitly cover those failure modes.
 
-**Validation:** 
+**Validation:**
 - `dotnet test tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj --no-restore --filter CliDownloadResponseParserTests` passed
 - `dotnet test ShadowDrop.slnx --no-restore` passed
 
@@ -2849,7 +2849,7 @@ Treat streamed CLI numeric metadata headers as culture-invariant wire values and
 
 ## 2026-05-19T18:54:27.229+02:00 — Parker Review: Latest PR Fixes Approved
 
-**Requested by:** Christian Flessa  
+**Requested by:** Christian Flessa
 **Reviewed author:** Tara
 
 ### Outcome
@@ -2917,3 +2917,719 @@ Resume state is only trustworthy when the persisted plaintext boundary and local
 
 - Implemented in `src/ShadowDrop.Cli/Downloads/CliDownloadSession.cs`
 - Regression coverage added in `tests/ShadowDrop.Cli.Tests/Downloads/CliDownloadSessionTests.cs` for both shorter-than-durable and longer-than-durable destination lengths
+
+### 2026-05-29T13:36:50.490+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Add creation of a GitHub workflow for Native AOT CLI build/validation to the scope of plan 0020.
+**Why:** User request — captured for team memory
+
+### 2026-05-29T13:39:27.220+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Remove the fallback-strategy point from plan 0020 because native AOT build success for the CLI has already been proven during development and it is no longer a meaningful open decision.
+**Why:** User request — captured for team memory
+
+### 2026-05-29T13:42:15.816+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Remove README.md work from plan 0020 and track it in a separate issue instead, because that documentation should address ShadowDrop as a whole rather than only the CLI; label the issue `mvp`.
+**Why:** User request — captured for team memory
+
+---
+title: Issue #35 — README initiative tracking split
+date: 2026-05-29T13:42:15.816+02:00
+issue: 35 / README orchestration
+priority: mvp
+domain: documentation, project-scope
+---
+
+## Decision
+
+README work (project overview + installation guide) is tracked separately from plan 0020 as a full-project initiative under issue #35.
+
+## Rationale
+
+- README scope encompasses ShadowDrop as a whole, not specific to any single plan slice.
+- Separating README tracking removes scope blocker from plan 0020.
+- Issue #35 is canonical tracker; all README work routes there.
+- Label `mvp` marks as milestone priority.
+
+## Related
+
+- Issue: https://github.com/chA0s-Chris/ShadowDrop/issues/35
+- Previous scope: plan 0020 (now unblocked)
+
+---
+title: PR #31 — unresolved review assessment
+date: 2026-05-29T02:32:01.927+02:00
+issue: PR #31 / review triage
+priority: mixed
+domain: cli-downloads, queue-contracts
+---
+
+## Decision
+
+Current unresolved PR #31 review notes split cleanly into three buckets:
+
+1. **Should fix before merge:** `DownloadCommandHandler` compares manifest/queue `fileId` values with `StringComparison.Ordinal`, so valid GUID inputs that differ only by casing are rejected.
+2. **Should fix only if polishing this slice:** manifest cache keys use raw `ShareReference.ServerUrl` strings, so trailing-slash variants can trigger duplicate manifest fetches within one queue run.
+3. **Do not weaken runtime validation:** the top-level Copilot note is only partially valid; the real issue is documentation drift because plan `0017` still documents queue entries as requiring only `serverUrl`, `shareId`, and `outputPath`, while parser/runtime intentionally also require `fileId`, `fileName`, and `length`.
+
+## Rationale
+
+- File ids are semantically GUIDs across API, CLI, and queue handling, so case-sensitive string matching is the wrong contract boundary.
+- Cache-key normalization affects efficiency only; requests themselves are already normalized through `ShareDownloadUriFactory`.
+- Queue entries need metadata fields for deterministic file selection and validation, so relaxing parser requirements would be scope creep in the wrong direction; documentation should catch up instead.
+
+### 2026-05-29T01:56:28.384+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Request Copilot code review with `gh pr edit <pr> --add-reviewer @copilot`.
+**Why:** User request — captured for team memory
+
+
+--- eliot-duplicate-manifest-file-ids.md ---
+---
+title: CLI manifest selection must fail closed on duplicate file ids
+date: 2026-05-29T03:18:53.122+02:00
+issue: PR #31 / CLI download hardening
+priority: defense-in-depth
+domain: cli-downloads, metadata-validation
+---
+
+## Decision
+
+Treat duplicate manifest `fileId` values as invalid share metadata in the CLI download flow.
+
+## Why
+
+- `fileId` is the contract key used for direct `--file` selection and queue entry validation.
+- `SingleOrDefault(...)` throws `InvalidOperationException` on duplicates, which escapes the command-error boundary and can abort queue processing.
+- Failing closed with `DownloadCommandException("Share metadata invalid or missing.")` preserves the CLI's existing error contract and per-entry queue isolation.
+
+## Impact
+
+- Direct downloads with malformed duplicate ids now return the generic metadata error instead of crashing.
+- Queue processing continues after a malformed manifest entry and still reports later entries.
+
+## Related Files
+
+- `src/ShadowDrop.Cli/Downloads/DownloadCommandHandler.cs`
+- `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs`
+
+# Squad Decisions
+
+## Active Decisions
+
+- 2026-05-14: The initial ShadowDrop squad uses the user-chosen names Nate, Eliot, Sophie, Alec, Tara, and Parker, with Scribe and Ralph as built-in roles.
+- 2026-05-14: ShadowDrop work is routed by specialization across lead, backend, CLI, security, platform, and testing rather than a generic pooled roster.
+
+## Team Policy
+
+- 2026-05-14 (Copilot directive, Christian Flessa): Automatic commits allowed only for `./.squad/` changes. All commits must use Conventional Commits format; squad commits must use `docs(squad):` type prefix. Never push commits.
+
+## Governance
+
+- All meaningful changes require team consensus
+- Document architectural decisions here
+- Keep history focused on work, decisions focused on direction
+
+## Recent Decisions
+
+--- plan-0019-mvp-runtime-finalized.md ---
+---
+title: Plan 0019 — MVP Docker Runtime & Deployment Finalized
+date: 2026-05-29T12:25:53.733+02:00
+issue: Plan 0019 / Docker image and container deployment
+priority: plan-finalization
+domain: container-deployment, docker, multi-arch, runtime-hardening
+---
+
+## Decision
+
+Plan 0019 MVP Docker runtime and deployment is finalized for implementation. All five runtime details assessed by Tara (platform) and Nate (validation) are MVP-ready with refined wording. No architectural changes needed.
+
+## Finalized Requirements
+
+1. **Multi-Architecture:** Docker image built for `linux/amd64` and `linux/arm64` via `docker buildx`. These cover 95%+ of self-hosted deployments (x86 VPS, ARM Raspberry Pi, Apple Silicon dev). Additional architectures deferred to post-MVP.
+
+2. **Skip Registry Publishing:** Docker image publication to external registries (Docker Hub, etc.) out of scope for MVP. Image designed for local `docker build` and `docker buildx` workflows for self-hosted deployments. Registry publishing added post-MVP.
+
+3. **Multi-Stage Production Build:** Dockerfile uses multi-stage build, targeting Ubuntu Chiseled ASP.NET base (`mcr.microsoft.com/dotnet/aspnet:*-chiseled`). Produces minimal production image with no intermediate layers exposed.
+
+4. **Non-Root Execution:** Container enforces execution as uid 1000 (unprivileged) via `USER 1000` in Dockerfile. Chiseled base image designed for this security model. Smoke test validates API starts successfully as non-root; uid 0 unsupported.
+
+5. **File Permissions & Volume Mounts:**
+  - Directories (`/app/data`, `/app/data/metadata`, `/app/data/storage`): `755` (readable+executable by all, writable by owner)
+  - LiteDB metadata file (`/app/data/metadata/shadowdrop.db`): `600` (owner-only read/write)
+  - Storage blobs (`/app/data/storage/*`): `600` (owner-only read/write for encrypted content protection)
+
+6. **Logging Configuration:** Reuse existing API Serilog integration. Runtime override via environment variable (`Serilog__MinimumLevel__Default=Debug`) or mounted custom `appsettings.json`. Example: `docker run --env Serilog__MinimumLevel__Default=Debug shadowdrop` for verbose logging.
+
+## Smoke Test Contract
+
+- Image builds locally: `docker build -t shadowdrop-test .`
+- Container starts: `docker run --rm -p 8080:8080 -e SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN=test-token shadowdrop-test`
+- Within 5 seconds: HTTP GET `/health` (or equivalent) returns 200
+- Admin API endpoint responsive: validates config injection and non-root execution
+- Test runs repeatably in CI without external dependencies (local volume mount only for appsettings override)
+
+## Reviewed By
+
+- **Tara** (Platform): Confirmed runtime contract, multi-arch coverage, non-root execution, file permissions alignment with Chiseled security model.
+- **Nate** (Validation): Validated acceptance criteria wording, smoke-test measurability, environment variable patterns, configuration injection.
+
+## Consultants
+
+- Christian Flessa: User directive on architecture, logging, and non-root preference
+
+--- alec-pr30-retry-exception-handling.md ---
+---
+title: PR #30 — SendWithRetryAsync Error Contract Breach
+date: 2026-05-24T08:31:51.321+02:00
+issue: PR #30 / Copilot review
+priority: should-fix-before-merge
+domain: error-handling, trust-boundary
+---
+
+## Issue
+
+`UploadApiClient.SendWithRetryAsync` (lines 132-160) violates the CLI error contract by allowing non-generic exceptions to propagate on the final retry attempt.
+
+### 2026-05-29T00:40:12.837+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Use `gpt-5.5` instead of any `claude-opus` model for premium work. `claude-opus-4.5` and `claude-opus-4.6` are unavailable, and `claude-opus-4.7` / `claude-opus-4.8` are available but too expensive.
+**Why:** User request — captured for team memory
+
+--- eliot-cli-upload-ciphertext-memory.md ---
+---
+date: 2026-05-23T23:28:14.726+02:00
+agent: Eliot
+---
+
+## Decision: Internal ciphertext memory view for async upload streaming
+
+For shared crypto value objects that already protect their public `byte[]` boundary with defensive copies, we can add an internal `ReadOnlyMemory<byte>` view when another in-repo assembly needs allocation-free async stream writes.
+
+Applied here for CLI uploads: `EncryptedChunk` keeps the public `Ciphertext` copy-returning contract, while `ShadowDrop.Cli` uses an internal memory view (via `InternalsVisibleTo`) to avoid per-chunk ciphertext cloning during `Stream.WriteAsync`.
+
+--- nate-0016-cli-upload-review.md ---
+---
+date: 2026-05-23T22:14:25.974+02:00
+author: Nate (Lead)
+subject: Plan 0016 Architectural Review
+status: decision_and_recommendations
+---
+
+# Plan 0016 Review — CLI Upload Command
+
+## Overview
+
+Plan 0016 (cli-upload-command.md) is **well-scoped and architecturally sound**. The slice is properly bounded (intake-only, no share creation), dependencies align with existing decisions, and acceptance criteria are concrete and testable. No blocking issues.
+
+Three surgical recommendations strengthen the plan before implementation starts:
+
+---
+
+## Recommendation 1: Harden Token Leakage Boundary
+
+**Location:** "Configuration Precedence & Token Handling" section
+**Current language:** "If users pass token via CLI flag (e.g., `--upload-token $USERTOKEN`), the token may be visible to process inspection tools..."
+
+**Issue:** The statement is correct but passive. Add explicit guidance on what "process inspection" means and tie it to the bootstrap token pattern already used in the API:
+
+**Change:** Expand the paragraph to:
+> If users pass token via CLI flag (e.g., `--upload-token $USERTOKEN`), the token may be visible to process inspection tools (e.g., `ps` on Unix, Process Explorer on Windows, or `/proc/*/cmdline` inspection). This is a fundamental limit of CLI argument passing and cannot be eliminated by the CLI itself. **Users are responsible for choosing the input method**: prefer `SHADOWDROP_UPLOAD_TOKEN` environment variable or config file for sensitive deployments. Document this explicitly in user-facing help text and CLI usage docs.
+
+**Why:** Prevents misunderstanding that the CLI can hide flags. Aligns the CLI token handling with the bootstrap-token decision in `.squad/decisions.md` (where the same trade-off was documented for `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`).
+
+---
+
+## Recommendation 2: Clarify Share-Level Secret Emission Semantics
+
+**Location:** "Share-Level Secret Lifecycle" section
+**Current language:** Roughly correct but scattered across multiple paragraphs. The key points are there but the implementation boundary is ambiguous.
+
+**Issue:** The plan says the CLI "may emit the plaintext secret to stdout (if `--output-secret` flag or equivalent is provided)" but doesn't specify:
+
+- Whether this flag is part of **this slice** or a later enhancement
+- Whether the flag is mandatory, optional, or non-existent for MVP
+- What "equivalent" means (separate command? config option?)
+
+**Change:** Lock down the secret emission boundary explicitly. Two options:
+
+**Option A (Preferred: Narrower scope):**
+> This slice does NOT implement secret emission. The CLI reads the plaintext secret from the caller, encrypts files with it, and uploads encrypted content only. The plaintext secret is **not** emitted, printed, or returned by the upload command. After upload completes, the caller is responsible for obtaining the plaintext secret from wherever it generated it. A separate `shadowdrop secret` management command or equivalent can be added in a future slice to support secret generation, storage, and retrieval workflows.
+
+**Option B (Broader scope):**
+> The CLI supports an optional `--output-secret` flag. If provided, the plaintext secret is written to stdout immediately after successful upload of all files. If the flag is absent, the secret is not emitted. Whether to capture and persist the secret is the caller's responsibility.
+
+I recommend **Option A** (narrower scope) to keep this slice focused on intake. It simplifies the mental model: "this command takes a secret, encrypts files, uploads them, and exits." All secret management (generation, storage, retrieval) is downstream. This matches the decision pattern for upload scope in the existing API plan.
+
+---
+
+## Recommendation 3: Sharpen the "All-or-Nothing per File" Boundary
+
+**Location:** "HTTP Status & Retry Behavior" section, subsection "Partial failure"
+**Current language:**
+> If one file succeeds and another fails, the command exits non-zero. Failed files are not retried automatically; user must re-run the command with the failed file paths.
+
+**Issue:** Correct high-level statement, but creates a subtle ambiguity for the caller:
+
+- Does "re-run the command" mean the CLI will skip already-uploaded files? (No—the caller must manually list only failed files.)
+- Can the same file be uploaded twice? (Yes, upload API accepts new file id for the same plaintext.)
+- Is there a way to deduplicate files already in the server? (Out of scope for this slice; not addressed.)
+
+**Change:** Tighten the statement:
+> If one file succeeds and another fails, the command exits non-zero and reports which files failed (on stderr). The CLI does not automatically retry failed files or track upload state between invocations. The caller must re-run the command with only the failed file paths. If a file is uploaded successfully once and then re-uploaded, the server assigns a new file id each time; deduplication is not performed in this slice.
+
+**Why:** Prevents the caller from incorrectly assuming the CLI tracks state or deduplicates uploads. Keeps the contract clear: CLI is stateless, file-at-a-time, no smarts about already-uploaded content.
+
+---
+
+## Architectural Consistency Checks
+
+**✅ Dependency Alignment:**
+
+- Builds on 0011 (upload API) and 0013 (share creation, tokens) with correct boundaries
+- Token handling matches bootstrap-token pattern from API decisions
+- Encryption/streaming uses existing `ShadowDrop.Shared` contracts
+- AOT compatibility requirement consistent with existing platform decisions
+
+**✅ Slice Boundary:**
+
+- Upload intake only; does not create shares, assign permissions, or manage secrets
+- Separates caller-owned secret generation from server-owned file storage
+- Non-interactive and automation-friendly as stated
+
+**✅ Error Handling & Security:**
+
+- Generic error messages follow the API error-safety pattern
+- Token confidentiality enforced at multiple layers (trimming, no logging, no caching)
+- Validation errors are clear without exposing secrets or paths
+
+**✅ Acceptance Criteria:**
+
+- All criteria are testable and concrete
+- No contradictions detected
+- Test surface includes config precedence, token handling, streaming, error cases
+
+---
+
+## Blockers
+
+None. Plan is ready for implementation assignment.
+
+---
+
+## Summary
+
+**Verdict:** Plan is **sound**. Make the three surgical edits above to tighten the token leakage boundary, lock down secret emission scope, and clarify the all-or-nothing per-file semantics. After those edits, the plan is implementation-ready with clear acceptance criteria and no ambiguity on scope boundaries.
+
+--- nate-empty-file-rejection.md ---
+---
+decision_date: 2026-05-23T22:50:24.228+02:00
+issue: "#16"
+scope: "CLI upload command"
+status: "locked"
+---
+
+# Empty File Rejection — Permanent Design
+
+## Decision
+
+**Empty files (zero-byte size) are intentionally rejected by the CLI upload command.**
+
+The command validates file size before attempting upload and rejects any zero-byte file with non-zero exit code and a generic validation error message.
+
+## Rationale
+
+Empty files have no plaintext to encrypt and add no cryptographic value to the chunked AES-256-GCM contract. Accepting them would:
+
+- Create semantic confusion in the encryption format (what does zero plaintext with a key mean?).
+- Pollute file lists with zero-value entries.
+- Add complexity to downstream share-creation and download workflows for no benefit.
+
+Rejecting empty files at the CLI boundary is cleaner than accepting them server-side or filtering them downstream.
+
+## Binding
+
+- This is a **permanent design decision**, not a deferred feature or future enhancement.
+- Empty file validation is part of the contract in issue #16 acceptance criteria.
+- Plan `ai-plans/0016-cli-upload-command.md` documents this explicitly in the "Empty File Handling" section.
+- Clients must pre-filter empty files or handle the validation error at the CLI boundary.
+
+## Implementation Scope
+
+- File size validation occurs **before** upload attempt.
+- Error message must be generic (e.g., "Validation error: file invalid") — no path exposure.
+- Exit code: non-zero on empty file detection.
+- Tests must cover empty file rejection with hard assertions on exit code and error message content.
+
+## Related Files
+
+- `ai-plans/0016-cli-upload-command.md` — updated 2026-05-23
+- GitHub issue #16 — body and acceptance criteria updated 2026-05-23
+- Team decision comment: issue #16, comment referencing empty file rejection
+
+--- nate-plan-0016-secret-emission.md ---
+---
+date: 2026-05-23T22:20:29.165+02:00
+author: Nate (Lead)
+subject: Plan 0016 — Secret Emission & Surgical Refinements
+status: decision
+---
+
+# Plan 0016 — Secret Emission Decision & Surgical Refinements
+
+## Decision: Secret Emission Is In Scope for Slice 0016
+
+After reviewing `nate-0016-cli-upload-review.md` Recommendation 2, the team chose **Option B** (not Option A):
+
+> The `--output-secret` flag is implemented in this slice. When passed, the plaintext share secret is emitted to stdout
+> as a final line formatted `secret:<hex-encoded-value>` after all file id lines, **only on full success (exit 0)**. On
+> any failure, no secret is emitted.
+
+**Rationale:** Without any mechanism to receive the share-level secret, the upload command is unusable in practice — the
+caller has no way to create shares from the uploaded files. Keeping it in this slice avoids a stranded intake-only
+command with no follow-on workflow. The emission is opt-in (flag required), bounded (stdout, full-success only), and
+explicit in format. The secret never appears in stderr, logs, or telemetry.
+
+## Supporting Refinements Applied to Plan 0016
+
+All four refinements are surgical edits to `ai-plans/0016-cli-upload-command.md`:
+
+### 2026-05-29T09:11:29.068+02:00: Sophie initial decision
+
+**By:** Sophie (CLI Dev)
+**What:** Keep guided share-creation under `--interactive` flag.
+**Why:** Minimizes surface area, preserves scripting, and focuses on UX cohesion.
+
+---
+title: Plan 0019 Assessment — Docker Image & Container Deployment
+date: 2026-05-29T11:45:18Z
+issue: Issue #19 / Docker & container deployment
+priority: blocking
+domain: planning, acceptance-criteria, infrastructure
+---
+
+## Assessment by Nate
+
+Plan 0019 requires three refinements to acceptance criteria before implementation can proceed. All are clarifications, not architecture changes.
+
+### 2026-05-29T12:00:29.406+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Use `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` as the base image. Use `/app/data/` as the writable base path, with `/app/data/shadowdrop.db` as the default LiteDB file and `/app/data/blobs/` for blob storage. Debugging should rely on logs/console output with a configuration option to increase verbosity. Healthchecks are not required for the MVP.
+**Why:** User request — captured for team memory
+
+--- copilot-directive-2026-05-29T12-05-32.374+02-00.md ---
+
+### 2026-05-29T12:05:32.374+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Prefer configurable port exposure. Default behavior should expose one port with the entire API, with an optional second port that exposes the download API separately from the admin/upload API on the other port.
+**Why:** User request — captured for team memory
+
+--- nate-port-split-review.md ---
+
+### 2026-05-29T12:05:32+02:00: Port-split proposal assessment for plan 0019
+
+**By:** Nate
+**What:** Can the API listen on two different ports with configurable split between admin/upload and download routes?
+**Proposal:** Default = single port (entire API). Optional = two-port mode (admin routes on one port, download routes on the other).
+
+---
+
+## Verdict: Sound design pattern, but defer from 0019 MVP scope.
+
+### 2026-05-29: Multi-Port API Configuration is MVP-Ready
+
+**By:** Tara
+
+**What:** ASP.NET Core API can safely support optional dual-port binding (download on one port, admin on another) with zero breaking changes. Recommended as inclusion in Plan 0019 acceptance criteria.
+
+**Why:**
+
+- ASP.NET Core 10 natively supports Kestrel multi-endpoint configuration via environment variables.
+- Current API structure (`AdminEndpoints`, `DownloadEndpoints`) already uses feature-flag guards; extending to port-specific registration requires ~10 lines of code.
+- Default single-port behavior unchanged, so no risk to existing deployments.
+- Enables security improvements (separate firewall rules, public/private network segregation) without operational overhead.
+
+**Impact:**
+
+- **Plan 0019 Criterion 4:** Refined wording suggested to document both single-port and multi-port modes.
+- **Implementation scope:** Low. Add optional `DownloadPort` and `AdminPort` config to `ApiExposureOptions`. Update `Middleware.cs` to conditionally bind Kestrel endpoints. Extend smoke test to cover both modes.
+- **Deployment:** Docker/Compose files just set `ASPNETCORE_URLS` env var or appsettings.json section.
+
+**Testing:** Dual-path smoke test required (single-port happy path, dual-port happy path). Existing containerized test strategy covers both.
+
+**Related Files:**
+
+- `src/ShadowDrop.Api/Configuration/ApiExposureOptions.cs`
+- `src/ShadowDrop.Api/CompositionRoot/Middleware.cs`
+- `src/ShadowDrop.Api/Admin/AdminEndpoints.cs`
+- `src/ShadowDrop.Api/Downloads/DownloadEndpoints.cs`
+
+---
+title: HTTPS Support in Plan 0019 MVP — Scope Recommendation
+date: 2026-05-29T12:11:18.705+02:00
+issue: Plan 0019 / MVP scope
+priority: architecture-decision
+domain: api-exposure, deployment
+---
+
+## Question
+
+Should HTTPS support be included in the Docker API MVP scope?
+
+## Recommendation: **Exclude from MVP, defer to post-MVP**
+
+### 2026-05-29T12:11:18+02:00: HTTPS Support Scope for Plan 0019 MVP
+
+**By:** Tara (Platform Dev)
+
+**What:** HTTPS support (TLS termination in app/container) should **NOT** be part of Plan 0019 MVP. Plain HTTP behind reverse proxy is sufficient and recommended.
+
+**Why:**
+
+1. **MVP Deployment Model Alignment**
+  - Plan 0019 targets "home lab and small VPS use cases" with one-container deployments
+  - Reverse proxy (nginx, Caddy, Traefik) is the standard pattern in this segment and already handles HTTPS termination cleanly
+  - Users deploying at this scale either: (a) already use a reverse proxy, or (b) can easily add one
+  - **No operational burden transfer** — reverse proxy is a solved problem in DevOps
+
+2. **Certificate Management Complexity (Critical for MVP)**
+  - App-managed HTTPS requires certificate provisioning, renewal, and mounting
+  - Pain points:
+    - Where do certs come from? (Let's Encrypt on each container startup? Secret storage?)
+    - Certificate renewal automation across container restarts
+    - User docs must explain cert paths, volume mounts, certificate format
+    - Self-signed certs for testing add another config path
+  - This is a *support tax* on an MVP — every user question adds friction
+  - Reverse proxies abstract this entirely (Caddy auto-renews; Traefik integrates with cert providers)
+
+3. **Configuration Surface Area**
+  - App-managed HTTPS adds: `ASPNETCORE_HTTPS_PORT`, cert paths, certificate file handling
+  - Post-MVP, adding this is straightforward (ASP.NET Core supports it natively)
+  - Pre-MVP, it delays shipping and complicates initial deployment docs
+
+4. **Reverse Proxy is Best Practice, Not Workaround**
+  - Reverse proxy provides more than just TLS: request logging, rate limiting, auth headers, traffic inspection
+  - Security best practice: app listens on localhost/private network, reverse proxy handles untrusted traffic
+  - Adding HTTPS to the app doesn't improve security posture — moving it to the proxy does
+  - Adding app-level HTTPS *adds* surface area (certificate handling bugs, key rotation issues)
+
+5. **Post-MVP Path is Clean**
+  - If users demand direct HTTPS (without proxy), adding it is a straightforward acceptance criterion for a future plan
+  - ASP.NET Core's `AddHttpsRedirection()` middleware and Kestrel HTTPS binding are well-documented
+  - No architectural debt created by deferring
+
+**Recommendation for Plan 0019:**
+
+- **MVP:** Container exposes plain HTTP on a single port (default `8080` or configured port)
+- **Docs (README.md):** Include a quick Docker Compose example with a reverse proxy (Caddy or nginx) handling HTTPS
+  - Document the simplified approach: "Reverse proxy handles HTTPS; container speaks plain HTTP"
+  - Show `docker-compose.yml` with both single-container and proxy+container patterns
+- **Future Plan:** "Direct HTTPS in Container" as a post-MVP enhancement if demand surfaces
+
+**Implementation Notes for Acceptance Criteria:**
+No change needed. Existing criterion "The image exposes the API in a way that supports... API exposure settings" covers plain HTTP exposure. Just document that HTTPS is reverse-proxy-provided, not container-provided.
+
+**Team Decision:**
+This assessment is shared with Christian for plan 0019 acceptance criteria finalization. Nate (DevOps/Release) may have additional deployment context; flagging for review if needed.
+
+---
+
+**Key Tradeoff Summary:**
+
+- **Plain HTTP + Reverse Proxy:** Simpler MVP, standard pattern, no new support surface
+- **App-Managed HTTPS:** Delays MVP, adds cert/key management burden, duplicates what reverse proxies do better
+
+### 2026-05-29T12:11:18.705+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Keep the optional two-port exposure idea, but defer it from the MVP. MVP should start with a simpler single-port configuration that exposes the entire API.
+**Why:** User request — captured for team memory
+
+--- plan-0019-wording-assessment.md ---
+---
+title: Plan 0019 — User Input Assessment & Refined Acceptance Criteria
+date: 2026-05-29T12:25:53Z
+issue: Issue #19 / Plan 0019 / Docker & Container Deployment
+priority: blocker
+domain: plan-scoping, acceptance-criteria
+---
+
+## Assessment Summary
+
+Christian provided five numbered clarifications for plan 0019 (Docker image and container deployment). Assessment: Points 1, 2, 5 are ready to embed in criteria; Points 3–4 require wording refinement to eliminate ambiguity before implementation team can proceed.
+
+## Decisions
+
+### 2026-05-29T12:25:53.733+02:00: Platform assessment
+
+**By:** Tara (Platform Dev)
+**What:** Assessed five runtime details for Plan 0019. All sound MVP choices; acceptance criteria need minor clarification wording. Multi-arch (amd64+arm64), registry skip, smoke-test specification, non-root uid 1000, and file permissions (755 dirs, 600 files) are all recommended for inclusion.
+**Why:** Platform responsibility to validate deployment model and runtime configuration before implementation; no blockers found.
+
+--- plan-0019-final-mvp-scope.md ---
+
+### 2026-05-29T12:44:50.404+02:00: Plan 0019 MVP Scope — Finalized
+
+**By:** Nate
+
+**What:** Updated `ai-plans/0019-docker-image-and-container-deployment.md` with all five settled MVP decisions into concrete, testable acceptance criteria. Removed ambiguous criterion on route separation (deferred to issue #33). Plan is now implementation-ready.
+
+**Settled Decisions Embedded:**
+
+1. **Base Image:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`
+2. **Port:** `19423` (single port; both public downloads and admin routes together)
+3. **Paths:** `/app/data/shadowdrop.db` (LiteDB), `/app/data/blobs/` (blob storage)
+4. **Permissions:** `700` for `/app/data`, `600` for database file
+5. **Non-root Execution:** uid/gid `1000:1000`
+6. **Multi-arch:** amd64 and arm64 only
+7. **Debugging:** Existing Serilog env vars (e.g., `Serilog__MinimumLevel__Default=Debug`)
+8. **Config Override:** Custom `appsettings.json` mount supported
+9. **HTTPS:** None in MVP; reverse-proxy pattern documented
+10. **Health Check:** None in MVP
+11. **Smoke Test:** Concrete single-container validation (starts, loads config, responds to request)
+
+**Why:** Previous plan had three blockers:
+
+- Route separation criterion was untestable and conflicted with Christian's single-port decision
+- Smoke test definition was vague
+- Production-readiness was under-specified
+
+Finalized wording eliminates all ambiguity while keeping criteria testable and actionable for implementation team.
+
+**Key Changes:**
+
+- Removed old criterion 4 (now #33 backlog item for optional two-port mode)
+- Added specific base image, port, paths, permissions, uid/gid, multi-arch, and smoke test validation
+- Clarified log-level control via existing Serilog configuration
+- Documented reverse-proxy pattern for HTTPS (no app-level HTTPS)
+- Specified single-port default with both route groups served together
+
+**Related Files:**
+
+- `ai-plans/0019-docker-image-and-container-deployment.md` (updated)
+- `ai-plans/AGENTS.md` (no changes needed; plan follows three-section structure)
+- Issue #33 (multi-port deferral — already created)
+
+**Status:** Implementation-ready. Awaiting Tara (Platform) or implementation team to begin Dockerfile authoring.
+
+--- nate-0019-acceptance-criteria-polish.md ---
+---
+title: Plan 0019 Acceptance Criteria Polish
+date: 2026-05-29T12:53:39.755+02:00
+issue: Plan 0019 / Docker image and container deployment
+priority: implementation-clarity
+domain: acceptance-criteria, docker, runtime-specification
+---
+
+## Decision
+
+Three targeted refinements to `ai-plans/0019-docker-image-and-container-deployment.md` acceptance criteria eliminate implementation ambiguities:
+
+1. **Smoke Test Specificity:** "Simple GET request" now explicitly states: validate startup via logs, use existing endpoint, prove API readiness (no external dependencies).
+2. **Volume Mount Requirement:** Explicitly requires `/app/data` be mounted as a volume for data persistence beyond container lifetime.
+3. **Runtime Defaults:** "Exposes API on port 19423" now explicitly states bind address `0.0.0.0:19423`, single port in MVP, and that `ASPNETCORE_URLS` env var can override.
+
+## Rationale
+
+These clarifications remove implementation ambiguities while maintaining scope. All criteria remain testable and concrete.
+
+## Status
+
+Applied. Plan 0019 locked for implementation by Tara (Platform) or assigned implementer.
+
+**Related Files:**
+
+- `ai-plans/0019-docker-image-and-container-deployment.md` (updated)
+
+### 2026-05-29T13:00:08.513+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** For Docker MVP plan validation, use `GET /health` as the smoke-test endpoint and require HTTP 200 as the expected result. Also make first-start database creation and the explicit multi-arch build validation command part of the plan.
+**Why:** User request — captured for team memory
+
+# Plan 0019 MVP Refinement: Health Check, Database Init, Multi-Arch Validation
+
+**Date:** 2026-05-29T13:00:08+02:00
+**Scope:** Plan 0019 Docker Image and Container Deployment
+**Status:** Applied
+
+## Decision
+
+Three targeted refinements to Plan 0019 acceptance criteria and technical details:
+
+### 2026-05-29T13:31:37.547+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** For the Native AOT CLI publishing/release artifacts plan, use the recommended flat artifact contract and include a dedicated NUKE target that builds all target executables.
+**Why:** User request — captured for team memory
+
+---
+date: 2026-05-29T13:31:37Z
+author: Tara (Platform Dev)
+subject: Plan 0020 — MVP Validation Strategy for Native AOT CLI Publishing
+status: recommendation
+---
+
+# Plan 0020 — MVP Validation Strategy for Native AOT CLI Publishing (6 RIDs)
+
+## Problem Statement
+
+Christian's concern: Linux dev machines cannot natively test macOS binaries or arm64 binaries. How do we validate 6 runtime targets (linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64, win-arm64) in an MVP that is low-friction for developers and practical for CI?
+
+Current plan accepts the RID matrix and flat artifact contract but leaves validation strategy underspecified. Acceptance criteria don't clarify what to test locally, what to defer to CI, or what smoke-test depth is appropriate.
+
+## Recommendation: "Verify by Role, Not by Matrix"
+
+**Core principle:** Validate the build pipeline and AOT configuration on all 6 RIDs in CI. Validate executable *behavior* only on locally accessible targets. This is pragmatic and industry-standard (Go, Rust, Zig all use this pattern).
+
+---
+
+## MVP Validation Matrix
+
+| Target      | Build | Smoke Test | Runner        | Rationale                                  |
+|-------------|-------|------------|---------------|--------------------------------------------|
+| linux-x64   | ✅ CI  | ✅ CI       | ubuntu-latest | Developer platform; deterministic AOT      |
+| linux-arm64 | ✅ CI  | ❌ defer    | ubuntu-latest | Cross-compile fast; failures at build time |
+| osx-x64     | ✅ CI  | ✅ CI       | macos-latest  | Native runner (Security.framework, etc.)   |
+| osx-arm64   | ✅ CI  | ✅ CI       | macos-latest  | Native runner; validates arm64 code paths  |
+| win-x64     | ✅ CI  | ❌ defer    | ubuntu-latest | Cross-compile OK; full test post-MVP       |
+| win-arm64   | ✅ CI  | ❌ defer    | ubuntu-latest | Rare target; no free-tier native runner    |
+
+---
+
+## Local Validation (Dev Loop)
+
+**What developers do:**
+
+1. On their current platform (e.g., Linux x64): `dotnet publish -c Release -r linux-x64 --self-contained`
+2. Smoke test: `./shadowdrop-cli --version && ./shadowdrop-cli --help`
+3. Error test: `./shadowdrop-cli --invalid-flag && echo "Exit code: $?"`
+
+**Cost:** < 1 minute per commit.
+
+**Why this is sufficient:**
+
+- AOT compilation is deterministic within a platform. If it succeeds locally, it will succeed in CI on the same RID.
+- The CLI has no platform-specific logic in main paths (no Windows registry, no macOS keyring, no symlink handling).
+- Smoke tests exercise the initialization path, where 80% of AOT surprises occur.
+
+---
+
+## CI Validation (Build Matrix)
+
+### 2026-05-23T22:19:16.996+02:00: User directive
+
+**By:** Christian Flessa (via Copilot)
+**What:** Secret emission should remain in scope for issue 0016 because the CLI must output the secret somehow; otherwise later download/decrypt use of uploaded files is not possible.
+**Why:** User request — captured for team memory
+
+--- copilot-directive-2026-05-29T00-40-12.837+02-00.md ---
