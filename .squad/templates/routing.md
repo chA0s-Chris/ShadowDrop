@@ -4,15 +4,16 @@ How to decide who handles what.
 
 ## Routing Table
 
-| Work Type | Route To | Examples |
-|-----------|----------|----------|
-| {domain 1} | {Name} | {example tasks} |
-| {domain 2} | {Name} | {example tasks} |
-| {domain 3} | {Name} | {example tasks} |
-| Code review | {Name} | Review PRs, check quality, suggest improvements |
-| Testing | {Name} | Write tests, find edge cases, verify fixes |
-| Scope & priorities | {Name} | What to build next, trade-offs, decisions |
-| Session logging | Scribe | Automatic — never needs routing |
+| Work Type          | Route To | Examples                                                          |
+|--------------------|----------|-------------------------------------------------------------------|
+| {domain 1}         | {Name}   | {example tasks}                                                   |
+| {domain 2}         | {Name}   | {example tasks}                                                   |
+| {domain 3}         | {Name}   | {example tasks}                                                   |
+| Code review        | {Name}   | Review PRs, check quality, suggest improvements                   |
+| Testing            | {Name}   | Write tests, find edge cases, verify fixes                        |
+| Scope & priorities | {Name}   | What to build next, trade-offs, decisions                         |
+| Session logging    | Scribe   | Automatic — never needs routing                                   |
+| RAI review         | Rai      | Content safety, bias checks, credential detection, ethical review |
 
 ## Issue Routing
 
