@@ -17,7 +17,7 @@ plan addresses [#40](https://github.com/chA0s-Chris/ShadowDrop/issues/40).
 - [ ] Merged line coverage (with generated code already excluded) reaches at least 95%, and the CI coverage thresholds
   in `.github/workflows/ci.yml` (currently `60 85`) are updated to `75 90` (a soft floor at 75% and a healthy mark at
   90%). Reaching 95% is the goal for this work but is intentionally not enforced as a hard gate going forward.
-- [ ] Quick wins: `CliConfigPathResolver` is covered (HOME set, HOME empty falling back to `UserProfile`, and both
+- [x] Quick wins: `CliConfigPathResolver` is covered (HOME set, HOME empty falling back to `UserProfile`, and both
   empty returning `null`), `EnvironmentReader` is covered, and the `CliApplicationServices` secondary constructors and
   `CreateDefault` are exercised.
 - [ ] Interactive handlers: `InteractiveDownloadCommandHandler` and `InteractiveUploadCommandHandler` have direct unit
@@ -30,7 +30,7 @@ plan addresses [#40](https://github.com/chA0s-Chris/ShadowDrop/issues/40).
 - [ ] API upload and stream validation: `MultipartUploadRequestReader` and the `DownloadFileService` inner streams
   (`LengthLimitingReadStream`, `SkipAsync`, `MaxLengthReadStream`, `ValidatingMultipartContentStream`) cover the
   malformed-input, length-mismatch, and truncation branches.
-- [ ] HTTP client error handling: `CreateShareApiClient` and `ShareManifestClient` are tested against non-success
+- [x] HTTP client error handling: `CreateShareApiClient` and `ShareManifestClient` are tested against non-success
   status codes and malformed or empty response bodies.
 - [ ] Parser and stream remainders: the remaining branches in `CliDownloadResponseParser`, `QueueFileParser`,
   `UploadApiClient`, `CliDownloadSession`, and `LiteDbUploadedFileMetadataRepository` are closed.
@@ -38,9 +38,10 @@ plan addresses [#40](https://github.com/chA0s-Chris/ShadowDrop/issues/40).
   `LocalBlobStorage`, `UploadPersistenceService`, `CreateShareService`, `ShadowDropOptionsBinding`,
   `FileSystemAccessPermissions`, `ChunkEncryptionService`, and the small crypto types (`ContentKey`, `ShareSecret`,
   `ChunkRange`, `ChunkMetadata`).
-- [ ] `SpectreCliInteractiveSession` (genuine hand-written console I/O, about 13% covered) is covered via the
+- [x] `SpectreCliInteractiveSession` (genuine hand-written console I/O, about 13% covered) is covered via the
   `Spectre.Console.Testing` package driving a `TestConsole`; because the 95% target leaves no room to leave a real
-  class untested, excluding it from coverage is not an acceptable substitute here.
+  class untested, excluding it from coverage is not an acceptable substitute here. (A minimal internal
+  `SpectreCliInteractiveSession(IAnsiConsole)` constructor was added as a test seam.)
 - [ ] Any production code excluded from coverage uses `[ExcludeFromCodeCoverage]` only on branches that are provably
   unreachable through tests, each with a short justifying comment; this is limited to genuinely-unreachable defensive
   code and is never used for `SpectreCliInteractiveSession` or for reachable-but-untested code.

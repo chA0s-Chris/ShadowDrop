@@ -18,6 +18,12 @@ internal sealed class SpectreCliInteractiveSession : ICliInteractiveSession
         });
     }
 
+    internal SpectreCliInteractiveSession(IAnsiConsole console)
+    {
+        ArgumentNullException.ThrowIfNull(console);
+        _console = console;
+    }
+
     public Boolean IsInteractiveSupported => !Console.IsInputRedirected
                                              && !Console.IsOutputRedirected
                                              && !Console.IsErrorRedirected
