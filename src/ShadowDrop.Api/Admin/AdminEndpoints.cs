@@ -2,7 +2,6 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Admin;
 
-using ShadowDrop.Api.CompositionRoot;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
@@ -29,7 +28,6 @@ public static class AdminEndpoints
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
             uploadRoutes.MapPost("/reservations", ReserveUploadAsync);
             uploadRoutes.MapPost("/", UploadAsync)
-                        .RequireRateLimiting(RateLimiting.UploadRateLimitPolicyName)
                         .DisableAntiforgery();
             uploadRoutes.MapGet("/{fileId:guid}", GetUploadedFileMetadataAsync);
         }

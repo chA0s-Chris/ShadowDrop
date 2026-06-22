@@ -434,26 +434,20 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task UploadRoute_ShouldReturn429_WhenRateLimitIsExceeded()
+    public async Task UploadRoute_ShouldProcessMoreThanThreeValidRequestsFromTheSameClient()
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
 
-        for (var attempt = 0; attempt < 3; attempt++)
+        for (var attempt = 0; attempt < 4; attempt++)
         {
             var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
-            using var successfulRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
-            var successfulResponse = await client.PostAsync("/api/admin/uploads", successfulRequest);
-            successfulResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+            using var request = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
+            var response = await client.PostAsync("/api/admin/uploads", request);
+
+            response.StatusCode.Should().Be(HttpStatusCode.Created);
         }
-
-        var throttledFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
-        using var throttledRequest = CreateValidUploadContent(CreateValidMetadataPayload(throttledFileId));
-        var throttledResponse = await client.PostAsync("/api/admin/uploads", throttledRequest);
-
-        throttledResponse.StatusCode.Should().Be((HttpStatusCode)429);
-        (await throttledResponse.Content.ReadAsStringAsync()).Should().Be("""{"error":"Too many requests."}""");
     }
 
     [Test]

@@ -15,7 +15,6 @@ public static class Middleware
         logger.Information("Configuring middleware...");
 
         var options = app.Services.GetRequiredService<ShadowDropOptions>();
-        app.UseRateLimiter();
 
         app.MapHealthEndpoints()
            .MapAdminEndpoints(options)

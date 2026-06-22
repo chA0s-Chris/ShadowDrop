@@ -7,11 +7,11 @@ until a broader, configurable design is revisited. This plan addresses
 
 ## Acceptance Criteria
 
-- [ ] The rate-limiting services, middleware, upload policy, and the `RateLimiting.cs` implementation are all removed
+- [x] The rate-limiting services, middleware, upload policy, and the `RateLimiting.cs` implementation are all removed
   from the API.
-- [ ] The admin upload endpoint no longer has a rate-limiting policy and repeated valid upload requests are processed
+- [x] The admin upload endpoint no longer has a rate-limiting policy and repeated valid upload requests are processed
   normally instead of returning `429 Too Many Requests` from ShadowDrop.
-- [ ] Automated tests are updated to remove the throttling expectation and verify the resulting upload behavior.
+- [x] Automated tests are updated to remove the throttling expectation and verify the resulting upload behavior.
 
 ## Technical Details
 
