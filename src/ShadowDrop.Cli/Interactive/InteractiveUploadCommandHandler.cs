@@ -94,11 +94,11 @@ internal sealed class InteractiveUploadCommandHandler(
             ("Share link", shareLink),
             ("Delivery mode", shareRequest.DirectHttpEnabled ? "Direct HTTP" : "Separate key"),
             ("Download bearer token", shareRequest.GenerateDownloadBearerToken ? "Required" : "Not required"),
-            ("Share key", options.OutputSecret ? "Written to stdout." : "Hidden unless you opt in.")
+            ("Share key", "Hidden unless you opt in.")
         ]);
 
-        var shouldOutputSecrets = options.OutputSecret
-                                  || interactiveSession.PromptConfirmation("Display the share key and any generated download bearer token now?", false);
+        var shouldOutputSecrets =
+            interactiveSession.PromptConfirmation("Display the share key and any generated download bearer token now?", false);
         if (!shouldOutputSecrets)
         {
             return 0;

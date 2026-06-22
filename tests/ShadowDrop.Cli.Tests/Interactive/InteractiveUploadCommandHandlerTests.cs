@@ -114,7 +114,7 @@ public sealed class InteractiveUploadCommandHandlerTests
 
     private static String MissingFilePath() => Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
 
-    private static UploadCommandOptions Options() => new([], null, null, false);
+    private static UploadCommandOptions Options() => new([], null, null, null, false, false, null, false, false);
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {
