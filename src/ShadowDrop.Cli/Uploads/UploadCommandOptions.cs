@@ -10,5 +10,7 @@ internal sealed record UploadCommandOptions(
     Boolean DirectHttp,
     Boolean GenerateDownloadToken,
     FileInfo? SecretsOut,
+    FileInfo? QueueOut,
+    Boolean EmbedSecrets,
     Boolean Json,
     Boolean Force);

@@ -248,6 +248,15 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Serialize_ShouldOmitCredentials_WhenSecretFree()
+    {
+        var json = QueueFileParser.Serialize(CreateValidQueueFile());
+
+        using var document = JsonDocument.Parse(json);
+        document.RootElement.TryGetProperty("credentials", out _).Should().BeFalse();
+    }
+
+    [Test]
     public void Serialize_ShouldOmitOptionalPlaintextSha256_WhenItIsNull()
     {
         var queueFile = CreateValidQueueFile() with
@@ -274,6 +283,24 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Serialize_ShouldRoundTripEmbeddedCredentials()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Credentials = new QueueCredentials
+            {
+                ShareKey = "deadbeef",
+                DownloadBearerToken = "bearer"
+            }
+        };
+
+        var roundTripped = QueueFileParser.Deserialize(QueueFileParser.Serialize(queueFile));
+
+        roundTripped.Credentials!.ShareKey.Should().Be("deadbeef");
+        roundTripped.Credentials.DownloadBearerToken.Should().Be("bearer");
+    }
+
+    [Test]
     public void Serialize_ShouldUseExactQueuePropertyNames()
     {
         var queueFile = CreateValidQueueFile();
@@ -288,6 +315,22 @@ public sealed class QueueFileParserTests
         var entry = root.GetProperty("files")[0];
         entry.EnumerateObject().Select(property => property.Name).Should()
              .Equal("serverUrl", "shareToken", "fileId", "fileName", "length", "outputPath", "plaintextSha256");
+    }
+
+    [Test]
+    public void Validate_ShouldRejectCredentials_WhenShareKeyMissing()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Credentials = new QueueCredentials
+            {
+                ShareKey = null
+            }
+        };
+
+        var errors = QueueFileParser.Validate(queueFile);
+
+        errors.Should().Contain(error => error.Path == "credentials.shareKey" && error.Message == "The shareKey value is required.");
     }
 
     [Test]

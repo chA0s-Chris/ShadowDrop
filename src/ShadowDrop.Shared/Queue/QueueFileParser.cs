@@ -91,6 +91,11 @@ public static partial class QueueFileParser
             errors.Add(new("queueVersion", $"The queueVersion value must be '{FormatConstants.QueueVersion}'."));
         }
 
+        if (queueFile.Credentials is not null)
+        {
+            ValidateRequiredString(queueFile.Credentials.ShareKey, "credentials.shareKey", errors);
+        }
+
         if (queueFile.Files is null || queueFile.Files.Count == 0)
         {
             errors.Add(new("files", "The files collection must contain at least one entry."));

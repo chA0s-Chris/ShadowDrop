@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli;
 
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Interactive;
+using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
 using System.CommandLine.Help;
@@ -83,7 +84,17 @@ internal static class CliApplication
 
         var forceOption = new Option<Boolean>("--force")
         {
-            Description = "Allow overwriting an existing --secrets-out file."
+            Description = "Allow overwriting an existing --secrets-out or queue output file."
+        };
+
+        var queueOutOption = new Option<FileInfo?>("--queue-out")
+        {
+            Description = "Also write a download queue file after the share is created."
+        };
+
+        var embedSecretsOption = new Option<Boolean>("--embed-secrets")
+        {
+            Description = "Embed download credentials into the generated queue (self-contained and sensitive)."
         };
 
         var uploadInteractiveOption = new Option<Boolean>("--interactive")
@@ -145,12 +156,40 @@ internal static class CliApplication
         uploadCommand.Options.Add(directHttpOption);
         uploadCommand.Options.Add(generateDownloadTokenOption);
         uploadCommand.Options.Add(secretsOutOption);
+        uploadCommand.Options.Add(queueOutOption);
+        uploadCommand.Options.Add(embedSecretsOption);
         uploadCommand.Options.Add(jsonOption);
         uploadCommand.Options.Add(forceOption);
         uploadCommand.Options.Add(uploadInteractiveOption);
+
+        var queueTokenArgument = new Argument<String?>("share-token")
+        {
+            Description = "Public share token or share URL of the share to queue."
+        };
+        queueTokenArgument.Arity = ArgumentArity.ZeroOrOne;
+
+        var queueCreateOutOption = new Option<FileInfo?>("--out")
+        {
+            Description = "Path to write the queue file."
+        };
+
+        var queueCreateCommand = new Command("create", "Create a download queue from an existing share.");
+        queueCreateCommand.Arguments.Add(queueTokenArgument);
+        queueCreateCommand.Options.Add(serverOption);
+        queueCreateCommand.Options.Add(queueCreateOutOption);
+        queueCreateCommand.Options.Add(shareKeyOption);
+        queueCreateCommand.Options.Add(shareKeyFileOption);
+        queueCreateCommand.Options.Add(bearerTokenOption);
+        queueCreateCommand.Options.Add(embedSecretsOption);
+        queueCreateCommand.Options.Add(forceOption);
+
+        var queueCommand = new Command("queue", "Create and manage download queues.");
+        queueCommand.Subcommands.Add(queueCreateCommand);
+
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
         rootCommand.Subcommands.Add(uploadCommand);
+        rootCommand.Subcommands.Add(queueCommand);
         return new(rootCommand,
                    shareTokenArgument,
                    filesArgument,
@@ -165,10 +204,15 @@ internal static class CliApplication
                    directHttpOption,
                    generateDownloadTokenOption,
                    secretsOutOption,
+                   queueOutOption,
+                   embedSecretsOption,
                    jsonOption,
                    forceOption,
                    uploadInteractiveOption,
-                   downloadInteractiveOption);
+                   downloadInteractiveOption,
+                   queueCreateCommand,
+                   queueTokenArgument,
+                   queueCreateOutOption);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -182,6 +226,23 @@ internal static class CliApplication
             }
 
             return 1;
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.QueueCreateCommand)
+        {
+            var queueOptions = new QueueCreateCommandOptions(parseResult.GetValue(commandModel.QueueTokenArgument),
+                                                             parseResult.GetValue(commandModel.ServerOption),
+                                                             parseResult.GetValue(commandModel.QueueCreateOutOption),
+                                                             parseResult.GetValue(commandModel.ShareKeyOption),
+                                                             parseResult.GetValue(commandModel.ShareKeyFileOption),
+                                                             parseResult.GetValue(commandModel.BearerTokenOption),
+                                                             parseResult.GetValue(commandModel.EmbedSecretsOption),
+                                                             parseResult.GetValue(commandModel.ForceOption));
+
+            return await new QueueCreateCommandHandler(services.ConfigurationResolver,
+                                                       services.HttpClient,
+                                                       services.StandardOut,
+                                                       services.StandardError).ExecuteAsync(queueOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -223,6 +284,8 @@ internal static class CliApplication
                                                      parseResult.GetValue(commandModel.DirectHttpOption),
                                                      parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
                                                      parseResult.GetValue(commandModel.SecretsOutOption),
+                                                     parseResult.GetValue(commandModel.QueueOutOption),
+                                                     parseResult.GetValue(commandModel.EmbedSecretsOption),
                                                      parseResult.GetValue(commandModel.JsonOption),
                                                      parseResult.GetValue(commandModel.ForceOption));
 
@@ -264,8 +327,13 @@ internal static class CliApplication
         Option<Boolean> DirectHttpOption,
         Option<Boolean> GenerateDownloadTokenOption,
         Option<FileInfo?> SecretsOutOption,
+        Option<FileInfo?> QueueOutOption,
+        Option<Boolean> EmbedSecretsOption,
         Option<Boolean> JsonOption,
         Option<Boolean> ForceOption,
         Option<Boolean> UploadInteractiveOption,
-        Option<Boolean> DownloadInteractiveOption);
+        Option<Boolean> DownloadInteractiveOption,
+        Command QueueCreateCommand,
+        Argument<String?> QueueTokenArgument,
+        Option<FileInfo?> QueueCreateOutOption);
 }

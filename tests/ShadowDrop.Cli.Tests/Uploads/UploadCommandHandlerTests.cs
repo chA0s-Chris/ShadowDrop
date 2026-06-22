@@ -11,6 +11,7 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
 using System.Text;
 using System.Text.Json;
@@ -65,6 +66,66 @@ public sealed class UploadCommandHandlerTests
         standardOut.ToString().Should().NotContain("download-bearer-token:");
         standardError.ToString().Should().Contain("Uploaded file 1 of 1.").And.NotContain(fixture.BootstrapToken);
         fixture.GetStoredUploads().Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldDownloadViaEmbeddedQueue_WithoutSeparateCredentials()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("roundtrip.bin", 256);
+        var plaintext = await File.ReadAllBytesAsync(filePath);
+        var queuePath = Path.Combine(fixture.RootDirectory, "selfcontained.queue.json");
+
+        var uploadExit = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--embed-secrets"], services, CancellationToken.None);
+        uploadExit.Should().Be(0);
+
+        var outputDirectory = Path.Combine(fixture.RootDirectory, "downloads");
+        Directory.CreateDirectory(outputDirectory);
+        var previousDirectory = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(outputDirectory);
+        try
+        {
+            var downloadExit = await CliApplication.InvokeAsync(["download", "--queue", queuePath], services, CancellationToken.None);
+            downloadExit.Should().Be(0);
+            (await File.ReadAllBytesAsync(Path.Combine(outputDirectory, "roundtrip.bin"))).Should().Equal(plaintext);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(previousDirectory);
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmbedCredentialsInQueue_WhenEmbedSecretsRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("embedded.bin", 96);
+        var queuePath = Path.Combine(fixture.RootDirectory, "embedded.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--embed-secrets", "--json"], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var expectedShareKey = document.RootElement.GetProperty("credentials").GetProperty("shareKey").GetString();
+        document.RootElement.GetProperty("queueFile").GetString().Should().Be(queuePath);
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Credentials.Should().NotBeNull();
+        queue.Credentials!.ShareKey.Should().Be(expectedShareKey);
+        if (OperatingSystem.IsLinux())
+        {
+            File.GetUnixFileMode(queuePath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
     }
 
     [Test]
@@ -398,6 +459,24 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRejectEmbedSecretsWithoutQueueOut()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("noqueue.bin", 32);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--embed-secrets"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("--embed-secrets requires --queue-out.");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectEmptyFiles_AndNotCreateShare()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -418,6 +497,28 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRejectExplicitCredentials_WhenQueueAlreadyEmbedsThem()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("conflict.bin", 96);
+        var queuePath = Path.Combine(fixture.RootDirectory, "conflict.queue.json");
+        (await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--embed-secrets"], services, CancellationToken.None)).Should().Be(0);
+
+        var conflictError = new StringWriter();
+        var downloadServices = CreateServices(new StringWriter(), conflictError, fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new String('a', 64)], downloadServices,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        conflictError.ToString().Should().Contain("The queue already contains credentials");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectInvalidExpiration_BeforeUploading()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -434,6 +535,26 @@ public sealed class UploadCommandHandlerTests
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Share expiration invalid.");
         fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectQueueOutForDirectHttpShare()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "direct.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--queue-out", queuePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Direct HTTP shares do not support queue generation");
+        fixture.GetStoredUploads().Should().BeEmpty();
+        File.Exists(queuePath).Should().BeFalse();
     }
 
     [Test]
@@ -659,6 +780,30 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldWriteSecretFreeQueue_WhenQueueOutProvided()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("queued.bin", 96);
+        var queuePath = Path.Combine(fixture.RootDirectory, "out.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        FindLine(standardOut.ToString(), "share-key:").Should().NotBeNull();
+        FindLine(standardOut.ToString(), "queue-file:").Should().Be($"queue-file:{queuePath}");
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Credentials.Should().BeNull();
+        var entry = queue.Files.Should().ContainSingle().Subject;
+        entry.OutputPath.Should().Be("queued.bin");
+        entry.ShareToken.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldWriteUploadHelpToStdout()
     {
         var standardOut = new StringWriter();
@@ -676,6 +821,103 @@ public sealed class UploadCommandHandlerTests
                    .And.Contain("--secrets-out")
                    .And.Contain("--json")
                    .And.Contain("--interactive");
+    }
+
+    [Test]
+    public async Task QueueCreate_ShouldEmbedCredentials_WhenShareKeyProvided()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("embed-create.bin", 96);
+        (await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var uploadResult = JsonDocument.Parse(standardOut.ToString());
+        var shareUrl = uploadResult.RootElement.GetProperty("shareUrl").GetString()!;
+        var shareKey = uploadResult.RootElement.GetProperty("credentials").GetProperty("shareKey").GetString()!;
+        var queuePath = Path.Combine(fixture.RootDirectory, "embed-create.queue.json");
+
+        var createServices = CreateServices(new StringWriter(), new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["queue", "create", shareUrl, "--out", queuePath, "--embed-secrets", "--share-key", shareKey],
+                                                        createServices, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Credentials!.ShareKey.Should().Be(shareKey);
+    }
+
+    [Test]
+    public async Task QueueCreate_ShouldRefuseToOverwriteExistingQueue_WithoutForce()
+    {
+        var standardError = new StringWriter();
+        var services = CreateServices(new StringWriter(), standardError,
+                                      environmentValues: new Dictionary<String, String?>
+                                      {
+                                          ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
+                                      });
+        var queuePath = Path.Combine(Path.GetTempPath(), $"existing-{Guid.NewGuid():N}.queue.json");
+        await File.WriteAllTextAsync(queuePath, "preexisting");
+
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["queue", "create", "some-token", "--out", queuePath], services, CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardError.ToString().Should().Contain("Refusing to overwrite an existing file. Pass --force to overwrite.");
+            (await File.ReadAllTextAsync(queuePath)).Should().Be("preexisting");
+        }
+        finally
+        {
+            File.Delete(queuePath);
+        }
+    }
+
+    [Test]
+    public async Task QueueCreate_ShouldRejectEmbedSecretsWithoutShareKey()
+    {
+        var standardError = new StringWriter();
+        var services = CreateServices(new StringWriter(), standardError,
+                                      environmentValues: new Dictionary<String, String?>
+                                      {
+                                          ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
+                                      });
+        var queuePath = Path.Combine(Path.GetTempPath(), $"reject-{Guid.NewGuid():N}.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["queue", "create", "some-token", "--out", queuePath, "--embed-secrets"], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("--embed-secrets requires a share key");
+        File.Exists(queuePath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task QueueCreate_ShouldWriteSecretFreeQueueFromExistingShare()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("share-me.bin", 96);
+        (await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var uploadResult = JsonDocument.Parse(standardOut.ToString());
+        var shareUrl = uploadResult.RootElement.GetProperty("shareUrl").GetString()!;
+        var queuePath = Path.Combine(fixture.RootDirectory, "created.queue.json");
+
+        var createOut = new StringWriter();
+        var createError = new StringWriter();
+        var createServices = CreateServices(createOut, createError, fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["queue", "create", shareUrl, "--out", queuePath], createServices, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        createOut.ToString().Should().Contain($"queue-file:{queuePath}");
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Credentials.Should().BeNull();
+        queue.Files.Should().ContainSingle(entry => entry.OutputPath == "share-me.bin");
     }
 
     private static CliApplicationServices CreateServices(StringWriter standardOut,

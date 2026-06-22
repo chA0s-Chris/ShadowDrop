@@ -22,16 +22,8 @@ internal sealed class DownloadCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        Byte[]? shareKeyBytes = null;
         try
         {
-            shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
-            if (shareKeyBytes is null)
-            {
-                await standardError.WriteLineAsync("Share key invalid or missing.");
-                return 1;
-            }
-
             if (options.QueuePath is not null)
             {
                 if (!String.IsNullOrWhiteSpace(options.ShareToken)
@@ -42,22 +34,36 @@ internal sealed class DownloadCommandHandler(
                     return 1;
                 }
 
-                return await ExecuteQueueAsync(options.QueuePath, shareKeyBytes, options.BearerToken, cancellationToken);
+                return await ExecuteQueueAsync(options.QueuePath, options, cancellationToken);
             }
 
-            if (String.IsNullOrWhiteSpace(options.ShareToken))
+            var shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
+            if (shareKeyBytes is null)
             {
-                await standardError.WriteLineAsync("Specify either a share token or --queue.");
+                await standardError.WriteLineAsync("Share key invalid or missing.");
                 return 1;
             }
 
-            var shareReference = ResolveShareReference(options.ShareToken, options.ServerUrlOverride);
-            var manifestClient = new ShareManifestClient(httpClient);
-            var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
-            var file = SelectDirectDownloadFile(manifest, options.FileId);
-            await DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken, standardOutStream,
-                                        cancellationToken);
-            return 0;
+            try
+            {
+                if (String.IsNullOrWhiteSpace(options.ShareToken))
+                {
+                    await standardError.WriteLineAsync("Specify either a share token or --queue.");
+                    return 1;
+                }
+
+                var shareReference = ResolveShareReference(options.ShareToken, options.ServerUrlOverride);
+                var manifestClient = new ShareManifestClient(httpClient);
+                var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
+                var file = SelectDirectDownloadFile(manifest, options.FileId);
+                await DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken, standardOutStream,
+                                            cancellationToken);
+                return 0;
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(shareKeyBytes);
+            }
         }
         catch (DownloadCommandException exception)
         {
@@ -73,13 +79,6 @@ internal sealed class DownloadCommandHandler(
         {
             await standardError.WriteLineAsync("Download failed due to a local I/O error.");
             return 1;
-        }
-        finally
-        {
-            if (shareKeyBytes is not null)
-            {
-                CryptographicOperations.ZeroMemory(shareKeyBytes);
-            }
         }
     }
 
@@ -256,6 +255,9 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
+    private static Boolean HasExplicitCredentials(DownloadCommandOptions options) =>
+        !String.IsNullOrWhiteSpace(options.ShareKey) || options.ShareKeyFile is not null || !String.IsNullOrWhiteSpace(options.BearerToken);
+
     private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
     {
         if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
@@ -349,43 +351,81 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
-    private async Task<Int32> ExecuteQueueAsync(FileInfo queuePath, Byte[] shareKeyBytes, String? bearerToken, CancellationToken cancellationToken)
+    private async Task<Int32> ExecuteQueueAsync(FileInfo queuePath, DownloadCommandOptions options, CancellationToken cancellationToken)
     {
         var queue = await LoadQueueAsync(queuePath, cancellationToken);
-        var manifestClient = new ShareManifestClient(httpClient);
-        Dictionary<String, ShareManifestContract> manifestCache = [];
-        var allSucceeded = true;
 
-        foreach (var entry in queue.Files!)
+        Byte[]? shareKeyBytes = null;
+        try
         {
-            var summaryLabel = entry.FileName ?? entry.FileId ?? "unknown";
-            try
+            String? bearerToken;
+            if (queue.Credentials is not null)
             {
-                var shareReference = ResolveQueueShareReference(entry);
-                var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, cancellationToken);
-                var file = SelectQueuedFile(manifest, entry);
-                await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, bearerToken, entry.OutputPath!,
-                                          cancellationToken);
-                await WriteQueueResultAsync($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
+                // A self-contained queue carries its own credentials; mixing them with explicit inputs is ambiguous.
+                if (HasExplicitCredentials(options))
+                {
+                    await standardError.WriteLineAsync(
+                        "The queue already contains credentials; do not also pass --share-key, --share-key-file, or --bearer-token.");
+                    return 1;
+                }
+
+                shareKeyBytes = DecodeShareKey(queue.Credentials.ShareKey!);
+                bearerToken = queue.Credentials.DownloadBearerToken;
             }
-            catch (DownloadCommandException exception)
+            else
             {
-                allSucceeded = false;
-                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: {exception.Message}");
+                shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
+                if (shareKeyBytes is null)
+                {
+                    await standardError.WriteLineAsync("Share key invalid or missing.");
+                    return 1;
+                }
+
+                bearerToken = options.BearerToken;
             }
-            catch (IOException)
+
+            var manifestClient = new ShareManifestClient(httpClient);
+            Dictionary<String, ShareManifestContract> manifestCache = [];
+            var allSucceeded = true;
+
+            foreach (var entry in queue.Files!)
             {
-                allSucceeded = false;
-                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                var summaryLabel = entry.FileName ?? entry.FileId ?? "unknown";
+                try
+                {
+                    var shareReference = ResolveQueueShareReference(entry);
+                    var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, cancellationToken);
+                    var file = SelectQueuedFile(manifest, entry);
+                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, bearerToken, entry.OutputPath!,
+                                              cancellationToken);
+                    await WriteQueueResultAsync($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
+                }
+                catch (DownloadCommandException exception)
+                {
+                    allSucceeded = false;
+                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: {exception.Message}");
+                }
+                catch (IOException)
+                {
+                    allSucceeded = false;
+                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                }
+                catch (UnauthorizedAccessException)
+                {
+                    allSucceeded = false;
+                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                }
             }
-            catch (UnauthorizedAccessException)
+
+            return allSucceeded ? 0 : 1;
+        }
+        finally
+        {
+            if (shareKeyBytes is not null)
             {
-                allSucceeded = false;
-                await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
+                CryptographicOperations.ZeroMemory(shareKeyBytes);
             }
         }
-
-        return allSucceeded ? 0 : 1;
     }
 
     private async Task<ShareManifestContract> GetManifestAsync(ShareManifestClient manifestClient,
@@ -461,23 +501,15 @@ internal sealed class DownloadCommandHandler(
 
     private ShareReference ResolveShareReference(String shareToken, String? serverUrlOverride)
     {
-        if (Uri.TryCreate(shareToken, UriKind.Absolute, out var absoluteShareUri)
-            && (absoluteShareUri.Scheme == Uri.UriSchemeHttp || absoluteShareUri.Scheme == Uri.UriSchemeHttps))
+        if (!ShareReferenceResolver.TryResolve(shareToken, serverUrlFallback: null!, out var resolvedServerUrl, out var resolvedToken))
         {
-            var segments = absoluteShareUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length >= 2 && String.Equals(segments[^2], "d", StringComparison.OrdinalIgnoreCase))
-            {
-                var basePath = segments.Length == 2 ? "/" : $"/{String.Join('/', segments[..^2])}/";
-                var builder = new UriBuilder(absoluteShareUri)
-                {
-                    Path = basePath,
-                    Query = String.Empty,
-                    Fragment = String.Empty
-                };
-                return new(builder.Uri, Uri.UnescapeDataString(segments[^1]));
-            }
-
             throw new DownloadCommandException("Share token invalid or missing.");
+        }
+
+        // A full share URL carries its own server; a bare token is paired with the configured server.
+        if (resolvedServerUrl is not null)
+        {
+            return new(resolvedServerUrl, resolvedToken);
         }
 
         var configuration = ResolveConfiguration(serverUrlOverride);
@@ -487,7 +519,7 @@ internal sealed class DownloadCommandHandler(
             throw new DownloadCommandException("Server URL invalid or missing.");
         }
 
-        return new(serverUrl, shareToken);
+        return new(serverUrl, resolvedToken);
     }
 
     private Task WriteQueueResultAsync(String result) => standardError.WriteLineAsync(result);
