@@ -20,7 +20,6 @@ public static class DependencyInjection
 
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
-        builder.ConfigureRateLimiter();
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.EnablePublicDownloads)
         {
