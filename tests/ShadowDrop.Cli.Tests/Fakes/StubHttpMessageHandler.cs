@@ -20,3 +20,21 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
         Task.FromResult(_responder(request));
 }
+
+/// <summary>
+/// Returns a fixed sequence of responses, one per request, in order. Throws if more requests arrive than configured.
+/// </summary>
+internal sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+{
+    private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = new(responses);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (_responses.Count == 0)
+        {
+            throw new InvalidOperationException("Unexpected extra HTTP request.");
+        }
+
+        return Task.FromResult(_responses.Dequeue()(request));
+    }
+}
