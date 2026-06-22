@@ -1128,16 +1128,16 @@ public sealed class DownloadCommandHandlerTests
                 "upload"
             };
             args.AddRange(filePaths);
-            args.Add("--output-secret");
+            args.Add("--json");
             var exitCode = await CliApplication.InvokeAsync(args.ToArray(),
                                                             CreateServices(Stream.Null, standardOut, standardError, ConfigFilePath, httpClient: httpClient),
                                                             CancellationToken.None);
             exitCode.Should().Be(0, standardError.ToString());
-            var lines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-            lines.Should().NotBeEmpty();
-            var shareKey = lines[^1];
-            shareKey.Should().StartWith("secret:");
-            return new(lines[..^1].Select(Guid.Parse).ToArray(), shareKey["secret:".Length..]);
+            using var document = JsonDocument.Parse(standardOut.ToString());
+            var root = document.RootElement;
+            var fileIds = root.GetProperty("uploadedFileIds").EnumerateArray().Select(static element => Guid.Parse(element.GetString()!)).ToArray();
+            var shareKey = root.GetProperty("credentials").GetProperty("shareKey").GetString()!;
+            return new(fileIds, shareKey);
         }
 
         public void WriteConfig(String serverUrl, String uploadToken) =>

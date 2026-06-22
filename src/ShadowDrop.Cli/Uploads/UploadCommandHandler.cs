@@ -3,13 +3,22 @@
 namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads;
+using ShadowDrop.Cli.Output;
+using ShadowDrop.Cli.Results;
+using ShadowDrop.Cli.Shares;
 using System.Text.Json;
 
+/// <summary>
+/// Runs the end-to-end upload workflow: encrypt and upload every file under one share key, create exactly
+/// one share when all uploads succeed, and deliver the non-retrievable credentials required to download it.
+/// </summary>
 internal sealed class UploadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     TextWriter standardOut,
-    TextWriter standardError)
+    TextWriter standardError,
+    TimeProvider timeProvider)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -20,17 +29,7 @@ internal sealed class UploadCommandHandler(
         {
             configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
         }
-        catch (IOException)
-        {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
-            return 1;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
-            return 1;
-        }
-        catch (JsonException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
             return 1;
@@ -49,27 +48,167 @@ internal sealed class UploadCommandHandler(
             return 1;
         }
 
-        var executor = new UploadCommandExecutor(httpClient);
-        var executionResult = await executor.ExecuteAsync(options.Files, serverUrl, configuration.UploadToken, cancellationToken);
-
-        for (var index = 0; index < executionResult.Files.Count; index++)
+        // Validate share options and the credential sink before any file I/O or network requests begin.
+        var expiration = ShareExpiration.Default;
+        if (options.ExpiresIn is not null && !ShareExpiration.TryParse(options.ExpiresIn, out expiration))
         {
-            var fileResult = executionResult.Files[index];
+            await standardError.WriteLineAsync("Share expiration invalid. Use a value like 7d, 12h, or 30m.");
+            return 1;
+        }
+
+        if (options.DirectHttp && options.GenerateDownloadToken)
+        {
+            await standardError.WriteLineAsync("Direct HTTP shares cannot generate a download bearer token.");
+            return 1;
+        }
+
+        if (options.SecretsOut is not null)
+        {
+            try
+            {
+                SecretsFileWriter.EnsureWritable(options.SecretsOut, options.Force);
+            }
+            catch (SecretsFileException exception)
+            {
+                await standardError.WriteLineAsync(exception.Message);
+                return 1;
+            }
+        }
+
+        var executor = new UploadCommandExecutor(httpClient);
+        var uploadResult = await executor.ExecuteAsync(options.Files, serverUrl, configuration.UploadToken, cancellationToken);
+        await ReportUploadProgressAsync(options, uploadResult);
+
+        if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
+        {
+            await WriteResultIfJsonAsync(options, BuildResult(UploadCommandStatus.UploadFailed, uploadResult, null, null, null, null));
+            return 1;
+        }
+
+        var expiresAtUtc = timeProvider.GetUtcNow().Add(expiration);
+        var shareRequest = new CreateShareCliRequest(
+            expiresAtUtc,
+            uploadResult.Files.Select(static result => new CreateShareCliFileRequest(result.UploadedFileId!.Value, result.File.Name)).ToArray(),
+            options.DirectHttp,
+            options.GenerateDownloadToken,
+            options.GenerateDownloadToken ? expiresAtUtc : null);
+
+        CreateShareCliResult shareResult;
+        try
+        {
+            shareResult = await new CreateShareApiClient(httpClient).CreateAsync(serverUrl, configuration.UploadToken, shareRequest, cancellationToken);
+        }
+        catch (CreateShareCommandException exception)
+        {
+            await standardError.WriteLineAsync(exception.Message);
+            await WriteResultIfJsonAsync(options, BuildResult(UploadCommandStatus.ShareCreationFailed, uploadResult, null, null, null, null));
+            return 1;
+        }
+
+        var shareUrl = ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareResult.ShareToken).AbsoluteUri;
+
+        // A requested download bearer token must be present, otherwise success would be reported without a credential the share requires.
+        if (options.GenerateDownloadToken && String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
+        {
+            await standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
+            await WriteResultIfJsonAsync(options,
+                                         BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
+                                                     shareResult.ShareToken, shareUrl, null));
+            return 1;
+        }
+
+        // A share without delivered credentials is unusable, so success is reported only after delivery completes.
+        if (options.SecretsOut is not null)
+        {
+            var document = new CredentialDocument(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
+            try
+            {
+                SecretsFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
+                                              options.Force);
+            }
+            catch (SecretsFileException exception)
+            {
+                await standardError.WriteLineAsync(exception.Message);
+                await standardError.WriteLineAsync("The share was created but its credentials could not be delivered.");
+                await WriteResultIfJsonAsync(options,
+                                             BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
+                                                         shareResult.ShareToken, shareUrl, null));
+                return 1;
+            }
+        }
+
+        await DeliverSuccessAsync(options, uploadResult, shareResult, shareUrl);
+        return 0;
+    }
+
+    private UploadCommandResult BuildResult(String status,
+                                            UploadExecutionResult uploadResult,
+                                            Guid? shareId,
+                                            String? shareToken,
+                                            String? shareUrl,
+                                            UploadCredentials? credentials,
+                                            String? secretsFile = null) =>
+        new(status,
+            uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray(),
+            shareId,
+            shareToken,
+            shareUrl,
+            credentials,
+            secretsFile);
+
+    private async Task DeliverSuccessAsync(UploadCommandOptions options,
+                                           UploadExecutionResult uploadResult,
+                                           CreateShareCliResult shareResult,
+                                           String shareUrl)
+    {
+        var credentialsToFile = options.SecretsOut is not null;
+
+        if (options.Json)
+        {
+            var credentials = credentialsToFile ? null : new UploadCredentials(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
+            var secretsFile = credentialsToFile ? options.SecretsOut!.FullName : null;
+            await standardOut.WriteLineAsync(JsonSerializer.Serialize(
+                                                 BuildResult(UploadCommandStatus.Succeeded, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl,
+                                                             credentials, secretsFile),
+                                                 CliJsonSerializerContext.Default.UploadCommandResult));
+            return;
+        }
+
+        await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+        if (credentialsToFile)
+        {
+            await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut!.FullName}");
+            return;
+        }
+
+        await standardOut.WriteLineAsync($"share-key:{uploadResult.ShareSecretHex}");
+        if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
+        {
+            await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
+        }
+    }
+
+    private async Task ReportUploadProgressAsync(UploadCommandOptions options, UploadExecutionResult uploadResult)
+    {
+        for (var index = 0; index < uploadResult.Files.Count; index++)
+        {
+            var fileResult = uploadResult.Files[index];
             if (fileResult.UploadedFileId is not null)
             {
-                await standardOut.WriteLineAsync(fileResult.UploadedFileId.Value.ToString());
                 await standardError.WriteLineAsync($"Uploaded file {index + 1} of {options.Files.Length}.");
-                continue;
             }
-
-            await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
+            else
+            {
+                await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
+            }
         }
+    }
 
-        if (executionResult.AllSucceeded && options.OutputSecret && !String.IsNullOrWhiteSpace(executionResult.ShareSecretHex))
+    private async Task WriteResultIfJsonAsync(UploadCommandOptions options, UploadCommandResult result)
+    {
+        if (options.Json)
         {
-            await standardOut.WriteLineAsync($"secret:{executionResult.ShareSecretHex}");
+            await standardOut.WriteLineAsync(JsonSerializer.Serialize(result, CliJsonSerializerContext.Default.UploadCommandResult));
         }
-
-        return executionResult.AllSucceeded ? 0 : 1;
     }
 }

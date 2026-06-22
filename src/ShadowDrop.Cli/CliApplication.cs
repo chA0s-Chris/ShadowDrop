@@ -56,9 +56,34 @@ internal static class CliApplication
                 "Upload authorization token. Prefer environment variables or config files for sensitive deployments because CLI flags may be visible to process inspection tools."
         };
 
-        var outputSecretOption = new Option<Boolean>("--output-secret")
+        var expiresInOption = new Option<String?>("--expires-in")
         {
-            Description = "Emit the generated share secret as the final stdout line after full success only."
+            Description = "Share expiration as <amount><unit>, e.g. 7d, 12h, or 30m. Defaults to 7d."
+        };
+
+        var directHttpOption = new Option<Boolean>("--direct-http")
+        {
+            Description = "Create a direct-HTTP share instead of the default separate-key share."
+        };
+
+        var generateDownloadTokenOption = new Option<Boolean>("--download-token")
+        {
+            Description = "Generate a download bearer token (separate-key shares only)."
+        };
+
+        var secretsOutOption = new Option<FileInfo?>("--secrets-out")
+        {
+            Description = "Write download credentials to a dedicated file instead of stdout."
+        };
+
+        var jsonOption = new Option<Boolean>("--json")
+        {
+            Description = "Emit the result as a single JSON object on stdout."
+        };
+
+        var forceOption = new Option<Boolean>("--force")
+        {
+            Description = "Allow overwriting an existing --secrets-out file."
         };
 
         var uploadInteractiveOption = new Option<Boolean>("--interactive")
@@ -116,7 +141,12 @@ internal static class CliApplication
         uploadCommand.Arguments.Add(filesArgument);
         uploadCommand.Options.Add(serverOption);
         uploadCommand.Options.Add(uploadTokenOption);
-        uploadCommand.Options.Add(outputSecretOption);
+        uploadCommand.Options.Add(expiresInOption);
+        uploadCommand.Options.Add(directHttpOption);
+        uploadCommand.Options.Add(generateDownloadTokenOption);
+        uploadCommand.Options.Add(secretsOutOption);
+        uploadCommand.Options.Add(jsonOption);
+        uploadCommand.Options.Add(forceOption);
         uploadCommand.Options.Add(uploadInteractiveOption);
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
@@ -131,7 +161,12 @@ internal static class CliApplication
                    shareKeyFileOption,
                    bearerTokenOption,
                    uploadTokenOption,
-                   outputSecretOption,
+                   expiresInOption,
+                   directHttpOption,
+                   generateDownloadTokenOption,
+                   secretsOutOption,
+                   jsonOption,
+                   forceOption,
                    uploadInteractiveOption,
                    downloadInteractiveOption);
     }
@@ -184,7 +219,12 @@ internal static class CliApplication
         var uploadOptions = new UploadCommandOptions(parseResult.GetValue(commandModel.FilesArgument) ?? [],
                                                      parseResult.GetValue(commandModel.ServerOption),
                                                      parseResult.GetValue(commandModel.UploadTokenOption),
-                                                     parseResult.GetValue(commandModel.OutputSecretOption));
+                                                     parseResult.GetValue(commandModel.ExpiresInOption),
+                                                     parseResult.GetValue(commandModel.DirectHttpOption),
+                                                     parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
+                                                     parseResult.GetValue(commandModel.SecretsOutOption),
+                                                     parseResult.GetValue(commandModel.JsonOption),
+                                                     parseResult.GetValue(commandModel.ForceOption));
 
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
@@ -205,7 +245,8 @@ internal static class CliApplication
         return await new UploadCommandHandler(services.ConfigurationResolver,
                                               services.HttpClient,
                                               services.StandardOut,
-                                              services.StandardError).ExecuteAsync(uploadOptions, cancellationToken);
+                                              services.StandardError,
+                                              services.TimeProvider).ExecuteAsync(uploadOptions, cancellationToken);
     }
 
     private sealed record CliCommandModel(
@@ -219,7 +260,12 @@ internal static class CliApplication
         Option<FileInfo?> ShareKeyFileOption,
         Option<String?> BearerTokenOption,
         Option<String?> UploadTokenOption,
-        Option<Boolean> OutputSecretOption,
+        Option<String?> ExpiresInOption,
+        Option<Boolean> DirectHttpOption,
+        Option<Boolean> GenerateDownloadTokenOption,
+        Option<FileInfo?> SecretsOutOption,
+        Option<Boolean> JsonOption,
+        Option<Boolean> ForceOption,
         Option<Boolean> UploadInteractiveOption,
         Option<Boolean> DownloadInteractiveOption);
 }
