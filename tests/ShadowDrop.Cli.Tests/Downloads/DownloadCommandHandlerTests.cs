@@ -10,6 +10,7 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
@@ -22,6 +23,36 @@ using System.Text.Json;
 [NonParallelizable]
 public sealed class DownloadCommandHandlerTests
 {
+    private const String ValidShareKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    [Test]
+    public void DecodeShareKey_ShouldReturn32Bytes_WhenValueIsValidHex()
+    {
+        DownloadCommandHandler.DecodeShareKey(ValidShareKey).Should().HaveCount(32);
+    }
+
+    [Test]
+    public void DecodeShareKey_ShouldStripSecretPrefix_WhenPresent()
+    {
+        DownloadCommandHandler.DecodeShareKey($"  secret:{ValidShareKey}  ").Should().HaveCount(32);
+    }
+
+    [Test]
+    public void DecodeShareKey_ShouldThrow_WhenLengthIsNot32Bytes()
+    {
+        var act = () => DownloadCommandHandler.DecodeShareKey("aabbcc");
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Share key invalid or missing.");
+    }
+
+    [Test]
+    public void DecodeShareKey_ShouldThrow_WhenValueIsNotHex()
+    {
+        var act = () => DownloadCommandHandler.DecodeShareKey("zz");
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Share key invalid or missing.");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldContinueQueueProcessingAfterIndividualFailures()
     {
@@ -252,6 +283,110 @@ public sealed class DownloadCommandHandlerTests
         binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenConfigurationFileIsMalformed()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), $"config-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, "{ not valid json");
+        var standardError = new StringWriter();
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["download", "plain-share-id", "--share-key", ValidShareKey],
+                                                            CreateServices(Stream.Null, new StringWriter(), standardError, configPath),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardError.ToString().Should().Contain("Configuration file invalid or unreadable.");
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenNeitherShareIdNorQueueProvided()
+    {
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--share-key", ValidShareKey],
+                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Specify either a share id or --queue.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenQueueCombinedWithShareId()
+    {
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "some-share", "--queue", "queue.json", "--share-key", ValidShareKey],
+            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --queue option cannot be combined with a share id, --file, or --server-url.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenQueueFileIsMalformedJson()
+    {
+        var queuePath = Path.Combine(Path.GetTempPath(), $"queue-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(queuePath, "{ not valid json");
+        var standardError = new StringWriter();
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", ValidShareKey],
+                                                            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardError.ToString().Should().Contain("The queue file is invalid.");
+        }
+        finally
+        {
+            File.Delete(queuePath);
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenShareKeyFileCannotBeRead()
+    {
+        var standardError = new StringWriter();
+        var missingPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.key");
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "some-share", "--share-key-file", missingPath],
+                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Share key invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenShareKeyIsInvalid()
+    {
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "some-share", "--share-key", "not-hex"],
+                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Share key invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenShareUrlHasInvalidPath()
+    {
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/not-a-share", "--share-key", ValidShareKey],
+            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Share id invalid or missing.");
     }
 
     [Test]
@@ -789,6 +924,96 @@ public sealed class DownloadCommandHandlerTests
         }
     }
 
+    [TestCase(null)]
+    [TestCase("not-a-guid")]
+    [TestCase("00000000-0000-0000-0000-000000000000")]
+    public void ParseFileId_ShouldThrow_WhenValueIsInvalid(String? fileId)
+    {
+        var act = () => DownloadCommandHandler.ParseFileId(fileId);
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Share metadata invalid or missing.");
+    }
+
+    [Test]
+    public void SelectDirectDownloadFile_ShouldReturnMatchingFile_WhenFileIdProvided()
+    {
+        var wanted = Guid.NewGuid();
+        var manifest = new ShareManifestContract
+        {
+            Files =
+            [
+                new()
+                {
+                    FileId = Guid.NewGuid().ToString()
+                },
+                new()
+                {
+                    FileId = wanted.ToString(),
+                    FileName = "wanted.bin"
+                }
+            ]
+        };
+
+        DownloadCommandHandler.SelectDirectDownloadFile(manifest, wanted.ToString()).FileName.Should().Be("wanted.bin");
+    }
+
+    [Test]
+    public void SelectDirectDownloadFile_ShouldThrow_WhenMultipleFilesAndNoFileId()
+    {
+        var manifest = new ShareManifestContract
+        {
+            Files =
+            [
+                new()
+                {
+                    FileId = Guid.NewGuid().ToString()
+                },
+                new()
+                {
+                    FileId = Guid.NewGuid().ToString()
+                }
+            ]
+        };
+
+        var act = () => DownloadCommandHandler.SelectDirectDownloadFile(manifest, null);
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Share contains multiple files; specify --file.");
+    }
+
+    [Test]
+    public void SelectFileById_ShouldThrow_WhenDuplicateFileIds()
+    {
+        var duplicate = Guid.NewGuid();
+        var files = new ShareManifestFileContract[]
+        {
+            new()
+            {
+                FileId = duplicate.ToString()
+            },
+            new()
+            {
+                FileId = duplicate.ToString()
+            }
+        };
+
+        var act = () => DownloadCommandHandler.SelectFileById(files, duplicate);
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Share metadata invalid or missing.");
+    }
+
+    [Test]
+    public void SelectFileById_ShouldThrow_WhenFileNotFound()
+    {
+        var act = () => DownloadCommandHandler.SelectFileById([
+            new()
+            {
+                FileId = Guid.NewGuid().ToString()
+            }
+        ], Guid.NewGuid());
+
+        act.Should().Throw<DownloadCommandException>().WithMessage("Requested file not found in share.");
+    }
+
     private static CliApplicationServices CreateServices(Stream standardOutStream,
                                                          TextWriter standardOut,
                                                          TextWriter standardError,
@@ -889,7 +1114,7 @@ public sealed class DownloadCommandHandlerTests
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<CreateShareResult>();
             result.Should().NotBeNull();
-            return new(result!.ShareToken, result.DownloadBearerToken);
+            return new(result.ShareToken, result.DownloadBearerToken);
         }
 
         public async Task<UploadFixture> UploadFilesAsync(IReadOnlyList<String> filePaths)

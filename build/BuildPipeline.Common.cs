@@ -34,6 +34,8 @@ internal partial class BuildPipeline
 
     private AbsolutePath CoverageDirectory => ArtifactsDirectory / "test-coverage";
 
+    private AbsolutePath CoverageSettingsFile => RootDirectory / "coverlet.xml";
+
     [GitRepository]
     private GitRepository GitRepository { get; init; } = null!;
 
