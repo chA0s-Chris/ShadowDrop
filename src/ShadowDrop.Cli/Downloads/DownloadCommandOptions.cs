@@ -3,7 +3,7 @@
 namespace ShadowDrop.Cli.Downloads;
 
 internal sealed record DownloadCommandOptions(
-    String? ShareId,
+    String? ShareToken,
     String? ServerUrlOverride,
     String? FileId,
     FileInfo? QueuePath,

@@ -41,7 +41,7 @@ internal sealed class InteractiveDownloadCommandHandler(
                 return 1;
             }
 
-            var shareReference = ResolveShareReference(options.ShareId, options.ServerUrlOverride);
+            var shareReference = ResolveShareReference(options.ShareToken, options.ServerUrlOverride);
             var resolvedManifest = await ResolveManifestAsync(handler, shareReference, options.BearerToken, cancellationToken);
             var selectedFiles = SelectFiles(resolvedManifest.Manifest, options.FileId);
             var outputPaths = ResolveOutputPaths(selectedFiles);
@@ -49,7 +49,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             for (var index = 0; index < selectedFiles.Count; index++)
             {
                 await handler.DownloadToFileAsync(resolvedManifest.ServerUrl,
-                                                  resolvedManifest.ShareId,
+                                                  resolvedManifest.ShareToken,
                                                   selectedFiles[index],
                                                   shareKeyBytes,
                                                   resolvedManifest.BearerToken,
@@ -124,8 +124,8 @@ internal sealed class InteractiveDownloadCommandHandler(
         {
             try
             {
-                var manifest = await handler.GetManifestAsync(shareReference.ServerUrl, shareReference.ShareId, currentBearerToken, cancellationToken);
-                return new(shareReference.ServerUrl, shareReference.ShareId, manifest, currentBearerToken);
+                var manifest = await handler.GetManifestAsync(shareReference.ServerUrl, shareReference.ShareToken, currentBearerToken, cancellationToken);
+                return new(shareReference.ServerUrl, shareReference.ShareToken, manifest, currentBearerToken);
             }
             catch (DownloadCommandException exception) when (String.Equals(exception.Message, "Download authorization failed.", StringComparison.Ordinal)
                                                              && String.IsNullOrWhiteSpace(currentBearerToken))
@@ -166,14 +166,14 @@ internal sealed class InteractiveDownloadCommandHandler(
         return DownloadCommandHandler.DecodeShareKey(shareKey);
     }
 
-    private InteractiveShareReference ResolveShareReference(String? shareId, String? serverUrlOverride)
+    private InteractiveShareReference ResolveShareReference(String? shareToken, String? serverUrlOverride)
     {
-        var enteredShareId = String.IsNullOrWhiteSpace(shareId)
+        var enteredShareToken = String.IsNullOrWhiteSpace(shareToken)
             ? interactiveSession.PromptText("Share URL or share token:", validate: static value =>
                                                 String.IsNullOrWhiteSpace(value) ? "Enter a share URL or share token." : null)
-            : shareId;
+            : shareToken;
 
-        if (Uri.TryCreate(enteredShareId, UriKind.Absolute, out var absoluteShareUri)
+        if (Uri.TryCreate(enteredShareToken, UriKind.Absolute, out var absoluteShareUri)
             && (absoluteShareUri.Scheme == Uri.UriSchemeHttp || absoluteShareUri.Scheme == Uri.UriSchemeHttps))
         {
             var segments = absoluteShareUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
@@ -189,14 +189,14 @@ internal sealed class InteractiveDownloadCommandHandler(
                 return new(builder.Uri, Uri.UnescapeDataString(segments[^1]));
             }
 
-            throw new DownloadCommandException("Share id invalid or missing.");
+            throw new DownloadCommandException("Share token invalid or missing.");
         }
 
         var configuration = ResolveConfiguration(serverUrlOverride);
         if (Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var configuredServerUrl)
             && (configuredServerUrl.Scheme == Uri.UriSchemeHttp || configuredServerUrl.Scheme == Uri.UriSchemeHttps))
         {
-            return new(configuredServerUrl, enteredShareId);
+            return new(configuredServerUrl, enteredShareToken);
         }
 
         var configuredServerUrlValue = configuration.ServerUrl;
@@ -216,7 +216,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             if (Uri.TryCreate(candidate, UriKind.Absolute, out var serverUrl)
                 && (serverUrl.Scheme == Uri.UriSchemeHttp || serverUrl.Scheme == Uri.UriSchemeHttps))
             {
-                return new(serverUrl, enteredShareId);
+                return new(serverUrl, enteredShareToken);
             }
 
             configuredServerUrlValue = null;
@@ -243,7 +243,7 @@ internal sealed class InteractiveDownloadCommandHandler(
         }
     }
 
-    private sealed record InteractiveShareReference(Uri ServerUrl, String ShareId);
+    private sealed record InteractiveShareReference(Uri ServerUrl, String ShareToken);
 
-    private sealed record ResolvedManifest(Uri ServerUrl, String ShareId, ShareManifestContract Manifest, String? BearerToken);
+    private sealed record ResolvedManifest(Uri ServerUrl, String ShareToken, ShareManifestContract Manifest, String? BearerToken);
 }

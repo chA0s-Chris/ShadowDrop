@@ -66,11 +66,11 @@ internal static class CliApplication
             Description = "Run the guided Spectre.Console upload and share workflow."
         };
 
-        var shareIdArgument = new Argument<String?>("share-id")
+        var shareTokenArgument = new Argument<String?>("share-token")
         {
-            Description = "Share identifier or public share URL."
+            Description = "Public share token or share URL."
         };
-        shareIdArgument.Arity = ArgumentArity.ZeroOrOne;
+        shareTokenArgument.Arity = ArgumentArity.ZeroOrOne;
 
         var fileOption = new Option<String?>("--file")
         {
@@ -103,7 +103,7 @@ internal static class CliApplication
         };
 
         var downloadCommand = new Command("download", "Download encrypted content and decrypt it locally.");
-        downloadCommand.Arguments.Add(shareIdArgument);
+        downloadCommand.Arguments.Add(shareTokenArgument);
         downloadCommand.Options.Add(serverOption);
         downloadCommand.Options.Add(fileOption);
         downloadCommand.Options.Add(queueOption);
@@ -122,7 +122,7 @@ internal static class CliApplication
         rootCommand.Subcommands.Add(downloadCommand);
         rootCommand.Subcommands.Add(uploadCommand);
         return new(rootCommand,
-                   shareIdArgument,
+                   shareTokenArgument,
                    filesArgument,
                    serverOption,
                    fileOption,
@@ -152,7 +152,7 @@ internal static class CliApplication
         var commandName = parseResult.CommandResult.Command.Name;
         if (String.Equals(commandName, "download", StringComparison.Ordinal))
         {
-            var options = new DownloadCommandOptions(parseResult.GetValue(commandModel.ShareIdArgument),
+            var options = new DownloadCommandOptions(parseResult.GetValue(commandModel.ShareTokenArgument),
                                                      parseResult.GetValue(commandModel.ServerOption),
                                                      parseResult.GetValue(commandModel.FileOption),
                                                      parseResult.GetValue(commandModel.QueueOption),
@@ -210,7 +210,7 @@ internal static class CliApplication
 
     private sealed record CliCommandModel(
         RootCommand RootCommand,
-        Argument<String?> ShareIdArgument,
+        Argument<String?> ShareTokenArgument,
         Argument<FileInfo[]> FilesArgument,
         Option<String?> ServerOption,
         Option<String?> FileOption,

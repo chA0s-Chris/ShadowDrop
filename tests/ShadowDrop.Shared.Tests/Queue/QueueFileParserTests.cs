@@ -45,7 +45,7 @@ public sealed class QueueFileParserTests
                               "files": [
                                 {
                                   "serverUrl": "https://example.com",
-                                  "shareId": "share-123",
+                                  "shareToken": "share-123",
                                   "fileId": "file-1",
                                   "fileName": "report.txt",
                                   "length": 4096,
@@ -96,7 +96,7 @@ public sealed class QueueFileParserTests
                               "files": [
                                 {
                                   "serverUrl": "https://example.com",
-                                  "shareId": "share-123",
+                                  "shareToken": "share-123",
                                   "fileId": "file-1",
                                   "fileName": "report.txt",
                                   "outputPath": "downloads/report.txt"
@@ -124,7 +124,7 @@ public sealed class QueueFileParserTests
                               "files": [
                                 {
                                   "serverUrl": "notaurl",
-                                  "shareId": "",
+                                  "shareToken": "",
                                   "fileId": "",
                                   "fileName": "",
                                   "length": -1,
@@ -143,7 +143,7 @@ public sealed class QueueFileParserTests
                [
                    new("shadowDrop", "The shadowDrop value must be '1.0'."),
                    new("files[0].serverUrl", "The serverUrl value must be an absolute HTTP or HTTPS URL."),
-                   new("files[0].shareId", "The shareId value is required."),
+                   new("files[0].shareToken", "The shareToken value is required."),
                    new("files[0].fileId", "The fileId value is required."),
                    new("files[0].fileName", "The fileName value is required."),
                    new("files[0].length", "The file length must be zero or greater."),
@@ -257,7 +257,7 @@ public sealed class QueueFileParserTests
                 new()
                 {
                     ServerUrl = "https://example.com",
-                    ShareId = "share-123",
+                    ShareToken = "share-123",
                     FileId = "file-1",
                     FileName = "report.txt",
                     Length = 4096,
@@ -287,7 +287,7 @@ public sealed class QueueFileParserTests
 
         var entry = root.GetProperty("files")[0];
         entry.EnumerateObject().Select(property => property.Name).Should()
-             .Equal("serverUrl", "shareId", "fileId", "fileName", "length", "outputPath", "plaintextSha256");
+             .Equal("serverUrl", "shareToken", "fileId", "fileName", "length", "outputPath", "plaintextSha256");
     }
 
     [Test]
@@ -321,7 +321,7 @@ public sealed class QueueFileParserTests
                 new()
                 {
                     ServerUrl = "https://example.com",
-                    ShareId = "share-123",
+                    ShareToken = "share-123",
                     FileId = "file-1",
                     FileName = "report.txt",
                     Length = 4096,

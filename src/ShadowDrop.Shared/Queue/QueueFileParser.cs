@@ -121,7 +121,7 @@ public static partial class QueueFileParser
         ValidateRequiredString(entry.FileId, $"{prefix}.fileId", errors);
         ValidateRequiredString(entry.FileName, $"{prefix}.fileName", errors);
         ValidateRequiredString(entry.OutputPath, $"{prefix}.outputPath", errors);
-        ValidateRequiredString(entry.ShareId, $"{prefix}.shareId", errors);
+        ValidateRequiredString(entry.ShareToken, $"{prefix}.shareToken", errors);
         ValidateServerUrl(entry.ServerUrl, $"{prefix}.serverUrl", errors);
 
         if (entry.Length is null)

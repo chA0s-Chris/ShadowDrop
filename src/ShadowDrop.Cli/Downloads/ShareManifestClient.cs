@@ -9,9 +9,9 @@ using System.Text.Json;
 
 internal sealed class ShareManifestClient(HttpClient httpClient)
 {
-    public async Task<ShareManifestContract> GetAsync(Uri serverUrl, String shareId, String? bearerToken, CancellationToken cancellationToken)
+    public async Task<ShareManifestContract> GetAsync(Uri serverUrl, String shareToken, String? bearerToken, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareId));
+        using var request = new HttpRequestMessage(HttpMethod.Get, ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareToken));
         if (!String.IsNullOrWhiteSpace(bearerToken))
         {
             request.Headers.Authorization = new("Bearer", bearerToken);

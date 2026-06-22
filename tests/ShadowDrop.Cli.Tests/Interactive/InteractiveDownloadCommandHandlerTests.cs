@@ -111,7 +111,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
             Options("https://shadowdrop.test/not-a-share", ValidKey), CancellationToken.None);
 
         exitCode.Should().Be(1);
-        standardError.ToString().Should().Contain("Share id invalid or missing.");
+        standardError.ToString().Should().Contain("Share token invalid or missing.");
     }
 
     [Test]
@@ -227,11 +227,11 @@ public sealed class InteractiveDownloadCommandHandlerTests
     private static InteractiveDownloadCommandHandler CreateHandler(FakeInteractiveSession session, params HttpResponseMessage[] responses) =>
         CreateHandler(session, responses.Select<HttpResponseMessage, Func<HttpRequestMessage, HttpResponseMessage>>(response => _ => response).ToArray());
 
-    private static DownloadCommandOptions Options(String? shareId = null,
+    private static DownloadCommandOptions Options(String? shareToken = null,
                                                   String? shareKey = null,
                                                   FileInfo? queuePath = null,
                                                   String? fileId = null) =>
-        new(shareId, null, fileId, queuePath, shareKey, null, null);
+        new(shareToken, null, fileId, queuePath, shareKey, null, null);
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {
