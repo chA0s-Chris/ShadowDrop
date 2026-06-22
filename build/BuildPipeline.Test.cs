@@ -37,6 +37,7 @@ internal partial class BuildPipeline
                                   .EnableNoBuild()
                                   .EnableNoRestore()
                                   .SetDataCollector("XPlat Code Coverage")
+                                  .SetSettingsFile(CoverageSettingsFile)
                                   .SetResultsDirectory(CoverageDirectory)
                                   .CombineWith(
                                       TestsDirectory.GlobFiles("**/*.Tests.csproj"),
