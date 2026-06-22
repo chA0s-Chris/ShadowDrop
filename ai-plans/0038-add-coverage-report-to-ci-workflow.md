@@ -7,15 +7,15 @@ a single coverage comment updated for each pull request. This plan addresses
 
 ## Acceptance Criteria
 
-- [ ] The CI workflow creates a Markdown coverage summary from the merged Cobertura report at
+- [x] The CI workflow creates a Markdown coverage summary from the merged Cobertura report at
   `artifacts/test-coverage/coverage.cobertura.merged.xml`, including a badge and the `60 85` thresholds.
-- [ ] The coverage summary is written to the GitHub Actions job summary after the NUKE `Test` target completes.
-- [ ] Same-repository pull-request runs create or update a single sticky comment containing the coverage summary,
+- [x] The coverage summary is written to the GitHub Actions job summary after the NUKE `Test` target completes.
+- [x] Same-repository pull-request runs create or update a single sticky comment containing the coverage summary,
   including pull requests created by Renovate; fork, Dependabot, and push runs do not attempt to create a pull-request
   comment.
-- [ ] The workflow grants only the GitHub token permissions required to read repository contents and write
+- [x] The workflow grants only the GitHub token permissions required to read repository contents and write
   pull-request comments.
-- [ ] The updated workflow passes local YAML and GitHub Actions syntax validation.
+- [x] The updated workflow passes local YAML and GitHub Actions syntax validation.
 
 ## Technical Details
 
