@@ -5,6 +5,8 @@
         <Configuration>
           <Include>[ShadowDrop.*]*</Include>
           <Exclude>[ShadowDrop.*.Tests]*</Exclude>
+          <ExcludeByAttribute>GeneratedCodeAttribute,CompilerGeneratedAttribute,ExcludeFromCodeCoverageAttribute</ExcludeByAttribute>
+          <ExcludeByFile>**/obj/**/*.cs</ExcludeByFile>
         </Configuration>
       </DataCollector>
     </DataCollectors>
