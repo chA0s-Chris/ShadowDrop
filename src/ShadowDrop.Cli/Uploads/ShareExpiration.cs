@@ -40,13 +40,21 @@ internal static class ShareExpiration
             return false;
         }
 
-        duration = unit switch
+        try
         {
-            'm' or 'M' => TimeSpan.FromMinutes(amount),
-            'h' or 'H' => TimeSpan.FromHours(amount),
-            'd' or 'D' => TimeSpan.FromDays(amount),
-            _ => TimeSpan.Zero
-        };
+            duration = unit switch
+            {
+                'm' or 'M' => TimeSpan.FromMinutes(amount),
+                'h' or 'H' => TimeSpan.FromHours(amount),
+                'd' or 'D' => TimeSpan.FromDays(amount),
+                _ => TimeSpan.Zero
+            };
+        }
+        catch (OverflowException)
+        {
+            duration = default;
+            return false;
+        }
 
         return duration > TimeSpan.Zero;
     }

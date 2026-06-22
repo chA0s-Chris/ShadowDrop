@@ -53,13 +53,22 @@ internal static class SecretsFileWriter
 
         try
         {
-            using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            var streamOptions = new FileStreamOptions
             {
-                if (!OperatingSystem.IsWindows())
-                {
-                    File.SetUnixFileMode(tempPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None
+            };
 
+            // Create the file owner-only from the outset so the secret is never written through a handle
+            // that was opened while the file was still group/world-readable.
+            if (!OperatingSystem.IsWindows())
+            {
+                streamOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            using (var stream = new FileStream(tempPath, streamOptions))
+            {
                 var bytes = Encoding.UTF8.GetBytes(content);
                 stream.Write(bytes);
                 stream.Flush(true);
