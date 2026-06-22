@@ -4,11 +4,11 @@ namespace ShadowDrop.Cli.Downloads;
 
 internal static class ShareDownloadUriFactory
 {
-    public static Uri CreateFileUri(Uri serverUrl, String shareId, Guid fileId) =>
-        CreateRelativeUri(serverUrl, $"d/{Uri.EscapeDataString(shareId)}/files/{fileId:D}");
+    public static Uri CreateFileUri(Uri serverUrl, String shareToken, Guid fileId) =>
+        CreateRelativeUri(serverUrl, $"d/{Uri.EscapeDataString(shareToken)}/files/{fileId:D}");
 
-    public static Uri CreateManifestUri(Uri serverUrl, String shareId) =>
-        CreateRelativeUri(serverUrl, $"d/{Uri.EscapeDataString(shareId)}");
+    public static Uri CreateManifestUri(Uri serverUrl, String shareToken) =>
+        CreateRelativeUri(serverUrl, $"d/{Uri.EscapeDataString(shareToken)}");
 
     private static Uri CreateRelativeUri(Uri serverUrl, String relativePath) => new(EnsureDirectoryUri(serverUrl), relativePath);
 

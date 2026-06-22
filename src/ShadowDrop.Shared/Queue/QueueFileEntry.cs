@@ -52,9 +52,9 @@ public sealed record QueueFileEntry
     public String? ServerUrl { get; init; }
 
     /// <summary>
-    /// Gets or sets the share identifier.
+    /// Gets or sets the public share token used to download the share. The server base URL is stored separately in <see cref="ServerUrl"/>.
     /// </summary>
-    [JsonPropertyName("shareId")]
+    [JsonPropertyName("shareToken")]
     [JsonPropertyOrder(1)]
-    public String? ShareId { get; init; }
+    public String? ShareToken { get; init; }
 }

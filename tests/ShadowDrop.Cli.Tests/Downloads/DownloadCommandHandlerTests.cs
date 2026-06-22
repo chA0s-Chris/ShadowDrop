@@ -65,7 +65,7 @@ public sealed class DownloadCommandHandlerTests
         Directory.CreateDirectory(outputsDirectory);
         var queuePath = fixture.CreateQueueFile(new()
         {
-            ShareId = share.ShareToken,
+            ShareToken = share.ShareToken,
             ServerUrl = httpClient.BaseAddress!.ToString(),
             Entries =
             [
@@ -112,7 +112,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "broken-share",
+                        ShareToken = "broken-share",
                         FileId = fixture.FileId.ToString(),
                         FileName = "broken.bin",
                         Length = fixture.Plaintext.LongLength,
@@ -121,7 +121,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "good-share",
+                        ShareToken = "good-share",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -194,7 +194,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "broken-share",
+                        ShareToken = "broken-share",
                         FileId = fixture.FileId.ToString(),
                         FileName = "broken.bin",
                         Length = fixture.Plaintext.LongLength,
@@ -203,7 +203,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "good-share",
+                        ShareToken = "good-share",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -293,7 +293,7 @@ public sealed class DownloadCommandHandlerTests
         var standardError = new StringWriter();
         try
         {
-            var exitCode = await CliApplication.InvokeAsync(["download", "plain-share-id", "--share-key", ValidShareKey],
+            var exitCode = await CliApplication.InvokeAsync(["download", "plain-share-token", "--share-key", ValidShareKey],
                                                             CreateServices(Stream.Null, new StringWriter(), standardError, configPath),
                                                             CancellationToken.None);
 
@@ -307,7 +307,7 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldFail_WhenNeitherShareIdNorQueueProvided()
+    public async Task InvokeAsync_ShouldFail_WhenNeitherShareTokenNorQueueProvided()
     {
         var standardError = new StringWriter();
 
@@ -315,11 +315,11 @@ public sealed class DownloadCommandHandlerTests
                                                         CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
-        standardError.ToString().Should().Contain("Specify either a share id or --queue.");
+        standardError.ToString().Should().Contain("Specify either a share token or --queue.");
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldFail_WhenQueueCombinedWithShareId()
+    public async Task InvokeAsync_ShouldFail_WhenQueueCombinedWithShareToken()
     {
         var standardError = new StringWriter();
 
@@ -328,7 +328,7 @@ public sealed class DownloadCommandHandlerTests
             CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
-        standardError.ToString().Should().Contain("The --queue option cannot be combined with a share id, --file, or --server-url.");
+        standardError.ToString().Should().Contain("The --queue option cannot be combined with a share token, --file, or --server-url.");
     }
 
     [Test]
@@ -386,7 +386,7 @@ public sealed class DownloadCommandHandlerTests
             CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
-        standardError.ToString().Should().Contain("Share id invalid or missing.");
+        standardError.ToString().Should().Contain("Share token invalid or missing.");
     }
 
     [Test]
@@ -487,7 +487,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "shared-token",
+                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -547,7 +547,7 @@ public sealed class DownloadCommandHandlerTests
         var outputPath = Path.Combine(outputsDirectory, "stable.bin");
         var queuePath = fixture.CreateQueueFile(new()
         {
-            ShareId = share.ShareToken,
+            ShareToken = share.ShareToken,
             ServerUrl = httpClient.BaseAddress!.ToString(),
             Entries =
             [
@@ -639,7 +639,7 @@ public sealed class DownloadCommandHandlerTests
         Directory.CreateDirectory(outputsDirectory);
         var queuePath = fixture.CreateQueueFile(new()
         {
-            ShareId = share.ShareToken,
+            ShareToken = share.ShareToken,
             ServerUrl = httpClient.BaseAddress!.ToString(),
             Entries =
             [
@@ -682,7 +682,7 @@ public sealed class DownloadCommandHandlerTests
                                        "files": [
                                          {
                                            "serverUrl": "https://shadowdrop.test",
-                                           "shareId": "share-123",
+                                           "shareToken": "share-123",
                                            "fileId": "file-1",
                                            "fileName": "report.txt",
                                            "length": 4096
@@ -746,7 +746,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path",
-                        ShareId = "shared-token",
+                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString().ToUpperInvariant(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -755,7 +755,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "shared-token",
+                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -862,7 +862,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "shared-token",
+                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -871,7 +871,7 @@ public sealed class DownloadCommandHandlerTests
                     new()
                     {
                         ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareId = "shared-token",
+                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1090,7 +1090,7 @@ public sealed class DownloadCommandHandlerTests
                 Files = fixture.Entries.Select(entry => new QueueFileEntry
                 {
                     ServerUrl = fixture.ServerUrl,
-                    ShareId = fixture.ShareId,
+                    ShareToken = fixture.ShareToken,
                     FileId = entry.FileId,
                     FileName = entry.FileName,
                     Length = entry.Length,
@@ -1299,7 +1299,7 @@ public sealed class DownloadCommandHandlerTests
     {
         public required IReadOnlyList<QueueFileEntryFixture> Entries { get; init; }
         public required String ServerUrl { get; init; }
-        public required String ShareId { get; init; }
+        public required String ShareToken { get; init; }
     }
 
     private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
