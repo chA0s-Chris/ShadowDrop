@@ -15,7 +15,9 @@ public sealed class SpectreCliInteractiveSessionTests
         using var console = new TestConsole();
         var session = new SpectreCliInteractiveSession(console);
 
-        // Under the test runner standard streams are redirected, so interactivity is unsupported.
+        // IsInteractiveSupported derives from System.Console redirection state, not the injected console.
+        // Only assert when the test host has redirected a standard stream (the usual CI case); skip in a real terminal.
+        Assume.That(Console.IsInputRedirected || Console.IsOutputRedirected || Console.IsErrorRedirected, Is.True);
         session.IsInteractiveSupported.Should().BeFalse();
     }
 
