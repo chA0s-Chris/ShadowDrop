@@ -3,11 +3,14 @@
 namespace ShadowDrop.Cli.Interactive;
 
 using ShadowDrop.Cli.Configuration;
-using ShadowDrop.Cli.Downloads;
-using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Uploads;
 using System.Text.Json;
 
+/// <summary>
+/// Guided upload: collects the server, token, files, and share options interactively, then delegates the
+/// actual upload, share creation, and credential delivery to the shared <see cref="UploadCommandHandler"/>
+/// so the orchestration and result format match the non-interactive command exactly.
+/// </summary>
 internal sealed class InteractiveUploadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
@@ -31,17 +34,7 @@ internal sealed class InteractiveUploadCommandHandler(
         {
             configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
         }
-        catch (IOException)
-        {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
-            return 1;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
-            return 1;
-        }
-        catch (JsonException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
             await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
             return 1;
@@ -50,91 +43,50 @@ internal sealed class InteractiveUploadCommandHandler(
         var serverUrl = ResolveServerUrl(configuration.ServerUrl);
         var uploadToken = ResolveUploadToken(configuration.UploadToken);
         var files = ResolveFiles(options.Files);
+        var shareChoices = PromptShareOptions();
 
         interactiveSession.ShowSummary("Upload plan",
                                        files.Select(file => ("File", file.FullName))
-                                            .Concat([("Server", serverUrl.AbsoluteUri)])
+                                            .Concat(
+                                            [
+                                                ("Server", serverUrl.AbsoluteUri),
+                                                ("Expiration", shareChoices.ExpirationLabel),
+                                                ("Delivery mode", shareChoices.DirectHttp ? "Direct HTTP" : "Separate key"),
+                                                ("Download bearer token", shareChoices.GenerateDownloadToken ? "Required" : "Not required")
+                                            ])
                                             .ToArray());
 
-        var uploader = new UploadCommandExecutor(httpClient);
-        var uploadResult = await uploader.ExecuteAsync(files, serverUrl, uploadToken, cancellationToken);
-        for (var index = 0; index < uploadResult.Files.Count; index++)
-        {
-            var fileResult = uploadResult.Files[index];
-            if (fileResult.UploadedFileId is not null)
-            {
-                interactiveSession.ShowMessage($"Uploaded file {index + 1} of {uploadResult.Files.Count}.");
-            }
-            else
-            {
-                await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
-            }
-        }
+        // Delegate to the shared end-to-end handler so the upload, share creation, and credential delivery
+        // (share URL + share key + any bearer token on stdout) behave identically to the non-interactive command.
+        var uploadOptions = new UploadCommandOptions(files.ToArray(),
+                                                     serverUrl.AbsoluteUri,
+                                                     uploadToken,
+                                                     shareChoices.ExpiresIn,
+                                                     shareChoices.DirectHttp,
+                                                     shareChoices.GenerateDownloadToken,
+                                                     options.SecretsOut,
+                                                     options.QueueOut,
+                                                     options.EmbedSecrets,
+                                                     options.Json,
+                                                     options.Force);
 
-        if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
-        {
-            return 1;
-        }
-
-        var shareRequest = BuildShareRequest(uploadResult, PromptShareOptions());
-        CreateShareCliResult shareResult;
-        try
-        {
-            shareResult = await new CreateShareApiClient(httpClient).CreateAsync(serverUrl, uploadToken, shareRequest, cancellationToken);
-        }
-        catch (CreateShareCommandException exception)
-        {
-            await standardError.WriteLineAsync(exception.Message);
-            return 1;
-        }
-
-        var shareLink = ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareResult.ShareToken).AbsoluteUri;
-        interactiveSession.ShowSummary("Share created",
-        [
-            ("Share link", shareLink),
-            ("Delivery mode", shareRequest.DirectHttpEnabled ? "Direct HTTP" : "Separate key"),
-            ("Download bearer token", shareRequest.GenerateDownloadBearerToken ? "Required" : "Not required"),
-            ("Share key", "Hidden unless you opt in.")
-        ]);
-
-        var shouldOutputSecrets =
-            interactiveSession.PromptConfirmation("Display the share key and any generated download bearer token now?", false);
-        if (!shouldOutputSecrets)
-        {
-            return 0;
-        }
-
-        await standardOut.WriteLineAsync($"secret:{uploadResult.ShareSecretHex}");
-        if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
-        {
-            await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
-        }
-
-        return 0;
+        return await new UploadCommandHandler(configurationResolver, httpClient, standardOut, standardError, timeProvider)
+            .ExecuteAsync(uploadOptions, cancellationToken);
     }
-
-    private static CreateShareCliRequest BuildShareRequest(UploadExecutionResult uploadResult, SharePromptResult promptResult) =>
-        new(promptResult.ExpiresAtUtc,
-            uploadResult.Files.Select(static result => new CreateShareCliFileRequest(result.UploadedFileId!.Value, result.File.Name))
-                        .ToArray(),
-            promptResult.DirectHttpEnabled,
-            promptResult.RequireDownloadBearerToken,
-            promptResult.RequireDownloadBearerToken ? promptResult.ExpiresAtUtc : null);
 
     private SharePromptResult PromptShareOptions()
     {
         var choices = new ExpirationChoice[]
         {
-            new("1 hour", TimeSpan.FromHours(1)),
-            new("1 day", TimeSpan.FromDays(1)),
-            new("7 days", TimeSpan.FromDays(7)),
-            new("30 days", TimeSpan.FromDays(30))
+            new("1 hour", "1h"),
+            new("1 day", "1d"),
+            new("7 days", "7d"),
+            new("30 days", "30d")
         };
         var expirationChoice = interactiveSession.PromptSelection("Select the share expiration:", choices, static choice => choice.Label);
-        var directHttpEnabled = interactiveSession.PromptConfirmation("Enable direct HTTP downloads?", false);
-        var requireDownloadBearerToken = !directHttpEnabled
-                                         && interactiveSession.PromptConfirmation("Require a download bearer token?", false);
-        return new(timeProvider.GetUtcNow().Add(expirationChoice.Duration), directHttpEnabled, requireDownloadBearerToken);
+        var directHttp = interactiveSession.PromptConfirmation("Enable direct HTTP downloads?", false);
+        var generateDownloadToken = !directHttp && interactiveSession.PromptConfirmation("Require a download bearer token?", false);
+        return new(expirationChoice.ExpiresIn, expirationChoice.Label, directHttp, generateDownloadToken);
     }
 
     private IReadOnlyList<FileInfo> ResolveFiles(IReadOnlyList<FileInfo> files)
@@ -148,14 +100,7 @@ internal sealed class InteractiveUploadCommandHandler(
         do
         {
             var path = interactiveSession.PromptText("Path to a file to upload:", validate: static value =>
-            {
-                if (String.IsNullOrWhiteSpace(value))
-                {
-                    return "Enter a local file path.";
-                }
-
-                return null;
-            });
+                                                         String.IsNullOrWhiteSpace(value) ? "Enter a local file path." : null);
             selectedFiles.Add(new FileInfo(path));
         } while (interactiveSession.PromptConfirmation("Add another file?", false));
 
@@ -204,7 +149,7 @@ internal sealed class InteractiveUploadCommandHandler(
                                                  String.IsNullOrWhiteSpace(value) ? "Enter an upload token." : null);
     }
 
-    private sealed record ExpirationChoice(String Label, TimeSpan Duration);
+    private sealed record ExpirationChoice(String Label, String ExpiresIn);
 
-    private sealed record SharePromptResult(DateTimeOffset ExpiresAtUtc, Boolean DirectHttpEnabled, Boolean RequireDownloadBearerToken);
+    private sealed record SharePromptResult(String ExpiresIn, String ExpirationLabel, Boolean DirectHttp, Boolean GenerateDownloadToken);
 }

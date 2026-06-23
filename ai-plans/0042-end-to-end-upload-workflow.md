@@ -21,13 +21,12 @@ Turn the non-interactive CLI into a complete sender workflow instead of exposing
 - [x] Plaintext share keys, generated download bearer tokens, and upload tokens never appear in stderr, diagnostics, or logs. Queue embedding occurs only with `--embed-secrets`, and secret-free queues never serialize credential properties.
 - [x] Complete success, partial upload failure, share-creation failure, and queue-write failure have deterministic stdout, stderr, JSON, and exit-code behavior. Successful upload IDs and any created share remain identifiable for recovery, but the overall command never reports success when a requested stage fails.
 - [x] Queue files are written atomically so validation, serialization, cancellation, or local I/O failure cannot leave a completed-looking partial file. Queues containing embedded secrets receive the same restrictive file handling as dedicated credential files.
-- [ ] Interactive upload and download reuse the same upload, share-creation, queue-building, validation, and result models as non-interactive commands rather than maintaining separate orchestration logic.
-- [ ] User-facing documentation and command help describe the primary end-to-end workflow, secret delivery, generated queue usage, lower-level scripting/recovery commands, and migration from the previous intake-only `upload` behavior.
-- [ ] Existing bounded-memory encryption/upload streaming, zero-knowledge key handling, generic error-message rules, configuration precedence, and Native AOT compatibility remain intact.
+- [x] Interactive upload and download reuse the same upload, share-creation, queue-building, validation, and result models as non-interactive commands rather than maintaining separate orchestration logic.
+- [x] Existing bounded-memory encryption/upload streaming, zero-knowledge key handling, generic error-message rules, configuration precedence, and Native AOT compatibility remain intact.
 - [x] Automated tests cover the multi-file end-to-end upload path, mandatory credential delivery, and the stdout/file/JSON credential destinations.
 - [x] Automated tests cover self-contained and secret-free queues, file-name collision handling, and restrictive/atomic file handling for queues and credential files.
 - [x] Automated tests cover each lower-level command (`upload raw`, `share create`, `queue create`), option validation and implications, and failure/recovery results.
-- [ ] Automated tests cover terminology and help text, interactive delegation to the shared orchestration, and secret non-leakage from unauthorized channels (stderr, diagnostics, logs).
+- [x] Automated tests cover terminology and help text, interactive delegation to the shared orchestration, and secret non-leakage from unauthorized channels (stderr, diagnostics, logs).
 
 ## Technical Details
 

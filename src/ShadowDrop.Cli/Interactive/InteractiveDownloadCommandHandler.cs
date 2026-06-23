@@ -173,30 +173,22 @@ internal sealed class InteractiveDownloadCommandHandler(
                                                 String.IsNullOrWhiteSpace(value) ? "Enter a share URL or share token." : null)
             : shareToken;
 
-        if (Uri.TryCreate(enteredShareToken, UriKind.Absolute, out var absoluteShareUri)
-            && (absoluteShareUri.Scheme == Uri.UriSchemeHttp || absoluteShareUri.Scheme == Uri.UriSchemeHttps))
+        // Reuse the same token-or-URL parsing as the non-interactive download and queue commands.
+        if (!ShareReferenceResolver.TryResolve(enteredShareToken, serverUrlFallback: null, out var resolvedServerUrl, out var resolvedToken))
         {
-            var segments = absoluteShareUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length >= 2 && String.Equals(segments[^2], "d", StringComparison.OrdinalIgnoreCase))
-            {
-                var basePath = segments.Length == 2 ? "/" : $"/{String.Join('/', segments[..^2])}/";
-                var builder = new UriBuilder(absoluteShareUri)
-                {
-                    Path = basePath,
-                    Query = String.Empty,
-                    Fragment = String.Empty
-                };
-                return new(builder.Uri, Uri.UnescapeDataString(segments[^1]));
-            }
-
             throw new DownloadCommandException("Share token invalid or missing.");
+        }
+
+        if (resolvedServerUrl is not null)
+        {
+            return new(resolvedServerUrl, resolvedToken);
         }
 
         var configuration = ResolveConfiguration(serverUrlOverride);
         if (Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var configuredServerUrl)
             && (configuredServerUrl.Scheme == Uri.UriSchemeHttp || configuredServerUrl.Scheme == Uri.UriSchemeHttps))
         {
-            return new(configuredServerUrl, enteredShareToken);
+            return new(configuredServerUrl, resolvedToken);
         }
 
         var configuredServerUrlValue = configuration.ServerUrl;
@@ -216,7 +208,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             if (Uri.TryCreate(candidate, UriKind.Absolute, out var serverUrl)
                 && (serverUrl.Scheme == Uri.UriSchemeHttp || serverUrl.Scheme == Uri.UriSchemeHttps))
             {
-                return new(serverUrl, enteredShareToken);
+                return new(serverUrl, resolvedToken);
             }
 
             configuredServerUrlValue = null;

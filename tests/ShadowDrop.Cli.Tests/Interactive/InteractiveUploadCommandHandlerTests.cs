@@ -20,6 +20,9 @@ public sealed class InteractiveUploadCommandHandlerTests
         session.EnqueueConfirmation(true); // Add another file?
         session.EnqueueTextResponse(MissingFilePath());
         session.EnqueueConfirmation(false);
+        session.EnqueueSelection(2); // Expiration: 7 days
+        session.EnqueueConfirmation(false); // Enable direct HTTP downloads?
+        session.EnqueueConfirmation(false); // Require a download bearer token?
         var handler = CreateHandler(session, new NeverCalledHandler(),
                                     FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"));
 
@@ -74,6 +77,9 @@ public sealed class InteractiveUploadCommandHandlerTests
         session.EnqueueTextResponse("upload-token"); // Upload token prompt
         session.EnqueueTextResponse(MissingFilePath()); // First file path prompt
         session.EnqueueConfirmation(false); // Add another file?
+        session.EnqueueSelection(2); // Expiration: 7 days
+        session.EnqueueConfirmation(false); // Enable direct HTTP downloads?
+        session.EnqueueConfirmation(false); // Require a download bearer token?
         var handler = CreateHandler(session, new NeverCalledHandler());
 
         var exitCode = await handler.ExecuteAsync(Options(), CancellationToken.None);
@@ -93,6 +99,9 @@ public sealed class InteractiveUploadCommandHandlerTests
         session.EnqueueTextResponse("upload-token");
         session.EnqueueTextResponse(MissingFilePath());
         session.EnqueueConfirmation(false);
+        session.EnqueueSelection(2); // Expiration: 7 days
+        session.EnqueueConfirmation(false); // Enable direct HTTP downloads?
+        session.EnqueueConfirmation(false); // Require a download bearer token?
         var handler = CreateHandler(session, new NeverCalledHandler());
 
         var exitCode = await handler.ExecuteAsync(Options(), CancellationToken.None);
