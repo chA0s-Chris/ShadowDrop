@@ -1016,6 +1016,30 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task ShareCreate_ShouldNormalizeFileIdsInJsonResult()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("normalize.bin", 64);
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var rawResult = JsonDocument.Parse(standardOut.ToString());
+        var canonicalFileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
+
+        var createOut = new StringWriter();
+        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["share", "create", canonicalFileId.ToUpperInvariant(), "--json"], createServices,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var shareResult = JsonDocument.Parse(createOut.ToString());
+        shareResult.RootElement.GetProperty("uploadedFileIds")[0].GetString().Should().Be(canonicalFileId);
+    }
+
+    [Test]
     public async Task ShareCreate_ShouldRejectInvalidFileId()
     {
         var standardError = new StringWriter();

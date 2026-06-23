@@ -78,7 +78,8 @@ internal sealed class ShareCreateCommandHandler(
                                                      options.GenerateDownloadToken,
                                                      options.GenerateDownloadToken ? expiresAtUtc : null);
 
-        var fileIds = options.FileIds.ToArray();
+        // Report canonical GUID strings so the JSON surface matches upload / upload raw regardless of input formatting.
+        var fileIds = files.Select(static file => file.FileId.ToString()).ToArray();
 
         CreateShareCliResult shareResult;
         try
