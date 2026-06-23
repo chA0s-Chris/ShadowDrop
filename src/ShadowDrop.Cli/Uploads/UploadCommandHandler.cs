@@ -185,7 +185,7 @@ internal sealed class UploadCommandHandler(
             catch (Exception exception) when (exception is DownloadCommandException or QueueBuildException or AtomicFileException)
             {
                 await standardError.WriteLineAsync(exception.Message);
-                await standardError.WriteLineAsync("The share was created but the queue file could not be written.");
+                await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
                 await EmitResultAsync(options, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, queueFile: null);

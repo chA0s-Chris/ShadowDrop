@@ -60,9 +60,13 @@ internal sealed class QueueCreateCommandHandler(
         }
 
         _ = Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var configuredServerUrl);
-        if (!ShareReferenceResolver.TryResolve(options.ShareToken!, configuredServerUrl, out var serverUrl, out var shareToken)
-            || serverUrl is null
-            || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
+        if (!ShareReferenceResolver.TryResolve(options.ShareToken!, configuredServerUrl, out var serverUrl, out var shareToken))
+        {
+            await standardError.WriteLineAsync("Share token invalid or missing.");
+            return 1;
+        }
+
+        if (serverUrl is null || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
         {
             await standardError.WriteLineAsync("Server URL invalid or missing.");
             return 1;

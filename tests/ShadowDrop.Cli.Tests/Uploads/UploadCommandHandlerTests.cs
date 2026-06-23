@@ -894,6 +894,25 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task QueueCreate_ShouldReportShareTokenError_ForNonShareUrl()
+    {
+        var standardError = new StringWriter();
+        var services = CreateServices(new StringWriter(), standardError,
+                                      environmentValues: new Dictionary<String, String?>
+                                      {
+                                          ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
+                                      });
+        var queuePath = Path.Combine(Path.GetTempPath(), $"nonshare-{Guid.NewGuid():N}.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["queue", "create", "https://example.com/not-a-share", "--out", queuePath], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Share token invalid or missing.");
+        File.Exists(queuePath).Should().BeFalse();
+    }
+
+    [Test]
     public async Task QueueCreate_ShouldWriteSecretFreeQueueFromExistingShare()
     {
         await using var fixture = new CliUploadApiFactory();

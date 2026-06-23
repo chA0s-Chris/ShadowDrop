@@ -289,14 +289,14 @@ public sealed class QueueFileParserTests
         {
             Credentials = new QueueCredentials
             {
-                ShareKey = "deadbeef",
+                ShareKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 DownloadBearerToken = "bearer"
             }
         };
 
         var roundTripped = QueueFileParser.Deserialize(QueueFileParser.Serialize(queueFile));
 
-        roundTripped.Credentials!.ShareKey.Should().Be("deadbeef");
+        roundTripped.Credentials!.ShareKey.Should().Be("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         roundTripped.Credentials.DownloadBearerToken.Should().Be("bearer");
     }
 

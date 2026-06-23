@@ -16,14 +16,14 @@ public sealed class QueueFileBuilderTests
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "report.txt", 4096));
         var credentials = new QueueCredentials
         {
-            ShareKey = "abc123",
+            ShareKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             DownloadBearerToken = "bearer-xyz"
         };
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token-abc", manifest, credentials);
 
         queue.Credentials.Should().NotBeNull();
-        queue.Credentials!.ShareKey.Should().Be("abc123");
+        queue.Credentials!.ShareKey.Should().Be("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         queue.Credentials.DownloadBearerToken.Should().Be("bearer-xyz");
     }
 
@@ -43,6 +43,19 @@ public sealed class QueueFileBuilderTests
         entry.FileName.Should().Be("report.txt");
         entry.Length.Should().Be(4096);
         entry.OutputPath.Should().Be("report.txt");
+    }
+
+    [TestCase("con.txt", "_con.txt")]
+    [TestCase("NUL", "_NUL")]
+    [TestCase("file.", "file")]
+    [TestCase("trailing. ", "trailing")]
+    public void Build_ShouldNormalizeWindowsUnsafeNames(String fileName, String expected)
+    {
+        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", fileName, 1));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Single().OutputPath.Should().Be(expected);
     }
 
     [Test]
@@ -66,6 +79,16 @@ public sealed class QueueFileBuilderTests
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
         queue.Files!.Single().OutputPath.Should().Be("a_b_c_.txt");
+    }
+
+    [Test]
+    public void Build_ShouldStripBackslashDirectoryComponents_RegardlessOfHostPlatform()
+    {
+        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "dir\\sub\\file.txt", 1));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Single().OutputPath.Should().Be("file.txt");
     }
 
     [Test]
