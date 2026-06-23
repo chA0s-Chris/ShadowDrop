@@ -554,8 +554,8 @@ public sealed class UploadCommandHandlerTests
         (await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--embed-secrets"], services, CancellationToken.None)).Should().Be(0);
 
         var conflictError = new StringWriter();
-        var downloadServices = CreateServices(new StringWriter(), conflictError, fixture.ConfigFilePath, httpClient: httpClient);
-        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new String('a', 64)], downloadServices,
+        var downloadServices = CreateServices(new(), conflictError, fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new('a', 64)], downloadServices,
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -843,6 +843,7 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-key:").Should().NotBeNull();
         FindLine(standardOut.ToString(), "queue-file:").Should().Be($"queue-file:{queuePath}");
+        standardError.ToString().Should().Contain("secret-free").And.Contain("--embed-secrets");
         var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
         queue.Credentials.Should().BeNull();
         var entry = queue.Files.Should().ContainSingle().Subject;
@@ -854,15 +855,15 @@ public sealed class UploadCommandHandlerTests
     public async Task InvokeAsync_ShouldWriteSubcommandHelpToStdout_ForLowerLevelCommands()
     {
         var rawOut = new StringWriter();
-        (await CliApplication.InvokeAsync(["upload", "raw", "--help"], CreateServices(rawOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        (await CliApplication.InvokeAsync(["upload", "raw", "--help"], CreateServices(rawOut, new()), CancellationToken.None)).Should().Be(0);
         rawOut.ToString().Should().Contain("without creating a share").And.Contain("--secrets-out");
 
         var shareOut = new StringWriter();
-        (await CliApplication.InvokeAsync(["share", "create", "--help"], CreateServices(shareOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        (await CliApplication.InvokeAsync(["share", "create", "--help"], CreateServices(shareOut, new()), CancellationToken.None)).Should().Be(0);
         shareOut.ToString().Should().Contain("file-ids").And.Contain("--download-token");
 
         var queueOut = new StringWriter();
-        (await CliApplication.InvokeAsync(["queue", "create", "--help"], CreateServices(queueOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        (await CliApplication.InvokeAsync(["queue", "create", "--help"], CreateServices(queueOut, new()), CancellationToken.None)).Should().Be(0);
         queueOut.ToString().Should().Contain("--out").And.Contain("--embed-secrets");
     }
 
@@ -939,7 +940,7 @@ public sealed class UploadCommandHandlerTests
         var shareKey = uploadResult.RootElement.GetProperty("credentials").GetProperty("shareKey").GetString()!;
         var queuePath = Path.Combine(fixture.RootDirectory, "embed-create.queue.json");
 
-        var createServices = CreateServices(new StringWriter(), new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var createServices = CreateServices(new(), new(), fixture.ConfigFilePath, httpClient: httpClient);
         var exitCode = await CliApplication.InvokeAsync(["queue", "create", shareUrl, "--out", queuePath, "--embed-secrets", "--share-key", shareKey],
                                                         createServices, CancellationToken.None);
 
@@ -952,7 +953,7 @@ public sealed class UploadCommandHandlerTests
     public async Task QueueCreate_ShouldRefuseToOverwriteExistingQueue_WithoutForce()
     {
         var standardError = new StringWriter();
-        var services = CreateServices(new StringWriter(), standardError,
+        var services = CreateServices(new(), standardError,
                                       environmentValues: new Dictionary<String, String?>
                                       {
                                           ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
@@ -978,7 +979,7 @@ public sealed class UploadCommandHandlerTests
     public async Task QueueCreate_ShouldRejectEmbedSecretsWithoutShareKey()
     {
         var standardError = new StringWriter();
-        var services = CreateServices(new StringWriter(), standardError,
+        var services = CreateServices(new(), standardError,
                                       environmentValues: new Dictionary<String, String?>
                                       {
                                           ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
@@ -997,7 +998,7 @@ public sealed class UploadCommandHandlerTests
     public async Task QueueCreate_ShouldReportShareTokenError_ForNonShareUrl()
     {
         var standardError = new StringWriter();
-        var services = CreateServices(new StringWriter(), standardError,
+        var services = CreateServices(new(), standardError,
                                       environmentValues: new Dictionary<String, String?>
                                       {
                                           ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
@@ -1054,7 +1055,7 @@ public sealed class UploadCommandHandlerTests
         var fileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
 
         var createOut = new StringWriter();
-        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var createServices = CreateServices(createOut, new(), fixture.ConfigFilePath, httpClient: httpClient);
         var exitCode = await CliApplication.InvokeAsync(["share", "create", fileId, "--json"], createServices, CancellationToken.None);
 
         exitCode.Should().Be(0);
@@ -1093,7 +1094,7 @@ public sealed class UploadCommandHandlerTests
         var canonicalFileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
 
         var createOut = new StringWriter();
-        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var createServices = CreateServices(createOut, new(), fixture.ConfigFilePath, httpClient: httpClient);
         var exitCode = await CliApplication.InvokeAsync(["share", "create", canonicalFileId.ToUpperInvariant(), "--json"], createServices,
                                                         CancellationToken.None);
 
@@ -1106,7 +1107,7 @@ public sealed class UploadCommandHandlerTests
     public async Task ShareCreate_ShouldRejectInvalidFileId()
     {
         var standardError = new StringWriter();
-        var services = CreateServices(new StringWriter(), standardError);
+        var services = CreateServices(new(), standardError);
 
         var exitCode = await CliApplication.InvokeAsync(["share", "create", "not-a-guid"], services, CancellationToken.None);
 
@@ -1121,7 +1122,7 @@ public sealed class UploadCommandHandlerTests
         var standardError = new StringWriter();
         using var httpClient = fixture.CreateClient();
         fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
-        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var services = CreateServices(new(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
         var secretsPath = Path.Combine(fixture.RootDirectory, "no-token.json");
 
         var exitCode = await CliApplication.InvokeAsync(
@@ -1178,7 +1179,7 @@ public sealed class UploadCommandHandlerTests
         var secretsPath = Path.Combine(fixture.RootDirectory, "bearer-creds.json");
 
         var createOut = new StringWriter();
-        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var createServices = CreateServices(createOut, new(), fixture.ConfigFilePath, httpClient: httpClient);
         var exitCode = await CliApplication.InvokeAsync(
             ["share", "create", fileId, "--download-token", "--secrets-out", secretsPath], createServices, CancellationToken.None);
 

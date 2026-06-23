@@ -103,7 +103,7 @@ internal sealed class QueueCreateCommandHandler(
         {
             var manifest = await new ShareManifestClient(httpClient).GetAsync(serverUrl, shareToken, options.BearerToken, cancellationToken);
             var queue = QueueFileBuilder.Build(serverUrl, shareToken, manifest, credentials);
-            AtomicFileWriter.WriteAtomic(options.Out, QueueFileParser.Serialize(queue), options.Force, ownerOnly: options.EmbedSecrets);
+            AtomicFileWriter.WriteAtomic(options.Out, QueueFileParser.Serialize(queue), options.Force, options.EmbedSecrets);
             await standardOut.WriteLineAsync($"queue-file:{options.Out.FullName}");
             return 0;
         }

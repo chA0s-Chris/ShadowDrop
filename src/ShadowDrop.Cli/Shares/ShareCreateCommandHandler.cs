@@ -125,7 +125,7 @@ internal sealed class ShareCreateCommandHandler(
             try
             {
                 AtomicFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
-                                             options.Force, ownerOnly: true);
+                                             options.Force, true);
             }
             catch (AtomicFileException exception)
             {

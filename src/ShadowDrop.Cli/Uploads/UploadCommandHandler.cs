@@ -133,7 +133,7 @@ internal sealed class UploadCommandHandler(
             try
             {
                 AtomicFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
-                                             options.Force, ownerOnly: true);
+                                             options.Force, true);
             }
             catch (AtomicFileException exception)
             {
@@ -166,7 +166,7 @@ internal sealed class UploadCommandHandler(
                 var manifest = await new ShareManifestClient(httpClient).GetAsync(serverUrl, shareResult.ShareToken, shareResult.DownloadBearerToken,
                                                                                   cancellationToken);
                 var queue = QueueFileBuilder.Build(serverUrl, shareResult.ShareToken, manifest, queueCredentials);
-                AtomicFileWriter.WriteAtomic(options.QueueOut, QueueFileParser.Serialize(queue), options.Force, ownerOnly: options.EmbedSecrets);
+                AtomicFileWriter.WriteAtomic(options.QueueOut, QueueFileParser.Serialize(queue), options.Force, options.EmbedSecrets);
                 queueFilePath = options.QueueOut.FullName;
             }
             catch (Exception exception) when (exception is DownloadCommandException or QueueBuildException or AtomicFileException)
@@ -175,7 +175,7 @@ internal sealed class UploadCommandHandler(
                 await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
-                await EmitResultAsync(options, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, queueFile: null);
+                await EmitResultAsync(options, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null);
                 return 1;
             }
         }
@@ -237,6 +237,12 @@ internal sealed class UploadCommandHandler(
         if (queueFile is not null)
         {
             await standardOut.WriteLineAsync($"queue-file:{queueFile}");
+            if (!options.EmbedSecrets)
+            {
+                await standardError.WriteLineAsync(
+                    "Note: the queue is secret-free. Keep the share key to download it with --share-key or --share-key-file, "
+                    + "or re-run with --embed-secrets for a self-contained queue.");
+            }
         }
     }
 

@@ -286,6 +286,45 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldExplainSecretFreeQueue_WhenShareKeyMissing()
+    {
+        await using var fixture = new CliDownloadApiFactory();
+        using var httpClient = new HttpClient(new NeverCalledHandler());
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var queuePath = Path.Combine(fixture.RootDirectory, "secret-free.queue.json");
+        await File.WriteAllTextAsync(queuePath,
+                                     """
+                                     {
+                                       "shadowDrop": "1.0",
+                                       "queueVersion": "1.0",
+                                       "files": [
+                                         {
+                                           "serverUrl": "https://shadowdrop.test",
+                                           "shareToken": "share-123",
+                                           "fileId": "file-1",
+                                           "fileName": "report.txt",
+                                           "length": 4096,
+                                           "outputPath": "report.txt"
+                                         }
+                                       ]
+                                     }
+                                     """);
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath],
+                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.Length.Should().Be(0);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("secret-free")
+                     .And.Contain("--share-key")
+                     .And.Contain("--embed-secrets");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldFail_WhenConfigurationFileIsMalformed()
     {
         var configPath = Path.Combine(Path.GetTempPath(), $"config-{Guid.NewGuid():N}.json");

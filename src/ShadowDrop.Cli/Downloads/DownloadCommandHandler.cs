@@ -16,6 +16,9 @@ internal sealed class DownloadCommandHandler(
     Stream standardOutStream,
     TextWriter standardError)
 {
+    private const String SecretFreeQueueKeyMissingMessage =
+        "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file "
+        + "(shown by 'upload' as 'share-key:'), or recreate the queue with --embed-secrets.";
     private const String SecretPrefix = "secret:";
 
     public async Task<Int32> ExecuteAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
@@ -377,7 +380,7 @@ internal sealed class DownloadCommandHandler(
                 shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
                 if (shareKeyBytes is null)
                 {
-                    await standardError.WriteLineAsync("Share key invalid or missing.");
+                    await standardError.WriteLineAsync(SecretFreeQueueKeyMissingMessage);
                     return 1;
                 }
 
@@ -501,7 +504,7 @@ internal sealed class DownloadCommandHandler(
 
     private ShareReference ResolveShareReference(String shareToken, String? serverUrlOverride)
     {
-        if (!ShareReferenceResolver.TryResolve(shareToken, serverUrlFallback: null, out var resolvedServerUrl, out var resolvedToken))
+        if (!ShareReferenceResolver.TryResolve(shareToken, null, out var resolvedServerUrl, out var resolvedToken))
         {
             throw new DownloadCommandException("Share token invalid or missing.");
         }
