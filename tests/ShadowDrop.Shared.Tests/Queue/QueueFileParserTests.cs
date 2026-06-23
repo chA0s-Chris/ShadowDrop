@@ -318,6 +318,23 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Validate_ShouldRejectCredentials_WhenShareKeyMalformed()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Credentials = new QueueCredentials
+            {
+                ShareKey = "not-a-valid-hex-key"
+            }
+        };
+
+        var errors = QueueFileParser.Validate(queueFile);
+
+        errors.Should().Contain(error => error.Path == "credentials.shareKey"
+                                         && error.Message == "The shareKey value must be 64-character lowercase hexadecimal share-key material.");
+    }
+
+    [Test]
     public void Validate_ShouldRejectCredentials_WhenShareKeyMissing()
     {
         var queueFile = CreateValidQueueFile() with

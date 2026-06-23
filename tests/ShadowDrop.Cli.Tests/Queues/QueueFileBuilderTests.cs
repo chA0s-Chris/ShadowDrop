@@ -59,6 +59,16 @@ public sealed class QueueFileBuilderTests
     }
 
     [Test]
+    public void Build_ShouldSanitizeWindowsInvalidCharacters_RegardlessOfHostPlatform()
+    {
+        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b*c?.txt", 1));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Single().OutputPath.Should().Be("a_b_c_.txt");
+    }
+
+    [Test]
     public void Build_ShouldStripDirectoryComponentsFromOutputPaths()
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "../../etc/passwd", 1));
@@ -89,6 +99,18 @@ public sealed class QueueFileBuilderTests
         var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
         act.Should().Throw<QueueBuildException>();
+    }
+
+    [Test]
+    public void Build_ShouldTreatCaseOnlyDuplicatesAsCollisions()
+    {
+        var manifest = Manifest(
+            ("11111111-1111-1111-1111-111111111111", "Report.txt", 1),
+            ("22222222-2222-2222-2222-222222222222", "report.txt", 2));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Select(entry => entry.OutputPath).Should().Equal("Report.txt", "report (2).txt");
     }
 
     private static ShareManifestContract Manifest(params (String FileId, String FileName, Int64 Length)[] files) =>

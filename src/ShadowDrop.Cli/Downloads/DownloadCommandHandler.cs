@@ -501,7 +501,7 @@ internal sealed class DownloadCommandHandler(
 
     private ShareReference ResolveShareReference(String shareToken, String? serverUrlOverride)
     {
-        if (!ShareReferenceResolver.TryResolve(shareToken, serverUrlFallback: null!, out var resolvedServerUrl, out var resolvedToken))
+        if (!ShareReferenceResolver.TryResolve(shareToken, serverUrlFallback: null, out var resolvedServerUrl, out var resolvedToken))
         {
             throw new DownloadCommandException("Share token invalid or missing.");
         }

@@ -11,6 +11,14 @@ using ShadowDrop.Queue;
 /// </summary>
 internal static class QueueFileBuilder
 {
+    // A fixed, OS-independent set so a queue generated on one platform stays safe to download on another.
+    // Combines the Windows-invalid characters (the strictest common set) with ASCII control characters.
+    private static readonly HashSet<Char> PortableInvalidFileNameChars =
+    [
+        '<', '>', ':', '"', '/', '\\', '|', '?', '*',
+        ..Enumerable.Range(0, 32).Select(static value => (Char)value)
+    ];
+
     /// <summary>
     /// Builds a queue from the supplied share manifest.
     /// </summary>
@@ -32,7 +40,10 @@ internal static class QueueFileBuilder
         }
 
         var serverUrlText = serverUrl.AbsoluteUri;
-        HashSet<String> usedNames = new(StringComparer.Ordinal);
+
+        // Compare case-insensitively so names differing only by case do not collide at write time on
+        // case-insensitive file systems (Windows and many macOS setups).
+        HashSet<String> usedNames = new(StringComparer.OrdinalIgnoreCase);
         List<QueueFileEntry> entries = [];
 
         foreach (var file in manifest.Files)
@@ -82,8 +93,7 @@ internal static class QueueFileBuilder
             throw new QueueBuildException("A queued file has no usable name.");
         }
 
-        var invalidChars = Path.GetInvalidFileNameChars();
-        var sanitized = new String(leaf.Select(character => invalidChars.Contains(character) ? '_' : character).ToArray()).Trim();
+        var sanitized = new String(leaf.Select(static character => PortableInvalidFileNameChars.Contains(character) ? '_' : character).ToArray()).Trim();
 
         if (String.IsNullOrWhiteSpace(sanitized) || sanitized == "." || sanitized == "..")
         {

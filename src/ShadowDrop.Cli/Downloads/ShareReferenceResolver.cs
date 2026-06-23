@@ -16,7 +16,7 @@ internal static class ShareReferenceResolver
     /// <param name="serverUrl">The resolved server base URL.</param>
     /// <param name="shareToken">The resolved bare share token.</param>
     /// <returns><see langword="true"/> when a token could be resolved; <see langword="false"/> for a URL that is not a valid share URL.</returns>
-    public static Boolean TryResolve(String shareTokenOrUrl, Uri serverUrlFallback, out Uri serverUrl, out String shareToken)
+    public static Boolean TryResolve(String shareTokenOrUrl, Uri? serverUrlFallback, out Uri? serverUrl, out String shareToken)
     {
         if (Uri.TryCreate(shareTokenOrUrl, UriKind.Absolute, out var absolute)
             && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
