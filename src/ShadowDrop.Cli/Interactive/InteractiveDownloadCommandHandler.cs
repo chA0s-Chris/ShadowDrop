@@ -174,7 +174,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             : shareToken;
 
         // Reuse the same token-or-URL parsing as the non-interactive download and queue commands.
-        if (!ShareReferenceResolver.TryResolve(enteredShareToken, serverUrlFallback: null, out var resolvedServerUrl, out var resolvedToken))
+        if (!ShareReferenceResolver.TryResolve(enteredShareToken, null, out var resolvedServerUrl, out var resolvedToken))
         {
             throw new DownloadCommandException("Share token invalid or missing.");
         }
