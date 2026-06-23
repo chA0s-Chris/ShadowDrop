@@ -322,10 +322,9 @@ public sealed class UploadCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var interactiveSession = new FakeInteractiveSession();
-        interactiveSession.EnqueueSelection(1);
+        interactiveSession.EnqueueSelection(2); // Expiration: 7 days
         interactiveSession.EnqueueConfirmation(false); // Enable direct HTTP downloads?
         interactiveSession.EnqueueConfirmation(true); // Require a download bearer token?
-        interactiveSession.EnqueueConfirmation(true); // Display the share key and bearer token now?
 
         var exitCode = await CliApplication.InvokeAsync(
             ["upload", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), "--upload-token", fixture.BootstrapToken, inputFile],
@@ -333,16 +332,61 @@ public sealed class UploadCommandHandlerTests
             CancellationToken.None);
 
         exitCode.Should().Be(0);
-        var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-        stdoutLines.Should().HaveCount(2);
-        var shareKeyLine = stdoutLines.Single(line => line.StartsWith("secret:", StringComparison.Ordinal));
-        var bearerTokenLine = stdoutLines.Single(line => line.StartsWith("download-bearer-token:", StringComparison.Ordinal));
-        standardError.ToString().Should().NotContain(shareKeyLine)
+        // Interactive delegates to the shared upload handler, so the output matches the non-interactive command.
+        var shareKey = Value(FindLine(standardOut.ToString(), "share-key:"));
+        shareKey.Should().MatchRegex("^[0-9a-f]{64}$");
+        FindLine(standardOut.ToString(), "share-url:").Should().StartWith($"share-url:{httpClient.BaseAddress}d/");
+        var bearerTokenLine = FindLine(standardOut.ToString(), "download-bearer-token:")!;
+        standardError.ToString().Should().NotContain(shareKey)
                      .And.NotContain(bearerTokenLine)
                      .And.NotContain(fixture.BootstrapToken);
-        interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Share created"
+        interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Upload plan"
                                                                  && summary.Rows.Any(row => row.Label == "Download bearer token"
                                                                                             && row.Value == "Required"));
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldHonorInteractiveUploadOutputOptions_WhenDelegating()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var inputFile = fixture.CreateInputFile("interactive-secrets.bin", 96);
+        var secretsPath = Path.Combine(fixture.RootDirectory, "interactive-creds.json");
+        await File.WriteAllTextAsync(secretsPath, "existing");
+        using var httpClient = fixture.CreateClient();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new FakeInteractiveSession();
+        interactiveSession.EnqueueSelection(2); // Expiration: 7 days
+        interactiveSession.EnqueueConfirmation(false); // Enable direct HTTP downloads?
+        interactiveSession.EnqueueConfirmation(false); // Require a download bearer token?
+
+        var exitCode = await CliApplication.InvokeAsync(
+            [
+                "upload",
+                "--interactive",
+                "--server-url",
+                httpClient.BaseAddress!.ToString(),
+                "--upload-token",
+                fixture.BootstrapToken,
+                "--secrets-out",
+                secretsPath,
+                "--json",
+                "--force",
+                inputFile
+            ],
+            CreateServices(standardOut, standardError, httpClient: httpClient, interactiveSession: interactiveSession),
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var result = JsonDocument.Parse(standardOut.ToString());
+        result.RootElement.GetProperty("credentials").ValueKind.Should().Be(JsonValueKind.Null);
+        result.RootElement.GetProperty("secretsFile").GetString().Should().Be(secretsPath);
+        standardOut.ToString().Should().NotContain("share-key:")
+                   .And.NotContain("shareKey");
+
+        using var credentials = JsonDocument.Parse(await File.ReadAllTextAsync(secretsPath));
+        credentials.RootElement.GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
+        standardError.ToString().Should().NotContain(fixture.BootstrapToken);
     }
 
     [Test]
@@ -776,6 +820,9 @@ public sealed class UploadCommandHandlerTests
         standardError.ToString().Should().BeEmpty();
         standardOut.ToString().Should().Contain("ShadowDrop CLI")
                    .And.Contain("upload")
+                   .And.Contain("download")
+                   .And.Contain("queue")
+                   .And.Contain("share")
                    .And.Contain("--help");
     }
 
@@ -801,6 +848,22 @@ public sealed class UploadCommandHandlerTests
         var entry = queue.Files.Should().ContainSingle().Subject;
         entry.OutputPath.Should().Be("queued.bin");
         entry.ShareToken.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteSubcommandHelpToStdout_ForLowerLevelCommands()
+    {
+        var rawOut = new StringWriter();
+        (await CliApplication.InvokeAsync(["upload", "raw", "--help"], CreateServices(rawOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        rawOut.ToString().Should().Contain("without creating a share").And.Contain("--secrets-out");
+
+        var shareOut = new StringWriter();
+        (await CliApplication.InvokeAsync(["share", "create", "--help"], CreateServices(shareOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        shareOut.ToString().Should().Contain("file-ids").And.Contain("--download-token");
+
+        var queueOut = new StringWriter();
+        (await CliApplication.InvokeAsync(["queue", "create", "--help"], CreateServices(queueOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        queueOut.ToString().Should().Contain("--out").And.Contain("--embed-secrets");
     }
 
     [Test]
