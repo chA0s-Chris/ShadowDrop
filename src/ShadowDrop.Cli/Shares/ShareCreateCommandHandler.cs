@@ -25,12 +25,6 @@ internal sealed class ShareCreateCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (options.FileIds.Length == 0)
-        {
-            await standardError.WriteLineAsync("Specify at least one uploaded file id.");
-            return 1;
-        }
-
         List<CreateShareCliFileRequest> files = [];
         foreach (var fileIdText in options.FileIds)
         {

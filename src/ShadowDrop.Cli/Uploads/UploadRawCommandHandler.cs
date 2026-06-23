@@ -83,6 +83,14 @@ internal sealed class UploadRawCommandHandler(
                     await UploadResultWriter.WriteAsync(standardOut,
                                                         new(UploadCommandStatus.CredentialDeliveryFailed, uploadedFileIds, null, null, null, null, null, null));
                 }
+                else
+                {
+                    // The uploads already happened; report their IDs so callers can recover/clean them up. Never the share key.
+                    foreach (var fileId in uploadedFileIds)
+                    {
+                        await standardOut.WriteLineAsync($"file-id:{fileId}");
+                    }
+                }
 
                 return 1;
             }

@@ -1003,6 +1003,19 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task ShareCreate_ShouldFail_WhenNoFileIdsProvided()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["share", "create"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().NotBeEmpty();
+    }
+
+    [Test]
     public async Task ShareCreate_ShouldRejectInvalidFileId()
     {
         var standardError = new StringWriter();
@@ -1116,6 +1129,19 @@ public sealed class UploadCommandHandlerTests
         root.GetProperty("shareToken").ValueKind.Should().Be(JsonValueKind.Null);
         root.GetProperty("shareUrl").ValueKind.Should().Be(JsonValueKind.Null);
         root.GetProperty("credentials").GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldFail_WhenNoFilesProvided()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().NotBeEmpty();
     }
 
     [Test]

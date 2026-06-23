@@ -166,7 +166,7 @@ internal static class CliApplication
         var rawFilesArgument = new Argument<FileInfo[]>("files")
         {
             Description = "One or more local files to encrypt and upload.",
-            Arity = ArgumentArity.ZeroOrMore
+            Arity = ArgumentArity.OneOrMore
         };
 
         var uploadRawCommand = new Command("raw", "Encrypt and upload files without creating a share; reports file IDs and the share key.");
@@ -209,7 +209,7 @@ internal static class CliApplication
         var shareFileIdsArgument = new Argument<String[]>("file-ids")
         {
             Description = "One or more previously uploaded file IDs, in the desired download order.",
-            Arity = ArgumentArity.ZeroOrMore
+            Arity = ArgumentArity.OneOrMore
         };
 
         var shareCreateCommand = new Command("create", "Create a share from previously uploaded file IDs.");
@@ -298,12 +298,6 @@ internal static class CliApplication
                                                          parseResult.GetValue(commandModel.SecretsOutOption),
                                                          parseResult.GetValue(commandModel.JsonOption),
                                                          parseResult.GetValue(commandModel.ForceOption));
-
-            if (rawOptions.Files.Length == 0)
-            {
-                await services.StandardError.WriteLineAsync("Required argument missing for command: 'raw'.");
-                return 1;
-            }
 
             return await new UploadRawCommandHandler(services.ConfigurationResolver,
                                                      services.HttpClient,
