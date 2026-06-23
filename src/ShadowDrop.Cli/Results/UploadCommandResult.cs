@@ -34,7 +34,7 @@ internal sealed record UploadCommandResult(
 /// </summary>
 internal sealed record UploadCredentials(
     [property: JsonPropertyName("shareKey")]
-    String ShareKey,
+    String? ShareKey,
     [property: JsonPropertyName("downloadBearerToken")]
     String? DownloadBearerToken);
 
@@ -47,7 +47,7 @@ internal sealed record UploadCredentials(
 /// </remarks>
 internal sealed record CredentialDocument(
     [property: JsonPropertyName("shareKey")]
-    String ShareKey,
+    String? ShareKey,
     [property: JsonPropertyName("downloadBearerToken")]
     String? DownloadBearerToken);
 

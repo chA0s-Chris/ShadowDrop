@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Queues;
+using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
 using System.CommandLine.Help;
@@ -162,6 +163,25 @@ internal static class CliApplication
         uploadCommand.Options.Add(forceOption);
         uploadCommand.Options.Add(uploadInteractiveOption);
 
+        var rawFilesArgument = new Argument<FileInfo[]>("files")
+        {
+            Description = "One or more local files to encrypt and upload.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var uploadRawCommand = new Command("raw", "Encrypt and upload files without creating a share; reports file IDs and the share key.");
+        uploadRawCommand.Arguments.Add(rawFilesArgument);
+        uploadRawCommand.Options.Add(serverOption);
+        uploadRawCommand.Options.Add(uploadTokenOption);
+        uploadRawCommand.Options.Add(secretsOutOption);
+        uploadRawCommand.Options.Add(jsonOption);
+        uploadRawCommand.Options.Add(forceOption);
+        uploadCommand.Subcommands.Add(uploadRawCommand);
+
+        // `upload` is both a leaf (end-to-end upload) and a group (`upload raw`). A no-op action marks it
+        // invokable without a subcommand; actual execution is routed by the manual dispatch in ExecuteAsync.
+        uploadCommand.SetAction(static _ => 0);
+
         var queueTokenArgument = new Argument<String?>("share-token")
         {
             Description = "Public share token or share URL of the share to queue."
@@ -186,10 +206,31 @@ internal static class CliApplication
         var queueCommand = new Command("queue", "Create and manage download queues.");
         queueCommand.Subcommands.Add(queueCreateCommand);
 
+        var shareFileIdsArgument = new Argument<String[]>("file-ids")
+        {
+            Description = "One or more previously uploaded file IDs, in the desired download order.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var shareCreateCommand = new Command("create", "Create a share from previously uploaded file IDs.");
+        shareCreateCommand.Arguments.Add(shareFileIdsArgument);
+        shareCreateCommand.Options.Add(serverOption);
+        shareCreateCommand.Options.Add(uploadTokenOption);
+        shareCreateCommand.Options.Add(expiresInOption);
+        shareCreateCommand.Options.Add(directHttpOption);
+        shareCreateCommand.Options.Add(generateDownloadTokenOption);
+        shareCreateCommand.Options.Add(secretsOutOption);
+        shareCreateCommand.Options.Add(jsonOption);
+        shareCreateCommand.Options.Add(forceOption);
+
+        var shareCommand = new Command("share", "Create and manage shares.");
+        shareCommand.Subcommands.Add(shareCreateCommand);
+
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
         rootCommand.Subcommands.Add(uploadCommand);
         rootCommand.Subcommands.Add(queueCommand);
+        rootCommand.Subcommands.Add(shareCommand);
         return new(rootCommand,
                    shareTokenArgument,
                    filesArgument,
@@ -212,7 +253,11 @@ internal static class CliApplication
                    downloadInteractiveOption,
                    queueCreateCommand,
                    queueTokenArgument,
-                   queueCreateOutOption);
+                   queueCreateOutOption,
+                   uploadRawCommand,
+                   rawFilesArgument,
+                   shareCreateCommand,
+                   shareFileIdsArgument);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -243,6 +288,46 @@ internal static class CliApplication
                                                        services.HttpClient,
                                                        services.StandardOut,
                                                        services.StandardError).ExecuteAsync(queueOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.UploadRawCommand)
+        {
+            var rawOptions = new UploadRawCommandOptions(parseResult.GetValue(commandModel.RawFilesArgument) ?? [],
+                                                         parseResult.GetValue(commandModel.ServerOption),
+                                                         parseResult.GetValue(commandModel.UploadTokenOption),
+                                                         parseResult.GetValue(commandModel.SecretsOutOption),
+                                                         parseResult.GetValue(commandModel.JsonOption),
+                                                         parseResult.GetValue(commandModel.ForceOption));
+
+            if (rawOptions.Files.Length == 0)
+            {
+                await services.StandardError.WriteLineAsync("Required argument missing for command: 'raw'.");
+                return 1;
+            }
+
+            return await new UploadRawCommandHandler(services.ConfigurationResolver,
+                                                     services.HttpClient,
+                                                     services.StandardOut,
+                                                     services.StandardError).ExecuteAsync(rawOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ShareCreateCommand)
+        {
+            var shareOptions = new ShareCreateCommandOptions(parseResult.GetValue(commandModel.ShareFileIdsArgument) ?? [],
+                                                             parseResult.GetValue(commandModel.ServerOption),
+                                                             parseResult.GetValue(commandModel.UploadTokenOption),
+                                                             parseResult.GetValue(commandModel.ExpiresInOption),
+                                                             parseResult.GetValue(commandModel.DirectHttpOption),
+                                                             parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
+                                                             parseResult.GetValue(commandModel.SecretsOutOption),
+                                                             parseResult.GetValue(commandModel.JsonOption),
+                                                             parseResult.GetValue(commandModel.ForceOption));
+
+            return await new ShareCreateCommandHandler(services.ConfigurationResolver,
+                                                       services.HttpClient,
+                                                       services.StandardOut,
+                                                       services.StandardError,
+                                                       services.TimeProvider).ExecuteAsync(shareOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -335,5 +420,9 @@ internal static class CliApplication
         Option<Boolean> DownloadInteractiveOption,
         Command QueueCreateCommand,
         Argument<String?> QueueTokenArgument,
-        Option<FileInfo?> QueueCreateOutOption);
+        Option<FileInfo?> QueueCreateOutOption,
+        Command UploadRawCommand,
+        Argument<FileInfo[]> RawFilesArgument,
+        Command ShareCreateCommand,
+        Argument<String[]> ShareFileIdsArgument);
 }

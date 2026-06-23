@@ -824,6 +824,43 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task LowerLevel_ShouldComposeUploadRawShareCreateAndDownload()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var binaryOut = new MemoryStream();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = new CliApplicationServices(
+            new(new StubConfigPathResolver(fixture.ConfigFilePath), new StubEnvironmentReader(new Dictionary<String, String?>())),
+            httpClient,
+            binaryOut,
+            standardOut,
+            standardError,
+            new FakeInteractiveSession(),
+            TimeProvider.System);
+        var filePath = fixture.CreateInputFile("composed.bin", 256);
+        var plaintext = await File.ReadAllBytesAsync(filePath);
+
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var rawResult = JsonDocument.Parse(standardOut.ToString());
+        var fileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
+        var shareKey = rawResult.RootElement.GetProperty("credentials").GetProperty("shareKey").GetString()!;
+
+        var createOut = new StringWriter();
+        var createServices = CreateServices(createOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        (await CliApplication.InvokeAsync(["share", "create", fileId, "--json"], createServices, CancellationToken.None)).Should().Be(0);
+        using var shareResult = JsonDocument.Parse(createOut.ToString());
+        var shareUrl = shareResult.RootElement.GetProperty("shareUrl").GetString()!;
+
+        var downloadExit = await CliApplication.InvokeAsync(["download", shareUrl, "--share-key", shareKey], services, CancellationToken.None);
+
+        downloadExit.Should().Be(0);
+        binaryOut.ToArray().Should().Equal(plaintext);
+    }
+
+    [Test]
     public async Task QueueCreate_ShouldEmbedCredentials_WhenShareKeyProvided()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -937,6 +974,107 @@ public sealed class UploadCommandHandlerTests
         var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
         queue.Credentials.Should().BeNull();
         queue.Files.Should().ContainSingle(entry => entry.OutputPath == "share-me.bin");
+    }
+
+    [Test]
+    public async Task ShareCreate_ShouldCreateShareFromUploadedFileIds()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("for-share.bin", 64);
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var rawResult = JsonDocument.Parse(standardOut.ToString());
+        var fileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
+
+        var createOut = new StringWriter();
+        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(["share", "create", fileId, "--json"], createServices, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var shareResult = JsonDocument.Parse(createOut.ToString());
+        shareResult.RootElement.GetProperty("status").GetString().Should().Be("succeeded");
+        shareResult.RootElement.GetProperty("shareUrl").GetString().Should().StartWith($"{httpClient.BaseAddress}d/");
+        shareResult.RootElement.GetProperty("shareToken").GetString().Should().NotBeNullOrWhiteSpace();
+        shareResult.RootElement.GetProperty("uploadedFileIds")[0].GetString().Should().Be(fileId);
+    }
+
+    [Test]
+    public async Task ShareCreate_ShouldRejectInvalidFileId()
+    {
+        var standardError = new StringWriter();
+        var services = CreateServices(new StringWriter(), standardError);
+
+        var exitCode = await CliApplication.InvokeAsync(["share", "create", "not-a-guid"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("File id invalid or missing.");
+    }
+
+    [Test]
+    public async Task ShareCreate_ShouldRejectSecretsOutWithoutDownloadToken()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var secretsPath = Path.Combine(fixture.RootDirectory, "no-token.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["share", "create", Guid.NewGuid().ToString(), "--secrets-out", secretsPath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("--secrets-out requires --download-token");
+        File.Exists(secretsPath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldEmitJsonResultWithoutShare()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("raw-json.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var root = document.RootElement;
+        root.GetProperty("status").GetString().Should().Be("succeeded");
+        root.GetProperty("uploadedFileIds").GetArrayLength().Should().Be(1);
+        root.GetProperty("shareId").ValueKind.Should().Be(JsonValueKind.Null);
+        root.GetProperty("shareToken").ValueKind.Should().Be(JsonValueKind.Null);
+        root.GetProperty("shareUrl").ValueKind.Should().Be(JsonValueKind.Null);
+        root.GetProperty("credentials").GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldReportFileIdsAndShareKey_WithoutCreatingShare()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("raw.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var fileIdLine = FindLine(standardOut.ToString(), "file-id:");
+        Guid.Parse(Value(fileIdLine)).Should().NotBe(Guid.Empty);
+        Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
+        standardOut.ToString().Should().NotContain("share-url:");
+        fixture.GetStoredUploads().Should().ContainSingle();
     }
 
     private static CliApplicationServices CreateServices(StringWriter standardOut,

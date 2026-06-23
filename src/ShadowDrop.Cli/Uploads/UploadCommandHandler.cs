@@ -26,41 +26,18 @@ internal sealed class UploadCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        CliResolvedConfiguration configuration;
-        try
+        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+            is not { } configuration)
         {
-            configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
-        {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
             return 1;
         }
 
-        if (!Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var serverUrl)
-            || ((serverUrl.Scheme != Uri.UriSchemeHttp) && (serverUrl.Scheme != Uri.UriSchemeHttps)))
-        {
-            await standardError.WriteLineAsync("Server URL invalid or missing.");
-            return 1;
-        }
-
-        if (String.IsNullOrWhiteSpace(configuration.UploadToken))
-        {
-            await standardError.WriteLineAsync("Authentication token invalid or missing.");
-            return 1;
-        }
+        var serverUrl = configuration.ServerUrl;
 
         // Validate share options and the credential sink before any file I/O or network requests begin.
-        var expiration = ShareExpiration.Default;
-        if (options.ExpiresIn is not null && !ShareExpiration.TryParse(options.ExpiresIn, out expiration))
+        if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var optionError))
         {
-            await standardError.WriteLineAsync("Share expiration invalid. Use a value like 7d, 12h, or 30m.");
-            return 1;
-        }
-
-        if (options.DirectHttp && options.GenerateDownloadToken)
-        {
-            await standardError.WriteLineAsync("Direct HTTP shares cannot generate a download bearer token.");
+            await standardError.WriteLineAsync(optionError);
             return 1;
         }
 
@@ -104,7 +81,7 @@ internal sealed class UploadCommandHandler(
 
         var executor = new UploadCommandExecutor(httpClient);
         var uploadResult = await executor.ExecuteAsync(options.Files, serverUrl, configuration.UploadToken, cancellationToken);
-        await ReportUploadProgressAsync(options, uploadResult);
+        await UploadProgressReporter.ReportAsync(standardError, uploadResult, options.Files.Length);
 
         if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
         {
@@ -227,10 +204,9 @@ internal sealed class UploadCommandHandler(
         {
             var credentials = credentialsToFile ? null : new UploadCredentials(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
             var secretsFile = credentialsToFile ? options.SecretsOut!.FullName : null;
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(
-                                                 BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
-                                                             secretsFile, queueFile),
-                                                 CliJsonSerializerContext.Default.UploadCommandResult));
+            await UploadResultWriter.WriteAsync(standardOut,
+                                                BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
+                                                            secretsFile, queueFile));
             return;
         }
 
@@ -254,27 +230,11 @@ internal sealed class UploadCommandHandler(
         }
     }
 
-    private async Task ReportUploadProgressAsync(UploadCommandOptions options, UploadExecutionResult uploadResult)
-    {
-        for (var index = 0; index < uploadResult.Files.Count; index++)
-        {
-            var fileResult = uploadResult.Files[index];
-            if (fileResult.UploadedFileId is not null)
-            {
-                await standardError.WriteLineAsync($"Uploaded file {index + 1} of {options.Files.Length}.");
-            }
-            else
-            {
-                await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
-            }
-        }
-    }
-
     private async Task WriteResultIfJsonAsync(UploadCommandOptions options, UploadCommandResult result)
     {
         if (options.Json)
         {
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(result, CliJsonSerializerContext.Default.UploadCommandResult));
+            await UploadResultWriter.WriteAsync(standardOut, result);
         }
     }
 }
