@@ -1033,6 +1033,38 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task ShareCreate_ShouldWriteBearerTokenToSecretsFile()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("share-secrets.bin", 64);
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var rawResult = JsonDocument.Parse(standardOut.ToString());
+        var fileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
+        var secretsPath = Path.Combine(fixture.RootDirectory, "bearer-creds.json");
+
+        var createOut = new StringWriter();
+        var createServices = CreateServices(createOut, new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var exitCode = await CliApplication.InvokeAsync(
+            ["share", "create", fileId, "--download-token", "--secrets-out", secretsPath], createServices, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        FindLine(createOut.ToString(), "share-url:").Should().NotBeNull();
+        FindLine(createOut.ToString(), "secrets-file:").Should().Be($"secrets-file:{secretsPath}");
+        createOut.ToString().Should().NotContain("download-bearer-token:");
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(secretsPath));
+        document.RootElement.GetProperty("downloadBearerToken").GetString().Should().NotBeNullOrWhiteSpace();
+        if (OperatingSystem.IsLinux())
+        {
+            File.GetUnixFileMode(secretsPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Test]
     public async Task UploadRaw_ShouldEmitJsonResultWithoutShare()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -1075,6 +1107,54 @@ public sealed class UploadCommandHandlerTests
         Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
         standardOut.ToString().Should().NotContain("share-url:");
         fixture.GetStoredUploads().Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldReportSucceededFileIdsOnStdout_OnPartialFailure()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var okFile = fixture.CreateInputFile("ok.bin", 64);
+        var missingFile = Path.Combine(fixture.RootDirectory, "missing.bin");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", okFile, missingFile], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        stdoutLines.Should().ContainSingle().Which.Should().StartWith("file-id:");
+        Guid.Parse(Value(stdoutLines[0])).Should().NotBe(Guid.Empty);
+        standardOut.ToString().Should().NotContain("share-key:");
+        standardError.ToString().Should().Contain("File 2 failed: File is missing.");
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldWriteShareKeyToSecretsFile()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("raw-secrets.bin", 64);
+        var secretsPath = Path.Combine(fixture.RootDirectory, "raw-creds.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", filePath, "--secrets-out", secretsPath], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        FindLine(standardOut.ToString(), "file-id:").Should().NotBeNull();
+        FindLine(standardOut.ToString(), "secrets-file:").Should().Be($"secrets-file:{secretsPath}");
+        standardOut.ToString().Should().NotContain("share-key:");
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(secretsPath));
+        document.RootElement.GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
+        if (OperatingSystem.IsLinux())
+        {
+            File.GetUnixFileMode(secretsPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
     }
 
     private static CliApplicationServices CreateServices(StringWriter standardOut,

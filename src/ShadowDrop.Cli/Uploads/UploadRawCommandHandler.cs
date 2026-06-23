@@ -53,6 +53,14 @@ internal sealed class UploadRawCommandHandler(
             {
                 await UploadResultWriter.WriteAsync(standardOut, new(UploadCommandStatus.UploadFailed, uploadedFileIds, null, null, null, null, null, null));
             }
+            else
+            {
+                // Report the file IDs that did upload so scripts can still capture/recover them; never the share key on failure.
+                foreach (var fileId in uploadedFileIds)
+                {
+                    await standardOut.WriteLineAsync($"file-id:{fileId}");
+                }
+            }
 
             return 1;
         }
