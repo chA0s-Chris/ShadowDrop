@@ -4,7 +4,6 @@ namespace ShadowDrop.Queue;
 
 using ShadowDrop.Contracts;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 /// <summary>
@@ -12,12 +11,6 @@ using System.Text.RegularExpressions;
 /// </summary>
 public static partial class QueueFileParser
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        WriteIndented = true
-    };
-
     /// <summary>
     /// Deserializes a queue file JSON payload.
     /// </summary>
@@ -32,7 +25,7 @@ public static partial class QueueFileParser
             throw new ArgumentException("The queue file JSON must not be empty.", nameof(json));
         }
 
-        var queueFile = JsonSerializer.Deserialize<QueueFile>(json, SerializerOptions);
+        var queueFile = JsonSerializer.Deserialize(json, QueueJsonSerializerContext.Default.QueueFile);
         return queueFile ?? throw new JsonException("The queue file JSON produced no payload.");
     }
 
@@ -61,7 +54,7 @@ public static partial class QueueFileParser
     public static String Serialize(QueueFile queueFile)
     {
         ArgumentNullException.ThrowIfNull(queueFile);
-        return JsonSerializer.Serialize(queueFile, SerializerOptions);
+        return JsonSerializer.Serialize(queueFile, QueueJsonSerializerContext.Default.QueueFile);
     }
 
     /// <summary>
@@ -111,7 +104,7 @@ public static partial class QueueFileParser
         return errors;
     }
 
-    [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: -1)]
+    [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, -1)]
     private static partial Regex Sha256Regex();
 
     private static void ValidateEntry(QueueFileEntry? entry, Int32 index, List<QueueFileValidationError> errors)
@@ -150,7 +143,7 @@ public static partial class QueueFileParser
         }
 
         var match = Sha256Regex().Match(value);
-        if ((!match.Success) || (match.Index != 0) || (match.Length != value.Length))
+        if (!match.Success || match.Index != 0 || match.Length != value.Length)
         {
             errors.Add(new(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
         }
@@ -203,7 +196,7 @@ public static partial class QueueFileParser
 
         // A share key is 32 bytes of key material encoded as 64 lowercase hex characters (the same shape as the SHA-256 pattern).
         var match = Sha256Regex().Match(value);
-        if ((!match.Success) || (match.Index != 0) || (match.Length != value.Length))
+        if (!match.Success || match.Index != 0 || match.Length != value.Length)
         {
             errors.Add(new("credentials.shareKey", "The shareKey value must be 64-character lowercase hexadecimal share-key material."));
         }
