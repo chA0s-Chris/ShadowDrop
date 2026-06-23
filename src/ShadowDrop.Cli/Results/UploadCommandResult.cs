@@ -25,7 +25,9 @@ internal sealed record UploadCommandResult(
     [property: JsonPropertyName("credentials")]
     UploadCredentials? Credentials,
     [property: JsonPropertyName("secretsFile")]
-    String? SecretsFile);
+    String? SecretsFile,
+    [property: JsonPropertyName("queueFile")]
+    String? QueueFile);
 
 /// <summary>
 /// The non-retrievable credentials required to download a share.
@@ -55,6 +57,7 @@ internal sealed record CredentialDocument(
 internal static class UploadCommandStatus
 {
     public const String CredentialDeliveryFailed = "credential-delivery-failed";
+    public const String QueueWriteFailed = "queue-write-failed";
     public const String ShareCreationFailed = "share-creation-failed";
     public const String Succeeded = "succeeded";
     public const String UploadFailed = "upload-failed";

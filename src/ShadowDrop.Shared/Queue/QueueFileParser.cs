@@ -91,6 +91,12 @@ public static partial class QueueFileParser
             errors.Add(new("queueVersion", $"The queueVersion value must be '{FormatConstants.QueueVersion}'."));
         }
 
+        if (queueFile.Credentials is not null)
+        {
+            ValidateRequiredString(queueFile.Credentials.ShareKey, "credentials.shareKey", errors);
+            ValidateShareKeyFormat(queueFile.Credentials.ShareKey, errors);
+        }
+
         if (queueFile.Files is null || queueFile.Files.Count == 0)
         {
             errors.Add(new("files", "The files collection must contain at least one entry."));
@@ -185,6 +191,21 @@ public static partial class QueueFileParser
         if (!String.IsNullOrEmpty(validatedUri.Query) || !String.IsNullOrEmpty(validatedUri.Fragment))
         {
             errors.Add(new(path, "The serverUrl value must not include query string or fragment components."));
+        }
+    }
+
+    private static void ValidateShareKeyFormat(String? value, List<QueueFileValidationError> errors)
+    {
+        if (String.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        // A share key is 32 bytes of key material encoded as 64 lowercase hex characters (the same shape as the SHA-256 pattern).
+        var match = Sha256Regex().Match(value);
+        if ((!match.Success) || (match.Index != 0) || (match.Length != value.Length))
+        {
+            errors.Add(new("credentials.shareKey", "The shareKey value must be 64-character lowercase hexadecimal share-key material."));
         }
     }
 }

@@ -5,8 +5,10 @@ namespace ShadowDrop.Cli.Uploads;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Output;
+using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Results;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Queue;
 using System.Text.Json;
 
 /// <summary>
@@ -62,13 +64,38 @@ internal sealed class UploadCommandHandler(
             return 1;
         }
 
+        if (options.DirectHttp && options.QueueOut is not null)
+        {
+            await standardError.WriteLineAsync("Direct HTTP shares do not support queue generation (--queue-out).");
+            return 1;
+        }
+
+        if (options.EmbedSecrets && options.QueueOut is null)
+        {
+            await standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
+            return 1;
+        }
+
         if (options.SecretsOut is not null)
         {
             try
             {
-                SecretsFileWriter.EnsureWritable(options.SecretsOut, options.Force);
+                AtomicFileWriter.EnsureWritable(options.SecretsOut, options.Force);
             }
-            catch (SecretsFileException exception)
+            catch (AtomicFileException exception)
+            {
+                await standardError.WriteLineAsync(exception.Message);
+                return 1;
+            }
+        }
+
+        if (options.QueueOut is not null)
+        {
+            try
+            {
+                AtomicFileWriter.EnsureWritable(options.QueueOut, options.Force);
+            }
+            catch (AtomicFileException exception)
             {
                 await standardError.WriteLineAsync(exception.Message);
                 return 1;
@@ -123,10 +150,10 @@ internal sealed class UploadCommandHandler(
             var document = new CredentialDocument(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
             try
             {
-                SecretsFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
-                                              options.Force);
+                AtomicFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
+                                             options.Force, ownerOnly: true);
             }
-            catch (SecretsFileException exception)
+            catch (AtomicFileException exception)
             {
                 await standardError.WriteLineAsync(exception.Message);
                 await standardError.WriteLineAsync("The share was created but its credentials could not be delivered.");
@@ -137,7 +164,36 @@ internal sealed class UploadCommandHandler(
             }
         }
 
-        await DeliverSuccessAsync(options, uploadResult, shareResult, shareUrl);
+        String? queueFilePath = null;
+        if (options.QueueOut is not null)
+        {
+            try
+            {
+                var queueCredentials = options.EmbedSecrets
+                    ? new QueueCredentials
+                    {
+                        ShareKey = uploadResult.ShareSecretHex!,
+                        DownloadBearerToken = shareResult.DownloadBearerToken
+                    }
+                    : null;
+                var manifest = await new ShareManifestClient(httpClient).GetAsync(serverUrl, shareResult.ShareToken, shareResult.DownloadBearerToken,
+                                                                                  cancellationToken);
+                var queue = QueueFileBuilder.Build(serverUrl, shareResult.ShareToken, manifest, queueCredentials);
+                AtomicFileWriter.WriteAtomic(options.QueueOut, QueueFileParser.Serialize(queue), options.Force, ownerOnly: options.EmbedSecrets);
+                queueFilePath = options.QueueOut.FullName;
+            }
+            catch (Exception exception) when (exception is DownloadCommandException or QueueBuildException or AtomicFileException)
+            {
+                await standardError.WriteLineAsync(exception.Message);
+                await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
+
+                // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
+                await EmitResultAsync(options, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, queueFile: null);
+                return 1;
+            }
+        }
+
+        await EmitResultAsync(options, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath);
         return 0;
     }
 
@@ -147,19 +203,23 @@ internal sealed class UploadCommandHandler(
                                             String? shareToken,
                                             String? shareUrl,
                                             UploadCredentials? credentials,
-                                            String? secretsFile = null) =>
+                                            String? secretsFile = null,
+                                            String? queueFile = null) =>
         new(status,
             uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray(),
             shareId,
             shareToken,
             shareUrl,
             credentials,
-            secretsFile);
+            secretsFile,
+            queueFile);
 
-    private async Task DeliverSuccessAsync(UploadCommandOptions options,
-                                           UploadExecutionResult uploadResult,
-                                           CreateShareCliResult shareResult,
-                                           String shareUrl)
+    private async Task EmitResultAsync(UploadCommandOptions options,
+                                       String status,
+                                       UploadExecutionResult uploadResult,
+                                       CreateShareCliResult shareResult,
+                                       String shareUrl,
+                                       String? queueFile)
     {
         var credentialsToFile = options.SecretsOut is not null;
 
@@ -168,8 +228,8 @@ internal sealed class UploadCommandHandler(
             var credentials = credentialsToFile ? null : new UploadCredentials(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
             var secretsFile = credentialsToFile ? options.SecretsOut!.FullName : null;
             await standardOut.WriteLineAsync(JsonSerializer.Serialize(
-                                                 BuildResult(UploadCommandStatus.Succeeded, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl,
-                                                             credentials, secretsFile),
+                                                 BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
+                                                             secretsFile, queueFile),
                                                  CliJsonSerializerContext.Default.UploadCommandResult));
             return;
         }
@@ -178,13 +238,19 @@ internal sealed class UploadCommandHandler(
         if (credentialsToFile)
         {
             await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut!.FullName}");
-            return;
+        }
+        else
+        {
+            await standardOut.WriteLineAsync($"share-key:{uploadResult.ShareSecretHex}");
+            if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
+            {
+                await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
+            }
         }
 
-        await standardOut.WriteLineAsync($"share-key:{uploadResult.ShareSecretHex}");
-        if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
+        if (queueFile is not null)
         {
-            await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
+            await standardOut.WriteLineAsync($"queue-file:{queueFile}");
         }
     }
 
