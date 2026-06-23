@@ -118,6 +118,11 @@ internal sealed class UploadCommandHandler(
             await WriteResultIfJsonAsync(options,
                                          BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
                                                      shareResult.ShareToken, shareUrl, null));
+            if (!options.Json)
+            {
+                await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+            }
+
             return 1;
         }
 
@@ -137,6 +142,11 @@ internal sealed class UploadCommandHandler(
                 await WriteResultIfJsonAsync(options,
                                              BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
                                                          shareResult.ShareToken, shareUrl, null));
+                if (!options.Json)
+                {
+                    await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+                }
+
                 return 1;
             }
         }

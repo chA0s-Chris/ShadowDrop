@@ -115,6 +115,11 @@ internal sealed class ShareCreateCommandHandler(
                                                     new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
                                                         shareUrl, null, null, null));
             }
+            else
+            {
+                // The share exists; report its URL so callers can identify it for cleanup/retry. Never the bearer token.
+                await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+            }
 
             return 1;
         }
@@ -136,6 +141,10 @@ internal sealed class ShareCreateCommandHandler(
                     await UploadResultWriter.WriteAsync(standardOut,
                                                         new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
                                                             shareUrl, null, null, null));
+                }
+                else
+                {
+                    await standardOut.WriteLineAsync($"share-url:{shareUrl}");
                 }
 
                 return 1;

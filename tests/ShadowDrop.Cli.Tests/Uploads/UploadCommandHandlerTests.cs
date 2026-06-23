@@ -1033,6 +1033,36 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task ShareCreate_ShouldReportShareUrlOnStdout_WhenSecretsFileWriteFails()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("share-fail.bin", 64);
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath, "--json"], services, CancellationToken.None)).Should().Be(0);
+        using var rawResult = JsonDocument.Parse(standardOut.ToString());
+        var fileId = rawResult.RootElement.GetProperty("uploadedFileIds")[0].GetString()!;
+
+        // Point --secrets-out at an existing directory so EnsureWritable passes but the atomic move fails after the share is created.
+        var secretsDirectory = Path.Combine(fixture.RootDirectory, "creds-dir");
+        Directory.CreateDirectory(secretsDirectory);
+        var createOut = new StringWriter();
+        var createError = new StringWriter();
+        var createServices = CreateServices(createOut, createError, fixture.ConfigFilePath, httpClient: httpClient);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["share", "create", fileId, "--download-token", "--secrets-out", secretsDirectory], createServices, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        FindLine(createOut.ToString(), "share-url:").Should().StartWith($"share-url:{httpClient.BaseAddress}d/");
+        createOut.ToString().Should().NotContain("download-bearer-token:").And.NotContain("secrets-file:");
+        createError.ToString().Should().Contain("The share was created but its download bearer token could not be delivered.");
+    }
+
+    [Test]
     public async Task ShareCreate_ShouldWriteBearerTokenToSecretsFile()
     {
         await using var fixture = new CliUploadApiFactory();
