@@ -429,6 +429,28 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldPointSecretFreeQueueNoteAtSecretsFile_WhenSecretsOutProvided()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("queued.bin", 96);
+        var queuePath = Path.Combine(fixture.RootDirectory, "out.queue.json");
+        var secretsPath = Path.Combine(fixture.RootDirectory, "creds.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--secrets-out", secretsPath], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        // The share key is in the secrets file, not printed, so the note must point there rather than at 'share-key:' output.
+        FindLine(standardOut.ToString(), "share-key:").Should().BeNull();
+        standardError.ToString().Should().Contain("secret-free").And.Contain(secretsPath).And.Contain("--embed-secrets");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldProduceUsableDownloadCapability_EndToEnd()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -843,7 +865,7 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-key:").Should().NotBeNull();
         FindLine(standardOut.ToString(), "queue-file:").Should().Be($"queue-file:{queuePath}");
-        standardError.ToString().Should().Contain("secret-free").And.Contain("--embed-secrets");
+        standardError.ToString().Should().Contain("secret-free").And.Contain("shown above").And.Contain("--embed-secrets");
         var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
         queue.Credentials.Should().BeNull();
         var entry = queue.Files.Should().ContainSingle().Subject;

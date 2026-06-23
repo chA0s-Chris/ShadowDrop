@@ -17,8 +17,9 @@ internal sealed class DownloadCommandHandler(
     TextWriter standardError)
 {
     private const String SecretFreeQueueKeyMissingMessage =
-        "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file "
-        + "(shown by 'upload' as 'share-key:'), or recreate the queue with --embed-secrets.";
+        "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file. "
+        + "The key is printed by 'upload' as 'share-key:', or stored as the 'shareKey' value in its --secrets-out file. "
+        + "Alternatively, recreate the queue with --embed-secrets.";
     private const String SecretPrefix = "secret:";
 
     public async Task<Int32> ExecuteAsync(DownloadCommandOptions options, CancellationToken cancellationToken)

@@ -239,8 +239,11 @@ internal sealed class UploadCommandHandler(
             await standardOut.WriteLineAsync($"queue-file:{queueFile}");
             if (!options.EmbedSecrets)
             {
+                var keySource = options.SecretsOut is not null
+                    ? $"the 'shareKey' value from {options.SecretsOut.FullName}"
+                    : "the 'share-key:' value shown above";
                 await standardError.WriteLineAsync(
-                    "Note: the queue is secret-free. Keep the share key to download it with --share-key or --share-key-file, "
+                    $"Note: the queue is secret-free. Keep {keySource} and pass it via --share-key to download the queue, "
                     + "or re-run with --embed-secrets for a self-contained queue.");
             }
         }
