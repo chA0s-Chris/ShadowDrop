@@ -1,5 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>ShadowDrop</RootNamespace>
+    <!-- Enables the trim/AOT analyzers so reflection-based serialization is caught at build time,
+         since this library is consumed by the AOT-published CLI (see issue #48). -->
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 </Project>
