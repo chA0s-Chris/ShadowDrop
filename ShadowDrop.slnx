@@ -23,6 +23,7 @@
     <File Path="tests/Directory.Build.props" />
     <Project Path="tests/ShadowDrop.Api.Tests/ShadowDrop.Api.Tests.csproj" />
     <Project Path="tests/ShadowDrop.Cli.Tests/ShadowDrop.Cli.Tests.csproj" />
+    <Project Path="tests/ShadowDrop.E2E.Tests/ShadowDrop.E2E.Tests.csproj" />
     <Project Path="tests/ShadowDrop.Shared.Tests/ShadowDrop.Shared.Tests.csproj" />
   </Folder>
 </Solution>

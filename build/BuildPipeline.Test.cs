@@ -32,15 +32,22 @@ internal partial class BuildPipeline
         target.DependsOn(BuildTests, RestoreTools)
               .Executes(() =>
               {
+                  // The fast unit/integration loop excludes the real end-to-end smoke tests (Category=E2E):
+                  // the filter keeps the category out, and the E2E project is left out of the glob so its
+                  // zero-match run never trips `dotnet test`. The dedicated TestEndToEnd target runs them.
+                  var fastTestProjects = TestsDirectory.GlobFiles("**/*.Tests.csproj")
+                                                       .Where(static path => !path.Name.EndsWith(".E2E.Tests.csproj"));
+
                   DotNetTest(s => s
                                   .SetConfiguration(TargetBuildConfiguration)
                                   .EnableNoBuild()
                                   .EnableNoRestore()
+                                  .SetFilter("TestCategory!=E2E")
                                   .SetDataCollector("XPlat Code Coverage")
                                   .SetSettingsFile(CoverageSettingsFile)
                                   .SetResultsDirectory(CoverageDirectory)
                                   .CombineWith(
-                                      TestsDirectory.GlobFiles("**/*.Tests.csproj"),
+                                      fastTestProjects,
                                       (settings, path) =>
                                       {
                                           var testOutput = ArtifactsDirectory / (Path.GetFileNameWithoutExtension(path) + ".xml");
@@ -51,6 +58,26 @@ internal partial class BuildPipeline
                   DotNet($"coverage merge {CoverageDirectory}/**/coverage.cobertura.xml -f cobertura -o {MergedCoverageResultsFile}");
 
                   ReportTestCountAndCoverage();
+              });
+
+    private Target TestEndToEnd => target =>
+        target.DependsOn(BuildTests, RestoreTools)
+              .After(Test)
+              .Description(
+                  "Runs the real end-to-end smoke tests (Category=E2E) that build and exercise the API and CLI as separate processes; requires curl on PATH.")
+              .Executes(() =>
+              {
+                  // Run only the E2E smoke tests. These build the API and CLI artifacts and start the API as a
+                  // separate process, so they live outside the default Test target; CI invokes this dedicated
+                  // target alongside Test (see .github/workflows/ci.yml).
+                  DotNetTest(s => s
+                                  .SetConfiguration(TargetBuildConfiguration)
+                                  .EnableNoBuild()
+                                  .EnableNoRestore()
+                                  .SetFilter("TestCategory=E2E")
+                                  .CombineWith(
+                                      TestsDirectory.GlobFiles("**/*.E2E.Tests.csproj"),
+                                      static (settings, path) => settings.SetProjectFile(path)));
               });
 
     private void ReportTestCountAndCoverage()

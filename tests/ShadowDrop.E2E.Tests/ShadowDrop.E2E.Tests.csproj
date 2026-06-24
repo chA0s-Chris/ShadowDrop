@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Real end-to-end smoke tests. These build the API and CLI as separate artifacts and execute them as
+    real OS processes, so the project intentionally does NOT reference the product projects: the only
+    coupling is through built executables, stdout/stderr, exit codes, HTTP, and the file system.
+
+    Every test in this project is tagged [Category("E2E")]. The default Nuke `Test` target excludes that
+    category (TestCategory!=E2E); the dedicated `TestEndToEnd` target runs only TestCategory=E2E.
+  -->
+</Project>
