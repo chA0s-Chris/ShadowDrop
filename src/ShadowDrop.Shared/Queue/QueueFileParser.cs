@@ -104,6 +104,17 @@ public static partial class QueueFileParser
         return errors;
     }
 
+    private static Boolean IsAsciiLetter(Char value) =>
+        (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z');
+
+    private static Boolean IsPortableAbsolutePath(String outputPath) =>
+        outputPath.StartsWith('/') ||
+        outputPath.StartsWith('\\') ||
+        (outputPath.Length >= 3 &&
+         IsAsciiLetter(outputPath[0]) &&
+         outputPath[1] == ':' &&
+         (outputPath[2] == '/' || outputPath[2] == '\\'));
+
     [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, -1)]
     private static partial Regex Sha256Regex();
 
@@ -120,6 +131,7 @@ public static partial class QueueFileParser
         ValidateRequiredString(entry.FileId, $"{prefix}.fileId", errors);
         ValidateRequiredString(entry.FileName, $"{prefix}.fileName", errors);
         ValidateRequiredString(entry.OutputPath, $"{prefix}.outputPath", errors);
+        ValidateOutputPath(entry.OutputPath, $"{prefix}.outputPath", errors);
         ValidateRequiredString(entry.ShareToken, $"{prefix}.shareToken", errors);
         ValidateServerUrl(entry.ServerUrl, $"{prefix}.serverUrl", errors);
 
@@ -146,6 +158,19 @@ public static partial class QueueFileParser
         if (!match.Success || match.Index != 0 || match.Length != value.Length)
         {
             errors.Add(new(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
+        }
+    }
+
+    private static void ValidateOutputPath(String? outputPath, String path, List<QueueFileValidationError> errors)
+    {
+        if (String.IsNullOrWhiteSpace(outputPath))
+        {
+            return;
+        }
+
+        if (IsPortableAbsolutePath(outputPath))
+        {
+            errors.Add(new(path, "The outputPath value must be a relative path."));
         }
     }
 

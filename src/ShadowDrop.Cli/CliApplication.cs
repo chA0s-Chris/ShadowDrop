@@ -119,6 +119,11 @@ internal static class CliApplication
             Description = "Download files from a shared queue JSON file."
         };
 
+        var outputRootOption = new Option<DirectoryInfo?>("--output-root")
+        {
+            Description = "Root directory for relative outputPath values in a download queue."
+        };
+
         var shareKeyOption = new Option<String?>("--share-key")
         {
             Description = "Share key as lowercase hexadecimal key material or secret:<hex>."
@@ -144,6 +149,7 @@ internal static class CliApplication
         downloadCommand.Options.Add(serverOption);
         downloadCommand.Options.Add(fileOption);
         downloadCommand.Options.Add(queueOption);
+        downloadCommand.Options.Add(outputRootOption);
         downloadCommand.Options.Add(shareKeyOption);
         downloadCommand.Options.Add(shareKeyFileOption);
         downloadCommand.Options.Add(bearerTokenOption);
@@ -237,6 +243,7 @@ internal static class CliApplication
                    serverOption,
                    fileOption,
                    queueOption,
+                   outputRootOption,
                    shareKeyOption,
                    shareKeyFileOption,
                    bearerTokenOption,
@@ -331,9 +338,16 @@ internal static class CliApplication
                                                      parseResult.GetValue(commandModel.ServerOption),
                                                      parseResult.GetValue(commandModel.FileOption),
                                                      parseResult.GetValue(commandModel.QueueOption),
+                                                     parseResult.GetValue(commandModel.OutputRootOption),
                                                      parseResult.GetValue(commandModel.ShareKeyOption),
                                                      parseResult.GetValue(commandModel.ShareKeyFileOption),
                                                      parseResult.GetValue(commandModel.BearerTokenOption));
+
+            if (options.OutputRoot is not null && options.QueuePath is null)
+            {
+                await services.StandardError.WriteLineAsync("The --output-root option requires --queue.");
+                return 1;
+            }
 
             if (parseResult.GetValue(commandModel.DownloadInteractiveOption))
             {
@@ -398,6 +412,7 @@ internal static class CliApplication
         Option<String?> ServerOption,
         Option<String?> FileOption,
         Option<FileInfo?> QueueOption,
+        Option<DirectoryInfo?> OutputRootOption,
         Option<String?> ShareKeyOption,
         Option<FileInfo?> ShareKeyFileOption,
         Option<String?> BearerTokenOption,
