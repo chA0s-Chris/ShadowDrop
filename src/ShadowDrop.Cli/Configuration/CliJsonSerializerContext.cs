@@ -16,5 +16,6 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(CreateShareCliRequest))]
 [JsonSerializable(typeof(CreateShareCliResult))]
 [JsonSerializable(typeof(UploadCommandResult))]
+[JsonSerializable(typeof(DirectHttpDownload))]
 [JsonSerializable(typeof(CredentialDocument))]
 internal sealed partial class CliJsonSerializerContext : JsonSerializerContext;
