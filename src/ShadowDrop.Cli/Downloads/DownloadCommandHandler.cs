@@ -262,6 +262,37 @@ internal sealed class DownloadCommandHandler(
     private static Boolean HasExplicitCredentials(DownloadCommandOptions options) =>
         !String.IsNullOrWhiteSpace(options.ShareKey) || options.ShareKeyFile is not null || !String.IsNullOrWhiteSpace(options.BearerToken);
 
+    private static Boolean IsInsideRoot(String path, String root)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (String.Equals(path, root, comparison))
+        {
+            return true;
+        }
+
+        var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return path.StartsWith(rootPrefix, comparison);
+    }
+
+    private static String ResolveOutputRoot(DirectoryInfo? outputRoot)
+    {
+        var root = outputRoot?.FullName ?? Environment.CurrentDirectory;
+        return Path.GetFullPath(root);
+    }
+
+    private static String ResolveQueueOutputPath(String outputRoot, String outputPath)
+    {
+        var resolvedPath = Path.GetFullPath(Path.Combine(outputRoot, outputPath));
+        if (!IsInsideRoot(resolvedPath, outputRoot))
+        {
+            throw new DownloadCommandException("Queue output path escapes the output root.");
+        }
+
+        return resolvedPath;
+    }
+
     private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
     {
         if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
@@ -391,16 +422,18 @@ internal sealed class DownloadCommandHandler(
             var manifestClient = new ShareManifestClient(httpClient);
             Dictionary<String, ShareManifestContract> manifestCache = [];
             var allSucceeded = true;
+            var outputRoot = ResolveOutputRoot(options.OutputRoot);
 
             foreach (var entry in queue.Files!)
             {
                 var summaryLabel = entry.FileName ?? entry.FileId ?? "unknown";
                 try
                 {
+                    var outputPath = ResolveQueueOutputPath(outputRoot, entry.OutputPath!);
                     var shareReference = ResolveQueueShareReference(entry);
                     var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, cancellationToken);
                     var file = SelectQueuedFile(manifest, entry);
-                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, bearerToken, entry.OutputPath!,
+                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, bearerToken, outputPath,
                                               cancellationToken);
                     await WriteQueueResultAsync($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
                 }

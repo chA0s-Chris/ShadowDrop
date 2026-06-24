@@ -231,7 +231,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
                                                   String? shareKey = null,
                                                   FileInfo? queuePath = null,
                                                   String? fileId = null) =>
-        new(shareToken, null, fileId, queuePath, shareKey, null, null);
+        new(shareToken, null, fileId, queuePath, null, shareKey, null, null);
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {

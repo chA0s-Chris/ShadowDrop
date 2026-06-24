@@ -8,17 +8,17 @@ locations. This plan addresses [#52](https://github.com/chA0s-Chris/ShadowDrop/i
 
 ## Acceptance Criteria
 
-- [ ] `shadowdrop download --queue <path>` accepts an optional output-root option for queue downloads.
-- [ ] When the output-root option is omitted, existing relative queue paths continue to resolve under the current
+- [x] `shadowdrop download --queue <path>` accepts an optional output-root option for queue downloads.
+- [x] When the output-root option is omitted, existing relative queue paths continue to resolve under the current
   working directory.
-- [ ] Queue entry `outputPath` values must be relative paths; absolute path forms such as `/x`, `C:\x`, `C:/x`, and
+- [x] Queue entry `outputPath` values must be relative paths; absolute path forms such as `/x`, `C:\x`, `C:/x`, and
   `\\server\share\x` are rejected as invalid queue content regardless of host OS.
-- [ ] Queue downloads resolve each `outputPath` under the selected output root and reject paths that escape that root
+- [x] Queue downloads resolve each `outputPath` under the selected output root and reject paths that escape that root
   after normalization.
-- [ ] Supplying the output-root option without `--queue` fails with a clear validation error and does not start a direct
+- [x] Supplying the output-root option without `--queue` fails with a clear validation error and does not start a direct
   or interactive download.
-- [ ] Generated queue files continue to use sanitized, collision-safe relative output paths.
-- [ ] Automated tests are written for explicit output roots, the default current-directory behavior, absolute path
+- [x] Generated queue files continue to use sanitized, collision-safe relative output paths.
+- [x] Automated tests are written for explicit output roots, the default current-directory behavior, absolute path
   rejection, traversal rejection, and unchanged queue generation.
 
 ## Technical Details

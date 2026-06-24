@@ -7,6 +7,7 @@ internal sealed record DownloadCommandOptions(
     String? ServerUrlOverride,
     String? FileId,
     FileInfo? QueuePath,
+    DirectoryInfo? OutputRoot,
     String? ShareKey,
     FileInfo? ShareKeyFile,
     String? BearerToken);

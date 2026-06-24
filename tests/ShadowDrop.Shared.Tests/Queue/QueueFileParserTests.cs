@@ -179,6 +179,36 @@ public sealed class QueueFileParserTests
                                                     error.Message == "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.");
     }
 
+    [TestCase("/x")]
+    [TestCase("C:")]
+    [TestCase("C:report.txt")]
+    [TestCase(@"C:\x")]
+    [TestCase("C:/x")]
+    [TestCase(@"\\server\share\x")]
+    public void Parse_ShouldRejectPortableAbsoluteOutputPathForms(String outputPath)
+    {
+        var file = CreateValidQueueFile().Files!.Single();
+        var queueFile = CreateValidQueueFile() with
+        {
+            Files =
+            [
+                file with
+                {
+                    OutputPath = outputPath
+                }
+            ]
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "files[0].outputPath" &&
+                                                    error.Message == "The outputPath value must be a relative path.");
+    }
+
     [Test]
     public void Parse_ShouldRejectQueueFileWithQueueVersionMismatch()
     {
