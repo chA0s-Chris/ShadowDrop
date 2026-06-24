@@ -180,6 +180,8 @@ public sealed class QueueFileParserTests
     }
 
     [TestCase("/x")]
+    [TestCase("C:")]
+    [TestCase("C:report.txt")]
     [TestCase(@"C:\x")]
     [TestCase("C:/x")]
     [TestCase(@"\\server\share\x")]

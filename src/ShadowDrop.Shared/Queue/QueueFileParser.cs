@@ -110,10 +110,9 @@ public static partial class QueueFileParser
     private static Boolean IsPortableAbsolutePath(String outputPath) =>
         outputPath.StartsWith('/') ||
         outputPath.StartsWith('\\') ||
-        (outputPath.Length >= 3 &&
+        (outputPath.Length >= 2 &&
          IsAsciiLetter(outputPath[0]) &&
-         outputPath[1] == ':' &&
-         (outputPath[2] == '/' || outputPath[2] == '\\'));
+         outputPath[1] == ':');
 
     [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, -1)]
     private static partial Regex Sha256Regex();
