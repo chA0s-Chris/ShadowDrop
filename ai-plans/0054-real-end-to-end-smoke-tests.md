@@ -8,23 +8,22 @@ against a live local HTTP endpoint. This plan addresses
 
 ## Acceptance Criteria
 
-- [ ] A real end-to-end test target builds or publishes the API and CLI before running the smoke scenarios.
-- [ ] The E2E harness starts `ShadowDrop.Api` as a separate process on an isolated localhost port with temporary metadata
+- [x] A real end-to-end test target builds or publishes the API and CLI before running the smoke scenarios.
+- [x] The E2E harness starts `ShadowDrop.Api` as a separate process on an isolated localhost port with temporary metadata
   and storage paths, waits for `/health`, and reliably terminates the API process afterward.
-- [ ] The queue-download scenario uploads multiple files with the CLI using explicit `--server-url`, `--upload-token`,
+- [x] The queue-download scenario uploads multiple files with the CLI using explicit `--server-url`, `--upload-token`,
   and `--queue-out`, captures the emitted share key, downloads the generated queue with `--queue`, `--output-root`, and
   `--share-key`, and byte-compares every downloaded file with the original.
-- [ ] The direct-HTTP scenario uploads one file with the CLI using environment variables for server URL and upload token
+- [x] The direct-HTTP scenario uploads one file with the CLI using environment variables for server URL and upload token
   plus `--direct-http`, captures the emitted `download-url:` value from the direct HTTP output added by #55, downloads it
   with `curl`, and byte-compares the result with the original.
-- [ ] The direct-HTTP E2E scenario is implemented only after #55 is merged, or remains pending until #55's
+- [x] The direct-HTTP E2E scenario is implemented only after #55 is merged, or remains pending until #55's
   `download-url:` output exists.
-- [ ] The smoke tests are isolated, non-parallel, deterministic, and clean up temporary files, directories, and child
+- [x] The smoke tests are isolated, non-parallel, deterministic, and clean up temporary files, directories, and child
   processes even when a scenario fails.
-- [ ] The E2E smoke tests are marked with an NUnit `[Category("E2E")]` so the default fast unit/integration `Test` target
-  excludes them by filter (`TestCategory!=E2E`), and a dedicated E2E target runs only `TestCategory=E2E`, wired as a
-  separate developer/CI entry point with CI running it as a separate job or step.
-- [ ] Test-project or local E2E documentation explains how to run the real E2E smoke tests locally and lists required
+- [x] The E2E smoke tests are marked with an NUnit `[Category("E2E")]` so the default fast unit/integration `Test` target
+  excludes them by filter (`TestCategory!=E2E`), and a dedicated E2E target `TestEndToEnd` runs only `TestCategory=E2E`. CI runs both `Test` and `TestEndToEnd` targets.
+- [x] Test-project or local E2E documentation explains how to run the real E2E smoke tests locally and lists required
   external tools, including `curl`.
 
 ## Technical Details

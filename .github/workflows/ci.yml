@@ -34,7 +34,7 @@ jobs:
             10.0.x
 
       - name: Run NUKE pipeline
-        run: bash build.sh Test
+        run: bash build.sh Test TestEndToEnd
 
       - name: Create coverage summary
         uses: irongut/CodeCoverageSummary@v1.3.0
