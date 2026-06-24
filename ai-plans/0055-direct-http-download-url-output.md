@@ -8,21 +8,21 @@ metadata output where useful. This plan addresses
 
 ## Acceptance Criteria
 
-- [ ] `shadowdrop upload --direct-http` emits direct file download URLs that point at
+- [x] `shadowdrop upload --direct-http` emits direct file download URLs that point at
   `/d/<share-token>/files/<file-id>?sd-key=<base64-key-material>`.
-- [ ] The `sd-key` query value is URL-encoded so a base64 key containing `+`, `/`, or `=` survives intact and the URL can
+- [x] The `sd-key` query value is URL-encoded so a base64 key containing `+`, `/`, or `=` survives intact and the URL can
   be used directly with `curl` or a browser.
-- [ ] When exactly one file is uploaded, a direct HTTP upload emits one simple, parseable `download-url:<url>` line.
-- [ ] When more than one file is uploaded, a direct HTTP upload emits one deterministic, parseable
+- [x] When exactly one file is uploaded, a direct HTTP upload emits one simple, parseable `download-url:<url>` line.
+- [x] When more than one file is uploaded, a direct HTTP upload emits one deterministic, parseable
   `download-url:<file-id>:<url>` line for every uploaded file.
-- [ ] Existing `share-url:` output remains available as the manifest URL so existing scripts do not break.
-- [ ] Non-direct-HTTP upload output remains unchanged.
-- [ ] `shadowdrop upload --direct-http --secrets-out <file>` is rejected with a validation error, because a direct HTTP
+- [x] Existing `share-url:` output remains available as the manifest URL so existing scripts do not break.
+- [x] Non-direct-HTTP upload output remains unchanged.
+- [x] `shadowdrop upload --direct-http --secrets-out <file>` is rejected with a validation error, because a direct HTTP
   download URL embeds the key material and therefore has no secret to redirect to a file.
-- [ ] `--json` output includes direct HTTP download URLs as
+- [x] `--json` output includes direct HTTP download URLs as
   `directHttpDownloads: [{ fileId, fileName, downloadUrl }]` for direct HTTP shares without removing existing fields.
-- [ ] Non-direct-HTTP `--json` output omits `directHttpDownloads`.
-- [ ] Automated tests cover single-file direct HTTP output, multiple-file direct HTTP output, JSON output, the rejected
+- [x] Non-direct-HTTP `--json` output omits `directHttpDownloads`.
+- [x] Automated tests cover single-file direct HTTP output, multiple-file direct HTTP output, JSON output, the rejected
   `--direct-http --secrets-out` combination, and unchanged separate-key output.
 
 ## Technical Details

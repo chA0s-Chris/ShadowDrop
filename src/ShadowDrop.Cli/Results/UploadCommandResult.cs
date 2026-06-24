@@ -27,7 +27,21 @@ internal sealed record UploadCommandResult(
     [property: JsonPropertyName("secretsFile")]
     String? SecretsFile,
     [property: JsonPropertyName("queueFile")]
-    String? QueueFile);
+    String? QueueFile,
+    [property: JsonPropertyName("directHttpDownloads")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<DirectHttpDownload>? DirectHttpDownloads = null);
+
+/// <summary>
+/// A direct HTTP file download URL emitted for browser- or curl-compatible shares.
+/// </summary>
+internal sealed record DirectHttpDownload(
+    [property: JsonPropertyName("fileId")]
+    String FileId,
+    [property: JsonPropertyName("fileName")]
+    String FileName,
+    [property: JsonPropertyName("downloadUrl")]
+    String DownloadUrl);
 
 /// <summary>
 /// The non-retrievable credentials required to download a share.

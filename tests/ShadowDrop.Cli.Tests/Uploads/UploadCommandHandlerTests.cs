@@ -11,6 +11,7 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
 using System.Text;
@@ -19,6 +20,20 @@ using System.Text.Json;
 [NonParallelizable]
 public sealed class UploadCommandHandlerTests
 {
+    [Test]
+    public void DirectHttpDownloadUrlFactory_ShouldUrlEncodeBase64KeyMaterial()
+    {
+        var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var shareSecretHex = $"fb{new String('f', 62)}";
+
+        var downloadUrl = DirectHttpDownloadUrlFactory.Create(new("https://shadowdrop.test/root"), "share/token", fileId, shareSecretHex);
+
+        var uri = new Uri(downloadUrl);
+        uri.AbsolutePath.Should().Be("/root/d/share%2Ftoken/files/11111111-2222-3333-4444-555555555555");
+        uri.Query.Should().Contain("sd-key=%2B").And.Contain("%2F").And.Contain("%3D");
+        Convert.FromBase64String(ReadDirectHttpKeyMaterial(uri)).Should().Equal(Convert.FromHexString(shareSecretHex));
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldCreateOneShareForMultipleFiles_AndNotEmitFileIds()
     {
@@ -63,6 +78,7 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-url:").Should().StartWith($"share-url:{httpClient.BaseAddress}d/");
         Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
+        standardOut.ToString().Should().NotContain("download-url:");
         standardOut.ToString().Should().NotContain("download-bearer-token:");
         standardError.ToString().Should().Contain("Uploaded file 1 of 1.").And.NotContain(fixture.BootstrapToken);
         fixture.GetStoredUploads().Should().ContainSingle();
@@ -129,6 +145,63 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldEmitDirectHttpDownloadsInJson_WhenDirectHttpRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-json.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var root = document.RootElement;
+        root.GetProperty("shareUrl").GetString().Should().StartWith($"{httpClient.BaseAddress}d/");
+        var shareKey = root.GetProperty("credentials").GetProperty("shareKey").GetString()!;
+        var directHttpDownload = root.GetProperty("directHttpDownloads").EnumerateArray().Should().ContainSingle().Subject;
+        directHttpDownload.GetProperty("fileId").GetString().Should().Be(root.GetProperty("uploadedFileIds")[0].GetString());
+        directHttpDownload.GetProperty("fileName").GetString().Should().Be("direct-json.bin");
+        var downloadUrl = directHttpDownload.GetProperty("downloadUrl").GetString()!;
+        downloadUrl.Should().StartWith($"{httpClient.BaseAddress}d/")
+                   .And.Contain("/files/")
+                   .And.Contain("sd-key=");
+        Convert.FromBase64String(ReadDirectHttpKeyMaterial(new Uri(downloadUrl))).Should().Equal(Convert.FromHexString(shareKey));
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitDirectHttpDownloadUrl_ForSingleFile()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-single.bin", 128);
+        var plaintext = await File.ReadAllBytesAsync(filePath);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        FindLine(standardOut.ToString(), "share-url:").Should().StartWith($"share-url:{httpClient.BaseAddress}d/");
+        var downloadUrl = Value(FindLine(standardOut.ToString(), "download-url:"));
+        var storedUpload = fixture.GetStoredUploads().Should().ContainSingle().Subject;
+        var downloadUri = new Uri(downloadUrl);
+        downloadUri.AbsoluteUri.Should().StartWith($"{httpClient.BaseAddress}d/");
+        downloadUri.AbsolutePath.Should().EndWith($"/files/{storedUpload.FileId:D}");
+        downloadUri.Query.Should().Contain("sd-key=").And.Contain("%3D");
+        standardOut.ToString().Should().NotContain("share-key:");
+
+        using var response = await httpClient.GetAsync(downloadUri, CancellationToken.None);
+        response.EnsureSuccessStatusCode();
+        (await response.Content.ReadAsByteArrayAsync(CancellationToken.None)).Should().Equal(plaintext);
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldEmitJsonResultWithCredentials_WhenJsonRequested()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -151,6 +224,36 @@ public sealed class UploadCommandHandlerTests
         root.GetProperty("shareUrl").GetString().Should().StartWith($"{httpClient.BaseAddress}d/");
         root.GetProperty("credentials").GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
         root.GetProperty("secretsFile").ValueKind.Should().Be(JsonValueKind.Null);
+        root.TryGetProperty("directHttpDownloads", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitOneDirectHttpDownloadUrlPerFile_ForMultipleFiles()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePaths = new[]
+        {
+            fixture.CreateInputFile("direct-first.bin", 16),
+            fixture.CreateInputFile("direct-second.bin", 48),
+            fixture.CreateInputFile("direct-third.bin", 96)
+        };
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--direct-http", ..filePaths], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var lines = FindLines(standardOut.ToString(), "download-url:");
+        lines.Should().HaveCount(3);
+        var storedFileIds = fixture.GetStoredUploads().Select(static upload => upload.FileId.ToString()).ToHashSet(StringComparer.Ordinal);
+        var parsedDownloads = lines.Select(ParseMultiFileDownloadLine).ToArray();
+        parsedDownloads.Select(static download => download.FileId).Should().OnlyContain(fileId => storedFileIds.Contains(fileId));
+        parsedDownloads.Select(static download => download.DownloadUrl).Should()
+                       .OnlyContain(url => new Uri(url).Query.Contains("sd-key=", StringComparison.Ordinal));
+        standardOut.ToString().Should().NotContain("share-key:");
     }
 
     [Test]
@@ -621,6 +724,28 @@ public sealed class UploadCommandHandlerTests
         standardError.ToString().Should().Contain("Direct HTTP shares do not support queue generation");
         fixture.GetStoredUploads().Should().BeEmpty();
         File.Exists(queuePath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectSecretsOutForDirectHttpShare()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-secret.bin", 32);
+        var secretsPath = Path.Combine(fixture.RootDirectory, "direct-secrets.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--secrets-out", secretsPath], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Direct HTTP shares do not support writing secrets to a separate file");
+        fixture.GetStoredUploads().Should().BeEmpty();
+        File.Exists(secretsPath).Should().BeFalse();
     }
 
     [Test]
@@ -1343,6 +1468,26 @@ public sealed class UploadCommandHandlerTests
     private static String? FindLine(String standardOut, String prefix) =>
         standardOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
                    .SingleOrDefault(line => line.StartsWith(prefix, StringComparison.Ordinal));
+
+    private static IReadOnlyList<String> FindLines(String standardOut, String prefix) =>
+        standardOut.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                   .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
+                   .ToArray();
+
+    private static (String FileId, String DownloadUrl) ParseMultiFileDownloadLine(String line)
+    {
+        var payload = Value(line);
+        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
+        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
+    }
+
+    private static String ReadDirectHttpKeyMaterial(Uri downloadUri)
+    {
+        var query = downloadUri.Query.TrimStart('?');
+        var keyPrefix = "sd-key=";
+        query.Should().StartWith(keyPrefix);
+        return Uri.UnescapeDataString(query[keyPrefix.Length..]);
+    }
 
     private static void RestoreReadableFileMode(String path)
     {

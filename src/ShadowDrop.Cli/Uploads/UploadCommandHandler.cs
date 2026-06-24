@@ -47,6 +47,12 @@ internal sealed class UploadCommandHandler(
             return 1;
         }
 
+        if (options.DirectHttp && options.SecretsOut is not null)
+        {
+            await standardError.WriteLineAsync("Direct HTTP shares do not support writing secrets to a separate file (--secrets-out).");
+            return 1;
+        }
+
         if (options.EmbedSecrets && options.QueueOut is null)
         {
             await standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
@@ -175,13 +181,28 @@ internal sealed class UploadCommandHandler(
                 await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
-                await EmitResultAsync(options, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null);
+                await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null);
                 return 1;
             }
         }
 
-        await EmitResultAsync(options, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath);
+        await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath);
         return 0;
+    }
+
+    private static IReadOnlyList<DirectHttpDownload> BuildDirectHttpDownloads(Uri serverUrl,
+                                                                              UploadExecutionResult uploadResult,
+                                                                              String shareToken)
+    {
+        return uploadResult.Files
+                           .Where(static result => result.UploadedFileId is not null)
+                           .Select(result =>
+                           {
+                               var fileId = result.UploadedFileId!.Value;
+                               var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!);
+                               return new DirectHttpDownload(fileId.ToString(), result.File.Name, downloadUrl);
+                           })
+                           .ToArray();
     }
 
     private UploadCommandResult BuildResult(String status,
@@ -191,7 +212,8 @@ internal sealed class UploadCommandHandler(
                                             String? shareUrl,
                                             UploadCredentials? credentials,
                                             String? secretsFile = null,
-                                            String? queueFile = null) =>
+                                            String? queueFile = null,
+                                            IReadOnlyList<DirectHttpDownload>? directHttpDownloads = null) =>
         new(status,
             uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray(),
             shareId,
@@ -199,9 +221,11 @@ internal sealed class UploadCommandHandler(
             shareUrl,
             credentials,
             secretsFile,
-            queueFile);
+            queueFile,
+            directHttpDownloads);
 
     private async Task EmitResultAsync(UploadCommandOptions options,
+                                       Uri serverUrl,
                                        String status,
                                        UploadExecutionResult uploadResult,
                                        CreateShareCliResult shareResult,
@@ -209,6 +233,9 @@ internal sealed class UploadCommandHandler(
                                        String? queueFile)
     {
         var credentialsToFile = options.SecretsOut is not null;
+        var directHttpDownloads = options.DirectHttp
+            ? BuildDirectHttpDownloads(serverUrl, uploadResult, shareResult.ShareToken)
+            : null;
 
         if (options.Json)
         {
@@ -216,12 +243,16 @@ internal sealed class UploadCommandHandler(
             var secretsFile = credentialsToFile ? options.SecretsOut!.FullName : null;
             await UploadResultWriter.WriteAsync(standardOut,
                                                 BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
-                                                            secretsFile, queueFile));
+                                                            secretsFile, queueFile, directHttpDownloads));
             return;
         }
 
         await standardOut.WriteLineAsync($"share-url:{shareUrl}");
-        if (credentialsToFile)
+        if (directHttpDownloads is not null)
+        {
+            await WriteDirectHttpDownloadsAsync(directHttpDownloads);
+        }
+        else if (credentialsToFile)
         {
             await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut!.FullName}");
         }
@@ -246,6 +277,20 @@ internal sealed class UploadCommandHandler(
                     $"Note: the queue is secret-free. Keep {keySource} and pass it via --share-key to download the queue, "
                     + "or re-run with --embed-secrets for a self-contained queue.");
             }
+        }
+    }
+
+    private async Task WriteDirectHttpDownloadsAsync(IReadOnlyList<DirectHttpDownload> directHttpDownloads)
+    {
+        if (directHttpDownloads.Count == 1)
+        {
+            await standardOut.WriteLineAsync($"download-url:{directHttpDownloads[0].DownloadUrl}");
+            return;
+        }
+
+        foreach (var directHttpDownload in directHttpDownloads)
+        {
+            await standardOut.WriteLineAsync($"download-url:{directHttpDownload.FileId}:{directHttpDownload.DownloadUrl}");
         }
     }
 
