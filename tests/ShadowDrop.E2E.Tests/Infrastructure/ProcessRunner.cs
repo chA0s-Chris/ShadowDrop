@@ -69,10 +69,18 @@ internal static class ProcessRunner
         {
             await process.WaitForExitAsync(timeoutSource.Token);
         }
-        catch (OperationCanceledException) when (timeout is not null && !cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
+            // Either the timeout fired or the caller cancelled; in both cases stop the child so a cancelled
+            // run never leaves orphaned dotnet/curl processes behind.
             TryKill(process);
-            throw new TimeoutException($"Process '{fileName}' did not exit within {timeout}.");
+
+            if (timeout is not null && !cancellationToken.IsCancellationRequested)
+            {
+                throw new TimeoutException($"Process '{fileName}' did not exit within {timeout}.");
+            }
+
+            throw;
         }
 
         // Block briefly so the asynchronous stdout/stderr readers flush before the buffers are read.
