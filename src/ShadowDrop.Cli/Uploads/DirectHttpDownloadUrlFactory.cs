@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
+using System.Security.Cryptography;
 
 internal static class DirectHttpDownloadUrlFactory
 {
@@ -18,7 +19,7 @@ internal static class DirectHttpDownloadUrlFactory
         }
         finally
         {
-            Array.Clear(keyMaterial);
+            CryptographicOperations.ZeroMemory(keyMaterial);
         }
     }
 }
