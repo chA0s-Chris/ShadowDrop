@@ -23,7 +23,7 @@ public abstract class SmokeTestBase
                           .Select(line => line[prefix.Length..])
                           .FirstOrDefault();
 
-        value.Should().NotBeNull($"the CLI output should contain a '{prefix}' line.{Environment.NewLine}{result.Describe()}");
+        value.Should().NotBeNullOrWhiteSpace($"the CLI output should contain a non-empty '{prefix}' value.{Environment.NewLine}{result.Describe()}");
         return value!;
     }
 
