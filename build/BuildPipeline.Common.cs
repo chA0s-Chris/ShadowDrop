@@ -44,7 +44,15 @@ internal partial class BuildPipeline
     [Parameter(Name = "NUGET_PACKAGES_DIRECTORY")]
     private AbsolutePath PackagesDirectory { get; set; } = RootDirectory / ".nuget";
 
-    private AbsolutePath PublishDirectory => ArtifactsDirectory / "packages";
+    private AbsolutePath ProjectFileApi => SourceDirectory / "ShadowDrop.Api/ShadowDrop.Api.csproj";
+
+    private AbsolutePath ProjectFileCli => SourceDirectory / "ShadowDrop.Cli/ShadowDrop.Cli.csproj";
+
+    private AbsolutePath PublishApiDirectory => PublishDirectory / "api";
+
+    private AbsolutePath PublishCliDirectory => PublishDirectory / "cli";
+
+    private AbsolutePath PublishDirectory => ArtifactsDirectory / "publish";
 
     private String ReleaseNotes { get; set; } = String.Empty;
 
