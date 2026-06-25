@@ -13,18 +13,18 @@ creating a GitHub Release yet. This plan addresses
   `artifacts/publish/api/` after `Restore`, without requiring Docker to be installed.
 - [x] `PublishCliLinux` publishes `linux-x64` and `linux-arm64` CLI binaries on an Ubuntu runner, with documented
   Native AOT prerequisites for the ARM64 cross linker.
-- [ ] `PublishCliMacOs` publishes `osx-x64` and `osx-arm64` CLI binaries on macOS runners.
-- [ ] `PublishCliWindows` publishes `win-x64` and `win-arm64` CLI binaries on Windows runners.
-- [ ] Each platform-specific CLI publish target places binaries under `artifacts/publish/cli/{version}/` using
+- [x] `PublishCliMacOs` publishes `osx-x64` and `osx-arm64` CLI binaries on macOS runners.
+- [x] `PublishCliWindows` publishes `win-x64` and `win-arm64` CLI binaries on Windows runners.
+- [x] Each platform-specific CLI publish target places binaries under `artifacts/publish/cli/{version}/` using
   `shadowdrop-cli-{version}-{rid}[.exe]` names, without requiring that one machine can build every RID.
-- [ ] A release-artifacts GitHub workflow builds the API and all CLI flavors using appropriate runner jobs, uploads each
+- [x] A release-artifacts GitHub workflow builds the API and all CLI flavors using appropriate runner jobs, uploads each
   job's outputs as workflow artifacts, and has an aggregation job that downloads every output.
-- [ ] The release-artifacts workflow creates a `CHECKSUMS.sha256` file in Unix `<hash>  <filename>` format with one entry
+- [x] The release-artifacts workflow creates a `CHECKSUMS.sha256` file in Unix `<hash>  <filename>` format with one entry
   per collected CLI binary and uploads the complete release-artifact bundle.
 - [x] The release-artifacts workflow does not create tags or GitHub Releases; actual release publication remains out of
   scope for this plan.
 - [x] The new targets are wired into the existing build pipeline without changing the default `Build` entry point.
-- [ ] Validation proves the platform-specific target graph and workflow artifact layout: API output exists, all six CLI
+- [x] Validation proves the platform-specific target graph and workflow artifact layout: API output exists, all six CLI
   binary names are collected, and `CHECKSUMS.sha256` contains exactly one entry per CLI binary.
 
 ## Technical Details
