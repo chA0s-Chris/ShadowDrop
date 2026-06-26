@@ -1,50 +1,83 @@
 ## Rationale
 
-Package the API for self-hosted single-container deployment on home lab and small VPS hosts. The image uses filesystem-local blob storage and LiteDB persistence with predictable writable paths, environment-driven configuration, and non-root execution for security.
+Package the API for self-hosted single-container deployment on home lab and small VPS hosts. The image uses filesystem-local blob storage and LiteDB persistence with predictable writable paths, environment-driven configuration, and non-root execution for security. The `PublishApi` NUKE target from [#69](https://github.com/chA0s-Chris/ShadowDrop/issues/69) already produces the framework-dependent API publish output under `artifacts/publish/api/`, so the Dockerfile only needs to copy that output into a runtime image rather than building the API itself.
+
+Two NUKE targets wrap the `docker` invocation. `BuildDockerImage` builds a single-arch image for the **host's native platform** to keep the local dev/test inner loop fast and dependency-free (`./build.sh PublishApi BuildDockerImage`), while `BuildDockerImageMultiPlatform` builds the release-grade `linux/amd64` + `linux/arm64` image. A new `release.yml` workflow reuses `release-artifacts.yml` to gather the publish artifacts and then runs `./build.sh BuildDockerImageMultiPlatform` to build the multi-platform image from those artifacts. Actually creating a GitHub Release and pushing/publishing the Docker image are deliberately out of scope for this plan and will be added to the release workflow later.
 
 ## Acceptance Criteria
 
-- [ ] Dockerfile uses multi-stage build; final stage bases on `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`.
-- [ ] Container runs with non-root user (uid/gid `1000:1000`); `/app/data` and all contents owned by that user.
-- [ ] All acceptance criteria below are satisfied on both `amd64` and `arm64` architectures.
-- [ ] Container runtime defaults: HTTP server binds to `0.0.0.0:19423` by default (single port exposed in Dockerfile; both public downloads and protected admin routes served together on this port unless `ASPNETCORE_URLS` is overridden).
-- [ ] All persistent data is writable to `/app/data` (LiteDB at `/app/data/shadowdrop.db` by default; blobs at `/app/data/blobs/`); `/app/data` **must be mounted as a volume** for data persistence beyond container lifetime.
+- [ ] Dockerfile uses a single runtime stage based on `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` that copies the pre-built API publish output from `artifacts/publish/api/` (produced by the `PublishApi` NUKE target); no .NET SDK build happens inside the image.
+- [ ] Container runs as the chiseled base image's built-in non-root user (`USER $APP_UID`, uid `1654`); no custom user is created, and `/app/data` and all contents are owned by / writable to that user.
+- [ ] The container's runtime behavior (startup, configuration binding, `/app/data` permissions, and `GET /health`) works identically on both `amd64` and `arm64`.
+- [ ] Container runtime defaults: the Dockerfile sets `ASPNETCORE_HTTP_PORTS=19423` (overriding the chiseled base's default of `8080`) and `EXPOSE 19423`, so the HTTP server binds to `0.0.0.0:19423` by default (single port; both public downloads and protected admin routes served together unless `ASPNETCORE_URLS`/`ASPNETCORE_HTTP_PORTS` is overridden).
+- [ ] All persistent data is writable under `/app/data`: LiteDB at `/app/data/metadata/shadowdrop.db` (via `ShadowDrop__Metadata__LiteDbPath`) and blob storage at `/app/data/storage/` (via `ShadowDrop__Storage__LocalRoot`); `/app/data` **must be mounted as a volume** for data persistence beyond container lifetime.
 - [ ] Directory permissions under `/app/data` are `700`; database file is `600`.
-- [ ] Configuration via environment variables (e.g., `Serilog__MinimumLevel__Default=Debug` for verbosity; `ShadowDrop:LiteDbPath` for LiteDB path).
+- [ ] Configuration via environment variables using the `__` delimiter (e.g., `Serilog__MinimumLevel__Default=Debug` for verbosity; `ShadowDrop__Metadata__LiteDbPath` for the LiteDB path; `ShadowDrop__Storage__LocalRoot` for the blob storage root).
 - [ ] Users may mount a custom `appsettings.json` over `/app/appsettings.json` in the image.
 - [ ] Container does not require HTTPS; assume reverse-proxy TLS termination at ingress.
-- [ ] No liveness probe or health check endpoint in MVP.
+- [ ] No Docker `HEALTHCHECK` instruction or container liveness probe in MVP (the existing `GET /health` endpoint remains and is used by the smoke test).
 - [ ] Containerized smoke test validates: container starts without errors, loads configuration correctly (verified via logs or startup success), and responds with HTTP 200 to `GET /health` proving API is ready to accept requests (no external dependencies).
-- [ ] On first start, if `/app/data/shadowdrop.db` does not exist, LiteDB creates the database and schema automatically; subsequent starts reuse the existing database.
-- [ ] Multi-arch build validation: `docker buildx build --platform linux/amd64,linux/arm64 -t shadowdrop:latest .` builds successfully on both architectures without errors.
+- [ ] A `SmokeTestDockerImage` NUKE target automates the smoke test against the native image: it builds via `BuildDockerImage`, starts the container, polls `GET /health` until it returns HTTP 200 (with a bounded timeout), and tears the container down afterward, failing the build if `/health` never becomes healthy. It is runnable locally and from CI.
+- [ ] On first start, if `/app/data/metadata/shadowdrop.db` does not exist, LiteDB creates the database and schema automatically; subsequent starts reuse the existing database.
+- [ ] A `BuildDockerImage` NUKE target builds a single-arch image for the **host's native platform** and loads it into the local image store (`docker buildx build --load`, no `--platform` override). It works on any standard Docker daemon — it does **not** require the containerd image store or QEMU — so it is the fast, low-friction option for local development and the smoke test.
+- [ ] A `BuildDockerImageMultiPlatform` NUKE target produces a single **multi-platform** image for `linux/amd64` and `linux/arm64` (one tag backed by a manifest list). It uses `docker buildx build --platform linux/amd64,linux/arm64 --load` so the resulting multi-arch image is loaded into the local image store without pushing to any registry (the framework-dependent publish output is architecture-neutral, so the same artifacts are copied onto each platform's runtime base image).
+- [ ] Both Docker image targets build from the API publish output in `artifacts/publish/api/`, derive the image tag from `SemanticVersion`, and share their implementation (Dockerfile, artifact check, tagging) via a common helper. Neither hard-depends on `PublishApi` (no `DependsOn`), but both are ordered `After(PublishApi)` so `./build.sh PublishApi <target>` builds the artifacts and then the image in one run, while `./build.sh <target>` builds against pre-existing artifacts (e.g. artifacts downloaded in CI).
+- [ ] Both Docker image targets fail with a clear error if the expected API publish output is missing, rather than producing a broken image.
+- [ ] Loading a multi-platform image locally requires the Docker **containerd image store** (and QEMU/binfmt for the non-native architecture). `BuildDockerImageMultiPlatform` documents this requirement and surfaces a clear, actionable error if the daemon is on the legacy store (e.g. the "Multi-platform build is not supported for the docker driver ... turn on the containerd image store" failure), rather than silently degrading to a single arch.
+- [ ] `release-artifacts.yml` is made reusable via a `workflow_call` trigger (keeping its existing `workflow_dispatch` trigger) so it can be invoked from other workflows, and it accepts a required semantic `version` input that it forwards to the NUKE build via `--release-version` so artifacts are built with that version.
+- [ ] A new `release.yml` workflow is triggered manually (`workflow_dispatch`) with a required `version` input (a semantic version). It calls `release-artifacts.yml` as a reusable workflow, passing the `version` input through, and in a dependent job (`needs:`) downloads the release-artifact bundle, restores the API publish output into `artifacts/publish/api/`, enables the Docker containerd image store and QEMU on the runner, and runs `./build.sh BuildDockerImageMultiPlatform --release-version <version>` to build the multi-platform image from those artifacts.
+- [ ] `release.yml` validates the `version` input itself in an initial gate job and fails immediately (before any artifact build or Docker work runs) if the value is not a valid semantic version; the reusable-workflow call and the `build-docker-image` job depend on this gate so nothing downstream executes when validation fails.
+- [ ] The `version` input provided to `release.yml` is the single source of truth: the same value is used when `release-artifacts.yml` creates the artifacts and when `BuildDockerImageMultiPlatform` tags the image, so artifact versions and the image tag always match.
+- [ ] The `release.yml` workflow does **not** create a tag, GitHub Release, or push/publish the Docker image; those steps are explicitly out of scope for this plan and will be added later.
 
 ## Technical Details
 
-Create the Docker packaging around the existing ASP.NET Core API without adding container-specific behavior into feature slices. Use a multi-stage build that:
+Create the Docker packaging around the existing ASP.NET Core API without adding container-specific behavior into feature slices. The `PublishApi` NUKE target already publishes the API (framework-dependent, Release configuration) to `artifacts/publish/api/`, so the Dockerfile does not need an SDK build stage. Instead, use a single-stage Dockerfile that:
 
-- Builds on a .NET SDK base in stage 1
-- Publishes the release binary in stage 2
-- Copies only runtime assets into the final `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled` image in stage 3
+- Bases directly on `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled`
+- Copies the contents of `artifacts/publish/api/` into the image (e.g. `/app`)
+- Sets the entrypoint to run the published API assembly
+
+Because the publish output is framework-dependent IL, a single set of artifacts is architecture-neutral and works on both the `amd64` and `arm64` variants of the runtime base image. The CI/release flow must run `PublishApi` before invoking the Docker build so the build context contains the publish output; the Dockerfile assumes these artifacts are present rather than producing them.
 
 The final image must:
 
-- Create a non-root user (uid/gid `1000:1000`)
-- Set `/app/data` as writable with `700` permissions; database file as `600`
-- Expose port `19423` by default
-- Set environment defaults to point LiteDB to `/app/data/shadowdrop.db` and blob storage to `/app/data/blobs/`
+- Run as the chiseled base image's built-in non-root user via `USER $APP_UID` (uid `1654`). Do **not** create a custom user — the chiseled image has no shell, so `RUN useradd` is unavailable.
+- Ensure `/app/data` is writable by the runtime user, with `700` directory permissions and `600` on the database file. Because the chiseled image has no shell (`RUN chmod`/`chown` are unavailable), apply ownership/mode via `COPY --chown`/`--chmod` for any baked-in paths and have the application create and `chmod` its data directories/files at runtime on first start (the API already writes blob files with `600`).
+- Set `ASPNETCORE_HTTP_PORTS=19423` (overriding the base image's `8080` default) and `EXPOSE 19423`
+- Set environment defaults `ShadowDrop__Metadata__LiteDbPath=/app/data/metadata/shadowdrop.db` and `ShadowDrop__Storage__LocalRoot=/app/data/storage/`
 - Disable HTTPS (reverse proxy handles TLS at ingress)
 - Support both `amd64` and `arm64` architectures
 
-Configuration remains environment-variable-driven (e.g., `ASPNETCORE_*`, `Serilog:*`, `ShadowDrop:*` sections bound via `appsettings.json` and environment overrides). Use existing Serilog configuration for debug verbosity. The bootstrap admin token (`SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`) must come from environment and not be baked into the image. Users may override the provided `appsettings.json` by mounting a custom file.
+Configuration remains environment-variable-driven, using the `__` delimiter for nested keys (e.g., `ASPNETCORE_*`, `Serilog__*`, `ShadowDrop__*` overrides layered over `appsettings.json`). Use existing Serilog configuration for debug verbosity. The bootstrap admin token (`SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`) must come from environment and not be baked into the image. Users may override the provided `appsettings.json` by mounting a custom file.
 
-Database initialization: LiteDB automatically creates `/app/data/shadowdrop.db` and initializes schema on first run if the file does not exist. The application startup logic already handles this; document it in the smoke test and deployment guide so users understand data persistence is automatic upon mount.
+Database initialization: LiteDB automatically creates `/app/data/metadata/shadowdrop.db` and initializes schema on first run if the file does not exist. The application startup logic already handles this; document it in the smoke test and deployment guide so users understand data persistence is automatic upon mount.
 
-Smoke test validation: Use `docker buildx build --platform linux/amd64,linux/arm64 -t shadowdrop:latest .` to build and validate both architectures. For single-container smoke test, start the container, verify startup logs, and confirm HTTP 200 response to `GET /health`.
+Smoke test validation: Automate the check with a `SmokeTestDockerImage` NUKE target (added to `build/BuildPipeline.Publish.cs` alongside the image targets and ordered `.After(BuildDockerImage)`). It builds the native single-arch image via `BuildDockerImage` (fast, no containerd/QEMU prerequisites), starts the container, polls `GET /health` until it returns HTTP 200 within a bounded timeout (also checking startup logs), and tears the container down in a `finally`-style cleanup so a failed run does not leak containers; the target fails the build if `/health` never becomes healthy. It is runnable locally (`./build.sh SmokeTestDockerImage`) and from CI. Multi-architecture build validation is covered separately by `BuildDockerImageMultiPlatform`, which performs the `docker buildx build --platform linux/amd64,linux/arm64 --load` build and proves both architectures build successfully.
+
+Docker image NUKE targets: Add both targets to the publish-related partial build file `build/BuildPipeline.Publish.cs`. Factor the common work into a single private helper that takes the target platform(s) (and optionally a `--load` flag), reusing the existing `PublishApiDirectory` helper from `build/BuildPipeline.Common.cs` to locate the artifacts and `SemanticVersion` for the image tag. The image tag derives from `SemanticVersion`, which `OnBuildCreated` parses and validates from the existing `ReleaseVersion` parameter (CLI `--release-version`); no new version plumbing is introduced. The helper wraps a `docker buildx build` invocation (Nuke's `Nuke.Common.Tools.Docker` tooling or a direct process call) pointed at the repository Dockerfile, with the build context arranged so the Dockerfile's `COPY` of `artifacts/publish/api/` resolves. Before invoking `docker`, it asserts that `PublishApiDirectory` exists and is non-empty, failing fast with a clear message otherwise. The two public
+targets differ only in platform:
+
+- `BuildDockerImage` builds for the **host's native platform** (`docker buildx build --load` with no `--platform` override) and loads it into the local image store. It works on any standard Docker daemon — no containerd image store or QEMU required — making it the fast option for local development and the smoke test.
+- `BuildDockerImageMultiPlatform` builds the **multi-platform** image with `--platform linux/amd64,linux/arm64 --load`, producing a single tag backed by a manifest list and loading it into the local image store (no registry push). Because the API publish output is architecture-neutral IL, the same artifacts are copied into both platform layers; no per-arch republish is needed.
+
+Loading a multi-platform image into the local store requires the Docker **containerd image store** plus QEMU/binfmt for emulating the non-native architecture. `BuildDockerImageMultiPlatform` should not try to configure the daemon itself (that is environment setup), but it should document the requirement and fail with a clear, actionable message when buildx reports that the legacy `docker` driver cannot build multi-platform images. Note that since the Dockerfile only copies prebuilt IL (no compilation), the emulated arm64 layer assembly is cheap.
+
+Crucially, both targets must use `.After(PublishApi)` rather than `.DependsOn(PublishApi)` so they do not trigger a republish; this lets each target serve both the local chain `./build.sh PublishApi <target>` and the CI flow that builds from downloaded artifacts. Do not change `BuildPipeline.Main()`; the default `Build` entry point stays unchanged, and the existing `Publish` aggregate target is not required to depend on either Docker target.
+
+Release workflow: Make `release-artifacts.yml` reusable by adding a `workflow_call` trigger alongside its current `workflow_dispatch` trigger; its jobs and the `shadowdrop-release-artifacts` bundle (containing `api/` and `cli/`) stay as-is except for threading the version through. Define a `version` input on both triggers (required for `workflow_call`; for the standalone `workflow_dispatch` it may keep a sensible default) and pass it to every `build.sh`/`build.cmd` invocation as `--release-version "${{ inputs.version }}"` so the API and CLI artifacts (and their filenames, which embed `SemanticVersion`) are produced for that exact version.
+
+Add a new `.github/workflows/release.yml` triggered via `workflow_dispatch` with a required `version` input (a semantic version string; document that it must satisfy the `ReleaseVersion` validation in `OnBuildCreated`). It should:
+
+- Start with a lightweight `validate-version` gate job (e.g. on `ubuntu-latest`) that checks `inputs.version` against a SemVer pattern in a shell step and exits non-zero with a clear message if it does not match, so the run fails fast before any artifact build or Docker work. Use a SemVer regex consistent with the `ReleaseVersion` validation in `OnBuildCreated` (it parses `major.minor.patch` with optional pre-release/build metadata). Make both the reusable-workflow call and `build-docker-image` declare `needs: validate-version` so nothing downstream runs when validation fails.
+- Call `release-artifacts.yml` as a reusable workflow with `uses: ./.github/workflows/release-artifacts.yml` and forward the version via `with: { version: ${{ inputs.version }} }`.
+- Have a `build-docker-image` job with `needs:` on the reusable-workflow job. This job checks out the repo, sets up .NET 10, downloads the `shadowdrop-release-artifacts` bundle, and copies the bundle's `api/` contents into `artifacts/publish/api/` (the layout the Docker image targets expect). Because GitHub-hosted runners default to the legacy image store (which cannot load multi-platform images), the job must enable the **containerd image store** before building — e.g. `docker/setup-docker-action@v5` with `daemon-config: { "features": { "containerd-snapshotter": true } }` — and set up emulation with `docker/setup-qemu-action@v4` so the non-native arch can be built (pin these actions to a major version, consistent with the repo's renovate-managed action pinning). It then runs `bash build.sh BuildDockerImageMultiPlatform --release-version "${{ inputs.version }}"`, producing a multi-platform image tagged with the same version used for the artifacts.
+- Not tag, create a GitHub Release, log in to a registry, or push the image. Leave a clear extension point (comment or empty trailing job) for the future release/publish steps so the follow-up work is obvious.
 
 Update `README.md` with one-container deployment guidance including:
 
 - Docker run command example (port mapping, volume mounts for persistence)
 - Docker Compose example (single container with mounted volumes)
-- Environment variable reference (LiteDB path, blob storage root, log level, bootstrap token)
+- Environment variable reference (`ShadowDrop__Metadata__LiteDbPath`, `ShadowDrop__Storage__LocalRoot`, `Serilog__MinimumLevel__Default`, `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`, `ASPNETCORE_HTTP_PORTS`)
 - Note that HTTPS is handled by a reverse proxy (e.g., nginx, Caddy) in front of the container
 - First-start database creation behavior (automatic upon mount and startup)
