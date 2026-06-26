@@ -45,10 +45,25 @@ internal partial class BuildPipeline
         target.DependsOn(PublishApi, PublishCli);
 
     private Target BuildDockerImage => target =>
-        target.After(PublishApi)
+        target.DependsOn(EnsurePublishApiArtifacts)
+              .After(PublishApi)
               .Executes(() =>
               {
                   BuildDockerImageCore([], true);
+              });
+
+    private Target EnsurePublishApiArtifacts => target =>
+        target.After(Clean, RestoreTools)
+              .Executes(() =>
+              {
+                  if (HasPublishApiArtifacts())
+                  {
+                      Log.Information("Using existing API publish output from {PublishApiDirectory}.", PublishApiDirectory);
+                      return;
+                  }
+
+                  Log.Information("API publish output is missing. Publishing API before building the Docker image...");
+                  PublishApiArtifacts(false);
               });
 
     private Target PublishApi => target =>
@@ -56,14 +71,7 @@ internal partial class BuildPipeline
               .After(Clean, RestoreTools)
               .Executes(() =>
               {
-                  Log.Information("Publishing API...");
-
-                  DotNetPublish(s => s
-                                     .SetProject(ProjectFileApi)
-                                     .SetConfiguration(TargetBuildConfiguration)
-                                     .EnableNoRestore()
-                                     .SetOutput(PublishApiDirectory)
-                                     .EnableContinuousIntegrationBuild());
+                  PublishApiArtifacts(true);
               });
 
     private Target PublishCli => target =>
@@ -338,16 +346,10 @@ internal partial class BuildPipeline
 
     private void EnsurePublishApiArtifactsExist()
     {
-        if (!PublishApiDirectory.DirectoryExists())
+        if (!HasPublishApiArtifacts())
         {
             Assert.Fail(
-                $"API publish output is missing at '{PublishApiDirectory}'. Run './build.sh PublishApi BuildDockerImage' or provide pre-built artifacts before invoking BuildDockerImage.");
-        }
-
-        if (!Directory.EnumerateFileSystemEntries(PublishApiDirectory).Any())
-        {
-            Assert.Fail(
-                $"API publish output at '{PublishApiDirectory}' is empty. Run './build.sh PublishApi BuildDockerImage' or provide pre-built artifacts before invoking BuildDockerImage.");
+                $"API publish output is missing or empty at '{PublishApiDirectory}'. Run the EnsurePublishApiArtifacts target before invoking Docker image helpers directly.");
         }
     }
 
@@ -358,6 +360,27 @@ internal partial class BuildPipeline
     }
 
     private String GetDockerImageTag() => $"{DockerImageRepository}:{SemanticVersion}";
+
+    private Boolean HasPublishApiArtifacts() =>
+        PublishApiDirectory.DirectoryExists() && Directory.EnumerateFileSystemEntries(PublishApiDirectory).Any();
+
+    private void PublishApiArtifacts(Boolean noRestore)
+    {
+        Log.Information("Publishing API...");
+
+        DotNetPublish(s =>
+        {
+            s = s.SetProject(ProjectFileApi)
+                 .SetConfiguration(TargetBuildConfiguration)
+                 .SetOutput(PublishApiDirectory)
+                 .EnableContinuousIntegrationBuild();
+
+            if (noRestore)
+                s = s.EnableNoRestore();
+
+            return s;
+        });
+    }
 
     private void PublishCliArtifacts(IEnumerable<String> runtimeIdentifiers)
     {
