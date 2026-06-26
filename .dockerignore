@@ -1,0 +1,9 @@
+**
+!Dockerfile
+!artifacts/
+!artifacts/publish/
+!artifacts/publish/api/
+!artifacts/publish/api/**
+!docker/
+!docker/app-data/
+!docker/app-data/**
