@@ -53,7 +53,7 @@ internal partial class BuildPipeline
               });
 
     private Target EnsurePublishApiArtifacts => target =>
-        target.After(Clean, RestoreTools)
+        target.After(Clean, RestoreTools, PublishApi)
               .Executes(() =>
               {
                   if (HasPublishApiArtifacts())
