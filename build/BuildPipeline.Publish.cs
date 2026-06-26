@@ -6,10 +6,23 @@ using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tools.DotNet;
 using Serilog;
+using System.Diagnostics;
+using System.Net;
+using System.Text;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 internal partial class BuildPipeline
 {
+    private const String DockerContainerPort = "19423";
+
+    // Serilog's default console template renders the level as `[{Timestamp:HH:mm:ss} {Level:u3}]`,
+    // so Error/Fatal entries surface as ` ERR]`/` FTL]` level tokens. Match on those rather than a
+    // free-text "Error"/"Fatal" substring, which both misses level-only signals and false-positives
+    // on benign messages that merely contain those words.
+    private static readonly String[] DockerErrorLogLevelTokens = [" ERR]", " FTL]"];
+    private const String DockerImageRepository = "shadowdrop";
+    private static readonly TimeSpan DockerSmokeTestTimeout = TimeSpan.FromSeconds(60);
+
     private static readonly String[] LinuxCliRuntimeIdentifiers =
     [
         "linux-x64",
@@ -30,6 +43,13 @@ internal partial class BuildPipeline
 
     public Target Publish => target =>
         target.DependsOn(PublishApi, PublishCli);
+
+    private Target BuildDockerImage => target =>
+        target.After(PublishApi)
+              .Executes(() =>
+              {
+                  BuildDockerImageCore([], true);
+              });
 
     private Target PublishApi => target =>
         target.DependsOn(Restore)
@@ -104,6 +124,27 @@ internal partial class BuildPipeline
                   PublishCliArtifacts(WindowsCliRuntimeIdentifiers);
               });
 
+    private Target SmokeTestDockerImage => target =>
+        target.DependsOn(BuildDockerImage)
+              .Executes(SmokeTestDockerImageCore);
+
+    private static void AssertContainerLogsDoNotContainStartupErrors(String containerName)
+    {
+        var logs = RunDocker(["logs", containerName]);
+        var startupLogs = logs.StandardOutput + "\n" + logs.StandardError;
+
+        var offendingLines = startupLogs
+                             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                             .Where(line => DockerErrorLogLevelTokens.Any(token => line.Contains(token, StringComparison.Ordinal)))
+                             .ToList();
+
+        if (offendingLines.Count > 0)
+        {
+            Assert.Fail(
+                $"Container '{containerName}' startup logs contain Error/Fatal entries:{Environment.NewLine}{String.Join(Environment.NewLine, offendingLines)}");
+        }
+    }
+
     private static void EnsureExecutableMode(AbsolutePath path, String runtimeIdentifier)
     {
         if (OperatingSystem.IsWindows() || IsWindowsRuntime(runtimeIdentifier))
@@ -126,14 +167,197 @@ internal partial class BuildPipeline
         return $"ShadowDrop.Cli{extension}";
     }
 
+    private static Int32 GetContainerHostPort(String containerName)
+    {
+        var portResult = RunDocker(["port", containerName, $"{DockerContainerPort}/tcp"]);
+        var mappings = portResult.StandardOutput.Split(Environment.NewLine,
+                                                       StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var mapping in mappings)
+        {
+            if (mapping.StartsWith("127.0.0.1:", StringComparison.Ordinal))
+                return Int32.Parse(mapping["127.0.0.1:".Length..]);
+        }
+
+        foreach (var mapping in mappings)
+        {
+            var portSeparatorIndex = mapping.LastIndexOf(':');
+            if (portSeparatorIndex >= 0 && Int32.TryParse(mapping[(portSeparatorIndex + 1)..], out var port))
+                return port;
+        }
+
+        throw new InvalidOperationException(
+            $"Docker did not report a host port mapping for container '{containerName}' port {DockerContainerPort}/tcp.");
+    }
+
+    private static Boolean IsContainerRunning(String containerName)
+    {
+        var result = RunDocker(["inspect", "--format", "{{.State.Running}}", containerName], true);
+        return result.ExitCode == 0 && String.Equals(result.StandardOutput.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Boolean IsWindowsRuntime(String runtimeIdentifier) =>
         runtimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
+
+    private static ProcessResult RunDocker(IReadOnlyCollection<String> arguments, Boolean ignoreExitCode = false) =>
+        RunProcess("docker", arguments, RootDirectory, ignoreExitCode);
+
+    private static void RunDockerBestEffort(IReadOnlyCollection<String> arguments)
+    {
+        try
+        {
+            RunDocker(arguments, true);
+        }
+        catch (Exception e)
+        {
+            Log.Warning(e, "Best-effort Docker cleanup failed.");
+        }
+    }
+
+    private static ProcessResult RunProcess(String fileName,
+                                            IReadOnlyCollection<String> arguments,
+                                            AbsolutePath workingDirectory,
+                                            Boolean ignoreExitCode = false)
+    {
+        var standardOutput = new StringBuilder();
+        var standardError = new StringBuilder();
+
+        using var process = new Process();
+        process.StartInfo = new()
+        {
+            FileName = fileName,
+            WorkingDirectory = workingDirectory.ToString(),
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+
+        foreach (var argument in arguments)
+            process.StartInfo.ArgumentList.Add(argument);
+
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is null)
+                return;
+
+            standardOutput.AppendLine(e.Data);
+            Log.Information("{ProcessOutput}", e.Data);
+        };
+
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is null)
+                return;
+
+            standardError.AppendLine(e.Data);
+            Log.Information("{ProcessOutput}", e.Data);
+        };
+
+        var command = $"{fileName} {String.Join(" ", arguments)}";
+        Log.Information("Running {Command}", command);
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+        process.WaitForExit();
+
+        var result = new ProcessResult(process.ExitCode, standardOutput.ToString(), standardError.ToString());
+        if (result.ExitCode != 0 && !ignoreExitCode)
+        {
+            Assert.Fail(
+                $"Command failed with exit code {result.ExitCode}: {command}{Environment.NewLine}{result.StandardOutput}{result.StandardError}");
+        }
+
+        return result;
+    }
+
+    private static void WaitForHealthyContainer(String containerName, Uri healthEndpoint)
+    {
+        using var httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(2)
+        };
+        var stopwatch = Stopwatch.StartNew();
+        Exception? lastException = null;
+
+        while (stopwatch.Elapsed < DockerSmokeTestTimeout)
+        {
+            if (!IsContainerRunning(containerName))
+                Assert.Fail($"Container '{containerName}' exited before the smoke test observed a healthy response.");
+
+            AssertContainerLogsDoNotContainStartupErrors(containerName);
+
+            try
+            {
+                using var response = httpClient.GetAsync(healthEndpoint).GetAwaiter().GetResult();
+                if (response.StatusCode == HttpStatusCode.OK)
+                    return;
+            }
+            catch (Exception e)
+            {
+                lastException = e;
+            }
+
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+        }
+
+        var message = $"Container '{containerName}' did not return HTTP 200 from {healthEndpoint} within {DockerSmokeTestTimeout}.";
+        if (lastException is not null)
+            message += $"{Environment.NewLine}Last request failure: {lastException.Message}";
+
+        Assert.Fail(message);
+    }
+
+    private void BuildDockerImageCore(IReadOnlyCollection<String> platforms, Boolean loadIntoLocalStore)
+    {
+        EnsurePublishApiArtifactsExist();
+
+        var arguments = new List<String>
+        {
+            "buildx",
+            "build",
+            "--file",
+            (RootDirectory / "Dockerfile").ToString(),
+            "--tag",
+            GetDockerImageTag()
+        };
+
+        if (platforms.Count > 0)
+        {
+            arguments.Add("--platform");
+            arguments.Add(String.Join(",", platforms));
+        }
+
+        if (loadIntoLocalStore)
+            arguments.Add("--load");
+
+        arguments.Add(RootDirectory.ToString());
+
+        RunDocker(arguments);
+    }
+
+    private void EnsurePublishApiArtifactsExist()
+    {
+        if (!PublishApiDirectory.DirectoryExists())
+        {
+            Assert.Fail(
+                $"API publish output is missing at '{PublishApiDirectory}'. Run './build.sh PublishApi BuildDockerImage' or provide pre-built artifacts before invoking BuildDockerImage.");
+        }
+
+        if (!Directory.EnumerateFileSystemEntries(PublishApiDirectory).Any())
+        {
+            Assert.Fail(
+                $"API publish output at '{PublishApiDirectory}' is empty. Run './build.sh PublishApi BuildDockerImage' or provide pre-built artifacts before invoking BuildDockerImage.");
+        }
+    }
 
     private String GetCliArtifactName(String runtimeIdentifier)
     {
         var extension = IsWindowsRuntime(runtimeIdentifier) ? ".exe" : String.Empty;
         return $"shadowdrop-cli-{SemanticVersion}-{runtimeIdentifier}{extension}";
     }
+
+    private String GetDockerImageTag() => $"{DockerImageRepository}:{SemanticVersion}";
 
     private void PublishCliArtifacts(IEnumerable<String> runtimeIdentifiers)
     {
@@ -175,10 +399,45 @@ internal partial class BuildPipeline
             }
 
             var artifact = releaseDirectory / GetCliArtifactName(runtimeIdentifier);
-            File.Copy(publishedExecutable, artifact, overwrite: true);
+            File.Copy(publishedExecutable, artifact, true);
             EnsureExecutableMode(artifact, runtimeIdentifier);
         }
 
         intermediateDirectory.DeleteDirectory();
     }
+
+    private void SmokeTestDockerImageCore()
+    {
+        var containerName = $"shadowdrop-smoke-{Guid.NewGuid():N}";
+        var volumeName = $"{containerName}-data";
+
+        try
+        {
+            RunDocker(["volume", "create", volumeName]);
+            RunDocker([
+                "run",
+                "--detach",
+                "--name",
+                containerName,
+                "--mount",
+                $"type=volume,source={volumeName},target=/app/data",
+                "--env",
+                "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN=docker-smoke-test-token",
+                "--publish",
+                $"127.0.0.1::{DockerContainerPort}",
+                GetDockerImageTag()
+            ]);
+
+            var hostPort = GetContainerHostPort(containerName);
+            WaitForHealthyContainer(containerName, new($"http://127.0.0.1:{hostPort}/health"));
+            AssertContainerLogsDoNotContainStartupErrors(containerName);
+        }
+        finally
+        {
+            RunDockerBestEffort(["rm", "--force", containerName]);
+            RunDockerBestEffort(["volume", "rm", "--force", volumeName]);
+        }
+    }
+
+    private sealed record ProcessResult(Int32 ExitCode, String StandardOutput, String StandardError);
 }
