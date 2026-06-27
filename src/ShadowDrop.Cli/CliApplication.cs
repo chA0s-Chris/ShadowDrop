@@ -6,6 +6,7 @@ using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Tls;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
 using System.CommandLine.Help;
@@ -50,6 +51,21 @@ internal static class CliApplication
         var serverOption = new Option<String?>("--server-url")
         {
             Description = "ShadowDrop server URL. Overrides environment variables and config values."
+        };
+
+        var caCertOption = new Option<String?>("--cacert")
+        {
+            Description =
+                "Trust a PEM-encoded certificate (a self-signed server certificate or private CA) as an additional anchor. "
+                + "The presented chain is still validated, so this is the safe way to talk to a reverse proxy that terminates TLS with a self-signed certificate. "
+                + "Overrides SHADOWDROP_CACERT."
+        };
+
+        var insecureOption = new Option<Boolean>("--insecure", "-k")
+        {
+            Description =
+                "Disable TLS certificate validation entirely. UNSAFE: this re-enables man-in-the-middle attacks and may expose upload and download tokens. "
+                + "Prefer --cacert for self-signed or private-CA setups. Also enabled by SHADOWDROP_INSECURE=1|true|yes."
         };
 
         var uploadTokenOption = new Option<String?>("--upload-token")
@@ -147,6 +163,8 @@ internal static class CliApplication
         var downloadCommand = new Command("download", "Download encrypted content and decrypt it locally.");
         downloadCommand.Arguments.Add(shareTokenArgument);
         downloadCommand.Options.Add(serverOption);
+        downloadCommand.Options.Add(caCertOption);
+        downloadCommand.Options.Add(insecureOption);
         downloadCommand.Options.Add(fileOption);
         downloadCommand.Options.Add(queueOption);
         downloadCommand.Options.Add(outputRootOption);
@@ -158,6 +176,8 @@ internal static class CliApplication
         var uploadCommand = new Command("upload", "Encrypt local files and upload encrypted content to ShadowDrop.");
         uploadCommand.Arguments.Add(filesArgument);
         uploadCommand.Options.Add(serverOption);
+        uploadCommand.Options.Add(caCertOption);
+        uploadCommand.Options.Add(insecureOption);
         uploadCommand.Options.Add(uploadTokenOption);
         uploadCommand.Options.Add(expiresInOption);
         uploadCommand.Options.Add(directHttpOption);
@@ -178,6 +198,8 @@ internal static class CliApplication
         var uploadRawCommand = new Command("raw", "Encrypt and upload files without creating a share; reports file IDs and the share key.");
         uploadRawCommand.Arguments.Add(rawFilesArgument);
         uploadRawCommand.Options.Add(serverOption);
+        uploadRawCommand.Options.Add(caCertOption);
+        uploadRawCommand.Options.Add(insecureOption);
         uploadRawCommand.Options.Add(uploadTokenOption);
         uploadRawCommand.Options.Add(secretsOutOption);
         uploadRawCommand.Options.Add(jsonOption);
@@ -202,6 +224,8 @@ internal static class CliApplication
         var queueCreateCommand = new Command("create", "Create a download queue from an existing share.");
         queueCreateCommand.Arguments.Add(queueTokenArgument);
         queueCreateCommand.Options.Add(serverOption);
+        queueCreateCommand.Options.Add(caCertOption);
+        queueCreateCommand.Options.Add(insecureOption);
         queueCreateCommand.Options.Add(queueCreateOutOption);
         queueCreateCommand.Options.Add(shareKeyOption);
         queueCreateCommand.Options.Add(shareKeyFileOption);
@@ -221,6 +245,8 @@ internal static class CliApplication
         var shareCreateCommand = new Command("create", "Create a share from previously uploaded file IDs.");
         shareCreateCommand.Arguments.Add(shareFileIdsArgument);
         shareCreateCommand.Options.Add(serverOption);
+        shareCreateCommand.Options.Add(caCertOption);
+        shareCreateCommand.Options.Add(insecureOption);
         shareCreateCommand.Options.Add(uploadTokenOption);
         shareCreateCommand.Options.Add(expiresInOption);
         shareCreateCommand.Options.Add(directHttpOption);
@@ -241,6 +267,8 @@ internal static class CliApplication
                    shareTokenArgument,
                    filesArgument,
                    serverOption,
+                   caCertOption,
+                   insecureOption,
                    fileOption,
                    queueOption,
                    outputRootOption,
@@ -280,6 +308,32 @@ internal static class CliApplication
             return 1;
         }
 
+        var tlsOptions = services.ConfigurationResolver.ResolveTls(parseResult.GetValue(commandModel.CaCertOption),
+                                                                   parseResult.GetValue(commandModel.InsecureOption));
+
+        if (tlsOptions.CaCertPath is not null && tlsOptions.Insecure)
+        {
+            await services.StandardError.WriteLineAsync("The --cacert and --insecure options cannot be combined. Choose one.");
+            return 1;
+        }
+
+        if (tlsOptions.Insecure)
+        {
+            await services.StandardError.WriteLineAsync(
+                "WARNING: TLS certificate validation is disabled (--insecure). The connection is vulnerable to interception and your upload/download tokens may be exposed. Prefer --cacert for self-signed or private-CA setups.");
+        }
+
+        HttpClient httpClient;
+        try
+        {
+            httpClient = services.HttpClientFactory(tlsOptions);
+        }
+        catch (CliTlsConfigurationException exception)
+        {
+            await services.StandardError.WriteLineAsync(exception.Message);
+            return 1;
+        }
+
         if (parseResult.CommandResult.Command == commandModel.QueueCreateCommand)
         {
             var queueOptions = new QueueCreateCommandOptions(parseResult.GetValue(commandModel.QueueTokenArgument),
@@ -292,7 +346,7 @@ internal static class CliApplication
                                                              parseResult.GetValue(commandModel.ForceOption));
 
             return await new QueueCreateCommandHandler(services.ConfigurationResolver,
-                                                       services.HttpClient,
+                                                       httpClient,
                                                        services.StandardOut,
                                                        services.StandardError).ExecuteAsync(queueOptions, cancellationToken);
         }
@@ -307,7 +361,7 @@ internal static class CliApplication
                                                          parseResult.GetValue(commandModel.ForceOption));
 
             return await new UploadRawCommandHandler(services.ConfigurationResolver,
-                                                     services.HttpClient,
+                                                     httpClient,
                                                      services.StandardOut,
                                                      services.StandardError).ExecuteAsync(rawOptions, cancellationToken);
         }
@@ -325,7 +379,7 @@ internal static class CliApplication
                                                              parseResult.GetValue(commandModel.ForceOption));
 
             return await new ShareCreateCommandHandler(services.ConfigurationResolver,
-                                                       services.HttpClient,
+                                                       httpClient,
                                                        services.StandardOut,
                                                        services.StandardError,
                                                        services.TimeProvider).ExecuteAsync(shareOptions, cancellationToken);
@@ -352,13 +406,13 @@ internal static class CliApplication
             if (parseResult.GetValue(commandModel.DownloadInteractiveOption))
             {
                 return await new InteractiveDownloadCommandHandler(services.ConfigurationResolver,
-                                                                   services.HttpClient,
+                                                                   httpClient,
                                                                    services.InteractiveSession,
                                                                    services.StandardError).ExecuteAsync(options, cancellationToken);
             }
 
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
-                                                             services.HttpClient,
+                                                             httpClient,
                                                              services.StandardOutStream,
                                                              services.StandardError);
             return await downloadHandler.ExecuteAsync(options, cancellationToken);
@@ -385,7 +439,7 @@ internal static class CliApplication
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
             return await new InteractiveUploadCommandHandler(services.ConfigurationResolver,
-                                                             services.HttpClient,
+                                                             httpClient,
                                                              services.InteractiveSession,
                                                              services.StandardOut,
                                                              services.StandardError,
@@ -399,7 +453,7 @@ internal static class CliApplication
         }
 
         return await new UploadCommandHandler(services.ConfigurationResolver,
-                                              services.HttpClient,
+                                              httpClient,
                                               services.StandardOut,
                                               services.StandardError,
                                               services.TimeProvider).ExecuteAsync(uploadOptions, cancellationToken);
@@ -410,6 +464,8 @@ internal static class CliApplication
         Argument<String?> ShareTokenArgument,
         Argument<FileInfo[]> FilesArgument,
         Option<String?> ServerOption,
+        Option<String?> CaCertOption,
+        Option<Boolean> InsecureOption,
         Option<String?> FileOption,
         Option<FileInfo?> QueueOption,
         Option<DirectoryInfo?> OutputRootOption,

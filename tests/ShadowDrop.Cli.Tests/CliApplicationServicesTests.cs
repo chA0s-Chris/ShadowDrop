@@ -7,6 +7,7 @@ using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Interactive;
+using ShadowDrop.Cli.Tls;
 
 public sealed class CliApplicationServicesTests
 {
@@ -47,12 +48,13 @@ public sealed class CliApplicationServicesTests
         var services = CliApplicationServices.CreateDefault();
 
         services.ConfigurationResolver.Should().NotBeNull();
-        services.HttpClient.Should().NotBeNull();
+        services.HttpClientFactory.Should().NotBeNull();
         services.StandardOutStream.Should().NotBeNull();
         services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
         services.TimeProvider.Should().BeSameAs(TimeProvider.System);
 
-        services.HttpClient.Dispose();
+        using var httpClient = services.HttpClientFactory(CliTlsOptions.Default);
+        httpClient.Should().NotBeNull();
         services.StandardOutStream.Dispose();
     }
 

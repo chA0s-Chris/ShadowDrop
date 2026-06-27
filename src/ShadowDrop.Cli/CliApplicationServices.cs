@@ -4,10 +4,11 @@ namespace ShadowDrop.Cli;
 
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Interactive;
+using ShadowDrop.Cli.Tls;
 
 internal sealed record CliApplicationServices(
     CliConfigurationResolver ConfigurationResolver,
-    HttpClient HttpClient,
+    Func<CliTlsOptions, HttpClient> HttpClientFactory,
     Stream StandardOutStream,
     TextWriter StandardOut,
     TextWriter StandardError,
@@ -19,7 +20,7 @@ internal sealed record CliApplicationServices(
                                   TextWriter standardOut,
                                   TextWriter standardError)
         : this(configurationResolver,
-               httpClient,
+               _ => httpClient,
                Stream.Null,
                standardOut,
                standardError,
@@ -32,16 +33,31 @@ internal sealed record CliApplicationServices(
                                   TextWriter standardOut,
                                   TextWriter standardError)
         : this(configurationResolver,
-               httpClient,
+               _ => httpClient,
                standardOutStream,
                standardOut,
                standardError,
                new SpectreCliInteractiveSession(standardError),
                TimeProvider.System) { }
 
+    public CliApplicationServices(CliConfigurationResolver configurationResolver,
+                                  HttpClient httpClient,
+                                  Stream standardOutStream,
+                                  TextWriter standardOut,
+                                  TextWriter standardError,
+                                  ICliInteractiveSession interactiveSession,
+                                  TimeProvider timeProvider)
+        : this(configurationResolver,
+               _ => httpClient,
+               standardOutStream,
+               standardOut,
+               standardError,
+               interactiveSession,
+               timeProvider) { }
+
     public static CliApplicationServices CreateDefault() =>
         new(new(new(), new EnvironmentReader()),
-            new(),
+            CliHttpClientFactory.CreateClient,
             Console.OpenStandardOutput(),
             Console.Out,
             Console.Error,

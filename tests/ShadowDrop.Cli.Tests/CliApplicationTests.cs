@@ -85,7 +85,7 @@ public sealed class CliApplicationTests
                                                          StringWriter standardError,
                                                          FakeInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
-            new(new NeverCalledHandler()),
+            new HttpClient(new NeverCalledHandler()),
             Stream.Null,
             standardOut,
             standardError,
