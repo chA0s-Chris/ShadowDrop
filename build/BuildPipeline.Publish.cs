@@ -66,7 +66,9 @@ internal partial class BuildPipeline
     // image store plus QEMU/binfmt for the non-native architecture; this target does not configure the
     // daemon itself but surfaces a clear, actionable error (see BuildDockerImageCore) when the legacy
     // image store cannot satisfy the build. Ordered After(PublishApi) without DependsOn(PublishApi) so
-    // it never triggers a republish and can build from previously published artifacts.
+    // it never forces a republish as part of the chain: existing API publish output (e.g. restored from
+    // artifacts in CI) is reused as-is, and EnsurePublishApiArtifacts only publishes as a local-dev
+    // fallback when the artifacts are missing.
     private Target BuildDockerImageMultiPlatform => target =>
         target.DependsOn(EnsurePublishApiArtifacts)
               .After(PublishApi)
