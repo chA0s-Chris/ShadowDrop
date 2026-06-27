@@ -35,6 +35,14 @@ internal partial class BuildPipeline
         "osx-arm64"
     ];
 
+    // The framework-dependent API publish output is architecture-neutral IL, so the same artifacts
+    // are copied onto each platform's runtime base image to produce one tag backed by a manifest list.
+    private static readonly String[] MultiPlatformDockerPlatforms =
+    [
+        "linux/amd64",
+        "linux/arm64"
+    ];
+
     private static readonly String[] WindowsCliRuntimeIdentifiers =
     [
         "win-x64",
@@ -50,6 +58,21 @@ internal partial class BuildPipeline
               .Executes(() =>
               {
                   BuildDockerImageCore([], true);
+              });
+
+    // Builds a single multi-platform image for linux/amd64 + linux/arm64 (one tag backed by a manifest
+    // list) and loads it into the local image store via `docker buildx build --platform ... --load`,
+    // without pushing to any registry. Loading a multi-platform image requires the Docker containerd
+    // image store plus QEMU/binfmt for the non-native architecture; this target does not configure the
+    // daemon itself but surfaces a clear, actionable error (see BuildDockerImageCore) when the legacy
+    // image store cannot satisfy the build. Ordered After(PublishApi) without DependsOn(PublishApi) so
+    // it never triggers a republish and can build from previously published artifacts.
+    private Target BuildDockerImageMultiPlatform => target =>
+        target.DependsOn(EnsurePublishApiArtifacts)
+              .After(PublishApi)
+              .Executes(() =>
+              {
+                  BuildDockerImageCore(MultiPlatformDockerPlatforms, true);
               });
 
     private Target EnsurePublishApiArtifacts => target =>
@@ -134,7 +157,22 @@ internal partial class BuildPipeline
 
     private Target SmokeTestDockerImage => target =>
         target.DependsOn(BuildDockerImage)
-              .Executes(SmokeTestDockerImageCore);
+              .Executes(() => SmokeTestDockerImageCore());
+
+    // Validates the loaded manifest-list image's runtime behavior on both amd64 and arm64 by running it
+    // once per platform via `docker run --platform`. The non-native architecture runs under QEMU, which
+    // is cheap here because the image only carries prebuilt IL. Each run is torn down in a finally-style
+    // cleanup, and the build fails if either platform never becomes healthy.
+    private Target SmokeTestDockerImageMultiPlatform => target =>
+        target.DependsOn(BuildDockerImageMultiPlatform)
+              .Executes(() =>
+              {
+                  foreach (var platform in MultiPlatformDockerPlatforms)
+                  {
+                      Log.Information("Smoke testing multi-platform image for platform {Platform}...", platform);
+                      SmokeTestDockerImageCore(platform);
+                  }
+              });
 
     private static void AssertContainerLogsDoNotContainStartupErrors(String containerName)
     {
@@ -197,6 +235,13 @@ internal partial class BuildPipeline
         throw new InvalidOperationException(
             $"Docker did not report a host port mapping for container '{containerName}' port {DockerContainerPort}/tcp.");
     }
+
+    // buildx reports one of these signatures when asked to build/load a multi-platform image on the legacy
+    // `docker` driver (image store) instead of the containerd image store.
+    private static Boolean IndicatesMissingContainerdImageStore(String output) =>
+        output.Contains("Multi-platform build is not supported for the docker driver", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("containerd image store", StringComparison.OrdinalIgnoreCase) ||
+        output.Contains("docker exporter does not currently support exporting manifest lists", StringComparison.OrdinalIgnoreCase);
 
     private static Boolean IsContainerRunning(String containerName)
     {
@@ -341,7 +386,25 @@ internal partial class BuildPipeline
 
         arguments.Add(RootDirectory.ToString());
 
-        RunDocker(arguments);
+        var result = RunDocker(arguments, true);
+        if (result.ExitCode == 0)
+            return;
+
+        var output = $"{result.StandardOutput}{Environment.NewLine}{result.StandardError}";
+
+        if (platforms.Count > 1 && IndicatesMissingContainerdImageStore(output))
+        {
+            Assert.Fail(
+                "Building and loading a multi-platform image requires Docker's containerd image store and " +
+                "QEMU/binfmt for the non-native architecture, but the Docker daemon is using the legacy image " +
+                "store, which cannot build or load multi-platform images. Enable the containerd image store " +
+                "(Docker Desktop: Settings > General > 'Use containerd for pulling and storing images'; Docker " +
+                "Engine: set { \"features\": { \"containerd-snapshotter\": true } } in the daemon configuration " +
+                "and restart the daemon), ensure QEMU/binfmt is installed (e.g. docker/setup-qemu-action in CI), " +
+                $"then retry.{Environment.NewLine}{output}");
+        }
+
+        Assert.Fail($"docker buildx build failed with exit code {result.ExitCode}.{Environment.NewLine}{output}");
     }
 
     private void EnsurePublishApiArtifactsExist()
@@ -429,19 +492,31 @@ internal partial class BuildPipeline
         intermediateDirectory.DeleteDirectory();
     }
 
-    private void SmokeTestDockerImageCore()
+    private void SmokeTestDockerImageCore(String? platform = null)
     {
-        var containerName = $"shadowdrop-smoke-{Guid.NewGuid():N}";
+        var nameSuffix = platform is null ? String.Empty : $"-{platform.Replace('/', '-')}";
+        var containerName = $"shadowdrop-smoke{nameSuffix}-{Guid.NewGuid():N}";
         var volumeName = $"{containerName}-data";
 
         try
         {
             RunDocker(["volume", "create", volumeName]);
-            RunDocker([
+
+            var runArguments = new List<String>
+            {
                 "run",
                 "--detach",
                 "--name",
-                containerName,
+                containerName
+            };
+
+            if (platform is not null)
+            {
+                runArguments.Add("--platform");
+                runArguments.Add(platform);
+            }
+
+            runArguments.AddRange([
                 "--mount",
                 $"type=volume,source={volumeName},target=/app/data",
                 "--env",
@@ -450,6 +525,8 @@ internal partial class BuildPipeline
                 $"127.0.0.1::{DockerContainerPort}",
                 GetDockerImageTag()
             ]);
+
+            RunDocker(runArguments);
 
             var hostPort = GetContainerHostPort(containerName);
             WaitForHealthyContainer(containerName, new($"http://127.0.0.1:{hostPort}/health"));

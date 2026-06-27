@@ -2,6 +2,18 @@ name: Release Artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to stamp into the artifacts.
+        type: string
+        required: false
+        default: 0.1.0-dev
+  workflow_call:
+    inputs:
+      version:
+        description: Semantic version to stamp into the artifacts.
+        type: string
+        required: true
 
 jobs:
   publish-api:
@@ -17,7 +29,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Publish API
-        run: bash build.sh PublishApi
+        run: bash build.sh PublishApi --release-version "${{ inputs.version }}"
 
       - name: Upload API artifact
         uses: actions/upload-artifact@v5
@@ -49,7 +61,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Publish Linux CLI
-        run: bash build.sh PublishCliLinux
+        run: bash build.sh PublishCliLinux --release-version "${{ inputs.version }}"
 
       - name: Upload Linux CLI artifacts
         uses: actions/upload-artifact@v5
@@ -71,7 +83,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Publish macOS CLI
-        run: bash build.sh PublishCliMacOs
+        run: bash build.sh PublishCliMacOs --release-version "${{ inputs.version }}"
 
       - name: Upload macOS CLI artifacts
         uses: actions/upload-artifact@v5
@@ -93,7 +105,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Publish Windows CLI
-        run: ./build.cmd PublishCliWindows
+        run: ./build.cmd PublishCliWindows --release-version "${{ inputs.version }}"
 
       - name: Upload Windows CLI artifacts
         uses: actions/upload-artifact@v5

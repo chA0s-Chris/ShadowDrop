@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Semantic version for the release (e.g. 1.2.3 or 1.2.3-rc.1). Must satisfy the ReleaseVersion
+          validation in OnBuildCreated. This single value is the source of truth: it stamps the release
+          artifacts and tags the multi-platform Docker image, so the two always match.
+        type: string
+        required: true
+
+jobs:
+  # Fast-fail gate: reject obviously invalid or fat-fingered input before any artifact build or Docker
+  # work runs. This is a convenience check, not the authoritative validator -- OnBuildCreated's
+  # SemanticVersioning.Version.TryParse remains the source of truth and rejects anything this regex lets
+  # through. Both the reusable-workflow call and build-docker-image depend on this job.
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate semantic version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a valid semantic version (expected MAJOR.MINOR.PATCH with an optional -prerelease suffix)."
+            exit 1
+          fi
+          echo "Version '$VERSION' passed the fast-fail SemVer gate."
+
+  release-artifacts:
+    needs: validate-version
+    uses: ./.github/workflows/release-artifacts.yml
+    with:
+      version: ${{ inputs.version }}
+
+  build-docker-image:
+    needs:
+      - validate-version
+      - release-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download release artifact bundle
+        uses: actions/download-artifact@v5
+        with:
+          name: shadowdrop-release-artifacts
+          path: artifacts/release
+
+      - name: Restore API publish output
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/publish/api
+          cp -R artifacts/release/api/. artifacts/publish/api/
+
+      # GitHub-hosted runners default to the legacy image store, which cannot build or load
+      # multi-platform images. Enable the containerd image store and set up QEMU/binfmt so the
+      # non-native architecture can be assembled and loaded by BuildDockerImageMultiPlatform.
+      - name: Enable Docker containerd image store
+        uses: docker/setup-docker-action@v5
+        with:
+          daemon-config: |
+            {
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Build multi-platform Docker image
+        run: bash build.sh BuildDockerImageMultiPlatform --release-version "${{ inputs.version }}"
+
+      # Out of scope for #71 (deliberately not implemented here): this workflow does NOT create a git
+      # tag, publish a GitHub Release, log in to a registry, or push/publish the image. Those
+      # release/publish steps build on the multi-platform image produced above and will be added later.
