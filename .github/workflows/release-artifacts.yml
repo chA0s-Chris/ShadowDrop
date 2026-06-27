@@ -32,7 +32,7 @@ jobs:
         run: bash build.sh PublishApi --release-version "${{ inputs.version }}"
 
       - name: Upload API artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-api
           path: artifacts/publish/api/
@@ -64,7 +64,7 @@ jobs:
         run: bash build.sh PublishCliLinux --release-version "${{ inputs.version }}"
 
       - name: Upload Linux CLI artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-linux
           path: artifacts/publish/cli/*/shadowdrop-cli-*-linux-*
@@ -86,7 +86,7 @@ jobs:
         run: bash build.sh PublishCliMacOs --release-version "${{ inputs.version }}"
 
       - name: Upload macOS CLI artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-macos
           path: artifacts/publish/cli/*/shadowdrop-cli-*-osx-*
@@ -108,7 +108,7 @@ jobs:
         run: ./build.cmd PublishCliWindows --release-version "${{ inputs.version }}"
 
       - name: Upload Windows CLI artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-windows
           path: artifacts/publish/cli/*/shadowdrop-cli-*-win-*.exe
@@ -123,7 +123,7 @@ jobs:
       - publish-cli-windows
     steps:
       - name: Download published artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/downloaded
 
@@ -150,7 +150,7 @@ jobs:
           )
 
       - name: Upload complete release artifact bundle
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-release-artifacts
           path: artifacts/release/

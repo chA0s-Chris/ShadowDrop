@@ -52,7 +52,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Download release artifact bundle
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: shadowdrop-release-artifacts
           path: artifacts/release
