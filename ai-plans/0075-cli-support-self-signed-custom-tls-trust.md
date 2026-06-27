@@ -18,14 +18,16 @@ Both options apply to all network commands and are configurable via flag and `SH
 ## Acceptance Criteria
 
 - [ ] `--cacert <file>` is supported on all network commands and makes the CLI trust the provided certificate as an additional trust anchor while still validating the chain.
+- [ ] `--cacert` accepts a PEM-encoded certificate file; an invalid or missing `--cacert` / `SHADOWDROP_CACERT` file fails with a clear error message and a non-zero exit code.
 - [ ] `--insecure` (with `-k` alias) is supported on all network commands and disables certificate validation entirely.
 - [ ] A clear warning is written to stderr whenever `--insecure` is active.
-- [ ] Both settings are configurable via flag and a `SHADOWDROP_*` environment variable, with the flag taking precedence. No config-file support.
-- [ ] `--cacert` and `--insecure` used together produce a sensible, documented behavior (e.g. `--insecure` wins with a warning, or the combination is rejected).
+- [ ] Both settings are configurable via flag and a `SHADOWDROP_*` environment variable, with the flag taking precedence (see Technical Details for boolean precedence semantics). No config-file support.
+- [ ] Specifying both `--cacert` and `--insecure` (via flag or environment variable, in any combination) is rejected with a clear error message and a non-zero exit code.
 - [ ] CLI help text for both options clearly communicates the security trade-offs.
 - [ ] The options apply to `upload`, `upload raw`, `download`, `queue create`, `share create`, and the interactive upload/download flows.
-- [ ] Documentation updated to describe the self-signed / reverse-proxy use case and both options.
-- [ ] Automated tests need to be written.
+- [ ] The CLI `--help` text documents the self-signed / reverse-proxy use case and both options. (A comprehensive `README.md` will be added separately, later.)
+- [ ] Unit tests cover the TLS-options-to-validation seam, exercising both the `--cacert` custom-trust callback and the `--insecure` accept-all callback with locally generated `X509Certificate2` chains.
+- [ ] An end-to-end test in `ShadowDrop.E2E.Tests` exercises the CLI against a standalone self-signed TLS listener (stood up by the test itself, independent of the API process) for both `--cacert` (succeeds) and the default trust (fails).
 
 ## Technical Details
 
@@ -40,8 +42,12 @@ Suggested design notes (leaving implementation freedom to the implementer):
 
 - Add the two options as shared options registered across the network commands in `CliApplication.CreateCommandModel()`, mirroring how `--server-url` is shared today, and add them to the `CliCommandModel` record.
 - Resolution of the effective values should follow the established flag → env var precedence pattern used in `CliConfigurationResolver` (env vars such as `SHADOWDROP_CACERT` and `SHADOWDROP_INSECURE`). Deliberately do not extend `CliConfigFile`.
-- Introduce a small TLS-options abstraction that produces the configured `HttpMessageHandler` / `HttpClient`, so the construction currently in `CliApplicationServices.CreateDefault()` can be parameterized after parsing.
+- `--cacert` is a string-valued setting and resolves exactly like the existing string settings (first non-empty of flag, then `SHADOWDROP_CACERT`).
+- `--insecure` is a boolean toggle, so it needs explicit precedence semantics rather than the string `FirstNonEmpty` rule: the effective value is `true` when the `--insecure` flag is present **or** when `SHADOWDROP_INSECURE` is set to a truthy value. Accepted truthy values are `1`, `true`, and `yes` (case-insensitive); anything else (including unset) is treated as `false`. There is intentionally no way to force-disable via the flag when the env var is truthy — to disable, unset the env var.
+- Introduce a small TLS-options abstraction (e.g. a record carrying the resolved `--cacert` path and `--insecure` flag) plus a factory that maps it to the configured `HttpMessageHandler` / `HttpClient`. This factory is the unit-testable seam: its validation-callback construction can be tested in isolation by invoking the callback with locally generated `X509Certificate2` chains (no real TLS I/O, satisfying the unit-test rules in `tests/AGENTS.md`). The construction currently in `CliApplicationServices.CreateDefault()` is parameterized to use this factory after parsing.
+- The mutual-exclusion check (`--cacert` + `--insecure`) should be validated during option resolution, before any `HttpClient` is built, and surface as a parse/validation error with a non-zero exit code.
 - The stderr warning for `--insecure` should be emitted once per invocation through the existing `StandardError` writer available to the handlers.
+- For the E2E test, the existing `ApiServerProcess` harness serves plain HTTP (app-managed HTTPS is deferred to #34), so it cannot be the TLS endpoint. The test should instead stand up a small, self-contained self-signed TLS listener (e.g. an in-test Kestrel host or a `TcpListener` + `SslStream` with a generated self-signed certificate) and point the CLI at it, keeping the test independent of the API process and of #34.
 
 ### Related
 
