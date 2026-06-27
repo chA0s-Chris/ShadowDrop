@@ -86,7 +86,7 @@ internal static class CliHttpClientFactory
         {
             var trustedRoot = LoadCertificate(options.CaCertPath);
             var trustCallback = CreateCustomTrustValidationCallback(trustedRoot);
-            return new HttpClientHandler
+            return new CertificateOwningHttpClientHandler(trustedRoot)
             {
                 ServerCertificateCustomValidationCallback = (_, certificate, chain, errors) => trustCallback(certificate, chain, errors)
             };
@@ -130,6 +130,23 @@ internal static class CliHttpClientFactory
         {
             throw new CliTlsConfigurationException(
                 $"The certificate file specified by --cacert is not a valid PEM-encoded certificate: {path}", exception);
+        }
+    }
+
+    /// <summary>
+    /// An <see cref="HttpClientHandler"/> that owns the trusted root certificate loaded for <c>--cacert</c> and
+    /// disposes its native resources together with the handler, so the certificate does not leak across invocations.
+    /// </summary>
+    private sealed class CertificateOwningHttpClientHandler(X509Certificate2 trustedRoot) : HttpClientHandler
+    {
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing)
+            {
+                trustedRoot.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }
