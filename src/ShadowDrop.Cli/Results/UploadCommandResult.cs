@@ -41,7 +41,9 @@ internal sealed record DirectHttpDownload(
     [property: JsonPropertyName("fileName")]
     String FileName,
     [property: JsonPropertyName("downloadUrl")]
-    String DownloadUrl);
+    String DownloadUrl,
+    [property: JsonPropertyName("curlCommand")]
+    String CurlCommand);
 
 /// <summary>
 /// The non-retrievable credentials required to download a share.
