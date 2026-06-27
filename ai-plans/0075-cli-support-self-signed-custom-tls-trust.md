@@ -17,17 +17,17 @@ Both options apply to all network commands and are configurable via flag and `SH
 
 ## Acceptance Criteria
 
-- [ ] `--cacert <file>` is supported on all network commands and makes the CLI trust the provided certificate as an additional trust anchor while still validating the chain.
-- [ ] `--cacert` accepts a PEM-encoded certificate file; an invalid or missing `--cacert` / `SHADOWDROP_CACERT` file fails with a clear error message and a non-zero exit code.
-- [ ] `--insecure` (with `-k` alias) is supported on all network commands and disables certificate validation entirely.
-- [ ] A clear warning is written to stderr whenever `--insecure` is active.
-- [ ] Both settings are configurable via flag and a `SHADOWDROP_*` environment variable, with the flag taking precedence (see Technical Details for boolean precedence semantics). No config-file support.
-- [ ] Specifying both `--cacert` and `--insecure` (via flag or environment variable, in any combination) is rejected with a clear error message and a non-zero exit code.
-- [ ] CLI help text for both options clearly communicates the security trade-offs.
-- [ ] The options apply to `upload`, `upload raw`, `download`, `queue create`, `share create`, and the interactive upload/download flows.
-- [ ] The CLI `--help` text documents the self-signed / reverse-proxy use case and both options. (A comprehensive `README.md` will be added separately, later.)
-- [ ] Unit tests cover the TLS-options-to-validation seam, exercising both the `--cacert` custom-trust callback and the `--insecure` accept-all callback with locally generated `X509Certificate2` chains.
-- [ ] An end-to-end test in `ShadowDrop.E2E.Tests` exercises the CLI against a standalone self-signed TLS listener (stood up by the test itself, independent of the API process) for both `--cacert` (succeeds) and the default trust (fails).
+- [x] `--cacert <file>` is supported on all network commands and makes the CLI trust the provided certificate as an additional trust anchor while still validating the chain.
+- [x] `--cacert` accepts a PEM-encoded certificate file; an invalid or missing `--cacert` / `SHADOWDROP_CACERT` file fails with a clear error message and a non-zero exit code.
+- [x] `--insecure` (with `-k` alias) is supported on all network commands and disables certificate validation entirely.
+- [x] A clear warning is written to stderr whenever `--insecure` is active.
+- [x] Both settings are configurable via flag and a `SHADOWDROP_*` environment variable, with the flag taking precedence (see Technical Details for boolean precedence semantics). No config-file support.
+- [x] Specifying both `--cacert` and `--insecure` (via flag or environment variable, in any combination) is rejected with a clear error message and a non-zero exit code.
+- [x] CLI help text for both options clearly communicates the security trade-offs.
+- [x] The options apply to `upload`, `upload raw`, `download`, `queue create`, `share create`, and the interactive upload/download flows.
+- [x] The CLI `--help` text documents the self-signed / reverse-proxy use case and both options. (A comprehensive `README.md` will be added separately, later.)
+- [x] Unit tests cover the TLS-options-to-validation seam, exercising both the `--cacert` custom-trust callback and the `--insecure` accept-all callback with locally generated `X509Certificate2` chains.
+- [x] An end-to-end test in `ShadowDrop.E2E.Tests` exercises the CLI against a standalone self-signed TLS listener (stood up by the test itself, independent of the API process) for both `--cacert` (succeeds) and the default trust (fails).
 
 ## Technical Details
 
