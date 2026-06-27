@@ -257,6 +257,104 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public void DirectHttpCurlCommandFactory_ShouldPosixQuoteHeaderUrlAndFileName()
+    {
+        var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var shareSecretHex = $"fb{new String('f', 62)}";
+        var expectedKeyBase64 = Convert.ToBase64String(Convert.FromHexString(shareSecretHex));
+
+        var command = DirectHttpCurlCommandFactory.Create(new("https://shadowdrop.test/root"), "share/token", fileId, shareSecretHex,
+                                                          "weird 'name'.bin");
+
+        // Key rides in the header verbatim (single-quoted, so its '+', '/', and '=' need no URL-encoding) and never in the URL.
+        command.Should().Contain($"-H 'ShadowDrop-Key: {expectedKeyBase64}'")
+               .And.Contain("'https://shadowdrop.test/root/d/share%2Ftoken/files/11111111-2222-3333-4444-555555555555'")
+               .And.NotContain("sd-key=")
+               // The file name is single-quoted and each embedded quote is escaped as '\''.
+               .And.EndWith(@"-o 'weird '\''name'\''.bin'");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitHeaderBasedCurlCommand_ForSingleFile()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-curl.bin", 128);
+        var plaintext = await File.ReadAllBytesAsync(filePath);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var command = Value(FindLine(standardOut.ToString(), "curl-command:"));
+        var storedUpload = fixture.GetStoredUploads().Should().ContainSingle().Subject;
+        var (headerKeyMaterial, url) = ParseCurlHeaderAndUrl(command);
+        command.Should().NotContain("sd-key=");
+        new Uri(url).AbsolutePath.Should().EndWith($"/files/{storedUpload.FileId:D}");
+
+        // The emitted command really retrieves the file via the header, with no key in the URL.
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("ShadowDrop-Key", headerKeyMaterial);
+        using var response = await httpClient.SendAsync(request, CancellationToken.None);
+        response.EnsureSuccessStatusCode();
+        (await response.Content.ReadAsByteArrayAsync(CancellationToken.None)).Should().Equal(plaintext);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitOneCurlCommandPerFile_ForMultipleFiles()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePaths = new[]
+        {
+            fixture.CreateInputFile("curl-first.bin", 16),
+            fixture.CreateInputFile("curl-second.bin", 48),
+            fixture.CreateInputFile("curl-third.bin", 96)
+        };
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--direct-http", ..filePaths], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var lines = FindLines(standardOut.ToString(), "curl-command:");
+        lines.Should().HaveCount(3);
+        var storedFileIds = fixture.GetStoredUploads().Select(static upload => upload.FileId.ToString()).ToHashSet(StringComparer.Ordinal);
+        var parsed = lines.Select(ParseMultiFileCurlLine).ToArray();
+        parsed.Select(static entry => entry.FileId).Should().OnlyContain(fileId => storedFileIds.Contains(fileId));
+        parsed.Select(static entry => entry.Command).Should()
+              .OnlyContain(command => command.StartsWith("curl -H 'ShadowDrop-Key: ", StringComparison.Ordinal)
+                                      && !command.Contains("sd-key=", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitCurlCommandInJson_WhenDirectHttpRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-curl-json.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var directHttpDownload = document.RootElement.GetProperty("directHttpDownloads").EnumerateArray().Should().ContainSingle().Subject;
+        var curlCommand = directHttpDownload.GetProperty("curlCommand").GetString()!;
+        curlCommand.Should().StartWith("curl -H 'ShadowDrop-Key: ")
+                   .And.Contain($"/files/{directHttpDownload.GetProperty("fileId").GetString()}")
+                   .And.NotContain("sd-key=");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldFailCleanly_WhenConfigFileContainsMalformedJson()
     {
         var standardOut = new StringWriter();
@@ -1479,6 +1577,24 @@ public sealed class UploadCommandHandlerTests
         var payload = Value(line);
         var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
         return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
+    }
+
+    private static (String FileId, String Command) ParseMultiFileCurlLine(String line)
+    {
+        // The file ID has no colon, so the first colon of the payload separates it from the command (which may contain colons).
+        var payload = Value(line);
+        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
+        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
+    }
+
+    private static (String HeaderKeyMaterial, String Url) ParseCurlHeaderAndUrl(String command)
+    {
+        // Format: curl -H '<header>' '<url>' -o '<file-name>'. The header value and URL contain no single quotes,
+        // so splitting on the single-quote delimiter yields them at the odd indices.
+        var segments = command.Split('\'');
+        var headerArgument = segments[1];
+        const String headerPrefix = "ShadowDrop-Key: ";
+        return (headerArgument[headerPrefix.Length..], segments[3]);
     }
 
     private static String ReadDirectHttpKeyMaterial(Uri downloadUri)

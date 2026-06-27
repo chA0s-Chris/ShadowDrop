@@ -12,23 +12,23 @@ existing browser-friendly `sd-key` URL), so the key can be passed out of the req
 
 ## Acceptance Criteria
 
-- [ ] For a direct HTTP upload, in addition to the existing `download-url:` line, the CLI emits a ready-to-run
+- [x] For a direct HTTP upload, in addition to the existing `download-url:` line, the CLI emits a ready-to-run
   header-based `curl` command that passes the key via the `ShadowDrop-Key` header (not the URL) and targets the file
   endpoint `/d/<share-token>/files/<file-id>` with no `sd-key` query parameter.
-- [ ] When exactly one file is uploaded, the command is emitted as a single `curl-command:<command>` line.
-- [ ] When more than one file is uploaded, one deterministic `curl-command:<file-id>:<command>` line is emitted per
+- [x] When exactly one file is uploaded, the command is emitted as a single `curl-command:<command>` line.
+- [x] When more than one file is uploaded, one deterministic `curl-command:<file-id>:<command>` line is emitted per
   uploaded file, ordered consistently with the existing `download-url:<file-id>:<url>` lines (consumers split on the
   first two colons; the command value may itself contain colons).
-- [ ] The emitted command is correctly POSIX-sh quoted: the URL and the `-o <file name>` argument survive file names that
+- [x] The emitted command is correctly POSIX-sh quoted: the URL and the `-o <file name>` argument survive file names that
   contain spaces, quotes, or other shell metacharacters. POSIX `sh` is the only target; the command is not expected to be
   valid for `cmd`/PowerShell.
-- [ ] The `-o` target uses the original uploaded file name.
-- [ ] The existing `download-url:` (browser-friendly `sd-key` URL) output remains available unchanged; both methods are
+- [x] The `-o` target uses the original uploaded file name.
+- [x] The existing `download-url:` (browser-friendly `sd-key` URL) output remains available unchanged; both methods are
   emitted.
-- [ ] `--json` output adds a `curlCommand` field to each `directHttpDownloads[]` entry; existing fields (`fileId`,
+- [x] `--json` output adds a `curlCommand` field to each `directHttpDownloads[]` entry; existing fields (`fileId`,
   `fileName`, `downloadUrl`) are retained, and `directHttpDownloads` is still omitted for non-direct-HTTP shares.
-- [ ] Non-direct-HTTP upload output (plain text and JSON) remains unchanged.
-- [ ] Automated tests need to be written, covering: single-file curl-command output, multi-file curl-command format, the
+- [x] Non-direct-HTTP upload output (plain text and JSON) remains unchanged.
+- [x] Automated tests need to be written, covering: single-file curl-command output, multi-file curl-command format, the
   JSON `curlCommand` field, and correct POSIX quoting for file names containing spaces and shell metacharacters.
 
 ## Technical Details

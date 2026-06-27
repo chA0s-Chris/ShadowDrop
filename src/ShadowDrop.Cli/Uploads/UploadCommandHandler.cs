@@ -200,7 +200,9 @@ internal sealed class UploadCommandHandler(
                            {
                                var fileId = result.UploadedFileId!.Value;
                                var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!);
-                               return new DirectHttpDownload(fileId.ToString(), result.File.Name, downloadUrl);
+                               var curlCommand = DirectHttpCurlCommandFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!,
+                                                                                     result.File.Name);
+                               return new DirectHttpDownload(fileId.ToString(), result.File.Name, downloadUrl, curlCommand);
                            })
                            .ToArray();
     }
@@ -285,12 +287,18 @@ internal sealed class UploadCommandHandler(
         if (directHttpDownloads.Count == 1)
         {
             await standardOut.WriteLineAsync($"download-url:{directHttpDownloads[0].DownloadUrl}");
+            await standardOut.WriteLineAsync($"curl-command:{directHttpDownloads[0].CurlCommand}");
             return;
         }
 
         foreach (var directHttpDownload in directHttpDownloads)
         {
             await standardOut.WriteLineAsync($"download-url:{directHttpDownload.FileId}:{directHttpDownload.DownloadUrl}");
+        }
+
+        foreach (var directHttpDownload in directHttpDownloads)
+        {
+            await standardOut.WriteLineAsync($"curl-command:{directHttpDownload.FileId}:{directHttpDownload.CurlCommand}");
         }
     }
 
