@@ -51,6 +51,10 @@ internal static class CliHttpClientFactory
             using var customChain = new X509Chain();
             customChain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
             customChain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+            // Don't fetch missing intermediates over the network mid-handshake, and only accept
+            // chains valid for TLS server authentication.
+            customChain.ChainPolicy.DisableCertificateDownloads = true;
+            customChain.ChainPolicy.ApplicationPolicy.Add(new Oid("1.3.6.1.5.5.7.3.1"));
             customChain.ChainPolicy.CustomTrustStore.Add(trustedRoot);
 
             if (chain is not null)
