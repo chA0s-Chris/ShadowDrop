@@ -965,6 +965,9 @@ public sealed class DownloadFileServiceTests
 
         public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
             Task.FromResult(record.ShareTokenHashBase64 == shareTokenHashBase64 ? record : null);
+
+        public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class StubUploadedFileMetadataRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository

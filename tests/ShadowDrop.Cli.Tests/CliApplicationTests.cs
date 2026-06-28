@@ -7,6 +7,7 @@ using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Tests.Fakes;
+using System.Net;
 
 [NonParallelizable]
 public sealed class CliApplicationTests
@@ -62,6 +63,32 @@ public sealed class CliApplicationTests
         standardError.ToString().Should().Contain("Server URL invalid or missing.")
                      .And.NotContain("ShadowDrop CLI")
                      .And.NotContain("Encrypt local files and upload encrypted content to ShadowDrop.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRouteShareRevokeCommand()
+    {
+        var shareId = Guid.NewGuid();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Post);
+            request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/shares/{shareId}/revoke"));
+            request.Headers.Authorization.Should().NotBeNull();
+            request.Headers.Authorization!.Parameter.Should().Be("upload-token");
+            return new(HttpStatusCode.NoContent);
+        }));
+        var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+                                                  httpClient,
+                                                  standardOut,
+                                                  standardError);
+
+        var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString()], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardOut.ToString().Trim().Should().Be($"share-revoked:{shareId}");
+        standardError.ToString().Should().BeEmpty();
     }
 
     [Test]

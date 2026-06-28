@@ -24,6 +24,7 @@ public static class AdminEndpoints
 
             var shareRoutes = adminRoutes.MapGroup("/shares");
             shareRoutes.MapPost("/", CreateShareAsync);
+            shareRoutes.MapPost("/{shareId:guid}/revoke", RevokeShareAsync);
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
             uploadRoutes.MapPost("/reservations", ReserveUploadAsync);
@@ -80,6 +81,14 @@ public static class AdminEndpoints
     {
         var fileId = await repository.ReserveFileIdAsync(cancellationToken);
         return Results.Created($"/api/admin/uploads/{fileId}", new UploadReservationResult(fileId));
+    }
+
+    private static async Task<IResult> RevokeShareAsync(Guid shareId,
+                                                        ShareRevocationService shareRevocationService,
+                                                        CancellationToken cancellationToken)
+    {
+        var revoked = await shareRevocationService.RevokeAsync(shareId, cancellationToken);
+        return revoked ? Results.NoContent() : Results.NotFound();
     }
 
     private static async Task<IResult> UploadAsync(HttpRequest request,
