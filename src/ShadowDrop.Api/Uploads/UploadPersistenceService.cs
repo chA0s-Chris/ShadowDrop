@@ -69,7 +69,7 @@ public sealed class UploadPersistenceService
             {
                 try
                 {
-                    await _blobStorage.DeleteIfExistsAsync(blob.BlobKey, CancellationToken.None);
+                    _ = await _blobStorage.DeleteIfExistsAsync(blob.BlobKey, CancellationToken.None);
                 }
                 catch
                 {

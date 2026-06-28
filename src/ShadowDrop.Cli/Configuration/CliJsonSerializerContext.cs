@@ -15,6 +15,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(UploadMetadataPayload))]
 [JsonSerializable(typeof(CreateShareCliRequest))]
 [JsonSerializable(typeof(CreateShareCliResult))]
+[JsonSerializable(typeof(ShareCleanupResultContract))]
 [JsonSerializable(typeof(UploadCommandResult))]
 [JsonSerializable(typeof(DirectHttpDownload))]
 [JsonSerializable(typeof(CredentialDocument))]

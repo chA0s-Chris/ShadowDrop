@@ -45,6 +45,10 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         }
     }
 
+    private static Boolean IsCleanupCandidate(ShareDocument document, Int64 nowUnixTimeMilliseconds) =>
+        !String.Equals(document.CleanupState, ShareCleanupState.Completed.ToString(), StringComparison.OrdinalIgnoreCase)
+        && (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds || document.RevokedAtUnixTimeMilliseconds is not null);
+
     private static ShareDocument Map(ShareRecord record) =>
         new()
         {
@@ -137,6 +141,18 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         return Task.FromResult(document is null ? null : Map(document));
     }
 
+    public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        IReadOnlyList<ShareRecord> candidates = _collection.FindAll()
+                                                           .Where(document => IsCleanupCandidate(document, nowUnixTimeMilliseconds))
+                                                           .Select(Map)
+                                                           .ToList();
+        return Task.FromResult(candidates);
+    }
+
     public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -158,6 +174,31 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                 FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             }
 
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(shareId);
+            if (document is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            var newCleanupState = cleanupState.ToString().ToUpperInvariant();
+            if (String.Equals(document.CleanupState, newCleanupState, StringComparison.Ordinal))
+            {
+                return Task.FromResult(true);
+            }
+
+            document.CleanupState = newCleanupState;
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             return Task.FromResult(true);
         }
     }

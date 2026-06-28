@@ -24,6 +24,7 @@ public static class AdminEndpoints
 
             var shareRoutes = adminRoutes.MapGroup("/shares");
             shareRoutes.MapPost("/", CreateShareAsync);
+            shareRoutes.MapPost("/cleanup", CleanupSharesAsync);
             shareRoutes.MapPost("/{shareId:guid}/revoke", RevokeShareAsync);
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
@@ -34,6 +35,13 @@ public static class AdminEndpoints
         }
 
         return app;
+    }
+
+    private static async Task<IResult> CleanupSharesAsync(ShareCleanupRunner cleanupRunner,
+                                                          CancellationToken cancellationToken)
+    {
+        var result = await cleanupRunner.RunIfIdleAsync(cancellationToken);
+        return Results.Ok(result);
     }
 
 

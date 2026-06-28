@@ -6,6 +6,8 @@ public sealed class ShadowDropOptions
 {
     public ApiExposureOptions ApiExposure { get; set; } = new();
 
+    public CleanupOptions Cleanup { get; set; } = new();
+
     public MetadataOptions Metadata { get; set; } = new();
 
     public StorageOptions Storage { get; set; } = new();

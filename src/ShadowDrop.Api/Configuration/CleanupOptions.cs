@@ -1,10 +1,8 @@
 // Copyright (c) 2026 Christian Flessa. All rights reserved.
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
-namespace ShadowDrop.Api.Shares;
+namespace ShadowDrop.Api.Configuration;
 
-public enum ShareCleanupState
+public sealed class CleanupOptions
 {
-    Pending = 0,
-    Completed = 1,
-    Failed = 2
+    public String CronExpression { get; set; } = "0 */2 * * *";
 }

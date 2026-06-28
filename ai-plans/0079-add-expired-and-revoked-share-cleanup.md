@@ -8,14 +8,14 @@ Share expiration and revocation currently block access at request time, but the 
 
 ## Acceptance Criteria
 
-- [ ] Expired shares are discoverable for cleanup without requiring a download request to touch them first.
-- [ ] Revoked shares are discoverable for cleanup after the revocation/delete workflow marks them revoked.
-- [ ] Cleanup resolves each share file through upload metadata, deletes the associated local blob files, and leaves uploaded-file metadata intact for audit/idempotency.
-- [ ] Cleanup updates share metadata consistently using durable `Pending`, `Completed`, and `Failed` cleanup states so repeated cleanup runs are idempotent and failed runs can be retried.
-- [ ] Cleanup behavior does not expose plaintext share tokens, bearer tokens, key material, or `sd-key` URLs in logs.
-- [ ] The API runs cleanup once after startup and periodically while running, with the periodic schedule configured by an environment-backed cron expression that defaults to once every two hours.
-- [ ] A protected admin endpoint and `shadowdrop share cleanup` CLI command can trigger cleanup manually and report summary counts.
-- [ ] Automated tests cover expired-share cleanup, revoked-share cleanup, missing/already-deleted blob handling, idempotency, scheduling configuration, manual trigger behavior, and failure handling.
+- [x] Expired shares are discoverable for cleanup without requiring a download request to touch them first.
+- [x] Revoked shares are discoverable for cleanup after the revocation/delete workflow marks them revoked.
+- [x] Cleanup resolves each share file through upload metadata, deletes the associated local blob files, and leaves uploaded-file metadata intact for audit/idempotency.
+- [x] Cleanup updates share metadata consistently using durable `Pending`, `Completed`, and `Failed` cleanup states so repeated cleanup runs are idempotent and failed runs can be retried.
+- [x] Cleanup behavior does not expose plaintext share tokens, bearer tokens, key material, or `sd-key` URLs in logs.
+- [x] The API runs cleanup once after startup and periodically while running, with the periodic schedule configured by an environment-backed cron expression that defaults to once every two hours.
+- [x] A protected admin endpoint and `shadowdrop share cleanup` CLI command can trigger cleanup manually and report summary counts.
+- [x] Automated tests cover expired-share cleanup, revoked-share cleanup, missing/already-deleted blob handling, idempotency, scheduling configuration, manual trigger behavior, and failure handling.
 
 ## Technical Details
 

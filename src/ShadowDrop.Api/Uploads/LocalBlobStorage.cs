@@ -21,11 +21,11 @@ public sealed class LocalBlobStorage : IBlobStorage
         return Path.Combine(opaqueId[..2], $"{opaqueId}.blob");
     }
 
-    private void DeleteBlobFile(String blobPath)
+    private Boolean DeleteBlobFile(String blobPath)
     {
         if (!File.Exists(blobPath))
         {
-            return;
+            return false;
         }
 
         File.Delete(blobPath);
@@ -39,15 +39,16 @@ public sealed class LocalBlobStorage : IBlobStorage
             Directory.Delete(directory);
             directory = Path.GetDirectoryName(directory);
         }
+
+        return true;
     }
 
     private String ResolveBlobPath(String blobKey) => Path.Combine(_storageRoot, blobKey);
 
-    public Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken)
+    public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        DeleteBlobFile(ResolveBlobPath(blobKey));
-        return Task.CompletedTask;
+        return Task.FromResult(DeleteBlobFile(ResolveBlobPath(blobKey)));
     }
 
     public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken)

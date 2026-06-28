@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Configuration;
 
+using Cronos;
 using ShadowDrop.Api.Infrastructure.Storage;
 
 public static class ShadowDropOptionsBinding
@@ -20,6 +21,21 @@ public static class ShadowDropOptionsBinding
         if (String.IsNullOrWhiteSpace(options.Storage.LocalRoot))
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:LocalRoot' is required.");
+        }
+
+        if (String.IsNullOrWhiteSpace(options.Cleanup.CronExpression))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
+        }
+
+        try
+        {
+            _ = CronExpression.Parse(options.Cleanup.CronExpression, CronFormat.Standard);
+        }
+        catch (CronFormatException exception)
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' must be a valid five-field cron expression.",
+                                                exception);
         }
 
         options.Metadata.LiteDbPath = ResolvePath(options.Metadata.LiteDbPath, contentRootPath);

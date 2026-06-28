@@ -288,9 +288,16 @@ internal static class CliApplication
         shareRevokeCommand.Options.Add(insecureOption);
         shareRevokeCommand.Options.Add(uploadTokenOption);
 
+        var shareCleanupCommand = new Command("cleanup", "Delete local blobs for expired and revoked shares.");
+        shareCleanupCommand.Options.Add(serverOption);
+        shareCleanupCommand.Options.Add(caCertOption);
+        shareCleanupCommand.Options.Add(insecureOption);
+        shareCleanupCommand.Options.Add(uploadTokenOption);
+
         var shareCommand = new Command("share", "Create and manage shares.");
         shareCommand.Subcommands.Add(shareCreateCommand);
         shareCommand.Subcommands.Add(shareRevokeCommand);
+        shareCommand.Subcommands.Add(shareCleanupCommand);
 
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
@@ -331,7 +338,8 @@ internal static class CliApplication
                    shareCreateCommand,
                    shareFileIdsArgument,
                    shareRevokeCommand,
-                   shareIdArgument);
+                   shareIdArgument,
+                   shareCleanupCommand);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -435,6 +443,17 @@ internal static class CliApplication
                                                        httpClient,
                                                        services.StandardOut,
                                                        services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ShareCleanupCommand)
+        {
+            var cleanupOptions = new ShareCleanupCommandOptions(parseResult.GetValue(commandModel.ServerOption),
+                                                                parseResult.GetValue(commandModel.UploadTokenOption));
+
+            return await new ShareCleanupCommandHandler(services.ConfigurationResolver,
+                                                        httpClient,
+                                                        services.StandardOut,
+                                                        services.StandardError).ExecuteAsync(cleanupOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -548,5 +567,6 @@ internal static class CliApplication
         Command ShareCreateCommand,
         Argument<String[]> ShareFileIdsArgument,
         Command ShareRevokeCommand,
-        Argument<String?> ShareIdArgument);
+        Argument<String?> ShareIdArgument,
+        Command ShareCleanupCommand);
 }
