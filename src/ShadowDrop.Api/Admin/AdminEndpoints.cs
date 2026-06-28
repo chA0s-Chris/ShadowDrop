@@ -44,7 +44,6 @@ public static class AdminEndpoints
         return Results.Ok(result);
     }
 
-
     private static async Task<IResult> CreateShareAsync(CreateShareRequest? request,
                                                         CreateShareService createShareService,
                                                         ILoggerFactory loggerFactory,

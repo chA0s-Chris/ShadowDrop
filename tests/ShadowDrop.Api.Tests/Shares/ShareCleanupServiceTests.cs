@@ -3,6 +3,7 @@
 namespace ShadowDrop.Tests.Shares;
 
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using ShadowDrop.Api.Configuration;
@@ -12,6 +13,33 @@ using System.Net.Mime;
 
 public sealed class ShareCleanupServiceTests
 {
+    [Test]
+    public async Task ExecuteAsync_ShouldRunCleanupAtStartupAndThenOnSchedule()
+    {
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.Parse("2026-06-28T00:30:00Z"));
+        var shareRepository = new SignalingShareRepository();
+        var cleanupService = new ShareCleanupService(shareRepository,
+                                                     new InMemoryUploadedFileRepository(CreateUploadedFileRecord(Guid.NewGuid())),
+                                                     new BlockingBlobStorage(),
+                                                     timeProvider,
+                                                     NullLogger<ShareCleanupService>.Instance);
+        using var runner = new ShareCleanupRunner(cleanupService, NullLogger<ShareCleanupRunner>.Instance);
+        var options = new ShadowDropOptions();
+        using var hostedService = new ShareCleanupHostedService(runner, options, timeProvider, NullLogger<ShareCleanupHostedService>.Instance);
+
+        await hostedService.StartAsync(CancellationToken.None);
+
+        (await shareRepository.CleanupScanned.WaitAsync(TimeSpan.FromSeconds(5))).Should().BeTrue("cleanup should run once shortly after startup");
+
+        await WaitForScheduledTimerAsync(timeProvider);
+        timeProvider.Advance(TimeSpan.FromHours(2));
+
+        (await shareRepository.CleanupScanned.WaitAsync(TimeSpan.FromSeconds(5))).Should()
+                                                                                 .BeTrue("cleanup should run again after the scheduled interval elapses");
+
+        await hostedService.StopAsync(CancellationToken.None);
+    }
+
     [Test]
     public async Task RunAsync_ShouldCleanupRevokedShare_EvenWhenItHasNotExpired()
     {
@@ -72,6 +100,40 @@ public sealed class ShareCleanupServiceTests
         firstResult.Should().Be(new ShareCleanupResult(1, 0, 0, 0, 1));
         secondResult.Should().Be(new ShareCleanupResult(1, 0, 0, 0, 1));
         (await shareRepository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Failed);
+    }
+
+    [Test]
+    public async Task RunAsync_ShouldNotLogSensitiveShareMaterial()
+    {
+        await using var fixture = new ShareCleanupFixture();
+        var options = fixture.CreateOptions();
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var shareRepository = new LiteDbShareMetadataRepository(options);
+        var blobStorage = new LocalBlobStorage(options);
+        var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
+        const String secretMaterial = "SUPER-SECRET-SHARE-MATERIAL";
+        var share = new ShareRecord(Guid.NewGuid(),
+                                    secretMaterial,
+                                    DateTimeOffset.Parse("2026-05-01T00:00:00Z"),
+                                    DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                    null,
+                                    ShareCleanupState.Pending,
+                                    DirectHttpEnabled: false,
+                                    new DownloadBearerTokenRecord(secretMaterial, DateTimeOffset.Parse("2026-06-01T00:00:00Z")),
+                                    [new(uploadedFile.FileId, "cipher.bin", null)]);
+        await shareRepository.CreateAsync(share, CancellationToken.None);
+        var logger = new CapturingLogger<ShareCleanupService>();
+        var sut = new ShareCleanupService(shareRepository,
+                                          uploadedFileRepository,
+                                          blobStorage,
+                                          new FrozenTimeProvider(DateTimeOffset.Parse("2026-06-02T00:00:00Z")),
+                                          logger);
+
+        var result = await sut.RunAsync(CancellationToken.None);
+
+        result.Should().Be(new ShareCleanupResult(1, 1, 1, 0, 0));
+        logger.Messages.Should().NotBeEmpty();
+        logger.Messages.Should().NotContain(message => message.Contains(secretMaterial));
     }
 
     [Test]
@@ -169,6 +231,34 @@ public sealed class ShareCleanupServiceTests
             DownloadBearerToken: null,
             [new(fileId, "cipher.bin", null)]);
 
+    private static UploadedFileRecord CreateUploadedFileRecord(Guid fileId) =>
+        new(fileId,
+            "blob-key",
+            "cipher.bin",
+            1,
+            1,
+            MediaTypeNames.Application.Octet,
+            "1",
+            "AES-256-GCM",
+            1,
+            1,
+            "salt",
+            "sha");
+
+    private static async Task WaitForScheduledTimerAsync(ManualTimeProvider timeProvider)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (timeProvider.PendingTimerCount == 0)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                Assert.Fail("The hosted service did not schedule its next cleanup run.");
+            }
+
+            await Task.Delay(25);
+        }
+    }
+
     private sealed class BlockingBlobStorage : IBlobStorage
     {
         public TaskCompletionSource AllowDeleteToFinish { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -186,6 +276,26 @@ public sealed class ShareCleanupServiceTests
 
         public Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<String> Messages { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+
+        public Boolean IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                                Func<TState, Exception?, String> formatter) =>
+            Messages.Add(formatter(state, exception));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+
+            public void Dispose() { }
+        }
     }
 
     private sealed class FrozenTimeProvider(DateTimeOffset nowUtc) : TimeProvider
@@ -241,6 +351,90 @@ public sealed class ShareCleanupServiceTests
             throw new NotSupportedException();
     }
 
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private readonly Lock _gate = new();
+        private readonly List<ManualTimer> _timers = [];
+        private DateTimeOffset _utcNow = utcNow;
+
+        public Int32 PendingTimerCount
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _timers.Count;
+                }
+            }
+        }
+
+        public void Advance(TimeSpan delta)
+        {
+            ManualTimer[] due;
+            lock (_gate)
+            {
+                _utcNow += delta;
+                due = _timers.Where(timer => timer.DueAt <= _utcNow).ToArray();
+                foreach (var timer in due)
+                {
+                    _timers.Remove(timer);
+                }
+            }
+
+            foreach (var timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, Object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            lock (_gate)
+            {
+                var timer = new ManualTimer(this, callback, state, _utcNow + dueTime);
+                _timers.Add(timer);
+                return timer;
+            }
+        }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_gate)
+            {
+                return _utcNow;
+            }
+        }
+
+        private void Remove(ManualTimer timer)
+        {
+            lock (_gate)
+            {
+                _timers.Remove(timer);
+            }
+        }
+
+        private sealed class ManualTimer(ManualTimeProvider provider, TimerCallback callback, Object? state, DateTimeOffset dueAt) : ITimer
+        {
+            public DateTimeOffset DueAt { get; private set; } = dueAt;
+
+            public void Fire() => callback(state);
+
+            public ValueTask DisposeAsync()
+            {
+                provider.Remove(this);
+                return ValueTask.CompletedTask;
+            }
+
+            public void Dispose() => provider.Remove(this);
+
+            public Boolean Change(TimeSpan dueTime, TimeSpan period)
+            {
+                DueAt = provider.GetUtcNow() + dueTime;
+                return true;
+            }
+        }
+    }
+
     private sealed class ShareCleanupFixture : IAsyncDisposable
     {
         private readonly String _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
@@ -275,5 +469,29 @@ public sealed class ShareCleanupServiceTests
 
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class SignalingShareRepository : IShareMetadataRepository
+    {
+        public SemaphoreSlim CleanupScanned { get; } = new(0);
+
+        public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+        {
+            CleanupScanned.Release();
+            return Task.FromResult<IReadOnlyList<ShareRecord>>([]);
+        }
+
+        public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }
