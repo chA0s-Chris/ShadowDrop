@@ -10,14 +10,14 @@ The goal is to add a scriptable CLI contract for recipient-facing display-name o
 
 ## Acceptance Criteria
 
-- [ ] The CLI exposes a scriptable way to set recipient-facing display names: `upload --name <name>` for the single-file case and repeated `--display-name <path-or-file-id>=<name>` mappings for multi-file and `share create` cases.
-- [ ] The end-to-end `upload` workflow supports display-name override for the single-file case.
-- [ ] The lower-level `share create` workflow supports display-name overrides for previously uploaded file ids.
-- [ ] Multi-file usage has an unambiguous input contract that maps each override to the intended file.
-- [ ] Display names are trimmed consistently with API behavior (empty-after-trim normalizes to no display name).
-- [ ] Invalid or ambiguous CLI input (duplicate, unknown, or empty-normalized mappings; single-file-only options used with multiple inputs) fails with a clear error.
-- [ ] Generated `share-url`, manifest data, queue files, direct HTTP `curl-command -o`, and CLI downloads use the display name where appropriate.
-- [ ] Automated tests cover single-file override, multi-file mapping, `share create`, queue output names, direct HTTP command output names, and validation failures.
+- [x] The CLI exposes a scriptable way to set recipient-facing display names: `upload --name <name>` for the single-file case and repeated `--display-name <path-or-file-id>=<name>` mappings for multi-file and `share create` cases.
+- [x] The end-to-end `upload` workflow supports display-name override for the single-file case.
+- [x] The lower-level `share create` workflow supports display-name overrides for previously uploaded file ids.
+- [x] Multi-file usage has an unambiguous input contract that maps each override to the intended file.
+- [x] Display names are trimmed consistently with API behavior (empty-after-trim normalizes to no display name).
+- [x] Invalid or ambiguous CLI input (duplicate, unknown, or empty-normalized mappings; single-file-only options used with multiple inputs) fails with a clear error.
+- [x] Generated `share-url`, manifest data, queue files, direct HTTP `curl-command -o`, and CLI downloads use the display name where appropriate.
+- [x] Automated tests cover single-file override, multi-file mapping, `share create`, queue output names, direct HTTP command output names, and validation failures.
 
 ## Technical Details
 

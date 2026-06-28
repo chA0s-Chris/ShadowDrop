@@ -114,6 +114,24 @@ internal static class CliApplication
             Description = "Embed download credentials into the generated queue (self-contained and sensitive)."
         };
 
+        var nameOption = new Option<String?>("--name")
+        {
+            Description = "Recipient-facing display name for the uploaded file. Requires exactly one file; "
+                          + "use --display-name <path>=<name> for multiple files."
+        };
+
+        var uploadDisplayNameOption = new Option<String[]>("--display-name")
+        {
+            Description = "Map a file to a recipient-facing display name as <path>=<name>. Repeat for multiple files.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var shareDisplayNameOption = new Option<String[]>("--display-name")
+        {
+            Description = "Map a file id to a recipient-facing display name as <file-id>=<name>. Repeat for multiple files.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
         var uploadInteractiveOption = new Option<Boolean>("--interactive")
         {
             Description = "Run the guided Spectre.Console upload and share workflow."
@@ -185,6 +203,8 @@ internal static class CliApplication
         uploadCommand.Options.Add(secretsOutOption);
         uploadCommand.Options.Add(queueOutOption);
         uploadCommand.Options.Add(embedSecretsOption);
+        uploadCommand.Options.Add(nameOption);
+        uploadCommand.Options.Add(uploadDisplayNameOption);
         uploadCommand.Options.Add(jsonOption);
         uploadCommand.Options.Add(forceOption);
         uploadCommand.Options.Add(uploadInteractiveOption);
@@ -252,6 +272,7 @@ internal static class CliApplication
         shareCreateCommand.Options.Add(directHttpOption);
         shareCreateCommand.Options.Add(generateDownloadTokenOption);
         shareCreateCommand.Options.Add(secretsOutOption);
+        shareCreateCommand.Options.Add(shareDisplayNameOption);
         shareCreateCommand.Options.Add(jsonOption);
         shareCreateCommand.Options.Add(forceOption);
 
@@ -282,6 +303,9 @@ internal static class CliApplication
                    secretsOutOption,
                    queueOutOption,
                    embedSecretsOption,
+                   nameOption,
+                   uploadDisplayNameOption,
+                   shareDisplayNameOption,
                    jsonOption,
                    forceOption,
                    uploadInteractiveOption,
@@ -376,7 +400,8 @@ internal static class CliApplication
                                                              parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
                                                              parseResult.GetValue(commandModel.SecretsOutOption),
                                                              parseResult.GetValue(commandModel.JsonOption),
-                                                             parseResult.GetValue(commandModel.ForceOption));
+                                                             parseResult.GetValue(commandModel.ForceOption),
+                                                             parseResult.GetValue(commandModel.ShareDisplayNameOption) ?? []);
 
             return await new ShareCreateCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
@@ -434,7 +459,9 @@ internal static class CliApplication
                                                      parseResult.GetValue(commandModel.QueueOutOption),
                                                      parseResult.GetValue(commandModel.EmbedSecretsOption),
                                                      parseResult.GetValue(commandModel.JsonOption),
-                                                     parseResult.GetValue(commandModel.ForceOption));
+                                                     parseResult.GetValue(commandModel.ForceOption),
+                                                     parseResult.GetValue(commandModel.NameOption),
+                                                     parseResult.GetValue(commandModel.UploadDisplayNameOption) ?? []);
 
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
@@ -479,6 +506,9 @@ internal static class CliApplication
         Option<FileInfo?> SecretsOutOption,
         Option<FileInfo?> QueueOutOption,
         Option<Boolean> EmbedSecretsOption,
+        Option<String?> NameOption,
+        Option<String[]> UploadDisplayNameOption,
+        Option<String[]> ShareDisplayNameOption,
         Option<Boolean> JsonOption,
         Option<Boolean> ForceOption,
         Option<Boolean> UploadInteractiveOption,

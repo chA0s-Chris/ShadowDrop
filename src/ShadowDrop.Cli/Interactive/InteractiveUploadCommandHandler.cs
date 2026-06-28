@@ -68,7 +68,9 @@ internal sealed class InteractiveUploadCommandHandler(
                                                      options.QueueOut,
                                                      options.EmbedSecrets,
                                                      options.Json,
-                                                     options.Force);
+                                                     options.Force,
+                                                     options.DisplayName,
+                                                     options.DisplayNameMappings);
 
         return await new UploadCommandHandler(configurationResolver, httpClient, standardOut, standardError, timeProvider)
             .ExecuteAsync(uploadOptions, cancellationToken);

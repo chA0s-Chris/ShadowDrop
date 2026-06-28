@@ -11,4 +11,5 @@ internal sealed record ShareCreateCommandOptions(
     Boolean GenerateDownloadToken,
     FileInfo? SecretsOut,
     Boolean Json,
-    Boolean Force);
+    Boolean Force,
+    String[] DisplayNameMappings);

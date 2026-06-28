@@ -3,6 +3,7 @@
 namespace ShadowDrop.Api.Shares;
 
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Contracts;
 using System.Security.Cryptography;
 
 public sealed class CreateShareService
@@ -42,7 +43,7 @@ public sealed class CreateShareService
                 throw new CreateShareValidationException("All referenced files must exist.");
             }
 
-            files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, NormalizeDisplayName(fileRequest.DisplayName)));
+            files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
         }
 
         var shareId = Guid.NewGuid();
@@ -75,9 +76,6 @@ public sealed class CreateShareService
                       .Replace('/', '_')
                       .TrimEnd('=');
     }
-
-    private static String? NormalizeDisplayName(String? displayName) =>
-        String.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim();
 
     private static void ValidateRequest(CreateShareRequest request)
     {
