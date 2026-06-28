@@ -14,7 +14,15 @@ internal static class DisplayNameResolver
 {
     private static readonly IReadOnlyDictionary<Guid, String> EmptyGuidMap = new Dictionary<Guid, String>();
 
-    private static readonly IReadOnlyDictionary<String, String> EmptyStringMap = new Dictionary<String, String>(StringComparer.Ordinal);
+    private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+    private static readonly IReadOnlyDictionary<String, String> EmptyStringMap = new Dictionary<String, String>(FilePathComparer);
+
+
+    private static readonly StringComparison FilePathComparison = OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
 
     /// <summary>
     /// Resolves display names for the lower-level <c>share create</c> workflow.
@@ -100,7 +108,7 @@ internal static class DisplayNameResolver
                 return Fail("The display name provided to --name is empty.", out overridesByFullPath, out error);
             }
 
-            overridesByFullPath = new Dictionary<String, String>(StringComparer.Ordinal)
+            overridesByFullPath = new Dictionary<String, String>(FilePathComparer)
             {
                 [files[0].FullName] = normalized
             };
@@ -114,7 +122,7 @@ internal static class DisplayNameResolver
             return false;
         }
 
-        var result = new Dictionary<String, String>(StringComparer.Ordinal);
+        var result = new Dictionary<String, String>(FilePathComparer);
         foreach (var (key, value) in parsed)
         {
             String fullPath;
@@ -127,7 +135,7 @@ internal static class DisplayNameResolver
                 return Fail($"No file matches the --display-name mapping '{key}'.", out overridesByFullPath, out error);
             }
 
-            var matches = files.Count(file => String.Equals(file.FullName, fullPath, StringComparison.Ordinal));
+            var matches = files.Count(file => String.Equals(file.FullName, fullPath, FilePathComparison));
             if (matches == 0)
             {
                 return Fail($"No file matches the --display-name mapping '{key}'.", out overridesByFullPath, out error);
