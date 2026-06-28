@@ -11,6 +11,7 @@ using ShadowDrop.Api.Shares;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
@@ -86,9 +87,10 @@ public sealed class DownloadCommandHandlerTests
         (await File.ReadAllBytesAsync(Path.Combine(outputsDirectory, "stable.bin"))).Should().BeEquivalentTo(await File.ReadAllBytesAsync(inputFile));
         File.Exists(Path.Combine(outputsDirectory, "missing.bin")).Should().BeFalse();
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS stable.bin ->")
-                     .And.Contain("FAILED missing.bin ->")
-                     .And.Contain("Requested file not found in share.");
+        standardError.ToString().Should().Contain("SUCCESS 1/2 stable.bin -> stable.bin")
+                     .And.Contain("FAILED 2/2 missing.bin -> missing.bin")
+                     .And.Contain("Requested file not found in share.")
+                     .And.Contain("SUMMARY downloaded 1/2 files");
     }
 
     [Test]
@@ -161,8 +163,8 @@ public sealed class DownloadCommandHandlerTests
             standardOut.ToString().Should().BeEmpty();
             File.Exists(firstOutputPath).Should().BeFalse();
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain("FAILED broken.bin -> broken.bin: Server connection failed.")
-                         .And.Contain($"SUCCESS {fixture.FileName} -> good.bin");
+            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Server connection failed.")
+                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
         }
         finally
         {
@@ -245,8 +247,8 @@ public sealed class DownloadCommandHandlerTests
             standardOut.ToString().Should().BeEmpty();
             File.Exists(firstOutputPath).Should().BeFalse();
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain("FAILED broken.bin -> broken.bin: Share metadata invalid or missing.")
-                         .And.Contain($"SUCCESS {fixture.FileName} -> good.bin");
+            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Share metadata invalid or missing.")
+                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
         }
         finally
         {
@@ -282,7 +284,9 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(0);
         binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("START report.bin")
+                     .And.Contain("SUCCESS report.bin")
+                     .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -502,7 +506,9 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(0);
         binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("START protected.bin")
+                     .And.Contain("SUCCESS protected.bin")
+                     .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -561,7 +567,7 @@ public sealed class DownloadCommandHandlerTests
             binaryOutput.Length.Should().Be(0);
             (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
             standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS {fixture.FileName} -> payload.bin")
+            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin")
                          .And.NotContain("Configuration file invalid or unreadable.");
         }
         finally
@@ -605,7 +611,7 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(0);
         (await File.ReadAllBytesAsync(outputPath)).Should().BeEquivalentTo(await File.ReadAllBytesAsync(inputFile));
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS stable.bin ->");
+        standardError.ToString().Should().Contain("SUCCESS 1/1 stable.bin -> stable.bin");
     }
 
     [Test]
@@ -632,7 +638,9 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(0);
         binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(secondInput));
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("START beta.bin")
+                     .And.Contain("SUCCESS beta.bin")
+                     .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -662,7 +670,9 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(0);
         binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain($"START {fixture.FileName}")
+                     .And.Contain($"SUCCESS {fixture.FileName}")
+                     .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -700,8 +710,9 @@ public sealed class DownloadCommandHandlerTests
         (await File.ReadAllBytesAsync(Path.Combine(outputsDirectory, "beta.bin"))).Should().BeEquivalentTo(await File.ReadAllBytesAsync(secondInput));
         binaryOutput.Length.Should().Be(0);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS alpha.bin ->")
-                     .And.Contain("SUCCESS beta.bin ->");
+        standardError.ToString().Should().Contain("SUCCESS 1/2 alpha.bin -> alpha.bin")
+                     .And.Contain("SUCCESS 2/2 beta.bin -> beta.bin")
+                     .And.Contain("SUMMARY downloaded 2/2 files");
     }
 
     [Test]
@@ -805,7 +816,7 @@ public sealed class DownloadCommandHandlerTests
             binaryOutput.Length.Should().Be(0);
             standardOut.ToString().Should().BeEmpty();
             File.Exists(Path.Combine(rootDirectory, "downloads-evil", "report.txt")).Should().BeFalse();
-            standardError.ToString().Should().Contain("FAILED report.txt -> ../downloads-evil/report.txt: Queue output path escapes the output root.");
+            standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../downloads-evil/report.txt: Queue output path escapes the output root.");
         }
         finally
         {
@@ -859,7 +870,7 @@ public sealed class DownloadCommandHandlerTests
             binaryOutput.Length.Should().Be(0);
             standardOut.ToString().Should().BeEmpty();
             File.Exists(Path.Combine(rootDirectory, "outside.bin")).Should().BeFalse();
-            standardError.ToString().Should().Contain("FAILED report.txt -> ../outside.bin: Queue output path escapes the output root.");
+            standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../outside.bin: Queue output path escapes the output root.");
         }
         finally
         {
@@ -939,7 +950,7 @@ public sealed class DownloadCommandHandlerTests
             exitCode.Should().Be(0);
             (await File.ReadAllBytesAsync(Path.Combine(rootDirectory, "default-root.bin"))).Should().Equal(fixture.Plaintext);
             standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS {fixture.FileName} -> default-root.bin");
+            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> default-root.bin");
         }
         finally
         {
@@ -1023,8 +1034,8 @@ public sealed class DownloadCommandHandlerTests
             (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
             standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS {fixture.FileName} -> first.bin")
-                         .And.Contain($"SUCCESS {fixture.FileName} -> second.bin");
+            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
+                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
         }
         finally
         {
@@ -1121,7 +1132,7 @@ public sealed class DownloadCommandHandlerTests
                 },
                 request =>
                 {
-                    standardError.Lines.Should().Contain($"SUCCESS {fixture.FileName} -> first.bin");
+                    standardError.Lines.Should().Contain(line => line.StartsWith($"SUCCESS 1/2 {fixture.FileName} -> first.bin"));
                     request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/shared-token/files/{fixture.FileId:D}?mode=cli"));
                     return fixture.CreateDownloadResponse();
                 });
@@ -1138,8 +1149,8 @@ public sealed class DownloadCommandHandlerTests
             (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
             standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS {fixture.FileName} -> first.bin")
-                         .And.Contain($"SUCCESS {fixture.FileName} -> second.bin");
+            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
+                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
         }
         finally
         {
@@ -1253,7 +1264,8 @@ public sealed class DownloadCommandHandlerTests
             standardOut,
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System));
 
     private sealed class CliDownloadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {

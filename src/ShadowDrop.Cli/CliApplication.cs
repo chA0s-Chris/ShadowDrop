@@ -485,7 +485,8 @@ internal static class CliApplication
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
                                                              httpClient,
                                                              services.StandardOutStream,
-                                                             services.StandardError);
+                                                             services.StandardError,
+                                                             services.DownloadProgressReporterFactory.Create());
             return await downloadHandler.ExecuteAsync(options, cancellationToken);
         }
 

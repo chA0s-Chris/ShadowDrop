@@ -10,24 +10,24 @@ The goal is to add consistent download progress output for both non-interactive 
 
 ## Acceptance Criteria
 
-- [ ] Queue downloads report the current file index and total file count.
-- [ ] Non-interactive single-file downloads report the current file name and human-readable decimal file size.
-- [ ] Non-interactive single-file downloads report live progress percentage in interactive terminal mode while the file is downloading.
-- [ ] Non-interactive single-file downloads report current download speed in interactive terminal mode.
-- [ ] Non-interactive single-file downloads estimate remaining download time in interactive terminal mode.
-- [ ] Queue downloads report the current file name and human-readable decimal file size.
-- [ ] Queue downloads report live per-file progress percentage in interactive mode while the active file is downloading.
-- [ ] Queue downloads report current download speed in interactive mode.
-- [ ] Queue downloads estimate remaining time for the current file in interactive mode.
-- [ ] Queue downloads estimate remaining time for the entire queue in interactive mode, derived from the summed file lengths declared in the queue file.
-- [ ] Interactive stderr uses Spectre.Console rich progress/status output, including an active-file spinner where supported.
-- [ ] Redirected stderr, CI, or non-interactive terminals use deterministic plain text output.
-- [ ] Non-interactive single-file completion output includes total downloaded bytes with human-readable decimal units, elapsed time, and average speed.
-- [ ] Queue final summary includes downloaded file count, failed file count, total downloaded bytes with human-readable decimal units, elapsed time, and average speed.
-- [ ] Failed files are represented in progress output and the final summary without stopping the rest of the queue.
-- [ ] Existing queue success/failure exit-code semantics are preserved: exit `0` only when every queued file succeeds, otherwise exit `1`.
-- [ ] All progress and summary output is written to stderr only and does not write progress or summary text to stdout.
-- [ ] Automated tests verify output behavior without relying on terminal capabilities by injecting the progress reporter (or forcing plain mode) and asserting the emitted plain-text lines, plus a focused test for reporter mode selection.
+- [x] Queue downloads report the current file index and total file count.
+- [x] Non-interactive single-file downloads report the current file name and human-readable decimal file size.
+- [x] Non-interactive single-file downloads report live progress percentage in interactive terminal mode while the file is downloading.
+- [x] Non-interactive single-file downloads report current download speed in interactive terminal mode.
+- [x] Non-interactive single-file downloads estimate remaining download time in interactive terminal mode.
+- [x] Queue downloads report the current file name and human-readable decimal file size.
+- [x] Queue downloads report live per-file progress percentage in interactive mode while the active file is downloading.
+- [x] Queue downloads report current download speed in interactive mode.
+- [x] Queue downloads estimate remaining time for the current file in interactive mode.
+- [x] Queue downloads estimate remaining time for the entire queue in interactive mode, derived from the summed file lengths declared in the queue file.
+- [x] Interactive stderr uses Spectre.Console rich progress/status output, including an active-file spinner where supported.
+- [x] Redirected stderr, CI, or non-interactive terminals use deterministic plain text output.
+- [x] Non-interactive single-file completion output includes total downloaded bytes with human-readable decimal units, elapsed time, and average speed.
+- [x] Queue final summary includes downloaded file count, failed file count, total downloaded bytes with human-readable decimal units, elapsed time, and average speed.
+- [x] Failed files are represented in progress output and the final summary without stopping the rest of the queue.
+- [x] Existing queue success/failure exit-code semantics are preserved: exit `0` only when every queued file succeeds, otherwise exit `1`.
+- [x] All progress and summary output is written to stderr only and does not write progress or summary text to stdout.
+- [x] Automated tests verify output behavior without relying on terminal capabilities by injecting the progress reporter (or forcing plain mode) and asserting the emitted plain-text lines, plus a focused test for reporter mode selection.
 
 ## Technical Details
 
