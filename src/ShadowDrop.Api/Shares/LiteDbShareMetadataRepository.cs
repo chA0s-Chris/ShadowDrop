@@ -12,6 +12,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     private readonly ILiteCollection<ShareDocument> _collection;
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
+    private readonly Lock _syncRoot = new();
 
     public LiteDbShareMetadataRepository(ShadowDropOptions options) : this(options, null) { }
 
@@ -128,20 +129,25 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var document = _collection.FindById(shareId);
-        if (document is null)
+        // Serialize the read-modify-write so concurrent revocations can't both observe a null
+        // RevokedAtUnixTimeMilliseconds and clobber the first caller's timestamp (idempotency guarantee).
+        lock (_syncRoot)
         {
-            return Task.FromResult(false);
-        }
+            var document = _collection.FindById(shareId);
+            if (document is null)
+            {
+                return Task.FromResult(false);
+            }
 
-        if (document.RevokedAtUnixTimeMilliseconds is null)
-        {
-            document.RevokedAtUnixTimeMilliseconds = revokedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-            _collection.Update(document);
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-        }
+            if (document.RevokedAtUnixTimeMilliseconds is null)
+            {
+                document.RevokedAtUnixTimeMilliseconds = revokedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+                _collection.Update(document);
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            }
 
-        return Task.FromResult(true);
+            return Task.FromResult(true);
+        }
     }
 
     private sealed class DownloadBearerTokenDocument
