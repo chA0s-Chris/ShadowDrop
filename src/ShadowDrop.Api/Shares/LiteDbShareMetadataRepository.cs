@@ -45,10 +45,6 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         }
     }
 
-    private static Boolean IsCleanupCandidate(ShareDocument document, Int64 nowUnixTimeMilliseconds) =>
-        !String.Equals(document.CleanupState, ShareCleanupState.Completed.ToString(), StringComparison.OrdinalIgnoreCase)
-        && (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds || document.RevokedAtUnixTimeMilliseconds is not null);
-
     private static ShareDocument Map(ShareRecord record) =>
         new()
         {
@@ -146,10 +142,13 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        IReadOnlyList<ShareRecord> candidates = _collection.FindAll()
-                                                           .Where(document => IsCleanupCandidate(document, nowUnixTimeMilliseconds))
-                                                           .Select(Map)
-                                                           .ToList();
+        var completedState = ShareCleanupState.Completed.ToString().ToUpperInvariant();
+        IReadOnlyList<ShareRecord> candidates = _collection
+                                                .Find(document => document.CleanupState != completedState
+                                                                  && (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds
+                                                                      || document.RevokedAtUnixTimeMilliseconds != null))
+                                                .Select(Map)
+                                                .ToList();
         return Task.FromResult(candidates);
     }
 

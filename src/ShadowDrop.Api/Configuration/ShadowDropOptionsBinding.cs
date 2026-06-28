@@ -28,14 +28,20 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
         }
 
+        CronExpression cleanupSchedule;
         try
         {
-            _ = CronExpression.Parse(options.Cleanup.CronExpression, CronFormat.Standard);
+            cleanupSchedule = CronExpression.Parse(options.Cleanup.CronExpression, CronFormat.Standard);
         }
         catch (CronFormatException exception)
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' must be a valid five-field cron expression.",
                                                 exception);
+        }
+
+        if (cleanupSchedule.GetNextOccurrence(DateTimeOffset.UtcNow, TimeZoneInfo.Utc) is null)
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' must produce at least one future occurrence.");
         }
 
         options.Metadata.LiteDbPath = ResolvePath(options.Metadata.LiteDbPath, contentRootPath);
