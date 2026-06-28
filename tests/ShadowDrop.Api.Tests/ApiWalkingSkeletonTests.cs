@@ -249,11 +249,13 @@ public sealed class ApiWalkingSkeletonTests
 
         var firstResponse = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
         var firstStoredShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
+        firstStoredShare!.RevokedAtUtc.Should().NotBeNull();
+        var firstRevokedAt = firstStoredShare.RevokedAtUtc!.Value;
 
         // Wait until the wall clock has strictly advanced past the first revocation timestamp so that a
         // regression which overwrites RevokedAtUtc would necessarily record a later value (and fail below),
         // rather than slipping through when both calls land in the same clock tick.
-        while (DateTimeOffset.UtcNow <= firstStoredShare!.RevokedAtUtc)
+        while (DateTimeOffset.UtcNow <= firstRevokedAt)
         {
             await Task.Delay(1);
         }
