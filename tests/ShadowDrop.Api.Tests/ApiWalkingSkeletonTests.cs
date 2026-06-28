@@ -196,6 +196,96 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task ShareRevokeRoute_ShouldRequireValidAdminBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        client.DefaultRequestHeaders.Authorization = null;
+
+        var noAuthResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        var wrongTokenResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var validTokenResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
+
+        noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Test]
+    public async Task ShareRevokeRoute_ShouldPersistRevokedAtUtc_WithoutReturningSecrets()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
+
+        var response = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await response.Content.ReadAsStringAsync()).Should().BeEmpty();
+        response.Headers.Location.Should().BeNull();
+
+        var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
+        var storedShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
+        storedShare.Should().NotBeNull();
+        storedShare!.RevokedAtUtc.Should().NotBeNull();
+        storedShare.ShareTokenHashBase64.Should().NotBe(share.ShareToken);
+        storedShare.DownloadBearerToken.Should().NotBeNull();
+        storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(share.DownloadBearerToken);
+    }
+
+    [Test]
+    public async Task ShareRevokeRoute_ShouldBeIdempotent_WhenShareIsAlreadyRevoked()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
+
+        var firstResponse = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
+        var firstStoredShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
+        await Task.Delay(5);
+        var secondResponse = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
+        var secondStoredShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
+
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        secondResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        firstStoredShare.Should().NotBeNull();
+        secondStoredShare.Should().NotBeNull();
+        firstStoredShare!.RevokedAtUtc.Should().NotBeNull();
+        secondStoredShare!.RevokedAtUtc.Should().Be(firstStoredShare.RevokedAtUtc);
+    }
+
+    [Test]
+    public async Task ShareRevokeRoute_ShouldReturn404_WhenShareIdIsUnknown()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var response = await client.PostAsync($"/api/admin/shares/{Guid.NewGuid()}/revoke", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task ShareRevokeRoute_ShouldNotBeMapped_WhenAdminOperationsExposureIsDisabled()
+    {
+        await using var fixture = new TestApiFactory(false);
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var response = await client.PostAsync($"/api/admin/shares/{Guid.NewGuid()}/revoke", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
     public async Task UploadRoute_ShouldRequireValidAdminBearerToken()
     {
         await using var fixture = new TestApiFactory();
@@ -506,6 +596,22 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturn401_WhenShareIsRevoked()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+        _ = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
+
+        var manifestResponse = await client.GetAsync($"/d/{share.ShareToken}");
+        var downloadResponse = await client.GetAsync($"/d/{share.ShareToken}/files/{fileId}?mode=cli");
+
+        manifestResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        downloadResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Test]
@@ -1346,6 +1452,21 @@ public sealed class ApiWalkingSkeletonTests
             var response = await client.PostAsJsonAsync("/api/admin/shares", request);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
+        }
+        finally
+        {
+            client.DefaultRequestHeaders.Authorization = previousAuthorization;
+        }
+    }
+
+    private static async Task<HttpResponseMessage> RevokeShareAsync(HttpClient client, String bootstrapToken, Guid shareId)
+    {
+        var previousAuthorization = client.DefaultRequestHeaders.Authorization;
+
+        try
+        {
+            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            return await client.PostAsync($"/api/admin/shares/{shareId}/revoke", null);
         }
         finally
         {

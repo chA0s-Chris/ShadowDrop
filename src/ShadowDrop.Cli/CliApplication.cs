@@ -262,6 +262,11 @@ internal static class CliApplication
             Arity = ArgumentArity.OneOrMore
         };
 
+        var shareIdArgument = new Argument<String?>("share-id")
+        {
+            Description = "Internal share ID to revoke."
+        };
+
         var shareCreateCommand = new Command("create", "Create a share from previously uploaded file IDs.");
         shareCreateCommand.Arguments.Add(shareFileIdsArgument);
         shareCreateCommand.Options.Add(serverOption);
@@ -276,8 +281,16 @@ internal static class CliApplication
         shareCreateCommand.Options.Add(jsonOption);
         shareCreateCommand.Options.Add(forceOption);
 
+        var shareRevokeCommand = new Command("revoke", "Revoke a share by internal share ID.");
+        shareRevokeCommand.Arguments.Add(shareIdArgument);
+        shareRevokeCommand.Options.Add(serverOption);
+        shareRevokeCommand.Options.Add(caCertOption);
+        shareRevokeCommand.Options.Add(insecureOption);
+        shareRevokeCommand.Options.Add(uploadTokenOption);
+
         var shareCommand = new Command("share", "Create and manage shares.");
         shareCommand.Subcommands.Add(shareCreateCommand);
+        shareCommand.Subcommands.Add(shareRevokeCommand);
 
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
@@ -316,7 +329,9 @@ internal static class CliApplication
                    uploadRawCommand,
                    rawFilesArgument,
                    shareCreateCommand,
-                   shareFileIdsArgument);
+                   shareFileIdsArgument,
+                   shareRevokeCommand,
+                   shareIdArgument);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -408,6 +423,18 @@ internal static class CliApplication
                                                        services.StandardOut,
                                                        services.StandardError,
                                                        services.TimeProvider).ExecuteAsync(shareOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ShareRevokeCommand)
+        {
+            var revokeOptions = new ShareRevokeCommandOptions(parseResult.GetValue(commandModel.ShareIdArgument),
+                                                              parseResult.GetValue(commandModel.ServerOption),
+                                                              parseResult.GetValue(commandModel.UploadTokenOption));
+
+            return await new ShareRevokeCommandHandler(services.ConfigurationResolver,
+                                                       httpClient,
+                                                       services.StandardOut,
+                                                       services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -519,5 +546,7 @@ internal static class CliApplication
         Command UploadRawCommand,
         Argument<FileInfo[]> RawFilesArgument,
         Command ShareCreateCommand,
-        Argument<String[]> ShareFileIdsArgument);
+        Argument<String[]> ShareFileIdsArgument,
+        Command ShareRevokeCommand,
+        Argument<String?> ShareIdArgument);
 }

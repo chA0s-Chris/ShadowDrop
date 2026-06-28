@@ -32,6 +32,7 @@ public static class DependencyInjection
         {
             builder.Services.AddSingleton<AdminTokenService>();
             builder.Services.AddSingleton<CreateShareService>();
+            builder.Services.AddSingleton<ShareRevocationService>();
             builder.Services.AddSingleton<UploadPersistenceService>();
         }
 

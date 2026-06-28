@@ -8,14 +8,14 @@ ShadowDrop already stores `RevokedAtUtc` on shares, and the public download path
 
 ## Acceptance Criteria
 
-- [ ] A protected admin API endpoint exists to revoke a share by internal share id.
-- [ ] Revoking a share requires `Authorization: Bearer <admin-token>` and respects `ShadowDrop:ApiExposure:EnableAdminOperations`.
-- [ ] Revocation persists `RevokedAtUtc` without exposing stored token hashes or other secrets.
-- [ ] Public manifest and file download requests for a revoked share fail with the same non-enumerating behavior used for invalid shares.
-- [ ] The CLI exposes `shadowdrop share revoke <share-id>`; a `share delete` alias is optional and must behave as logical revocation.
-- [ ] Revoking an unknown share id returns HTTP 404, and the CLI surfaces this as a distinct failure.
-- [ ] The CLI command returns a non-zero exit code on failure and zero on success, and prints no admin/upload tokens or stored secret material.
-- [ ] Automated tests cover API authorization, successful revocation, repeated/idempotent revocation behavior, unknown-share-id (404) handling, revoked download denial, and CLI command behavior.
+- [x] A protected admin API endpoint exists to revoke a share by internal share id.
+- [x] Revoking a share requires `Authorization: Bearer <admin-token>` and respects `ShadowDrop:ApiExposure:EnableAdminOperations`.
+- [x] Revocation persists `RevokedAtUtc` without exposing stored token hashes or other secrets.
+- [x] Public manifest and file download requests for a revoked share fail with the same non-enumerating behavior used for invalid shares.
+- [x] The CLI exposes `shadowdrop share revoke <share-id>`; a `share delete` alias is optional and must behave as logical revocation.
+- [x] Revoking an unknown share id returns HTTP 404, and the CLI surfaces this as a distinct failure.
+- [x] The CLI command returns a non-zero exit code on failure and zero on success, and prints no admin/upload tokens or stored secret material.
+- [x] Automated tests cover API authorization, successful revocation, repeated/idempotent revocation behavior, unknown-share-id (404) handling, revoked download denial, and CLI command behavior.
 
 ## Technical Details
 

@@ -124,6 +124,26 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         return Task.FromResult(document is null ? null : Map(document));
     }
 
+    public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var document = _collection.FindById(shareId);
+        if (document is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        if (document.RevokedAtUnixTimeMilliseconds is null)
+        {
+            document.RevokedAtUnixTimeMilliseconds = revokedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+        }
+
+        return Task.FromResult(true);
+    }
+
     private sealed class DownloadBearerTokenDocument
     {
         public Int64 ExpiresAtUnixTimeMilliseconds { get; set; }
