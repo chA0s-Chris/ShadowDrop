@@ -8,9 +8,9 @@ Uploaded files must become single-use for shares. Today `CreateShareService` onl
 
 ## Acceptance Criteria
 
-- [ ] Share creation rejects any completed uploaded file id that is already referenced by an existing share record, regardless of that share's cleanup state.
-- [ ] Rejection surfaces through the existing share-creation validation/failure path (a `CreateShareValidationException`, the same mechanism used when a referenced file does not exist).
-- [ ] Automated tests cover cross-share single-use enforcement and confirm the existing within-request duplicate rejection still holds.
+- [x] Share creation rejects any completed uploaded file id that is already referenced by an existing share record, regardless of that share's cleanup state.
+- [x] Rejection surfaces through the existing share-creation validation/failure path (a `CreateShareValidationException`, the same mechanism used when a referenced file does not exist).
+- [x] Automated tests cover cross-share single-use enforcement and confirm the existing within-request duplicate rejection still holds.
 
 ## Technical Details
 

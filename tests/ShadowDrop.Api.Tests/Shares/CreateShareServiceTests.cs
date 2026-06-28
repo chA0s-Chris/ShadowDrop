@@ -30,7 +30,7 @@ public sealed class CreateShareServiceTests
         var storedShare = await shareRepository.GetAsync(result.ShareId, CancellationToken.None);
 
         storedShare.Should().NotBeNull();
-        storedShare!.ShareTokenHashBase64.Should().NotBe(result.ShareToken);
+        storedShare.ShareTokenHashBase64.Should().NotBe(result.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
         storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(result.DownloadBearerToken);
         storedShare.CreatedAtUtc.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(5));
@@ -63,6 +63,35 @@ public sealed class CreateShareServiceTests
                                              GenerateDownloadBearerToken: false);
 
         Func<Task> act = async () => await sut.CreateAsync(request, CancellationToken.None);
+
+        await act.Should().ThrowAsync<CreateShareValidationException>();
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task CreateAsync_ShouldRejectFileIdsAlreadyReferencedByExistingShare(Boolean revokeExistingShare)
+    {
+        await using var fixture = new SharePersistenceFixture();
+        var options = fixture.CreateOptions();
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var shareRepository = new LiteDbShareMetadataRepository(options);
+        var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
+        var sut = new CreateShareService(uploadedFileRepository, shareRepository, TimeProvider.System);
+        var firstRequest = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                  [new(fileId)],
+                                                  GenerateDownloadBearerToken: false);
+        var firstShare = await sut.CreateAsync(firstRequest, CancellationToken.None);
+        if (revokeExistingShare)
+        {
+            (await shareRepository.TryRevokeAsync(firstShare.ShareId,
+                                                  DateTimeOffset.Parse("2026-05-01T00:00:00Z"),
+                                                  CancellationToken.None)).Should().BeTrue();
+        }
+
+        var secondRequest = new CreateShareRequest(DateTimeOffset.Parse("2026-06-02T00:00:00Z"),
+                                                   [new(fileId)],
+                                                   GenerateDownloadBearerToken: false);
+        Func<Task> act = async () => await sut.CreateAsync(secondRequest, CancellationToken.None);
 
         await act.Should().ThrowAsync<CreateShareValidationException>();
     }

@@ -59,7 +59,7 @@ public sealed class DownloadCommandHandlerTests
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("stable.bin", 72);
         var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds);
+        var share = upload.Share;
         using var httpClient = fixture.CreateClient();
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
@@ -263,7 +263,7 @@ public sealed class DownloadCommandHandlerTests
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("report.bin", 128);
         var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds);
+        var share = upload.Share;
         var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -447,8 +447,8 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("interactive-download.bin", 72);
-        var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var share = upload.Share;
         using var httpClient = fixture.CreateClient();
         var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
@@ -484,8 +484,8 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("protected.bin", 96);
-        var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var share = upload.Share;
         var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -579,7 +579,7 @@ public sealed class DownloadCommandHandlerTests
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("stable.bin", 72);
         var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds);
+        var share = upload.Share;
         using var httpClient = fixture.CreateClient();
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
@@ -615,7 +615,7 @@ public sealed class DownloadCommandHandlerTests
         var firstInput = fixture.CreateInputFile("alpha.bin", 64);
         var secondInput = fixture.CreateInputFile("beta.bin", 80);
         var upload = await fixture.UploadFilesAsync([firstInput, secondInput]);
-        var share = await fixture.CreateShareAsync(upload.FileIds);
+        var share = upload.Share;
         var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -672,7 +672,7 @@ public sealed class DownloadCommandHandlerTests
         var firstInput = fixture.CreateInputFile("alpha.bin", 64);
         var secondInput = fixture.CreateInputFile("beta.bin", 80);
         var upload = await fixture.UploadFilesAsync([firstInput, secondInput]);
-        var share = await fixture.CreateShareAsync(upload.FileIds);
+        var share = upload.Share;
         using var httpClient = fixture.CreateClient();
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
@@ -1040,8 +1040,8 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("interactive-protected.bin", 72);
-        var upload = await fixture.UploadFilesAsync([inputFile]);
-        var share = await fixture.CreateShareAsync(upload.FileIds, true);
+        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var share = upload.Share;
         var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -1343,7 +1343,7 @@ public sealed class DownloadCommandHandlerTests
             return new(result.ShareToken, result.DownloadBearerToken);
         }
 
-        public async Task<UploadFixture> UploadFilesAsync(IReadOnlyList<String> filePaths)
+        public async Task<UploadFixture> UploadFilesAsync(IReadOnlyList<String> filePaths, Boolean requireDownloadToken = false)
         {
             using var httpClient = CreateClient();
             WriteConfig(httpClient.BaseAddress!.ToString(), BootstrapToken);
@@ -1354,6 +1354,11 @@ public sealed class DownloadCommandHandlerTests
                 "upload"
             };
             args.AddRange(filePaths);
+            if (requireDownloadToken)
+            {
+                args.Add("--download-token");
+            }
+
             args.Add("--json");
             var exitCode = await CliApplication.InvokeAsync(args.ToArray(),
                                                             CreateServices(Stream.Null, standardOut, standardError, ConfigFilePath, httpClient: httpClient),
@@ -1363,7 +1368,9 @@ public sealed class DownloadCommandHandlerTests
             var root = document.RootElement;
             var fileIds = root.GetProperty("uploadedFileIds").EnumerateArray().Select(static element => Guid.Parse(element.GetString()!)).ToArray();
             var shareKey = root.GetProperty("credentials").GetProperty("shareKey").GetString()!;
-            return new(fileIds, shareKey);
+            var shareToken = root.GetProperty("shareToken").GetString()!;
+            var downloadBearerToken = root.GetProperty("credentials").GetProperty("downloadBearerToken").GetString();
+            return new(fileIds, shareKey, new(shareToken, downloadBearerToken));
         }
 
         public void WriteConfig(String serverUrl, String uploadToken) =>
@@ -1583,5 +1590,5 @@ public sealed class DownloadCommandHandlerTests
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
     }
 
-    private sealed record UploadFixture(IReadOnlyList<Guid> FileIds, String ShareKey);
+    private sealed record UploadFixture(IReadOnlyList<Guid> FileIds, String ShareKey, ShareFixture Share);
 }
