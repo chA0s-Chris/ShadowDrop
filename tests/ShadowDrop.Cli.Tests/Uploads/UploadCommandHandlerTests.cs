@@ -21,6 +21,24 @@ using System.Text.Json;
 public sealed class UploadCommandHandlerTests
 {
     [Test]
+    public void DirectHttpCurlCommandFactory_ShouldPosixQuoteHeaderUrlAndFileName()
+    {
+        var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
+        var shareSecretHex = $"fb{new String('f', 62)}";
+        var expectedKeyBase64 = Convert.ToBase64String(Convert.FromHexString(shareSecretHex));
+
+        var command = DirectHttpCurlCommandFactory.Create(new("https://shadowdrop.test/root"), "share/token", fileId, shareSecretHex,
+                                                          "weird 'name'.bin");
+
+        // Key rides in the header verbatim (single-quoted, so its '+', '/', and '=' need no URL-encoding) and never in the URL.
+        command.Should().Contain($"-H 'ShadowDrop-Key: {expectedKeyBase64}'")
+               .And.Contain("'https://shadowdrop.test/root/d/share%2Ftoken/files/11111111-2222-3333-4444-555555555555'")
+               .And.NotContain("sd-key=")
+               // The file name is single-quoted and each embedded quote is escaped as '\''.
+               .And.EndWith(@"-o 'weird '\''name'\''.bin'");
+    }
+
+    [Test]
     public void DirectHttpDownloadUrlFactory_ShouldUrlEncodeBase64KeyMaterial()
     {
         var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
@@ -32,6 +50,36 @@ public sealed class UploadCommandHandlerTests
         uri.AbsolutePath.Should().Be("/root/d/share%2Ftoken/files/11111111-2222-3333-4444-555555555555");
         uri.Query.Should().Contain("sd-key=%2B").And.Contain("%2F").And.Contain("%3D");
         Convert.FromBase64String(ReadDirectHttpKeyMaterial(uri)).Should().Equal(Convert.FromHexString(shareSecretHex));
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldApplyDisplayName_ForShareCreateByFileId()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+
+        var rawOut = new StringWriter();
+        var rawServices = CreateServices(rawOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("raw-source.bin", 48);
+        (await CliApplication.InvokeAsync(["upload", "raw", filePath], rawServices, CancellationToken.None)).Should().Be(0);
+        var fileId = Value(FindLine(rawOut.ToString(), "file-id:"));
+
+        var shareOut = new StringWriter();
+        var shareServices = CreateServices(shareOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        (await CliApplication.InvokeAsync(["share", "create", fileId, "--display-name", $"{fileId}=Share Renamed.bin"],
+                                          shareServices, CancellationToken.None)).Should().Be(0);
+        var shareUrl = Value(FindLine(shareOut.ToString(), "share-url:"));
+
+        // The manifest (and therefore the queued file name) is public, so the secret-free queue needs only the token.
+        var queuePath = Path.Combine(fixture.RootDirectory, "share-created.queue.json");
+        var queueServices = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        (await CliApplication.InvokeAsync(["queue", "create", shareUrl, "--out", queuePath],
+                                          queueServices, CancellationToken.None)).Should().Be(0);
+
+        ReadQueueFileNames(queuePath).Should().Equal("Share Renamed.bin");
     }
 
     [Test]
@@ -145,6 +193,28 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldEmitCurlCommandInJson_WhenDirectHttpRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-curl-json.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var directHttpDownload = document.RootElement.GetProperty("directHttpDownloads").EnumerateArray().Should().ContainSingle().Subject;
+        var curlCommand = directHttpDownload.GetProperty("curlCommand").GetString()!;
+        curlCommand.Should().StartWith("curl -H 'ShadowDrop-Key: ")
+                   .And.Contain($"/files/{directHttpDownload.GetProperty("fileId").GetString()}")
+                   .And.NotContain("sd-key=");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldEmitDirectHttpDownloadsInJson_WhenDirectHttpRequested()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -202,79 +272,6 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldEmitJsonResultWithCredentials_WhenJsonRequested()
-    {
-        await using var fixture = new CliUploadApiFactory();
-        var standardOut = new StringWriter();
-        var standardError = new StringWriter();
-        using var httpClient = fixture.CreateClient();
-        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
-        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
-        var filePath = fixture.CreateInputFile("json.bin", 96);
-
-        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None);
-
-        exitCode.Should().Be(0);
-        using var document = JsonDocument.Parse(standardOut.ToString());
-        var root = document.RootElement;
-        root.GetProperty("status").GetString().Should().Be("succeeded");
-        root.GetProperty("uploadedFileIds").GetArrayLength().Should().Be(1);
-        root.GetProperty("shareId").GetString().Should().NotBeNullOrWhiteSpace();
-        root.GetProperty("shareToken").GetString().Should().NotBeNullOrWhiteSpace();
-        root.GetProperty("shareUrl").GetString().Should().StartWith($"{httpClient.BaseAddress}d/");
-        root.GetProperty("credentials").GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
-        root.GetProperty("secretsFile").ValueKind.Should().Be(JsonValueKind.Null);
-        root.TryGetProperty("directHttpDownloads", out _).Should().BeFalse();
-    }
-
-    [Test]
-    public async Task InvokeAsync_ShouldEmitOneDirectHttpDownloadUrlPerFile_ForMultipleFiles()
-    {
-        await using var fixture = new CliUploadApiFactory();
-        var standardOut = new StringWriter();
-        var standardError = new StringWriter();
-        using var httpClient = fixture.CreateClient();
-        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
-        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
-        var filePaths = new[]
-        {
-            fixture.CreateInputFile("direct-first.bin", 16),
-            fixture.CreateInputFile("direct-second.bin", 48),
-            fixture.CreateInputFile("direct-third.bin", 96)
-        };
-
-        var exitCode = await CliApplication.InvokeAsync(["upload", "--direct-http", ..filePaths], services, CancellationToken.None);
-
-        exitCode.Should().Be(0);
-        var lines = FindLines(standardOut.ToString(), "download-url:");
-        lines.Should().HaveCount(3);
-        var storedFileIds = fixture.GetStoredUploads().Select(static upload => upload.FileId.ToString()).ToHashSet(StringComparer.Ordinal);
-        var parsedDownloads = lines.Select(ParseMultiFileDownloadLine).ToArray();
-        parsedDownloads.Select(static download => download.FileId).Should().OnlyContain(fileId => storedFileIds.Contains(fileId));
-        parsedDownloads.Select(static download => download.DownloadUrl).Should()
-                       .OnlyContain(url => new Uri(url).Query.Contains("sd-key=", StringComparison.Ordinal));
-        standardOut.ToString().Should().NotContain("share-key:");
-    }
-
-    [Test]
-    public void DirectHttpCurlCommandFactory_ShouldPosixQuoteHeaderUrlAndFileName()
-    {
-        var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
-        var shareSecretHex = $"fb{new String('f', 62)}";
-        var expectedKeyBase64 = Convert.ToBase64String(Convert.FromHexString(shareSecretHex));
-
-        var command = DirectHttpCurlCommandFactory.Create(new("https://shadowdrop.test/root"), "share/token", fileId, shareSecretHex,
-                                                          "weird 'name'.bin");
-
-        // Key rides in the header verbatim (single-quoted, so its '+', '/', and '=' need no URL-encoding) and never in the URL.
-        command.Should().Contain($"-H 'ShadowDrop-Key: {expectedKeyBase64}'")
-               .And.Contain("'https://shadowdrop.test/root/d/share%2Ftoken/files/11111111-2222-3333-4444-555555555555'")
-               .And.NotContain("sd-key=")
-               // The file name is single-quoted and each embedded quote is escaped as '\''.
-               .And.EndWith(@"-o 'weird '\''name'\''.bin'");
-    }
-
-    [Test]
     public async Task InvokeAsync_ShouldEmitHeaderBasedCurlCommand_ForSingleFile()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -301,6 +298,32 @@ public sealed class UploadCommandHandlerTests
         using var response = await httpClient.SendAsync(request, CancellationToken.None);
         response.EnsureSuccessStatusCode();
         (await response.Content.ReadAsByteArrayAsync(CancellationToken.None)).Should().Equal(plaintext);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldEmitJsonResultWithCredentials_WhenJsonRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("json.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        var root = document.RootElement;
+        root.GetProperty("status").GetString().Should().Be("succeeded");
+        root.GetProperty("uploadedFileIds").GetArrayLength().Should().Be(1);
+        root.GetProperty("shareId").GetString().Should().NotBeNullOrWhiteSpace();
+        root.GetProperty("shareToken").GetString().Should().NotBeNullOrWhiteSpace();
+        root.GetProperty("shareUrl").GetString().Should().StartWith($"{httpClient.BaseAddress}d/");
+        root.GetProperty("credentials").GetProperty("shareKey").GetString().Should().MatchRegex("^[0-9a-f]{64}$");
+        root.GetProperty("secretsFile").ValueKind.Should().Be(JsonValueKind.Null);
+        root.TryGetProperty("directHttpDownloads", out _).Should().BeFalse();
     }
 
     [Test]
@@ -333,7 +356,7 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldEmitCurlCommandInJson_WhenDirectHttpRequested()
+    public async Task InvokeAsync_ShouldEmitOneDirectHttpDownloadUrlPerFile_ForMultipleFiles()
     {
         await using var fixture = new CliUploadApiFactory();
         var standardOut = new StringWriter();
@@ -341,17 +364,64 @@ public sealed class UploadCommandHandlerTests
         using var httpClient = fixture.CreateClient();
         fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
         var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
-        var filePath = fixture.CreateInputFile("direct-curl-json.bin", 96);
+        var filePaths = new[]
+        {
+            fixture.CreateInputFile("direct-first.bin", 16),
+            fixture.CreateInputFile("direct-second.bin", 48),
+            fixture.CreateInputFile("direct-third.bin", 96)
+        };
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--json"], services, CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--direct-http", ..filePaths], services, CancellationToken.None);
 
         exitCode.Should().Be(0);
-        using var document = JsonDocument.Parse(standardOut.ToString());
-        var directHttpDownload = document.RootElement.GetProperty("directHttpDownloads").EnumerateArray().Should().ContainSingle().Subject;
-        var curlCommand = directHttpDownload.GetProperty("curlCommand").GetString()!;
-        curlCommand.Should().StartWith("curl -H 'ShadowDrop-Key: ")
-                   .And.Contain($"/files/{directHttpDownload.GetProperty("fileId").GetString()}")
-                   .And.NotContain("sd-key=");
+        var lines = FindLines(standardOut.ToString(), "download-url:");
+        lines.Should().HaveCount(3);
+        var storedFileIds = fixture.GetStoredUploads().Select(static upload => upload.FileId.ToString()).ToHashSet(StringComparer.Ordinal);
+        var parsedDownloads = lines.Select(ParseMultiFileDownloadLine).ToArray();
+        parsedDownloads.Select(static download => download.FileId).Should().OnlyContain(fileId => storedFileIds.Contains(fileId));
+        parsedDownloads.Select(static download => download.DownloadUrl).Should()
+                       .OnlyContain(url => new Uri(url).Query.Contains("sd-key=", StringComparison.Ordinal));
+        standardOut.ToString().Should().NotContain("share-key:");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenDisplayNameMappingIsUnknown()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("present.bin", 16);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--display-name", "absent.bin=Name.bin"],
+                                                        services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("No file matches");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenNameUsedWithMultipleFiles()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var firstPath = fixture.CreateInputFile("multi-first.bin", 16);
+        var secondPath = fixture.CreateInputFile("multi-second.bin", 16);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", firstPath, secondPath, "--name", "Only One.bin"],
+                                                        services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("--name option requires exactly one file");
+        // The input contract is rejected before any upload happens.
+        fixture.GetStoredUploads().Should().BeEmpty();
     }
 
     [Test]
@@ -494,6 +564,27 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Authentication token invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFallBackToOriginalName_ForUnmappedFiles()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var firstPath = fixture.CreateInputFile("kept.bin", 16);
+        var secondPath = fixture.CreateInputFile("renamed.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "partial.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", firstPath, secondPath, "--display-name", $"{secondPath}=Renamed Display.bin", "--queue-out", queuePath],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        ReadQueueFileNames(queuePath).Should().BeEquivalentTo("kept.bin", "Renamed Display.bin");
     }
 
     [Test]
@@ -956,6 +1047,67 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-url:").Should().NotBeNull();
         standardError.ToString().Should().NotContain(fixture.BootstrapToken);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldUseDisplayName_InDirectHttpCurlCommand()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("direct-on-disk.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--direct-http", "--name", "Direct Name.bin"],
+                                                        services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        Value(FindLine(standardOut.ToString(), "curl-command:")).Should().EndWith("-o 'Direct Name.bin'");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldUseDisplayName_InQueueOutput_ForSingleFileName()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("on-disk.bin", 64);
+        var queuePath = Path.Combine(fixture.RootDirectory, "named.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--name", "Recipient Name.bin", "--queue-out", queuePath],
+                                                        services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        ReadQueueFileNames(queuePath).Should().Equal("Recipient Name.bin");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldUseDisplayNames_InQueueOutput_ForMultiFileMapping()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var firstPath = fixture.CreateInputFile("first.bin", 16);
+        var secondPath = fixture.CreateInputFile("second.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "mapped.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            [
+                "upload", firstPath, secondPath, "--display-name", $"{firstPath}=One.bin", "--display-name", $"{secondPath}=Two.bin",
+                "--queue-out", queuePath
+            ],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        ReadQueueFileNames(queuePath).Should().BeEquivalentTo("One.bin", "Two.bin");
     }
 
     [Test]
@@ -1572,21 +1724,6 @@ public sealed class UploadCommandHandlerTests
                    .Where(line => line.StartsWith(prefix, StringComparison.Ordinal))
                    .ToArray();
 
-    private static (String FileId, String DownloadUrl) ParseMultiFileDownloadLine(String line)
-    {
-        var payload = Value(line);
-        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
-        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
-    }
-
-    private static (String FileId, String Command) ParseMultiFileCurlLine(String line)
-    {
-        // The file ID has no colon, so the first colon of the payload separates it from the command (which may contain colons).
-        var payload = Value(line);
-        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
-        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
-    }
-
     private static (String HeaderKeyMaterial, String Url) ParseCurlHeaderAndUrl(String command)
     {
         // Format: curl -H '<header>' '<url>' -o '<file-name>'. The header value and URL contain no single quotes,
@@ -1597,12 +1734,36 @@ public sealed class UploadCommandHandlerTests
         return (headerArgument[headerPrefix.Length..], segments[3]);
     }
 
+    private static (String FileId, String Command) ParseMultiFileCurlLine(String line)
+    {
+        // The file ID has no colon, so the first colon of the payload separates it from the command (which may contain colons).
+        var payload = Value(line);
+        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
+        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
+    }
+
+    private static (String FileId, String DownloadUrl) ParseMultiFileDownloadLine(String line)
+    {
+        var payload = Value(line);
+        var separatorIndex = payload.IndexOf(':', StringComparison.Ordinal);
+        return (payload[..separatorIndex], payload[(separatorIndex + 1)..]);
+    }
+
     private static String ReadDirectHttpKeyMaterial(Uri downloadUri)
     {
         var query = downloadUri.Query.TrimStart('?');
         var keyPrefix = "sd-key=";
         query.Should().StartWith(keyPrefix);
         return Uri.UnescapeDataString(query[keyPrefix.Length..]);
+    }
+
+    private static IReadOnlyList<String> ReadQueueFileNames(String queuePath)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(queuePath));
+        return document.RootElement.GetProperty("files")
+                       .EnumerateArray()
+                       .Select(static file => file.GetProperty("fileName").GetString()!)
+                       .ToArray();
     }
 
     private static void RestoreReadableFileMode(String path)

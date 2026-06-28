@@ -13,4 +13,6 @@ internal sealed record UploadCommandOptions(
     FileInfo? QueueOut,
     Boolean EmbedSecrets,
     Boolean Json,
-    Boolean Force);
+    Boolean Force,
+    String? DisplayName,
+    String[] DisplayNameMappings);

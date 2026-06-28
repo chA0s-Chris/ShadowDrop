@@ -26,6 +26,15 @@ internal sealed class UploadCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        // Resolve recipient-facing display names before any file I/O or network requests so malformed or ambiguous
+        // input fails fast with a clear error.
+        if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
+                                                     out var displayNameOverrides, out var displayNameError))
+        {
+            await standardError.WriteLineAsync(displayNameError);
+            return 1;
+        }
+
         if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
             is not { } configuration)
         {
@@ -98,7 +107,8 @@ internal sealed class UploadCommandHandler(
         var expiresAtUtc = timeProvider.GetUtcNow().Add(expiration);
         var shareRequest = new CreateShareCliRequest(
             expiresAtUtc,
-            uploadResult.Files.Select(static result => new CreateShareCliFileRequest(result.UploadedFileId!.Value, result.File.Name)).ToArray(),
+            uploadResult.Files.Select(result => new CreateShareCliFileRequest(result.UploadedFileId!.Value,
+                                                                              ResolveDisplayName(displayNameOverrides, result.File))).ToArray(),
             options.DirectHttp,
             options.GenerateDownloadToken,
             options.GenerateDownloadToken ? expiresAtUtc : null);
@@ -181,31 +191,38 @@ internal sealed class UploadCommandHandler(
                 await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
-                await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null);
+                await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null,
+                                      displayNameOverrides);
                 return 1;
             }
         }
 
-        await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath);
+        await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath,
+                              displayNameOverrides);
         return 0;
     }
 
     private static IReadOnlyList<DirectHttpDownload> BuildDirectHttpDownloads(Uri serverUrl,
                                                                               UploadExecutionResult uploadResult,
-                                                                              String shareToken)
+                                                                              String shareToken,
+                                                                              IReadOnlyDictionary<String, String> displayNameOverrides)
     {
         return uploadResult.Files
                            .Where(static result => result.UploadedFileId is not null)
                            .Select(result =>
                            {
                                var fileId = result.UploadedFileId!.Value;
+                               var fileName = ResolveDisplayName(displayNameOverrides, result.File) ?? result.File.Name;
                                var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!);
                                var curlCommand = DirectHttpCurlCommandFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!,
-                                                                                     result.File.Name);
-                               return new DirectHttpDownload(fileId.ToString(), result.File.Name, downloadUrl, curlCommand);
+                                                                                     fileName);
+                               return new DirectHttpDownload(fileId.ToString(), fileName, downloadUrl, curlCommand);
                            })
                            .ToArray();
     }
+
+    private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
+        displayNameOverrides.GetValueOrDefault(file.FullName);
 
     private UploadCommandResult BuildResult(String status,
                                             UploadExecutionResult uploadResult,
@@ -232,11 +249,12 @@ internal sealed class UploadCommandHandler(
                                        UploadExecutionResult uploadResult,
                                        CreateShareCliResult shareResult,
                                        String shareUrl,
-                                       String? queueFile)
+                                       String? queueFile,
+                                       IReadOnlyDictionary<String, String> displayNameOverrides)
     {
         var credentialsToFile = options.SecretsOut is not null;
         var directHttpDownloads = options.DirectHttp
-            ? BuildDirectHttpDownloads(serverUrl, uploadResult, shareResult.ShareToken)
+            ? BuildDirectHttpDownloads(serverUrl, uploadResult, shareResult.ShareToken, displayNameOverrides)
             : null;
 
         if (options.Json)

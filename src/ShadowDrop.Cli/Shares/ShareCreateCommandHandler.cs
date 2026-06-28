@@ -25,7 +25,7 @@ internal sealed class ShareCreateCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        List<CreateShareCliFileRequest> files = [];
+        List<Guid> fileIdList = [];
         foreach (var fileIdText in options.FileIds)
         {
             if (!Guid.TryParse(fileIdText, out var fileId) || fileId == Guid.Empty)
@@ -34,8 +34,18 @@ internal sealed class ShareCreateCommandHandler(
                 return 1;
             }
 
-            files.Add(new(fileId));
+            fileIdList.Add(fileId);
         }
+
+        // Resolve display-name overrides before contacting the server so ambiguous or malformed input fails fast.
+        if (!DisplayNameResolver.TryResolveForShareCreate(fileIdList, options.DisplayNameMappings, out var displayNameOverrides,
+                                                          out var displayNameError))
+        {
+            await standardError.WriteLineAsync(displayNameError);
+            return 1;
+        }
+
+        var files = fileIdList.Select(fileId => new CreateShareCliFileRequest(fileId, displayNameOverrides.GetValueOrDefault(fileId))).ToList();
 
         if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
             is not { } configuration)
