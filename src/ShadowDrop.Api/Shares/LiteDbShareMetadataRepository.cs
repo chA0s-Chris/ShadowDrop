@@ -35,6 +35,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             _collection = _database.GetCollection<ShareDocument>("shares");
             _collection.EnsureIndex(document => document.ShareId, true);
             _collection.EnsureIndex(document => document.ShareTokenHashBase64, true);
+            _collection.EnsureIndex(document => document.Files.Select(file => file.FileId), false);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -84,6 +85,9 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
             document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList());
 
+    private Boolean IsFileReferenced(Guid fileId) =>
+        _collection.Exists(document => document.Files.Select(file => file.FileId).Any(value => value == fileId));
+
     public void Dispose() => _database.Dispose();
 
     public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken)
@@ -91,20 +95,28 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         ArgumentNullException.ThrowIfNull(record);
         cancellationToken.ThrowIfCancellationRequested();
 
-        _database.BeginTrans();
+        lock (_syncRoot)
+        {
+            _database.BeginTrans();
 
-        try
-        {
-            _collection.Insert(Map(record));
-            _afterInsertTestHook?.Invoke();
-            _database.Commit();
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-            return Task.CompletedTask;
-        }
-        catch
-        {
-            _database.Rollback();
-            throw;
+            try
+            {
+                if (record.Files.Any(file => IsFileReferenced(file.FileId)))
+                {
+                    throw new CreateShareValidationException("All referenced files must be unused by existing shares.");
+                }
+
+                _collection.Insert(Map(record));
+                _afterInsertTestHook?.Invoke();
+                _database.Commit();
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+                return Task.CompletedTask;
+            }
+            catch
+            {
+                _database.Rollback();
+                throw;
+            }
         }
     }
 
