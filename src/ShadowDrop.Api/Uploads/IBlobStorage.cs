@@ -4,7 +4,7 @@ namespace ShadowDrop.Api.Uploads;
 
 public interface IBlobStorage
 {
-    Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken);
+    Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken);
 
     Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken);
 

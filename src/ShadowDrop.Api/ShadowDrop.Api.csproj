@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LiteDB" />
+    <PackageReference Include="Cronos" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.Console" />
     <ProjectReference Include="..\ShadowDrop.Shared\ShadowDrop.Shared.csproj" />

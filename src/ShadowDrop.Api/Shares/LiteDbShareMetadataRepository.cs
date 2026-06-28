@@ -137,6 +137,21 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         return Task.FromResult(document is null ? null : Map(document));
     }
 
+    public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        var completedState = ShareCleanupState.Completed.ToString().ToUpperInvariant();
+        IReadOnlyList<ShareRecord> candidates = _collection
+                                                .Find(document => document.CleanupState != completedState
+                                                                  && (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds
+                                                                      || document.RevokedAtUnixTimeMilliseconds != null))
+                                                .Select(Map)
+                                                .ToList();
+        return Task.FromResult(candidates);
+    }
+
     public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -158,6 +173,31 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                 FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             }
 
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(shareId);
+            if (document is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            var newCleanupState = cleanupState.ToString().ToUpperInvariant();
+            if (String.Equals(document.CleanupState, newCleanupState, StringComparison.Ordinal))
+            {
+                return Task.FromResult(true);
+            }
+
+            document.CleanupState = newCleanupState;
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             return Task.FromResult(true);
         }
     }

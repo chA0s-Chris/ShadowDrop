@@ -26,6 +26,9 @@ public static class DependencyInjection
             builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
             builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
             builder.Services.AddSingleton<IShareMetadataRepository, LiteDbShareMetadataRepository>();
+            builder.Services.AddSingleton<ShareCleanupService>();
+            builder.Services.AddSingleton<ShareCleanupRunner>();
+            builder.Services.AddHostedService<ShareCleanupHostedService>();
         }
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)

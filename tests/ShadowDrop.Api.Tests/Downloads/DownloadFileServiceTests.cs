@@ -938,7 +938,7 @@ public sealed class DownloadFileServiceTests
 
     private sealed class MissingBlobStorage : IBlobStorage
     {
-        public Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult(false);
 
         public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) =>
             Task.FromException<Stream>(new FileNotFoundException("Blob file missing.", blobKey));
@@ -949,7 +949,7 @@ public sealed class DownloadFileServiceTests
 
     private sealed class StubBlobStorage(Stream stream) : IBlobStorage
     {
-        public Task DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult(false);
 
         public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult<Stream>(stream);
 
@@ -966,7 +966,13 @@ public sealed class DownloadFileServiceTests
         public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
             Task.FromResult(record.ShareTokenHashBase64 == shareTokenHashBase64 ? record : null);
 
+        public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

@@ -6,6 +6,7 @@ using FluentAssertions;
 using LiteDB;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ShadowDrop.Api;
@@ -291,6 +292,59 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
 
         var response = await client.PostAsync($"/api/admin/shares/{Guid.NewGuid()}/revoke", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task ShareCleanupRoute_ShouldRequireValidAdminBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+
+        var noAuthResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        var wrongTokenResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var validTokenResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
+
+        noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        validTokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task ShareCleanupRoute_ShouldCleanupExpiredShareAndReturnSummaryCounts()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId,
+                                                                   false,
+                                                                   expiresAtUtc: DateTimeOffset.UtcNow.AddDays(-1)));
+
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var response = await client.PostAsync("/api/admin/shares/cleanup", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = JsonSerializer.Deserialize<ShareCleanupResult>(await response.Content.ReadAsStringAsync(), JsonOptions);
+        result.Should().Be(new ShareCleanupResult(1, 1, 1, 0, 0));
+
+        var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
+        (await repository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ShareCleanupRoute_ShouldNotBeMapped_WhenAdminOperationsExposureIsDisabled()
+    {
+        await using var fixture = new TestApiFactory(false);
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var response = await client.PostAsync("/api/admin/shares/cleanup", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
@@ -1404,8 +1458,42 @@ public sealed class ApiWalkingSkeletonTests
         Path.IsPathRooted(options.Storage.LocalRoot).Should().BeTrue("a relative storage path must be resolved to an absolute path");
         options.Metadata.LiteDbPath.Should().StartWith(contentRoot, "the resolved metadata path must be anchored to the content root");
         options.Storage.LocalRoot.Should().StartWith(contentRoot, "the resolved storage path must be anchored to the content root");
+        options.Cleanup.CronExpression.Should().Be("0 */2 * * *");
         Directory.Exists(Path.GetDirectoryName(options.Metadata.LiteDbPath)!).Should().BeTrue();
         Directory.Exists(options.Storage.LocalRoot).Should().BeTrue();
+    }
+
+    [Test]
+    public void Config_ShouldFail_WhenCleanupCronExpressionIsInvalid()
+    {
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                         "artifacts",
+                                         "invalid-cleanup-cron",
+                                         Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+        var configuration = new ConfigurationBuilder()
+                            .AddInMemoryCollection(new Dictionary<String, String?>
+                            {
+                                ["ShadowDrop:Metadata:LiteDbPath"] = "metadata/shadowdrop.db",
+                                ["ShadowDrop:Storage:LocalRoot"] = "storage",
+                                ["ShadowDrop:Cleanup:CronExpression"] = "not-a-cron-expression"
+                            })
+                            .Build();
+
+        try
+        {
+            Action act = () => ShadowDropOptionsBinding.BindAndValidate(configuration, rootDirectory);
+
+            act.Should().Throw<InvalidOperationException>()
+               .WithMessage("*ShadowDrop:Cleanup:CronExpression*");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -1632,11 +1720,14 @@ public sealed class ApiWalkingSkeletonTests
     {
         public const String BootstrapTokenEnvironmentVariable = "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN";
         private const String AdminOperationsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnableAdminOperations";
+
+        private const String CleanupCronExpressionEnvironmentVariable = "ShadowDrop__Cleanup__CronExpression";
         private const String MetadataPathEnvironmentVariable = "ShadowDrop__Metadata__LiteDbPath";
         private const String PublicDownloadsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnablePublicDownloads";
         private const String StorageRootEnvironmentVariable = "ShadowDrop__Storage__LocalRoot";
         private readonly String? _previousAdminOperationsExposure;
         private readonly String? _previousBootstrapToken;
+        private readonly String? _previousCleanupCronExpression;
         private readonly String? _previousMetadataPath;
         private readonly String? _previousPublicDownloadsExposure;
         private readonly String? _previousStorageRoot;
@@ -1646,7 +1737,7 @@ public sealed class ApiWalkingSkeletonTests
         private String? _resolvedRelativeRoot;
 
         public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true,
-                              Boolean useRelativePaths = false)
+                              Boolean useRelativePaths = false, String? cleanupCronExpression = null)
         {
             _useRelativePaths = useRelativePaths;
             BootstrapToken = "test-bootstrap-token";
@@ -1672,12 +1763,14 @@ public sealed class ApiWalkingSkeletonTests
             _previousStorageRoot = Environment.GetEnvironmentVariable(StorageRootEnvironmentVariable);
             _previousPublicDownloadsExposure = Environment.GetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable);
             _previousAdminOperationsExposure = Environment.GetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable);
+            _previousCleanupCronExpression = Environment.GetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable);
 
             Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, withBootstrapToken ? BootstrapToken : null);
             Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, MetadataDatabasePath);
             Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, LocalStorageRoot);
             Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, enablePublicDownloads ? "true" : "false");
             Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, enableAdminOperations ? "true" : "false");
+            Environment.SetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable, cleanupCronExpression);
         }
 
         public String BootstrapToken { get; }
@@ -1710,6 +1803,7 @@ public sealed class ApiWalkingSkeletonTests
                 Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, _previousStorageRoot);
                 Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, _previousPublicDownloadsExposure);
                 Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, _previousAdminOperationsExposure);
+                Environment.SetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable, _previousCleanupCronExpression);
             }
 
             base.Dispose(disposing);
