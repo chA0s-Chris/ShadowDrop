@@ -14,7 +14,9 @@ internal static partial class MultipartUploadRequestReader
 {
     private const Int32 AesGcmTagLength = 16;
     private const Int32 DefaultMaxMetadataBytes = 64 * 1024;
-    private const Int64 DefaultMaxUploadBodyBytes = 512L * 1024 * 1024;
+
+    // Fallback for the convenience overload only; the running application passes the configured ShadowDrop:Upload:MaxBytes value.
+    private const Int64 DefaultMaxUploadBodyBytes = 4L * 1024 * 1024 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -23,12 +25,12 @@ internal static partial class MultipartUploadRequestReader
 
     public static async Task<(UploadPersistenceRequest Request, Stream EncryptedContent)> ReadAsync(HttpRequest httpRequest,
                                                                                                     CancellationToken cancellationToken)
-        => await ReadAsync(httpRequest, cancellationToken, DefaultMaxUploadBodyBytes, DefaultMaxMetadataBytes);
+        => await ReadAsync(httpRequest, cancellationToken, DefaultMaxUploadBodyBytes);
 
     internal static async Task<(UploadPersistenceRequest Request, Stream EncryptedContent)> ReadAsync(HttpRequest httpRequest,
                                                                                                       CancellationToken cancellationToken,
                                                                                                       Int64 maxUploadBodyBytes,
-                                                                                                      Int32 maxMetadataBytes)
+                                                                                                      Int32 maxMetadataBytes = DefaultMaxMetadataBytes)
     {
         ArgumentNullException.ThrowIfNull(httpRequest);
 

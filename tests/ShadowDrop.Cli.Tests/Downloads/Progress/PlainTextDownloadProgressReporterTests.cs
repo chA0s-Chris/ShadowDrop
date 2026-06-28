@@ -36,7 +36,7 @@ public sealed class PlainTextDownloadProgressReporterTests
         lines.Should().Contain("SUCCESS 1/2 alpha.bin -> out/alpha.bin (1.0 KB in 1.0s, 1.0 KB/s)");
         lines.Should().Contain("START 2/2 beta.bin (2.0 KB)");
         lines.Should().Contain("FAILED 2/2 beta.bin -> out/beta.bin: boom");
-        lines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 1/2 files (1.0 KB in"));
+        lines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 1/2 files, failed 1 file (1.0 KB in"));
     }
 
     [Test]

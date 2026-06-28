@@ -98,6 +98,18 @@ public sealed class MultipartUploadRequestReaderTests
     }
 
     [Test]
+    public async Task ReadAsync_ShouldHonorConfiguredLimit_WhenContentLengthExceedsIt()
+    {
+        var metadata = CreateValidMetadataPayload();
+        var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], 4096);
+
+        // The 3-argument overload (used by the upload endpoint with ShadowDrop:Upload:MaxBytes) must enforce the supplied limit.
+        var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 128);
+
+        await action.Should().ThrowAsync<UploadPayloadTooLargeException>();
+    }
+
+    [Test]
     public async Task ReadAsync_ShouldReject_WhenMetadataJsonIsInvalid()
     {
         var request = await CreateRawMetadataRequestAsync("{ not valid json");

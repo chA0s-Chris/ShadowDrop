@@ -3,6 +3,11 @@
     <OutputType>Exe</OutputType>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
   </PropertyGroup>
+  <!-- DEVELOPMENT-ONLY: the download throttle (ThrottledStream / UseDevelopmentDownloadThrottle) is compiled into Debug builds only,
+       so it is physically absent from Release binaries. It still stays inert unless SHADOWDROP_DEV_THROTTLE_BPS is set at runtime. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>$(DefineConstants);ENABLE_THROTTLE_DOWNLOAD</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LiteDB" />
     <PackageReference Include="Cronos" />

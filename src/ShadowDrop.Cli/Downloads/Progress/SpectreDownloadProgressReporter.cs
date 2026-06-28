@@ -21,7 +21,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
 
     private static ProgressTask CreateTask(ProgressContext context, String description, Int64? sizeBytes)
     {
-        var task = context.AddTask(Markup.Escape(description), new ProgressTaskSettings
+        var task = context.AddTask(Markup.Escape(FormatTaskDescription(description, sizeBytes)), new ProgressTaskSettings
         {
             MaxValue = sizeBytes ?? 1
         });
@@ -35,6 +35,11 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
 
     private static String FormatStats(Int64 bytes, TimeSpan elapsed) =>
         $"{HumanReadableSize.FormatBytes(bytes)} in {HumanReadableSize.FormatDuration(elapsed)}, {HumanReadableSize.FormatSpeed(bytes, elapsed)}";
+
+    private static String FormatTaskDescription(String description, Int64? sizeBytes) =>
+        sizeBytes is null
+            ? description
+            : $"{description} ({HumanReadableSize.FormatBytes(sizeBytes.Value)})";
 
     private static void UpdateTask(ProgressTask task, Int64? sizeBytes, Int64 value)
     {
@@ -128,7 +133,8 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
         });
 
         var totalElapsed = timeProvider.GetElapsedTime(queueStart);
-        console.MarkupLineInterpolated($"SUMMARY downloaded {downloaded}/{total} files ({FormatStats(totalDownloadedBytes, totalElapsed)})");
+        console.MarkupLineInterpolated(
+            $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
         return new(downloaded, failed);
     }
 

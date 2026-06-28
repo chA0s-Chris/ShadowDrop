@@ -1,4 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Mirror the API's Debug-only download throttle symbol so its tests are compiled in exactly when ThrottledStream exists. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>$(DefineConstants);ENABLE_THROTTLE_DOWNLOAD</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="LiteDB" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />

@@ -45,7 +45,7 @@ The non-interactive plain-text lines have a fixed, deterministic shape so tests 
 START 3/12 alpha.bin (128.4 MB)
 SUCCESS 3/12 alpha.bin -> alpha.bin (128.4 MB in 2.1s, 61.1 MB/s)
 FAILED 4/12 beta.bin -> beta.bin: <error message>
-SUMMARY downloaded 11/12 files (1.4 GB in 23.5s, 59.8 MB/s)
+SUMMARY downloaded 11/12 files, failed 1 file (1.4 GB in 23.5s, 59.8 MB/s)
 ```
 
 For non-interactive single-file downloads, use the same vocabulary without queue position:
@@ -63,3 +63,27 @@ Progress updates need byte counts from the streaming download path. Add a minima
 The non-interactive single-file summary should count the selected file once the download succeeds. The queue summary should count only successfully downloaded bytes toward total throughput. Failures should be recorded with their file position and message, then processing should continue exactly as it does today. Preserve the current exit-code contract by returning `0` only when all entries succeed.
 
 Update `tests/ShadowDrop.Cli.Tests/Downloads/DownloadCommandHandlerTests.cs` to cover non-interactive single-file and queue plain/log output shape, stderr-only behavior, queue failure continuation, summary contents, and exit-code preservation. Add focused unit tests for reporter mode selection and formatting if the implementation introduces separate reporter types. Keep `QueueDownloadSmokeTests` as an end-to-end reproduction check, extending it only if it can assert stderr behavior without becoming timing- or terminal-sensitive.
+
+## Development tooling: download throttle
+
+The rich, interactive progress path is the hardest part of this feature to verify by hand: over loopback the encrypted body transfers and decrypts in a fraction of a second, so the Spectre spinner, percentage, speed, and ETA never get a chance to render. Large files plus the CPU-bound per-chunk AES-256-GCM decrypt help, but a controllable, repeatable slowdown is far better for confirming the live experience (and, later, for exercising resume behaviour).
+
+ASP.NET Core has no built-in maximum egress rate — the rate limiter caps request count/concurrency, and Kestrel's `Min*DataRate` settings are slow-client protections (minimums), not throughput caps. So the API gains a small **development-only** throttle: a `ThrottledStream` write decorator that paces writes to a target byte rate, applied by wrapping `HttpContext.Response.Body` in a middleware (`UseDevelopmentDownloadThrottle`). Because the download endpoint streams via `CopyToAsync(Response.Body, …)`, pacing the body slows the CLI's per-chunk reads and makes the progress UI render at the configured rate.
+
+This is gated two ways:
+
+- **Compile-time:** the throttle types and wiring live behind `#if ENABLE_THROTTLE_DOWNLOAD`, and that symbol is defined for **Debug builds only** (`ShadowDrop.Api.csproj`). Release binaries therefore do not contain the code at all — no shipped attack surface, no reliance on a runtime environment check that could be misconfigured in production, and nothing for AOT/trimming to reason about. This is preferred over an `IsDevelopment()` runtime guard precisely because, for a security-focused file-sharing service, a dev-only response-body interceptor should be physically absent from production rather than merely switched off.
+- **Run-time:** even in Debug it stays inert unless `SHADOWDROP_DEV_THROTTLE_BPS` is set to a positive byte rate (e.g. `5000000` for ~5 MB/s), so normal Debug runs and the test suite are unaffected.
+
+A non-timing functional test (`ThrottledStreamTests`, mirrored behind the same symbol in the test project) verifies the decorator forwards all bytes and reports write-only capabilities, without depending on wall-clock pacing.
+
+## Configurable upload size limit
+
+Exercising the throttle with realistically sized files surfaced an unrelated limitation: the upload size cap was a hardcoded 512 MiB `Content-Length` pre-check in `MultipartUploadRequestReader`, while Kestrel's own `MaxRequestBodySize` was left at its framework default (~28.6 MiB). The two were inconsistent — the API advertised 512 MiB but Kestrel silently aborted anything past ~28.6 MiB during the body read — and neither was configurable.
+
+The upload limit is now a single configurable value, `ShadowDrop:Upload:MaxBytes` (new `UploadOptions`), defaulting to 4 GiB and validated as positive in `ShadowDropOptionsBinding`. It is applied in both places that enforce a body-size ceiling so they can no longer drift:
+
+- `MultipartUploadRequestReader` receives the configured value from `AdminEndpoints.UploadAsync` (replacing the hardcoded constant) for both the `Content-Length` pre-check and the streaming `MaxLengthReadStream` guard.
+- Kestrel's `MaxRequestBodySize` is set from the same option at startup, with a small headroom above the configured limit so the reader's friendly `UploadPayloadTooLargeException` (HTTP 413) stays authoritative instead of Kestrel aborting the request first.
+
+`MaxBytes` bounds the whole multipart request body (encrypted content plus metadata and multipart overhead), not just the plaintext file size. Tests cover the binding default and positive-value validation, and the reader honoring the configured limit.

@@ -16,6 +16,11 @@ public static class Middleware
 
         var options = app.Services.GetRequiredService<ShadowDropOptions>();
 
+#if ENABLE_THROTTLE_DOWNLOAD
+        // DEVELOPMENT-ONLY: paces response bodies so streamed downloads are slow enough to observe the CLI's live progress output.
+        app.UseDevelopmentDownloadThrottle(logger);
+#endif
+
         app.MapHealthEndpoints()
            .MapAdminEndpoints(options)
            .MapDownloadEndpoints(options);

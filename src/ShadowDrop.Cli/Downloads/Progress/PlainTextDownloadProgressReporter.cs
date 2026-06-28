@@ -65,7 +65,8 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         }
 
         var totalElapsed = timeProvider.GetElapsedTime(queueStart);
-        await standardError.WriteLineAsync($"SUMMARY downloaded {downloaded}/{total} files ({FormatStats(totalDownloadedBytes, totalElapsed)})");
+        await standardError.WriteLineAsync(
+            $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
         return new(downloaded, failed);
     }
 
