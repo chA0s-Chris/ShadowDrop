@@ -42,13 +42,10 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
             ? description
             : $"{description} ({HumanReadableSize.FormatBytes(sizeBytes.Value)})";
 
-    private static void UpdateTask(ProgressTask task, Int64? sizeBytes, Int64 value)
-    {
-        if (sizeBytes is not null)
-        {
-            task.Value = value;
-        }
-    }
+    private static void UpdateTask(ProgressTask task, Int64 value) =>
+        // Advance Value even for unknown-size (indeterminate) tasks: IsIndeterminate keeps the bar non-quantified,
+        // while the value deltas let Spectre's TransferSpeedColumn report the real transfer rate.
+        task.Value = value;
 
     private Progress CreateProgress() =>
         console.Progress()
@@ -94,7 +91,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                 var capturedCompleted = completedBytes;
                 var progress = new TrackingProgress(value =>
                 {
-                    UpdateTask(task, item.SizeBytes, value);
+                    UpdateTask(task, value);
                     if (overall is not null)
                     {
                         overall.Value = capturedCompleted + value;
@@ -151,7 +148,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
         await CreateProgress().StartAsync(async context =>
         {
             var task = CreateTask(context, fileName, sizeBytes);
-            var progress = new TrackingProgress(value => UpdateTask(task, sizeBytes, value));
+            var progress = new TrackingProgress(value => UpdateTask(task, value));
             await downloadAsync(progress, cancellationToken);
             bytes = progress.Value;
             CompleteTask(task, sizeBytes);

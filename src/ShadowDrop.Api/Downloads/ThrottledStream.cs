@@ -13,6 +13,11 @@ using System.Diagnostics;
 /// Wrapping the response body in this stream slows the transfer to a steady rate so the spinner, percentage, speed, and ETA render.
 /// The type is compiled only when the <c>ENABLE_THROTTLE_DOWNLOAD</c> symbol is defined (Debug builds), so it is physically absent
 /// from Release binaries.
+/// <para>
+/// Ownership: this decorator deliberately does not own or dispose <paramref name="inner"/>. The throttle middleware swaps it onto
+/// <c>HttpResponse.Body</c> and restores the original body in a <c>finally</c> without ever disposing the wrapper, and the inner
+/// response body is owned by Kestrel. Disposal is therefore intentionally not forwarded.
+/// </para>
 /// </remarks>
 internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stream
 {
