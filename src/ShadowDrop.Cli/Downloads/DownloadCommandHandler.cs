@@ -333,20 +333,29 @@ internal sealed class DownloadCommandHandler(
     }
 
     // The whole-queue size is only meaningful when every entry declares its length; otherwise the queue-level ETA is suppressed.
+    // An overflow is treated the same way (total unknown): the queue total only feeds the optional ETA, so it must degrade
+    // gracefully rather than abort the download.
     private static Int64? SumQueueBytes(IReadOnlyList<QueueFileEntry> entries)
     {
-        Int64 total = 0;
-        foreach (var entry in entries)
+        try
         {
-            if (entry.Length is not { } length)
+            Int64 total = 0;
+            foreach (var entry in entries)
             {
-                return null;
+                if (entry.Length is not { } length)
+                {
+                    return null;
+                }
+
+                total = checked(total + length);
             }
 
-            total = checked(total + length);
+            return total;
         }
-
-        return total;
+        catch (OverflowException)
+        {
+            return null;
+        }
     }
 
     private static ReadOnlySpan<Char> TrimAsciiWhitespace(ReadOnlySpan<Char> value)

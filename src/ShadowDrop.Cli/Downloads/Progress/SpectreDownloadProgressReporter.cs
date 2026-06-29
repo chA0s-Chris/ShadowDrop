@@ -23,7 +23,8 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
     {
         var task = context.AddTask(Markup.Escape(FormatTaskDescription(description, sizeBytes)), new ProgressTaskSettings
         {
-            MaxValue = sizeBytes ?? 1
+            // Floor at 1 so a zero-byte file (valid) doesn't produce MaxValue = 0 and a 0/0 percentage in Spectre.
+            MaxValue = sizeBytes is > 0 ? sizeBytes.Value : 1
         });
         if (sizeBytes is null)
         {
