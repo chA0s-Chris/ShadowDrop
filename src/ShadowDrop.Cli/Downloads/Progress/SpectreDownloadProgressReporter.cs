@@ -78,7 +78,8 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                 ? null
                 : context.AddTask("Overall queue", new ProgressTaskSettings
                 {
-                    MaxValue = totalBytes.Value
+                    // Floor at 1 so an all-zero-length queue (valid) doesn't produce MaxValue = 0 and broken percentage/ETA columns.
+                    MaxValue = totalBytes.Value > 0 ? totalBytes.Value : 1
                 });
             Int64 completedBytes = 0;
 
@@ -125,6 +126,15 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
 
                     failed++;
                     task.StopTask();
+                    // Keep the overall bar monotonic: fold the bytes already transferred for this failed file into the running total
+                    // so the next file doesn't restart from a lower captured value. Partial bytes of a failed file count toward the
+                    // overall position, which is acceptable for a coarse progress/ETA indicator.
+                    completedBytes += progress.Value;
+                    if (overall is not null)
+                    {
+                        overall.Value = completedBytes;
+                    }
+
                     console.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {item.FileName} -> {item.OutputPath}: {message}");
                 }
             }

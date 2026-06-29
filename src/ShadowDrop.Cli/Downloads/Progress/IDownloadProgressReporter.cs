@@ -23,7 +23,8 @@ internal sealed record QueueDownloadItem(
 internal sealed record DownloadQueueSummary(Int32 Downloaded, Int32 Failed);
 
 /// <summary>
-/// Reports download progress and lifecycle output to standard error for non-interactive single-file and queue downloads.
+/// Reports download progress and lifecycle output for single-file and queue downloads. Implemented for both rich interactive
+/// terminals (live Spectre.Console progress) and plain non-interactive output (deterministic lifecycle lines on standard error).
 /// </summary>
 internal interface IDownloadProgressReporter
 {
@@ -43,7 +44,7 @@ internal interface IDownloadProgressReporter
                                              CancellationToken cancellationToken);
 
     /// <summary>
-    /// Runs a non-interactive single-file download, emitting start, progress, and completion output.
+    /// Runs a single-file download, emitting start, progress, and completion output in the reporter's mode (rich or plain).
     /// </summary>
     /// <param name="fileName">The display name of the file.</param>
     /// <param name="sizeBytes">The declared plaintext size in bytes, or <see langword="null"/> when unknown.</param>
