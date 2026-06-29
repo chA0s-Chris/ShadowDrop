@@ -28,6 +28,11 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
         }
 
+        if (options.Upload.MaxBytes <= 0)
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Upload:MaxBytes' must be greater than zero.");
+        }
+
         CronExpression cleanupSchedule;
         try
         {

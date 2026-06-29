@@ -100,12 +100,13 @@ public static class AdminEndpoints
 
     private static async Task<IResult> UploadAsync(HttpRequest request,
                                                    UploadPersistenceService uploadPersistenceService,
+                                                   ShadowDropOptions options,
                                                    ILoggerFactory loggerFactory,
                                                    CancellationToken cancellationToken)
     {
         try
         {
-            var uploadRequest = await MultipartUploadRequestReader.ReadAsync(request, cancellationToken);
+            var uploadRequest = await MultipartUploadRequestReader.ReadAsync(request, cancellationToken, options.Upload.MaxBytes);
             await using var encryptedContent = uploadRequest.EncryptedContent;
             var result = await uploadPersistenceService.PersistAsync(uploadRequest.Request, encryptedContent, cancellationToken);
 

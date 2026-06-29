@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Downloads;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
@@ -14,7 +15,8 @@ internal sealed class DownloadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     Stream standardOutStream,
-    TextWriter standardError)
+    TextWriter standardError,
+    IDownloadProgressReporter progressReporter)
 {
     private const String SecretFreeQueueKeyMissingMessage =
         "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file. "
@@ -60,9 +62,15 @@ internal sealed class DownloadCommandHandler(
                 var manifestClient = new ShareManifestClient(httpClient);
                 var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
-                await DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken, standardOutStream,
-                                            cancellationToken);
-                return 0;
+                var fileName = file.FileName ?? file.FileId ?? "download.bin";
+                var succeeded = await progressReporter.RunSingleAsync(
+                    fileName,
+                    file.Length,
+                    (progress, token) => DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken,
+                                                               standardOutStream, progress, token),
+                    ClassifyDownloadError,
+                    cancellationToken);
+                return succeeded ? 0 : 1;
             }
             finally
             {
@@ -162,7 +170,8 @@ internal sealed class DownloadCommandHandler(
                                             Byte[] shareKeyBytes,
                                             String? bearerToken,
                                             String outputPath,
-                                            CancellationToken cancellationToken)
+                                            CancellationToken cancellationToken,
+                                            IProgress<Int64>? progress = null)
     {
         var directoryPath = Path.GetDirectoryName(outputPath);
         if (!String.IsNullOrWhiteSpace(directoryPath))
@@ -179,7 +188,7 @@ internal sealed class DownloadCommandHandler(
                                                          FileShare.None,
                                                          81920,
                                                          FileOptions.Asynchronous);
-            await DownloadToStreamAsync(serverUrl, shareToken, file, shareKeyBytes, bearerToken, destination, cancellationToken);
+            await DownloadToStreamAsync(serverUrl, shareToken, file, shareKeyBytes, bearerToken, destination, progress, cancellationToken);
             await destination.FlushAsync(cancellationToken);
             File.Move(partialPath, outputPath, true);
         }
@@ -241,6 +250,15 @@ internal sealed class DownloadCommandHandler(
             }
         }
     }
+
+    // Shared by the queue loop and the single-file path: returns a user-facing message for handled failures, otherwise null to rethrow.
+    private static String? ClassifyDownloadError(Exception exception) => exception switch
+    {
+        DownloadCommandException downloadCommandException => downloadCommandException.Message,
+        IOException => "Download failed due to a local I/O error.",
+        UnauthorizedAccessException => "Download failed due to a local I/O error.",
+        _ => null
+    };
 
     private static Byte[] DecodeBase64(String? base64Value, String errorMessage)
     {
@@ -315,6 +333,32 @@ internal sealed class DownloadCommandHandler(
         return match;
     }
 
+    // The whole-queue size is only meaningful when every entry declares its length; otherwise the queue-level ETA is suppressed.
+    // An overflow is treated the same way (total unknown): the queue total only feeds the optional ETA, so it must degrade
+    // gracefully rather than abort the download.
+    private static Int64? SumQueueBytes(IReadOnlyList<QueueFileEntry> entries)
+    {
+        try
+        {
+            Int64 total = 0;
+            foreach (var entry in entries)
+            {
+                if (entry.Length is not { } length)
+                {
+                    return null;
+                }
+
+                total = checked(total + length);
+            }
+
+            return total;
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
+    }
+
     private static ReadOnlySpan<Char> TrimAsciiWhitespace(ReadOnlySpan<Char> value)
     {
         while (value.Length > 0 && Char.IsWhiteSpace(value[0]))
@@ -336,6 +380,7 @@ internal sealed class DownloadCommandHandler(
                                              Byte[] shareKeyBytes,
                                              String? bearerToken,
                                              Stream destination,
+                                             IProgress<Int64>? progress,
                                              CancellationToken cancellationToken)
     {
         var fileId = ParseFileId(file.FileId);
@@ -350,7 +395,8 @@ internal sealed class DownloadCommandHandler(
                                                        destination,
                                                        shareSecret,
                                                        new(fileId, kdfSalt),
-                                                       bearerToken);
+                                                       bearerToken,
+                                                       progress: progress);
             await session.DownloadAsync(cancellationToken);
         }
         catch (FormatException)
@@ -421,40 +467,27 @@ internal sealed class DownloadCommandHandler(
 
             var manifestClient = new ShareManifestClient(httpClient);
             Dictionary<String, ShareManifestContract> manifestCache = [];
-            var allSucceeded = true;
             var outputRoot = ResolveOutputRoot(options.OutputRoot);
+            var capturedShareKeyBytes = shareKeyBytes;
 
-            foreach (var entry in queue.Files!)
-            {
-                var summaryLabel = entry.FileName ?? entry.FileId ?? "unknown";
-                try
-                {
-                    var outputPath = ResolveQueueOutputPath(outputRoot, entry.OutputPath!);
-                    var shareReference = ResolveQueueShareReference(entry);
-                    var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, cancellationToken);
-                    var file = SelectQueuedFile(manifest, entry);
-                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, bearerToken, outputPath,
-                                              cancellationToken);
-                    await WriteQueueResultAsync($"SUCCESS {summaryLabel} -> {entry.OutputPath}");
-                }
-                catch (DownloadCommandException exception)
-                {
-                    allSucceeded = false;
-                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: {exception.Message}");
-                }
-                catch (IOException)
-                {
-                    allSucceeded = false;
-                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    allSucceeded = false;
-                    await WriteQueueResultAsync($"FAILED {summaryLabel} -> {entry.OutputPath}: Download failed due to a local I/O error.");
-                }
-            }
+            var items = queue.Files!.Select(entry => new QueueDownloadItem(
+                                                entry.FileName ?? entry.FileId ?? "unknown",
+                                                entry.Length,
+                                                entry.OutputPath!,
+                                                async (progress, token) =>
+                                                {
+                                                    var outputPath = ResolveQueueOutputPath(outputRoot, entry.OutputPath!);
+                                                    var shareReference = ResolveQueueShareReference(entry);
+                                                    var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, token);
+                                                    var file = SelectQueuedFile(manifest, entry);
+                                                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file,
+                                                                              capturedShareKeyBytes, bearerToken, outputPath, token, progress);
+                                                }))
+                             .ToList();
 
-            return allSucceeded ? 0 : 1;
+            var totalBytes = SumQueueBytes(queue.Files!);
+            var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
+            return summary.Failed == 0 ? 0 : 1;
         }
         finally
         {
@@ -558,8 +591,6 @@ internal sealed class DownloadCommandHandler(
 
         return new(serverUrl, resolvedToken);
     }
-
-    private Task WriteQueueResultAsync(String result) => standardError.WriteLineAsync(result);
 
     private sealed record ShareReference(Uri ServerUrl, String ShareToken);
 }

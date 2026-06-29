@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Tls;
 
@@ -13,7 +14,8 @@ internal sealed record CliApplicationServices(
     TextWriter StandardOut,
     TextWriter StandardError,
     ICliInteractiveSession InteractiveSession,
-    TimeProvider TimeProvider)
+    TimeProvider TimeProvider,
+    IDownloadProgressReporterFactory DownloadProgressReporterFactory)
 {
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -25,7 +27,8 @@ internal sealed record CliApplicationServices(
                standardOut,
                standardError,
                new SpectreCliInteractiveSession(standardError),
-               TimeProvider.System) { }
+               TimeProvider.System,
+               new DownloadProgressReporterFactory(standardError, TimeProvider.System)) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -38,7 +41,8 @@ internal sealed record CliApplicationServices(
                standardOut,
                standardError,
                new SpectreCliInteractiveSession(standardError),
-               TimeProvider.System) { }
+               TimeProvider.System,
+               new DownloadProgressReporterFactory(standardError, TimeProvider.System)) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -53,7 +57,25 @@ internal sealed record CliApplicationServices(
                standardOut,
                standardError,
                interactiveSession,
-               timeProvider) { }
+               timeProvider,
+               new DownloadProgressReporterFactory(standardError, timeProvider)) { }
+
+    public CliApplicationServices(CliConfigurationResolver configurationResolver,
+                                  HttpClient httpClient,
+                                  Stream standardOutStream,
+                                  TextWriter standardOut,
+                                  TextWriter standardError,
+                                  ICliInteractiveSession interactiveSession,
+                                  TimeProvider timeProvider,
+                                  IDownloadProgressReporterFactory downloadProgressReporterFactory)
+        : this(configurationResolver,
+               _ => httpClient,
+               standardOutStream,
+               standardOut,
+               standardError,
+               interactiveSession,
+               timeProvider,
+               downloadProgressReporterFactory) { }
 
     public static CliApplicationServices CreateDefault() =>
         new(new(new(), new EnvironmentReader()),
@@ -62,5 +84,6 @@ internal sealed record CliApplicationServices(
             Console.Out,
             Console.Error,
             new SpectreCliInteractiveSession(Console.Error),
-            TimeProvider.System);
+            TimeProvider.System,
+            new DownloadProgressReporterFactory(Console.Error, TimeProvider.System));
 }

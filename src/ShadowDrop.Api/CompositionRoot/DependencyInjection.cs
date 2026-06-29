@@ -11,6 +11,8 @@ using ShadowDrop.Api.Uploads;
 
 public static class DependencyInjection
 {
+    private const Int64 RequestBodyHeadroomBytes = 16L * 1024 * 1024;
+
     public static WebApplicationBuilder ConfigureServices(this WebApplicationBuilder builder, ILogger logger)
     {
         builder.ConfigureDefaultLogging();
@@ -20,6 +22,11 @@ public static class DependencyInjection
 
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
+
+        // Keep Kestrel's body-size ceiling above the configured upload limit so the reader's friendly UploadPayloadTooLargeException
+        // stays authoritative instead of Kestrel aborting the request first.
+        var maxRequestBodySize = ResolveMaxRequestBodySize(shadowDropOptions.Upload.MaxBytes);
+        builder.WebHost.ConfigureKestrel(kestrelOptions => kestrelOptions.Limits.MaxRequestBodySize = maxRequestBodySize);
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.EnablePublicDownloads)
         {
@@ -46,4 +53,9 @@ public static class DependencyInjection
 
         return builder;
     }
+
+    private static Int64 ResolveMaxRequestBodySize(Int64 maxUploadBytes) =>
+        maxUploadBytes > Int64.MaxValue - RequestBodyHeadroomBytes
+            ? Int64.MaxValue
+            : maxUploadBytes + RequestBodyHeadroomBytes;
 }

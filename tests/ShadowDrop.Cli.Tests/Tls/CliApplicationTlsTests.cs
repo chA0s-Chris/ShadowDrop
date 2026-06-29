@@ -6,6 +6,7 @@ using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Tls;
 using ShadowDrop.Tests.Fakes;
 
@@ -83,7 +84,8 @@ public sealed class CliApplicationTlsTests
             standardOut,
             standardError,
             new FakeInteractiveSession(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System));
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {

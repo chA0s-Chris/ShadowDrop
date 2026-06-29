@@ -18,6 +18,7 @@ public sealed class CliDownloadSession : IDisposable
     private readonly Uri _downloadUri;
     private readonly FileEncryptionContext _encryptionContext;
     private readonly HttpClient _httpClient;
+    private readonly IProgress<Int64>? _progress;
     private Boolean _disposed;
 
     /// <summary>
@@ -30,6 +31,7 @@ public sealed class CliDownloadSession : IDisposable
     /// <param name="encryptionContext">The file encryption context.</param>
     /// <param name="bearerToken">The optional bearer token sent with each download request.</param>
     /// <param name="durablePlaintextLength">The already-persisted plaintext byte count.</param>
+    /// <param name="progress">An optional sink that receives the cumulative durable plaintext byte count after each chunk is written.</param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="httpClient"/>, <paramref name="downloadUri"/>, <paramref name="destination"/>,
     /// <paramref name="shareSecret"/>, or <paramref name="encryptionContext"/> is <see langword="null"/>.
@@ -42,7 +44,8 @@ public sealed class CliDownloadSession : IDisposable
                               ShareSecret shareSecret,
                               FileEncryptionContext encryptionContext,
                               String? bearerToken = null,
-                              Int64 durablePlaintextLength = 0)
+                              Int64 durablePlaintextLength = 0,
+                              IProgress<Int64>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(downloadUri);
@@ -61,8 +64,11 @@ public sealed class CliDownloadSession : IDisposable
         _destination = destination;
         _encryptionContext = encryptionContext;
         _bearerToken = bearerToken;
+        _progress = progress;
         _contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
         DurablePlaintextLength = durablePlaintextLength;
+        // Report the starting offset so resumed downloads begin progress from the already-persisted byte count.
+        progress?.Report(durablePlaintextLength);
     }
 
     /// <summary>
@@ -166,6 +172,7 @@ public sealed class CliDownloadSession : IDisposable
             var count = checked((Int32)(writeEnd - writeStart));
             await _destination.WriteAsync(decryptedChunk.AsMemory(offset, count), cancellationToken);
             DurablePlaintextLength = checked(DurablePlaintextLength + count);
+            _progress?.Report(DurablePlaintextLength);
         }
 
         await ValidateStreamExhaustionAsync(encryptedStream, cancellationToken);

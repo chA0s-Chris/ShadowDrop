@@ -11,4 +11,6 @@ public sealed class ShadowDropOptions
     public MetadataOptions Metadata { get; set; } = new();
 
     public StorageOptions Storage { get; set; } = new();
+
+    public UploadOptions Upload { get; set; } = new();
 }

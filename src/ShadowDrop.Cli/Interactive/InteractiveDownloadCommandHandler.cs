@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli.Interactive;
 
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Contracts;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -30,7 +31,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             return 1;
         }
 
-        var handler = new DownloadCommandHandler(configurationResolver, httpClient, Stream.Null, standardError);
+        var handler = new DownloadCommandHandler(configurationResolver, httpClient, Stream.Null, standardError, NullDownloadProgressReporter.Instance);
         Byte[]? shareKeyBytes = null;
         try
         {

@@ -1464,6 +1464,73 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public void Config_ShouldDefaultUploadMaxBytes_WhenNotConfigured()
+    {
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                         "artifacts",
+                                         "upload-max-bytes-default",
+                                         Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+        var configuration = new ConfigurationBuilder()
+                            .AddInMemoryCollection(new Dictionary<String, String?>
+                            {
+                                ["ShadowDrop:Metadata:LiteDbPath"] = "metadata/shadowdrop.db",
+                                ["ShadowDrop:Storage:LocalRoot"] = "storage",
+                                ["ShadowDrop:Cleanup:CronExpression"] = "0 */2 * * *"
+                            })
+                            .Build();
+
+        try
+        {
+            var options = ShadowDropOptionsBinding.BindAndValidate(configuration, rootDirectory);
+
+            options.Upload.MaxBytes.Should().Be(4L * 1024 * 1024 * 1024);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [TestCase("0")]
+    [TestCase("-1")]
+    public void Config_ShouldFail_WhenUploadMaxBytesIsNotPositive(String maxBytes)
+    {
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                         "artifacts",
+                                         "upload-max-bytes-invalid",
+                                         Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+        var configuration = new ConfigurationBuilder()
+                            .AddInMemoryCollection(new Dictionary<String, String?>
+                            {
+                                ["ShadowDrop:Metadata:LiteDbPath"] = "metadata/shadowdrop.db",
+                                ["ShadowDrop:Storage:LocalRoot"] = "storage",
+                                ["ShadowDrop:Cleanup:CronExpression"] = "0 */2 * * *",
+                                ["ShadowDrop:Upload:MaxBytes"] = maxBytes
+                            })
+                            .Build();
+
+        try
+        {
+            Action act = () => ShadowDropOptionsBinding.BindAndValidate(configuration, rootDirectory);
+
+            act.Should().Throw<InvalidOperationException>()
+               .WithMessage("*ShadowDrop:Upload:MaxBytes*");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public void Config_ShouldFail_WhenCleanupCronExpressionIsInvalid()
     {
         var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
