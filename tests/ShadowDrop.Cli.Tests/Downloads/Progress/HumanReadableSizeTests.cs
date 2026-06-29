@@ -14,6 +14,13 @@ public sealed class HumanReadableSizeTests
         HumanReadableSize.FormatBytes(-5).Should().Be("0 B");
     }
 
+    [Test]
+    public void FormatBytes_ShouldRollOverToNextUnit_WhenValueRoundsUpAtUnitBoundary()
+    {
+        // 999_960 bytes is 999.96 KB, which rounds to "1000.0 KB" at one decimal place; it should read "1.0 MB" instead.
+        HumanReadableSize.FormatBytes(999_960).Should().Be("1.0 MB");
+    }
+
     [TestCase(0, "0 B")]
     [TestCase(64, "64 B")]
     [TestCase(999, "999 B")]
@@ -54,5 +61,12 @@ public sealed class HumanReadableSizeTests
     public void FormatSpeed_ShouldGuardAgainstZeroElapsedTime()
     {
         HumanReadableSize.FormatSpeed(1000, TimeSpan.Zero).Should().EndWith("/s");
+    }
+
+    [Test]
+    public void FormatSpeed_ShouldRollOverToNextUnit_WhenValueRoundsUpAtUnitBoundary()
+    {
+        // 999_960 bytes over 1 second is 999.96 KB/s, which rounds to "1000.0 KB/s"; it should read "1.0 MB/s" instead.
+        HumanReadableSize.FormatSpeed(999_960, TimeSpan.FromSeconds(1)).Should().Be("1.0 MB/s");
     }
 }

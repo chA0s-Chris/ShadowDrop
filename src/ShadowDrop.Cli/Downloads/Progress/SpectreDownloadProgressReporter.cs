@@ -138,6 +138,14 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                     console.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {item.FileName} -> {item.OutputPath}: {message}");
                 }
             }
+
+            // Mark the overall task complete once processing finishes so the bar reads 100% rather than staying short of its max.
+            // This also covers the degenerate all-zero-length queue (totalBytes == 0, MaxValue floored to 1) where no bytes are ever
+            // reported; the bar reflects "queue processing finished" — per-file failures remain visible via the FAILED lines and summary.
+            if (overall is not null)
+            {
+                overall.Value = overall.MaxValue;
+            }
         });
 
         var totalElapsed = timeProvider.GetElapsedTime(queueStart);

@@ -69,19 +69,19 @@ internal static class HumanReadableSize
             seconds = 0.001;
         }
 
-        var bytesPerSecond = bytes / seconds;
-        var value = bytesPerSecond;
-        var unit = 0;
-        while (value >= 1000 && unit < Units.Length - 1)
-        {
-            value /= 1000;
-            unit++;
-        }
-
+        var (value, unit) = Scale(bytes / seconds);
         return $"{value.ToString("0.0", CultureInfo.InvariantCulture)} {Units[unit]}/s";
     }
 
     private static String FormatScaled(Double value, String suffix)
+    {
+        var (scaled, unit) = Scale(value);
+        return $"{scaled.ToString("0.0", CultureInfo.InvariantCulture)} {Units[unit]}{suffix}";
+    }
+
+    // Scales a value into decimal (1000-based) units. After the initial scale, a value in [999.95, 1000) would render as
+    // "1000.0" at one decimal place, so roll over to the next unit to keep the output consistent (e.g. "1.0 MB" instead of "1000.0 KB").
+    private static (Double Value, Int32 Unit) Scale(Double value)
     {
         var unit = 0;
         while (value >= 1000 && unit < Units.Length - 1)
@@ -90,6 +90,13 @@ internal static class HumanReadableSize
             unit++;
         }
 
-        return $"{value.ToString("0.0", CultureInfo.InvariantCulture)} {Units[unit]}{suffix}";
+        // Math.Round defaults to round-half-to-even, matching ToString("0.0"), so this fires exactly when the value would render as "1000.0".
+        if (Math.Round(value, 1) >= 1000 && unit < Units.Length - 1)
+        {
+            value /= 1000;
+            unit++;
+        }
+
+        return (value, unit);
     }
 }
