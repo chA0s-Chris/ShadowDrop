@@ -94,6 +94,27 @@ public sealed class PlainTextDownloadProgressReporterTests
     }
 
     [Test]
+    public async Task RunSingleAsync_ShouldKeepLifecycleRecordOnOneLine_WhenFileNameContainsLineBreaks()
+    {
+        var writer = new StringWriter();
+        var timeProvider = new ManualTimeProvider();
+        var reporter = new PlainTextDownloadProgressReporter(writer, timeProvider);
+
+        await reporter.RunSingleAsync("alpha\r\nINJECTED.bin", 2000, (progress, _) =>
+        {
+            timeProvider.Advance(TimeSpan.FromSeconds(2));
+            progress!.Report(2000);
+            return Task.CompletedTask;
+        }, ClassifyError, CancellationToken.None);
+
+        // The CR/LF in the name must not split the deterministic records: exactly START/SUCCESS/SUMMARY, with the name collapsed to one line.
+        var lines = ReadLines(writer);
+        lines.Should().HaveCount(3);
+        lines[0].Should().Be("START alpha  INJECTED.bin (2.0 KB)");
+        lines[1].Should().StartWith("SUCCESS alpha  INJECTED.bin (");
+    }
+
+    [Test]
     public async Task RunSingleAsync_ShouldOmitSizeFromStart_WhenSizeUnknown()
     {
         var writer = new StringWriter();

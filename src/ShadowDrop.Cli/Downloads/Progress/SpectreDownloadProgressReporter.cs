@@ -87,7 +87,9 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
             {
                 var item = items[index];
                 var position = index + 1;
-                var task = CreateTask(context, $"{position}/{total} {item.FileName}", item.SizeBytes);
+                var fileName = DisplayText.SingleLine(item.FileName);
+                var outputPath = DisplayText.SingleLine(item.OutputPath);
+                var task = CreateTask(context, $"{position}/{total} {fileName}", item.SizeBytes);
                 var fileStart = timeProvider.GetTimestamp();
                 var capturedCompleted = completedBytes;
                 var progress = new TrackingProgress(value =>
@@ -114,7 +116,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                     }
 
                     console.MarkupLineInterpolated(
-                        $"[green]SUCCESS[/] {position}/{total} {item.FileName} -> {item.OutputPath} ({FormatStats(bytes, elapsed)})");
+                        $"[green]SUCCESS[/] {position}/{total} {fileName} -> {outputPath} ({FormatStats(bytes, elapsed)})");
                 }
                 catch (Exception exception)
                 {
@@ -135,7 +137,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                         overall.Value = completedBytes;
                     }
 
-                    console.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {item.FileName} -> {item.OutputPath}: {message}");
+                    console.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {fileName} -> {outputPath}: {message}");
                 }
             }
 
@@ -163,6 +165,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
         ArgumentNullException.ThrowIfNull(downloadAsync);
         ArgumentNullException.ThrowIfNull(classifyError);
 
+        fileName = DisplayText.SingleLine(fileName);
         Int64 bytes = 0;
         String? failureMessage = null;
         var start = timeProvider.GetTimestamp();

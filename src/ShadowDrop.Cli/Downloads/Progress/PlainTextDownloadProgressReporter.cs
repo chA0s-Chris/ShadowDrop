@@ -38,7 +38,9 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         {
             var item = items[index];
             var position = index + 1;
-            await standardError.WriteLineAsync(FormatStart(position, total, item.FileName, item.SizeBytes));
+            var fileName = DisplayText.SingleLine(item.FileName);
+            var outputPath = DisplayText.SingleLine(item.OutputPath);
+            await standardError.WriteLineAsync(FormatStart(position, total, fileName, item.SizeBytes));
             var progress = new TrackingProgress();
             var fileStart = timeProvider.GetTimestamp();
             try
@@ -49,7 +51,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
                 downloaded++;
                 totalDownloadedBytes += bytes;
                 await standardError.WriteLineAsync(
-                    $"SUCCESS {position}/{total} {item.FileName} -> {item.OutputPath} ({FormatStats(bytes, elapsed)})");
+                    $"SUCCESS {position}/{total} {fileName} -> {outputPath} ({FormatStats(bytes, elapsed)})");
             }
             catch (Exception exception)
             {
@@ -60,7 +62,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
                 }
 
                 failed++;
-                await standardError.WriteLineAsync($"FAILED {position}/{total} {item.FileName} -> {item.OutputPath}: {message}");
+                await standardError.WriteLineAsync($"FAILED {position}/{total} {fileName} -> {outputPath}: {message}");
             }
         }
 
@@ -79,6 +81,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         ArgumentNullException.ThrowIfNull(downloadAsync);
         ArgumentNullException.ThrowIfNull(classifyError);
 
+        fileName = DisplayText.SingleLine(fileName);
         await standardError.WriteLineAsync(FormatStart(null, null, fileName, sizeBytes));
         var progress = new TrackingProgress();
         var start = timeProvider.GetTimestamp();
