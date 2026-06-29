@@ -70,20 +70,40 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         return new(downloaded, failed);
     }
 
-    public async Task RunSingleAsync(String fileName,
-                                     Int64? sizeBytes,
-                                     Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
-                                     CancellationToken cancellationToken)
+    public async Task<Boolean> RunSingleAsync(String fileName,
+                                              Int64? sizeBytes,
+                                              Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
+                                              Func<Exception, String?> classifyError,
+                                              CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(downloadAsync);
+        ArgumentNullException.ThrowIfNull(classifyError);
 
         await standardError.WriteLineAsync(FormatStart(null, null, fileName, sizeBytes));
         var progress = new TrackingProgress();
         var start = timeProvider.GetTimestamp();
-        await downloadAsync(progress, cancellationToken);
+        try
+        {
+            await downloadAsync(progress, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            var message = classifyError(exception);
+            if (message is null)
+            {
+                throw;
+            }
+
+            var failedElapsed = timeProvider.GetElapsedTime(start);
+            await standardError.WriteLineAsync($"FAILED {fileName}: {message}");
+            await standardError.WriteLineAsync($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(progress.Value, failedElapsed)})");
+            return false;
+        }
+
         var elapsed = timeProvider.GetElapsedTime(start);
         var bytes = progress.Value;
         await standardError.WriteLineAsync($"SUCCESS {fileName} ({FormatStats(bytes, elapsed)})");
         await standardError.WriteLineAsync($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
+        return true;
     }
 }

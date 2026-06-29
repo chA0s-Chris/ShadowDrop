@@ -146,26 +146,52 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
         return new(downloaded, failed);
     }
 
-    public async Task RunSingleAsync(String fileName,
-                                     Int64? sizeBytes,
-                                     Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
-                                     CancellationToken cancellationToken)
+    public async Task<Boolean> RunSingleAsync(String fileName,
+                                              Int64? sizeBytes,
+                                              Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
+                                              Func<Exception, String?> classifyError,
+                                              CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(downloadAsync);
+        ArgumentNullException.ThrowIfNull(classifyError);
 
         Int64 bytes = 0;
+        String? failureMessage = null;
         var start = timeProvider.GetTimestamp();
         await CreateProgress().StartAsync(async context =>
         {
             var task = CreateTask(context, fileName, sizeBytes);
             var progress = new TrackingProgress(value => UpdateTask(task, value));
-            await downloadAsync(progress, cancellationToken);
-            bytes = progress.Value;
-            CompleteTask(task, sizeBytes);
+            try
+            {
+                await downloadAsync(progress, cancellationToken);
+                bytes = progress.Value;
+                CompleteTask(task, sizeBytes);
+            }
+            catch (Exception exception)
+            {
+                var message = classifyError(exception);
+                if (message is null)
+                {
+                    throw;
+                }
+
+                bytes = progress.Value;
+                task.StopTask();
+                failureMessage = message;
+            }
         });
 
         var elapsed = timeProvider.GetElapsedTime(start);
+        if (failureMessage is not null)
+        {
+            console.MarkupLineInterpolated($"[red]FAILED[/] {fileName}: {failureMessage}");
+            console.MarkupLineInterpolated($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(bytes, elapsed)})");
+            return false;
+        }
+
         console.MarkupLineInterpolated($"[green]SUCCESS[/] {fileName} ({FormatStats(bytes, elapsed)})");
         console.MarkupLineInterpolated($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
+        return true;
     }
 }

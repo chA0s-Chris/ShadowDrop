@@ -21,6 +21,12 @@ using System.Diagnostics;
 /// </remarks>
 internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stream
 {
+    // Validate here so the decorator is self-contained: a non-positive rate would divide by zero or produce nonsensical
+    // pacing, regardless of whether the constructing middleware guards the value.
+    private readonly Int64 _bytesPerSecond = bytesPerSecond > 0
+        ? bytesPerSecond
+        : throw new ArgumentOutOfRangeException(nameof(bytesPerSecond), bytesPerSecond, "Throttle rate must be a positive number of bytes per second.");
+
     private readonly Int64 _startTimestamp = Stopwatch.GetTimestamp();
     private Int64 _bytesWritten;
 
@@ -71,7 +77,7 @@ internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stre
         _bytesWritten += byteCount;
 
         // Sleep off the difference between how long the bytes so far should have taken at the target rate and how long they actually took.
-        var targetElapsed = TimeSpan.FromSeconds((Double)_bytesWritten / bytesPerSecond);
+        var targetElapsed = TimeSpan.FromSeconds((Double)_bytesWritten / _bytesPerSecond);
         var actualElapsed = Stopwatch.GetElapsedTime(_startTimestamp);
         var delay = targetElapsed - actualElapsed;
         if (delay > TimeSpan.Zero)

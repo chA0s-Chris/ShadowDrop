@@ -63,13 +63,14 @@ internal sealed class DownloadCommandHandler(
                 var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
                 var fileName = file.FileName ?? file.FileId ?? "download.bin";
-                await progressReporter.RunSingleAsync(
+                var succeeded = await progressReporter.RunSingleAsync(
                     fileName,
                     file.Length,
                     (progress, token) => DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken,
                                                                standardOutStream, progress, token),
+                    ClassifyDownloadError,
                     cancellationToken);
-                return 0;
+                return succeeded ? 0 : 1;
             }
             finally
             {
@@ -250,8 +251,8 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
-    // Mirrors the per-entry exception handling of the queue loop: returns a user-facing message for handled failures, otherwise null to rethrow.
-    private static String? ClassifyQueueError(Exception exception) => exception switch
+    // Shared by the queue loop and the single-file path: returns a user-facing message for handled failures, otherwise null to rethrow.
+    private static String? ClassifyDownloadError(Exception exception) => exception switch
     {
         DownloadCommandException downloadCommandException => downloadCommandException.Message,
         IOException => "Download failed due to a local I/O error.",
@@ -485,7 +486,7 @@ internal sealed class DownloadCommandHandler(
                              .ToList();
 
             var totalBytes = SumQueueBytes(queue.Files!);
-            var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyQueueError, cancellationToken);
+            var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
             return summary.Failed == 0 ? 0 : 1;
         }
         finally

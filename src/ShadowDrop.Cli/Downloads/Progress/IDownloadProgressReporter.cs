@@ -44,14 +44,20 @@ internal interface IDownloadProgressReporter
                                              CancellationToken cancellationToken);
 
     /// <summary>
-    /// Runs a single-file download, emitting start, progress, and completion output in the reporter's mode (rich or plain).
+    /// Runs a single-file download, emitting start, progress, and a terminal success/failure line plus summary in the reporter's
+    /// mode (rich or plain), keeping the lifecycle output symmetric with <see cref="RunQueueAsync"/>.
     /// </summary>
     /// <param name="fileName">The display name of the file.</param>
     /// <param name="sizeBytes">The declared plaintext size in bytes, or <see langword="null"/> when unknown.</param>
     /// <param name="downloadAsync">Performs the download, reporting cumulative durable plaintext bytes to the supplied progress sink.</param>
+    /// <param name="classifyError">
+    /// Maps a thrown exception to a user-facing failure message; returning <see langword="null"/> rethrows the exception unchanged.
+    /// </param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    Task RunSingleAsync(String fileName,
-                        Int64? sizeBytes,
-                        Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
-                        CancellationToken cancellationToken);
+    /// <returns><see langword="true"/> when the download succeeded; <see langword="false"/> when it failed with a classified error.</returns>
+    Task<Boolean> RunSingleAsync(String fileName,
+                                 Int64? sizeBytes,
+                                 Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
+                                 Func<Exception, String?> classifyError,
+                                 CancellationToken cancellationToken);
 }

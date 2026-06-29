@@ -40,12 +40,17 @@ internal sealed class NullDownloadProgressReporter : IDownloadProgressReporter
         return new(downloaded, failed);
     }
 
-    public Task RunSingleAsync(String fileName,
-                               Int64? sizeBytes,
-                               Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
-                               CancellationToken cancellationToken)
+    public async Task<Boolean> RunSingleAsync(String fileName,
+                                              Int64? sizeBytes,
+                                              Func<IProgress<Int64>?, CancellationToken, Task> downloadAsync,
+                                              Func<Exception, String?> classifyError,
+                                              CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(downloadAsync);
-        return downloadAsync(null, cancellationToken);
+        ArgumentNullException.ThrowIfNull(classifyError);
+
+        // No lifecycle output: callers owning their own UX (interactive) handle and classify failures themselves, so let exceptions propagate.
+        await downloadAsync(null, cancellationToken);
+        return true;
     }
 }

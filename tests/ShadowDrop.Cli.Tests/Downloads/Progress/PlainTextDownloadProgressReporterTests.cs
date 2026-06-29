@@ -55,6 +55,24 @@ public sealed class PlainTextDownloadProgressReporterTests
     }
 
     [Test]
+    public async Task RunSingleAsync_ShouldEmitFailedAndSummaryLines_WhenErrorIsClassified()
+    {
+        var writer = new StringWriter();
+        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+
+        var succeeded = await reporter.RunSingleAsync("alpha.bin", 2000,
+                                                      (_, _) => throw new DownloadCommandException("boom"),
+                                                      ClassifyError,
+                                                      CancellationToken.None);
+
+        succeeded.Should().BeFalse();
+        var lines = ReadLines(writer);
+        lines[0].Should().Be("START alpha.bin (2.0 KB)");
+        lines.Should().Contain("FAILED alpha.bin: boom");
+        lines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 0 files, failed 1 file ("));
+    }
+
+    [Test]
     public async Task RunSingleAsync_ShouldEmitStartSuccessAndSummaryLines()
     {
         var writer = new StringWriter();
@@ -66,7 +84,7 @@ public sealed class PlainTextDownloadProgressReporterTests
             timeProvider.Advance(TimeSpan.FromSeconds(2));
             progress!.Report(2000);
             return Task.CompletedTask;
-        }, CancellationToken.None);
+        }, ClassifyError, CancellationToken.None);
 
         var lines = ReadLines(writer);
         lines.Should().HaveCount(3);
@@ -85,9 +103,23 @@ public sealed class PlainTextDownloadProgressReporterTests
         {
             progress!.Report(10);
             return Task.CompletedTask;
-        }, CancellationToken.None);
+        }, ClassifyError, CancellationToken.None);
 
         ReadLines(writer)[0].Should().Be("START alpha.bin");
+    }
+
+    [Test]
+    public async Task RunSingleAsync_ShouldRethrow_WhenErrorIsNotClassified()
+    {
+        var writer = new StringWriter();
+        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+
+        var act = async () => await reporter.RunSingleAsync("alpha.bin", 2000,
+                                                            (_, _) => throw new InvalidOperationException("unexpected"),
+                                                            ClassifyError,
+                                                            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     private static String? ClassifyError(Exception exception) =>
