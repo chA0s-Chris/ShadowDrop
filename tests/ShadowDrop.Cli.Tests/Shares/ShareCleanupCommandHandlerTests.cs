@@ -19,7 +19,8 @@ public sealed class ShareCleanupCommandHandlerTests
         var handler = new ShareCleanupCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "secret-upload-token"),
                                                      httpClient,
                                                      standardOut,
-                                                     standardError);
+                                                     standardError,
+                                                     CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(new(null, null), CancellationToken.None);
 
@@ -43,7 +44,8 @@ public sealed class ShareCleanupCommandHandlerTests
         var handler = new ShareCleanupCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
                                                      httpClient,
                                                      standardOut,
-                                                     standardError);
+                                                     standardError,
+                                                     CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(new(null, null), CancellationToken.None);
 

@@ -17,7 +17,8 @@ internal sealed class QueueCreateCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     TextWriter standardOut,
-    TextWriter standardError)
+    TextWriter standardError,
+    CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(QueueCreateCommandOptions options, CancellationToken cancellationToken)
     {
@@ -104,6 +105,10 @@ internal sealed class QueueCreateCommandHandler(
             var manifest = await new ShareManifestClient(httpClient).GetAsync(serverUrl, shareToken, options.BearerToken, cancellationToken);
             var queue = QueueFileBuilder.Build(serverUrl, shareToken, manifest, credentials);
             AtomicFileWriter.WriteAtomic(options.Out, QueueFileParser.Serialize(queue), options.Force, options.EmbedSecrets);
+
+            // "queue-file:<path>" is a parseable, script-consumed line; the banner goes to stderr so it never
+            // corrupts that stdout contract.
+            await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
             await standardOut.WriteLineAsync($"queue-file:{options.Out.FullName}");
             return 0;
         }

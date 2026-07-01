@@ -12,6 +12,7 @@ using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Downloads.Progress;
+using ShadowDrop.Cli.Terminals;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
@@ -1047,6 +1048,32 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRouteBannerToStandardError_ForDirectDownloadByteOutput()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey],
+                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient,
+                                                                       terminalCapabilityProvider: FixedTerminalCapabilityProvider.Plain),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        // The decrypted byte stream stays pure on stdout; the banner is routed to stderr so it never corrupts it.
+        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
+        standardOut.ToString().Should().BeEmpty();
+        var expectedBanner = new StringWriter();
+        await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
+        standardError.ToString().Should().Contain(expectedBanner.ToString());
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldSurfaceAuthorizationFailureAfterRejectedInteractiveBearerToken()
     {
         await using var fixture = new CliDownloadApiFactory();
@@ -1257,7 +1284,8 @@ public sealed class DownloadCommandHandlerTests
                                                          String? configPath = null,
                                                          IReadOnlyDictionary<String, String?>? environmentValues = null,
                                                          HttpClient? httpClient = null,
-                                                         FakeInteractiveSession? interactiveSession = null) =>
+                                                         FakeInteractiveSession? interactiveSession = null,
+                                                         ITerminalCapabilityProvider? terminalCapabilityProvider = null) =>
         new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
             httpClient ?? new HttpClient(new NeverCalledHandler()),
             standardOutStream,
@@ -1265,7 +1293,8 @@ public sealed class DownloadCommandHandlerTests
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),
             TimeProvider.System,
-            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System));
+            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+            terminalCapabilityProvider ?? new TerminalCapabilityProvider());
 
     private sealed class CliDownloadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {

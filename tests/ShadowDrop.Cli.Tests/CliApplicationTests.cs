@@ -6,12 +6,26 @@ using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
 
 [NonParallelizable]
 public sealed class CliApplicationTests
 {
+    [Test]
+    public async Task InvokeAsync_ShouldAcceptShortHelpAlias_ForRootCommand()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["-h"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardError.ToString().Should().BeEmpty();
+        standardOut.ToString().Should().Contain("Usage:");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldFailInteractiveDownloadImmediately_WhenTerminalSupportIsUnavailable()
     {
@@ -66,6 +80,60 @@ public sealed class CliApplicationTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldKeepSimpleVersionHeader_ForHelpOutput_WhenNoBannerIsSpecified()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["--help", "--no-banner"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var lines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        lines[0].Should().Be($"ShadowDrop v{CliVersion.Current}");
+        standardOut.ToString().Should().Contain("Usage:").And.NotContain(".--//");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPrependVersionHeader_ToRootHelpOutput()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["--help"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var lines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        lines[0].Should().Be($"ShadowDrop v{CliVersion.Current}");
+        lines.Should().Contain(line => line.Contains("Usage:"));
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPrintPlainVersionOutput_AndNeverPrintBanner()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["--version"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardOut.ToString().Trim().Should().Be($"ShadowDrop v{CliVersion.Current}");
+        standardError.ToString().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectQuestionMarkHelpAlias()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["-?"], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("-?");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRouteShareRevokeCommand()
     {
         var shareId = Guid.NewGuid();
@@ -80,15 +148,37 @@ public sealed class CliApplicationTests
             return new(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
-                                                  httpClient,
+                                                  _ => httpClient,
+                                                  Stream.Null,
                                                   standardOut,
-                                                  standardError);
+                                                  standardError,
+                                                  new FakeInteractiveSession(),
+                                                  TimeProvider.System,
+                                                  new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                                                  FixedTerminalCapabilityProvider.Plain);
 
         var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString()], services, CancellationToken.None);
 
         exitCode.Should().Be(0);
         standardOut.ToString().Trim().Should().Be($"share-revoked:{shareId}");
+        // The banner is default-on for command execution and never corrupts the "share-revoked:<id>" stdout
+        // contract, so it is expected on stderr instead of leaving stderr empty.
+        var expectedBanner = new StringWriter();
+        await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
+        standardError.ToString().Should().Be(expectedBanner.ToString());
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldShowHelp_WhenNoArgumentsAreProvided()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync([], CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
         standardError.ToString().Should().BeEmpty();
+        standardOut.ToString().Should().Contain("Usage:").And.NotContain("A command is required.");
     }
 
     [Test]
@@ -108,16 +198,42 @@ public sealed class CliApplicationTests
                    .And.Contain("--interactive");
     }
 
+    [Test]
+    public async Task InvokeAsync_ShouldSuppressBanner_ForCommandOutput_WhenNoBannerIsSpecified()
+    {
+        var shareId = Guid.NewGuid();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+                                                  _ => httpClient,
+                                                  Stream.Null,
+                                                  standardOut,
+                                                  standardError,
+                                                  new FakeInteractiveSession(),
+                                                  TimeProvider.System,
+                                                  new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                                                  FixedTerminalCapabilityProvider.Plain);
+
+        var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString(), "--no-banner"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardOut.ToString().Trim().Should().Be($"share-revoked:{shareId}");
+        standardError.ToString().Should().BeEmpty();
+    }
+
     private static CliApplicationServices CreateServices(StringWriter standardOut,
                                                          StringWriter standardError,
                                                          FakeInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
-            new HttpClient(new NeverCalledHandler()),
+            _ => new(new NeverCalledHandler()),
             Stream.Null,
             standardOut,
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),
-            TimeProvider.System);
+            TimeProvider.System,
+            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+            FixedTerminalCapabilityProvider.Plain);
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {

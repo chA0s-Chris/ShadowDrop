@@ -9,7 +9,8 @@ internal sealed class ShareCleanupCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     TextWriter standardOut,
-    TextWriter standardError)
+    TextWriter standardError,
+    CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(ShareCleanupCommandOptions options, CancellationToken cancellationToken)
     {
@@ -34,6 +35,9 @@ internal sealed class ShareCleanupCommandHandler(
             return 1;
         }
 
+        // "share-cleanup:..." is a parseable, script-consumed line; the banner goes to stderr so it never
+        // corrupts that stdout contract.
+        await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
         await standardOut.WriteLineAsync(
             $"share-cleanup:candidates-scanned={result.CandidatesScanned} shares-completed={result.SharesCompleted} blobs-deleted={result.BlobsDeleted} blobs-already-missing={result.BlobsAlreadyMissing} failures={result.Failures} skipped={result.Skipped.ToString().ToLowerInvariant()}");
         return 0;

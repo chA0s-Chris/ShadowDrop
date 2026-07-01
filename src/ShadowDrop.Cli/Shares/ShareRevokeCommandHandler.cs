@@ -9,7 +9,8 @@ internal sealed class ShareRevokeCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     TextWriter standardOut,
-    TextWriter standardError)
+    TextWriter standardError,
+    CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(ShareRevokeCommandOptions options, CancellationToken cancellationToken)
     {
@@ -37,6 +38,9 @@ internal sealed class ShareRevokeCommandHandler(
             return 1;
         }
 
+        // "share-revoked:<id>" is a parseable, script-consumed line; the banner goes to stderr so it never
+        // corrupts that stdout contract.
+        await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
         await standardOut.WriteLineAsync($"share-revoked:{shareId}");
         return 0;
     }

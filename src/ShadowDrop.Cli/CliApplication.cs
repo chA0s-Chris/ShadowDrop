@@ -10,6 +10,7 @@ using ShadowDrop.Cli.Tls;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
 using System.CommandLine.Help;
+using System.CommandLine.Invocation;
 
 internal static class CliApplication
 {
@@ -28,7 +29,24 @@ internal static class CliApplication
 
         var commandModel = CreateCommandModel();
         var parseResult = commandModel.RootCommand.Parse(args);
+
+        // Bare invocation (no subcommand, no --help/--version) resolves to the root's own no-op action (see
+        // CreateCommandModel) rather than System.CommandLine's "Required command was not provided." parse error.
+        // Show help instead of silently succeeding or falling through to the "A command is required." path below.
+        if (parseResult.Errors.Count == 0
+            && parseResult.CommandResult.Command == commandModel.RootCommand
+            && parseResult.Action is not HelpAction
+            && parseResult.Action is not CliVersionAction)
+        {
+            parseResult = commandModel.RootCommand.Parse(["--help"]);
+        }
+
         if (parseResult.Action is HelpAction)
+        {
+            return InvokeHelpAsync(parseResult, services, cancellationToken);
+        }
+
+        if (parseResult.Action is CliVersionAction)
         {
             return parseResult.InvokeAsync(new()
             {
@@ -304,7 +322,32 @@ internal static class CliApplication
         rootCommand.Subcommands.Add(uploadCommand);
         rootCommand.Subcommands.Add(queueCommand);
         rootCommand.Subcommands.Add(shareCommand);
+
+        // The System.CommandLine defaults advertise -?/help and a bare, unlabeled --version; replace both so
+        // -? is no longer accepted and --version reports "ShadowDrop v<version>" instead of a bare version string.
+        rootCommand.Options.Remove(rootCommand.Options.OfType<HelpOption>().Single());
+        rootCommand.Options.Add(new HelpOption("--help", "-h"));
+
+        rootCommand.Options.Remove(rootCommand.Options.OfType<VersionOption>().Single());
+        var versionOption = new VersionOption("--version")
+        {
+            Action = new CliVersionAction()
+        };
+        rootCommand.Options.Add(versionOption);
+
+        var noBannerOption = new Option<Boolean>("--no-banner")
+        {
+            Description = "Suppress the decorated \"ShadowDrop v<version>\" banner.",
+            Recursive = true
+        };
+        rootCommand.Options.Add(noBannerOption);
+
+        // A bare invocation (no subcommand) is invokable without System.CommandLine's default "Required command
+        // was not provided." parse error; InvokeAsync detects this no-op action and shows help instead.
+        rootCommand.SetAction(static _ => 0);
+
         return new(rootCommand,
+                   noBannerOption,
                    shareTokenArgument,
                    filesArgument,
                    serverOption,
@@ -381,6 +424,10 @@ internal static class CliApplication
             return 1;
         }
 
+        var bannerWriter = new CliBannerWriter(parseResult.GetValue(commandModel.NoBannerOption),
+                                               services.TerminalCapabilityProvider.DetectForStandardOutput(),
+                                               services.TerminalCapabilityProvider.DetectForStandardError());
+
         if (parseResult.CommandResult.Command == commandModel.QueueCreateCommand)
         {
             var queueOptions = new QueueCreateCommandOptions(parseResult.GetValue(commandModel.QueueTokenArgument),
@@ -395,7 +442,8 @@ internal static class CliApplication
             return await new QueueCreateCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
                                                        services.StandardOut,
-                                                       services.StandardError).ExecuteAsync(queueOptions, cancellationToken);
+                                                       services.StandardError,
+                                                       bannerWriter).ExecuteAsync(queueOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.UploadRawCommand)
@@ -410,7 +458,8 @@ internal static class CliApplication
             return await new UploadRawCommandHandler(services.ConfigurationResolver,
                                                      httpClient,
                                                      services.StandardOut,
-                                                     services.StandardError).ExecuteAsync(rawOptions, cancellationToken);
+                                                     services.StandardError,
+                                                     bannerWriter).ExecuteAsync(rawOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareCreateCommand)
@@ -430,7 +479,8 @@ internal static class CliApplication
                                                        httpClient,
                                                        services.StandardOut,
                                                        services.StandardError,
-                                                       services.TimeProvider).ExecuteAsync(shareOptions, cancellationToken);
+                                                       services.TimeProvider,
+                                                       bannerWriter).ExecuteAsync(shareOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareRevokeCommand)
@@ -442,7 +492,8 @@ internal static class CliApplication
             return await new ShareRevokeCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
                                                        services.StandardOut,
-                                                       services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
+                                                       services.StandardError,
+                                                       bannerWriter).ExecuteAsync(revokeOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareCleanupCommand)
@@ -453,7 +504,8 @@ internal static class CliApplication
             return await new ShareCleanupCommandHandler(services.ConfigurationResolver,
                                                         httpClient,
                                                         services.StandardOut,
-                                                        services.StandardError).ExecuteAsync(cleanupOptions, cancellationToken);
+                                                        services.StandardError,
+                                                        bannerWriter).ExecuteAsync(cleanupOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -479,14 +531,16 @@ internal static class CliApplication
                 return await new InteractiveDownloadCommandHandler(services.ConfigurationResolver,
                                                                    httpClient,
                                                                    services.InteractiveSession,
-                                                                   services.StandardError).ExecuteAsync(options, cancellationToken);
+                                                                   services.StandardError,
+                                                                   bannerWriter).ExecuteAsync(options, cancellationToken);
             }
 
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
                                                              httpClient,
                                                              services.StandardOutStream,
                                                              services.StandardError,
-                                                             services.DownloadProgressReporterFactory.Create());
+                                                             services.DownloadProgressReporterFactory.Create(),
+                                                             bannerWriter);
             return await downloadHandler.ExecuteAsync(options, cancellationToken);
         }
 
@@ -517,7 +571,8 @@ internal static class CliApplication
                                                              services.InteractiveSession,
                                                              services.StandardOut,
                                                              services.StandardError,
-                                                             services.TimeProvider).ExecuteAsync(uploadOptions, cancellationToken);
+                                                             services.TimeProvider,
+                                                             bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
         }
 
         if (uploadOptions.Files.Length == 0)
@@ -530,11 +585,25 @@ internal static class CliApplication
                                               httpClient,
                                               services.StandardOut,
                                               services.StandardError,
-                                              services.TimeProvider).ExecuteAsync(uploadOptions, cancellationToken);
+                                              services.TimeProvider,
+                                              bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
+    }
+
+    private static async Task<Int32> InvokeHelpAsync(ParseResult parseResult, CliApplicationServices services, CancellationToken cancellationToken)
+    {
+        await services.StandardOut.WriteLineAsync($"ShadowDrop v{CliVersion.Current}");
+        await services.StandardOut.WriteLineAsync();
+
+        return await parseResult.InvokeAsync(new()
+        {
+            Output = services.StandardOut,
+            Error = services.StandardError
+        }, cancellationToken);
     }
 
     private sealed record CliCommandModel(
         RootCommand RootCommand,
+        Option<Boolean> NoBannerOption,
         Argument<String?> ShareTokenArgument,
         Argument<FileInfo[]> FilesArgument,
         Option<String?> ServerOption,
@@ -570,4 +639,13 @@ internal static class CliApplication
         Command ShareRevokeCommand,
         Argument<String?> ShareIdArgument,
         Command ShareCleanupCommand);
+
+    private sealed class CliVersionAction : SynchronousCommandLineAction
+    {
+        public override Int32 Invoke(ParseResult parseResult)
+        {
+            parseResult.InvocationConfiguration.Output.WriteLine($"ShadowDrop v{CliVersion.Current}");
+            return 0;
+        }
+    }
 }

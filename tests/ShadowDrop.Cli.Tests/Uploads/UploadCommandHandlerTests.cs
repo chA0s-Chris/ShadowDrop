@@ -11,6 +11,7 @@ using ShadowDrop.Api;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
@@ -105,8 +106,14 @@ public sealed class UploadCommandHandlerTests
                    .Should().HaveCount(2)
                    .And.OnlyContain(line => line.StartsWith("share-url:", StringComparison.Ordinal)
                                             || line.StartsWith("share-key:", StringComparison.Ordinal));
+        // The banner is written to stderr right before the success output, after the per-file progress lines.
+        var expectedBanner = new StringWriter();
+        await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
         standardError.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                     .Should().Equal("Uploaded file 1 of 3.", "Uploaded file 2 of 3.", "Uploaded file 3 of 3.");
+                     .Should().Equal([
+                         "Uploaded file 1 of 3.", "Uploaded file 2 of 3.", "Uploaded file 3 of 3.",
+                         .. expectedBanner.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                     ]);
         fixture.GetStoredUploads().Should().HaveCount(3);
     }
 
@@ -961,6 +968,30 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRouteBannerToStandardError_WhenJsonRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("json-banner.bin", 96);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        // The banner must never corrupt the JSON stdout contract: stdout stays parseable JSON while the banner is
+        // routed to stderr instead.
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        document.RootElement.GetProperty("status").GetString().Should().Be("succeeded");
+        var expectedBanner = new StringWriter();
+        await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
+        standardOut.ToString().Should().NotContain(expectedBanner.ToString());
+        standardError.ToString().Should().Contain(expectedBanner.ToString());
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldStoreEncryptedBlobAndNonSecretMetadataOnly()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -1707,12 +1738,14 @@ public sealed class UploadCommandHandlerTests
     {
         var resolvedHttpClient = httpClient ?? new HttpClient(new NeverCalledHandler());
         return new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
-                   resolvedHttpClient,
+                   _ => resolvedHttpClient,
                    Stream.Null,
                    standardOut,
                    standardError,
                    interactiveSession ?? new FakeInteractiveSession(),
-                   TimeProvider.System);
+                   TimeProvider.System,
+                   new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                   FixedTerminalCapabilityProvider.Plain);
     }
 
     private static String? FindLine(String standardOut, String prefix) =>

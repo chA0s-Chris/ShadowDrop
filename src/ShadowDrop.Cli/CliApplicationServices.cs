@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Interactive;
+using ShadowDrop.Cli.Terminals;
 using ShadowDrop.Cli.Tls;
 
 internal sealed record CliApplicationServices(
@@ -15,7 +16,8 @@ internal sealed record CliApplicationServices(
     TextWriter StandardError,
     ICliInteractiveSession InteractiveSession,
     TimeProvider TimeProvider,
-    IDownloadProgressReporterFactory DownloadProgressReporterFactory)
+    IDownloadProgressReporterFactory DownloadProgressReporterFactory,
+    ITerminalCapabilityProvider TerminalCapabilityProvider)
 {
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -28,7 +30,8 @@ internal sealed record CliApplicationServices(
                standardError,
                new SpectreCliInteractiveSession(standardError),
                TimeProvider.System,
-               new DownloadProgressReporterFactory(standardError, TimeProvider.System)) { }
+               new DownloadProgressReporterFactory(standardError, TimeProvider.System),
+               new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -42,7 +45,8 @@ internal sealed record CliApplicationServices(
                standardError,
                new SpectreCliInteractiveSession(standardError),
                TimeProvider.System,
-               new DownloadProgressReporterFactory(standardError, TimeProvider.System)) { }
+               new DownloadProgressReporterFactory(standardError, TimeProvider.System),
+               new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -58,7 +62,8 @@ internal sealed record CliApplicationServices(
                standardError,
                interactiveSession,
                timeProvider,
-               new DownloadProgressReporterFactory(standardError, timeProvider)) { }
+               new DownloadProgressReporterFactory(standardError, timeProvider),
+               new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -75,15 +80,42 @@ internal sealed record CliApplicationServices(
                standardError,
                interactiveSession,
                timeProvider,
-               downloadProgressReporterFactory) { }
+               downloadProgressReporterFactory,
+               new TerminalCapabilityProvider()) { }
 
-    public static CliApplicationServices CreateDefault() =>
-        new(new(new(), new EnvironmentReader()),
-            CliHttpClientFactory.CreateClient,
-            Console.OpenStandardOutput(),
-            Console.Out,
-            Console.Error,
-            new SpectreCliInteractiveSession(Console.Error),
-            TimeProvider.System,
-            new DownloadProgressReporterFactory(Console.Error, TimeProvider.System));
+    public CliApplicationServices(CliConfigurationResolver configurationResolver,
+                                  HttpClient httpClient,
+                                  Stream standardOutStream,
+                                  TextWriter standardOut,
+                                  TextWriter standardError,
+                                  ICliInteractiveSession interactiveSession,
+                                  TimeProvider timeProvider,
+                                  IDownloadProgressReporterFactory downloadProgressReporterFactory,
+                                  ITerminalCapabilityProvider terminalCapabilityProvider)
+        : this(configurationResolver,
+               _ => httpClient,
+               standardOutStream,
+               standardOut,
+               standardError,
+               interactiveSession,
+               timeProvider,
+               downloadProgressReporterFactory,
+               terminalCapabilityProvider) { }
+
+    public static CliApplicationServices CreateDefault()
+    {
+        // A single provider is shared so banner rendering and download progress selection use the same
+        // detection implementation rather than two independently constructed providers. The provider re-reads
+        // the environment on each call, so this is a single source of truth, not caching.
+        var terminalCapabilityProvider = new TerminalCapabilityProvider();
+        return new(new(new(), new EnvironmentReader()),
+                   CliHttpClientFactory.CreateClient,
+                   Console.OpenStandardOutput(),
+                   Console.Out,
+                   Console.Error,
+                   new SpectreCliInteractiveSession(Console.Error),
+                   TimeProvider.System,
+                   new DownloadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                   terminalCapabilityProvider);
+    }
 }
