@@ -102,14 +102,19 @@ internal sealed record CliApplicationServices(
                downloadProgressReporterFactory,
                terminalCapabilityProvider) { }
 
-    public static CliApplicationServices CreateDefault() =>
-        new(new(new(), new EnvironmentReader()),
-            CliHttpClientFactory.CreateClient,
-            Console.OpenStandardOutput(),
-            Console.Out,
-            Console.Error,
-            new SpectreCliInteractiveSession(Console.Error),
-            TimeProvider.System,
-            new DownloadProgressReporterFactory(Console.Error, TimeProvider.System),
-            new TerminalCapabilityProvider());
+    public static CliApplicationServices CreateDefault()
+    {
+        // A single provider is shared so banner rendering and download progress selection observe identical
+        // terminal capabilities and the environment is probed only once.
+        var terminalCapabilityProvider = new TerminalCapabilityProvider();
+        return new(new(new(), new EnvironmentReader()),
+                   CliHttpClientFactory.CreateClient,
+                   Console.OpenStandardOutput(),
+                   Console.Out,
+                   Console.Error,
+                   new SpectreCliInteractiveSession(Console.Error),
+                   TimeProvider.System,
+                   new DownloadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                   terminalCapabilityProvider);
+    }
 }
