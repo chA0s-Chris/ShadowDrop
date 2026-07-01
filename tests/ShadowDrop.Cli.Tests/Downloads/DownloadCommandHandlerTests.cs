@@ -19,6 +19,7 @@ using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -261,6 +262,50 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldDeleteStaleQueuePartialAndRestartFromByteZero()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            await File.WriteAllBytesAsync(partialPath, [1, 2, 3, 4]);
+            await WriteResumeMarkerAsync(markerPath, "https://shadowdrop.test/base-path/", "shared-token", Guid.NewGuid().ToString("D"),
+                                         fixture.FileName, fixture.Plaintext.LongLength, Convert.ToBase64String(fixture.KdfSalt), null);
+            var queuePath = CreateQueueFile(rootDirectory, fixture);
+
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                request =>
+                {
+                    request.Headers.Range.Should().BeNull();
+                    return fixture.CreateDownloadResponse();
+                });
+            using var httpClient = new HttpClient(handler);
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+            File.Exists(partialPath).Should().BeFalse();
+            File.Exists(markerPath).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldDownloadSingleFileToStdout_WhenCliShareKeyOverridesKeyFile()
     {
         await using var fixture = new CliDownloadApiFactory();
@@ -431,6 +476,73 @@ public sealed class DownloadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Share token invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailQueueEntry_WhenQueueAndManifestPlaintextHashesConflict()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var queuePath = CreateQueueFile(rootDirectory, fixture, ComputeSha256(fixture.Plaintext));
+            using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)));
+            using var httpClient = new HttpClient(handler);
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            File.Exists(outputPath).Should().BeFalse();
+            standardError.ToString().Should().Contain("Queue entry does not match share metadata.");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailQueueEntryAndLeaveCompletedOutputUntouched_WhenExistingOutputHashDoesNotMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var existingBytes = fixture.Plaintext.ToArray();
+            existingBytes[0] ^= 0xff;
+            await File.WriteAllBytesAsync(outputPath, existingBytes);
+            var queuePath = CreateQueueFile(rootDirectory, fixture, ComputeSha256(fixture.Plaintext));
+            using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse());
+            using var httpClient = new HttpClient(handler);
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(existingBytes);
+            standardError.ToString().Should().Contain("Existing output file does not match");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -642,6 +754,152 @@ public sealed class DownloadCommandHandlerTests
         standardError.ToString().Should().Contain("START beta.bin")
                      .And.Contain("SUCCESS beta.bin")
                      .And.Contain("SUMMARY downloaded 1 file");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveAndResumeQueuePartialAfterCancellation()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            var queuePath = CreateQueueFile(rootDirectory, fixture);
+            var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
+            using var cancellation = new CancellationTokenSource();
+
+            using (var handler = new SequenceHttpMessageHandler(
+                       _ => fixture.CreateManifestResponse(),
+                       _ => fixture.CreateCancellingDownloadResponse(firstChunkEncryptedLength + 7, cancellation)))
+            using (var httpClient = new HttpClient(handler))
+            {
+                var firstAttempt = async () => await CliApplication.InvokeAsync(
+                    ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    cancellation.Token);
+
+                await firstAttempt.Should().ThrowAsync<OperationCanceledException>();
+            }
+
+            File.Exists(outputPath).Should().BeFalse();
+            File.Exists(partialPath).Should().BeTrue();
+            File.Exists(markerPath).Should().BeTrue();
+            (await File.ReadAllBytesAsync(partialPath)).Should().Equal(fixture.Plaintext.Take(fixture.ChunkSize));
+
+            using (var handler = new SequenceHttpMessageHandler(
+                       _ => fixture.CreateManifestResponse(),
+                       request =>
+                       {
+                           var range = request.Headers.Range;
+                           range.Should().NotBeNull();
+                           range!.Ranges.Should().ContainSingle();
+                           range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                           range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
+                           return fixture.CreateDownloadResponse(new()
+                           {
+                               Start = fixture.ChunkSize,
+                               End = fixture.Plaintext.LongLength
+                           });
+                       }))
+            using (var httpClient = new HttpClient(handler))
+            {
+                var secondExitCode = await CliApplication.InvokeAsync(
+                    ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    CancellationToken.None);
+
+                secondExitCode.Should().Be(0);
+            }
+
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+            File.Exists(partialPath).Should().BeFalse();
+            File.Exists(markerPath).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveAndResumeQueuePartialAfterInterruptedFileDownload()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            var queuePath = CreateQueueFile(rootDirectory, fixture);
+            var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
+
+            using (var handler = new SequenceHttpMessageHandler(
+                       _ => fixture.CreateManifestResponse(),
+                       _ => fixture.CreateInterruptedDownloadResponse(firstChunkEncryptedLength + 7)))
+            using (var httpClient = new HttpClient(handler))
+            {
+                var firstExitCode = await CliApplication.InvokeAsync(
+                    ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    CancellationToken.None);
+
+                firstExitCode.Should().Be(1);
+            }
+
+            File.Exists(outputPath).Should().BeFalse();
+            File.Exists(partialPath).Should().BeTrue();
+            File.Exists(markerPath).Should().BeTrue();
+            (await File.ReadAllBytesAsync(partialPath)).Should().Equal(fixture.Plaintext.Take(fixture.ChunkSize));
+
+            var secondStandardError = new StringWriter();
+            using (var handler = new SequenceHttpMessageHandler(
+                       _ => fixture.CreateManifestResponse(),
+                       request =>
+                       {
+                           var range = request.Headers.Range;
+                           range.Should().NotBeNull();
+                           range!.Ranges.Should().ContainSingle();
+                           range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                           range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
+                           return fixture.CreateDownloadResponse(new()
+                           {
+                               Start = fixture.ChunkSize,
+                               End = fixture.Plaintext.LongLength
+                           });
+                       }))
+            using (var httpClient = new HttpClient(handler))
+            {
+                var secondExitCode = await CliApplication.InvokeAsync(
+                    ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                    CreateServices(new MemoryStream(), new StringWriter(), secondStandardError, httpClient: httpClient),
+                    CancellationToken.None);
+
+                secondExitCode.Should().Be(0);
+            }
+
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+            // Only the 64 B transferred during this resumed run is reported, not the file's full 128 B size.
+            secondStandardError.ToString().Should().Contain("SUCCESS 1/1 payload.bin -> payload.bin (64 B in");
+            File.Exists(partialPath).Should().BeFalse();
+            File.Exists(markerPath).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -964,6 +1222,125 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldResumeFirstIncompleteQueueEntryAndContinueRemainingEntries()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var firstOutputPath = Path.Combine(rootDirectory, "payload.bin");
+            var secondOutputPath = Path.Combine(rootDirectory, "second.bin");
+            var partialPath = $"{firstOutputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            await File.WriteAllBytesAsync(partialPath, fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
+            await WriteResumeMarkerAsync(markerPath,
+                                         "https://shadowdrop.test/base-path/",
+                                         "shared-token",
+                                         fixture.FileId.ToString("D"),
+                                         fixture.FileName,
+                                         fixture.Plaintext.LongLength,
+                                         Convert.ToBase64String(fixture.KdfSalt),
+                                         null);
+            var queuePath = CreateQueueFile(rootDirectory, fixture, null, "payload.bin", "second.bin");
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                request =>
+                {
+                    request.Headers.Range.Should().NotBeNull();
+                    request.Headers.Range!.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                    return fixture.CreateDownloadResponse(new()
+                    {
+                        Start = fixture.ChunkSize,
+                        End = fixture.Plaintext.LongLength
+                    });
+                },
+                request =>
+                {
+                    request.Headers.Range.Should().BeNull();
+                    return fixture.CreateDownloadResponse();
+                });
+            using var httpClient = new HttpClient(handler);
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
+            (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
+            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> payload.bin")
+                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldResumeInteractiveFileDownloadFromValidatedPartial()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "interactive.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            await File.WriteAllBytesAsync(partialPath, fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
+            await WriteResumeMarkerAsync(markerPath,
+                                         "https://shadowdrop.test/base-path/",
+                                         "shared-token",
+                                         fixture.FileId.ToString("D"),
+                                         fixture.FileName,
+                                         fixture.Plaintext.LongLength,
+                                         Convert.ToBase64String(fixture.KdfSalt),
+                                         null);
+            var interactiveSession = new FakeInteractiveSession();
+            interactiveSession.EnqueueTextResponse(fixture.ShareKey);
+            interactiveSession.EnqueueMultiSelection(0);
+            interactiveSession.EnqueueTextResponse(outputPath);
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                request =>
+                {
+                    request.Headers.Range.Should().NotBeNull();
+                    request.Headers.Range!.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                    return fixture.CreateDownloadResponse(new()
+                    {
+                        Start = fixture.ChunkSize,
+                        End = fixture.Plaintext.LongLength
+                    });
+                });
+            using var httpClient = new HttpClient(handler);
+
+            var exitCode = await CliApplication.InvokeAsync(
+                ["download", "--interactive", "--server-url", "https://shadowdrop.test/base-path/", "shared-token"],
+                CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient, interactiveSession: interactiveSession),
+                CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+            interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Download complete");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldReuseManifestCacheForEquivalentServerUrlVariants()
     {
         var fixture = DownloadHttpFixture.Create();
@@ -1071,6 +1448,38 @@ public sealed class DownloadCommandHandlerTests
         var expectedBanner = new StringWriter();
         await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
         standardError.ToString().Should().Contain(expectedBanner.ToString());
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldSkipExistingCompletedQueueOutput_WhenLengthAndHashMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            await File.WriteAllBytesAsync(outputPath, fixture.Plaintext);
+            var queuePath = CreateQueueFile(rootDirectory, fixture, ComputeSha256(fixture.Plaintext));
+            using var httpClient = new HttpClient(new NeverCalledHandler());
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -1278,6 +1687,31 @@ public sealed class DownloadCommandHandlerTests
         act.Should().Throw<DownloadCommandException>().WithMessage("Requested file not found in share.");
     }
 
+    private static String ComputeSha256(Byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    private static String CreateQueueFile(String rootDirectory, DownloadHttpFixture fixture, String? plaintextSha256 = null, params String[] outputPaths)
+    {
+        var queuePath = Path.Combine(rootDirectory, "queue.json");
+        var paths = outputPaths.Length == 0 ? ["payload.bin"] : outputPaths;
+        var queueJson = QueueFileParser.Serialize(new()
+        {
+            ShadowDrop = "1.0",
+            QueueVersion = "1.0",
+            Files = paths.Select(path => new QueueFileEntry
+            {
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
+                FileId = fixture.FileId.ToString(),
+                FileName = fixture.FileName,
+                Length = fixture.Plaintext.LongLength,
+                OutputPath = path,
+                PlaintextSha256 = plaintextSha256
+            }).ToArray()
+        });
+        File.WriteAllText(queuePath, queueJson);
+        return queuePath;
+    }
+
     private static CliApplicationServices CreateServices(Stream standardOutStream,
                                                          TextWriter standardOut,
                                                          TextWriter standardError,
@@ -1295,6 +1729,81 @@ public sealed class DownloadCommandHandlerTests
             TimeProvider.System,
             new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
             terminalCapabilityProvider ?? new TerminalCapabilityProvider());
+
+    private static async Task WriteResumeMarkerAsync(String markerPath,
+                                                     String serverUrl,
+                                                     String shareToken,
+                                                     String fileId,
+                                                     String? fileName,
+                                                     Int64 fileLength,
+                                                     String? kdfSalt,
+                                                     String? plaintextSha256)
+    {
+        var json = JsonSerializer.Serialize(new
+        {
+            version = 1,
+            serverUrl,
+            shareToken,
+            fileId,
+            fileName,
+            fileLength,
+            kdfSalt,
+            plaintextSha256
+        });
+        await File.WriteAllTextAsync(markerPath, json);
+    }
+
+    private sealed class CancellingReadStream(Stream inner, Int32 bytesBeforeCancellation, CancellationTokenSource cancellation) : Stream
+    {
+        private Int32 _bytesRead;
+
+        public override Boolean CanRead => true;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => false;
+        public override Int64 Length => inner.Length;
+
+        public override Int64 Position
+        {
+            get => inner.Position;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
+            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_bytesRead >= bytesBeforeCancellation)
+            {
+                await cancellation.CancelAsync();
+                throw new OperationCanceledException(cancellation.Token);
+            }
+
+            var allowed = Math.Min(buffer.Length, bytesBeforeCancellation - _bytesRead);
+            var read = await inner.ReadAsync(buffer[..allowed], cancellationToken);
+            _bytesRead += read;
+            return read;
+        }
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 
     private sealed class CliDownloadApiFactory : WebApplicationFactory<Program>, IAsyncDisposable
     {
@@ -1497,26 +2006,55 @@ public sealed class DownloadCommandHandlerTests
             return new(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
         }
 
-        public HttpResponseMessage CreateDownloadResponse()
+        public HttpResponseMessage CreateCancellingDownloadResponse(Int32 bytesBeforeCancellation, CancellationTokenSource cancellation)
         {
-            var responseBody = EncryptedChunks.SelectMany(static chunk => chunk).ToArray();
+            var response = CreateDownloadResponse();
+            var contentLength = response.Content.Headers.ContentLength;
+            response.Content = new StreamContent(new CancellingReadStream(response.Content.ReadAsStream(), bytesBeforeCancellation, cancellation));
+            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentLength = contentLength;
+            return response;
+        }
+
+        public HttpResponseMessage CreateDownloadResponse(RequestedPlaintextRangeContract? requestedRange = null)
+        {
+            var range = requestedRange ?? new RequestedPlaintextRangeContract
+            {
+                Start = 0,
+                End = Plaintext.LongLength
+            };
+            var chunkRange = ChunkEncryptionService.GetChunkRange(range.Start, range.End - range.Start, ChunkSize);
+            var responseBody = EncryptedChunks.Skip(checked((Int32)chunkRange.FirstChunkIndex))
+                                              .Take(checked((Int32)(chunkRange.LastChunkIndex - chunkRange.FirstChunkIndex + 1)))
+                                              .SelectMany(static chunk => chunk)
+                                              .ToArray();
             var response = new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new ByteArrayContent(responseBody)
             };
             response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
             response.Content.Headers.ContentLength = responseBody.LongLength;
-            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, "0");
-            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, (EncryptedChunks.Length - 1).ToString());
-            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeStartHeaderName, "0");
-            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, Plaintext.LongLength.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, chunkRange.FirstChunkIndex.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, chunkRange.LastChunkIndex.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeStartHeaderName, range.Start.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, range.End.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, Plaintext.LongLength.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.ChunkSizeHeaderName, ChunkSize.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName, ChunkSize.ToString());
             return response;
         }
 
-        public ShareManifestFileContract CreateManifestFile(String? fileName = null) =>
+        public HttpResponseMessage CreateInterruptedDownloadResponse(Int32 bytesBeforeFailure)
+        {
+            var response = CreateDownloadResponse();
+            var contentLength = response.Content.Headers.ContentLength;
+            response.Content = new StreamContent(new InterruptingReadStream(response.Content.ReadAsStream(), bytesBeforeFailure));
+            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentLength = contentLength;
+            return response;
+        }
+
+        public ShareManifestFileContract CreateManifestFile(String? fileName = null, String? plaintextSha256 = null) =>
             new()
             {
                 AlgorithmId = "aes-256-gcm",
@@ -1527,12 +2065,12 @@ public sealed class DownloadCommandHandlerTests
                 FileName = fileName ?? FileName,
                 KdfSalt = Convert.ToBase64String(KdfSalt),
                 Length = Plaintext.LongLength,
-                PlaintextSha256 = null
+                PlaintextSha256 = plaintextSha256
             };
 
-        public HttpResponseMessage CreateManifestResponse(String? fileName = null)
+        public HttpResponseMessage CreateManifestResponse(String? fileName = null, String? plaintextSha256 = null)
         {
-            return CreateManifestResponseWithFiles(CreateManifestFile(fileName));
+            return CreateManifestResponseWithFiles(CreateManifestFile(fileName, plaintextSha256));
         }
 
         public HttpResponseMessage CreateManifestResponseWithFiles(params ShareManifestFileContract[] files)
@@ -1545,6 +2083,57 @@ public sealed class DownloadCommandHandlerTests
             {
                 Content = new StringContent(JsonSerializer.Serialize(manifest), Encoding.UTF8, "application/json")
             };
+        }
+    }
+
+    private sealed class InterruptingReadStream(Stream inner, Int32 bytesBeforeFailure) : Stream
+    {
+        private Int32 _bytesRead;
+
+        public override Boolean CanRead => true;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => false;
+        public override Int64 Length => inner.Length;
+
+        public override Int64 Position
+        {
+            get => inner.Position;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) =>
+            ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).AsTask().GetAwaiter().GetResult();
+
+        public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_bytesRead >= bytesBeforeFailure)
+            {
+                throw new IOException("Simulated interrupted download.");
+            }
+
+            var allowed = Math.Min(buffer.Length, bytesBeforeFailure - _bytesRead);
+            var read = await inner.ReadAsync(buffer[..allowed], cancellationToken);
+            _bytesRead += read;
+            return read;
+        }
+
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 

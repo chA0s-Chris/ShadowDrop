@@ -11,6 +11,33 @@ using System.Net;
 
 public sealed class CliDownloadSessionTests
 {
+    [Test]
+    public void Constructor_ShouldReportDurablePlaintextLengthImmediately_WhenResuming()
+    {
+        var fixture = DownloadFixture.Create();
+        using var httpClient =
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
+            {
+                BaseAddress = new("https://shadowdrop.test/")
+            };
+        using var destination = new MemoryStream(fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
+        using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
+        List<Int64> reportedValues = [];
+        var progress = new RecordingProgress(reportedValues.Add);
+
+        using var session = new CliDownloadSession(httpClient,
+                                                   new(httpClient.BaseAddress, "d/share-token/files/file-id"),
+                                                   destination,
+                                                   shareSecret,
+                                                   fixture.CreateFileEncryptionContext(),
+                                                   durablePlaintextLength: fixture.ChunkSize,
+                                                   totalPlaintextSize: fixture.Plaintext.LongLength,
+                                                   progress: progress);
+
+        reportedValues.Should().ContainSingle().Which.Should().Be(fixture.ChunkSize);
+        session.DurablePlaintextLength.Should().Be(fixture.ChunkSize);
+    }
+
     [TestCase(-1)]
     [TestCase(1)]
     public async Task DownloadAsync_ShouldFailClosed_WhenSeekableDestinationLengthDoesNotMatchDurablePlaintextLength(Int32 lengthDelta)
@@ -275,6 +302,11 @@ public sealed class CliDownloadSessionTests
         public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(Int64 value) => throw new NotSupportedException();
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingProgress(Action<Int64> onReport) : IProgress<Int64>
+    {
+        public void Report(Int64 value) => onReport(value);
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

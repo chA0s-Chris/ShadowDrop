@@ -47,7 +47,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
             {
                 await item.DownloadAsync(progress, cancellationToken);
                 var elapsed = timeProvider.GetElapsedTime(fileStart);
-                var bytes = progress.Value;
+                var bytes = progress.TransferredValue;
                 downloaded++;
                 totalDownloadedBytes += bytes;
                 await standardError.WriteLineAsync(
@@ -99,12 +99,12 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
 
             var failedElapsed = timeProvider.GetElapsedTime(start);
             await standardError.WriteLineAsync($"FAILED {fileName}: {message}");
-            await standardError.WriteLineAsync($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(progress.Value, failedElapsed)})");
+            await standardError.WriteLineAsync($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(progress.TransferredValue, failedElapsed)})");
             return false;
         }
 
         var elapsed = timeProvider.GetElapsedTime(start);
-        var bytes = progress.Value;
+        var bytes = progress.TransferredValue;
         await standardError.WriteLineAsync($"SUCCESS {fileName} ({FormatStats(bytes, elapsed)})");
         await standardError.WriteLineAsync($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
         return true;

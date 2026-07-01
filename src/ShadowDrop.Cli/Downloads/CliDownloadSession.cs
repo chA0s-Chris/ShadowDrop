@@ -31,6 +31,7 @@ public sealed class CliDownloadSession : IDisposable
     /// <param name="encryptionContext">The file encryption context.</param>
     /// <param name="bearerToken">The optional bearer token sent with each download request.</param>
     /// <param name="durablePlaintextLength">The already-persisted plaintext byte count.</param>
+    /// <param name="totalPlaintextSize">The total plaintext file size when it is already known.</param>
     /// <param name="progress">An optional sink that receives the cumulative durable plaintext byte count after each chunk is written.</param>
     /// <exception cref="ArgumentNullException">
     /// Thrown when <paramref name="httpClient"/>, <paramref name="downloadUri"/>, <paramref name="destination"/>,
@@ -45,6 +46,7 @@ public sealed class CliDownloadSession : IDisposable
                               FileEncryptionContext encryptionContext,
                               String? bearerToken = null,
                               Int64 durablePlaintextLength = 0,
+                              Int64? totalPlaintextSize = null,
                               IProgress<Int64>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -53,6 +55,14 @@ public sealed class CliDownloadSession : IDisposable
         ArgumentNullException.ThrowIfNull(shareSecret);
         ArgumentNullException.ThrowIfNull(encryptionContext);
         ArgumentOutOfRangeException.ThrowIfNegative(durablePlaintextLength);
+        if (totalPlaintextSize is not null)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(totalPlaintextSize.Value);
+            if (durablePlaintextLength > totalPlaintextSize.Value)
+            {
+                throw new ArgumentOutOfRangeException(nameof(durablePlaintextLength), "The durable plaintext length must not exceed the total size.");
+            }
+        }
 
         if (!destination.CanWrite)
         {
@@ -67,6 +77,7 @@ public sealed class CliDownloadSession : IDisposable
         _progress = progress;
         _contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
         DurablePlaintextLength = durablePlaintextLength;
+        TotalPlaintextSize = totalPlaintextSize;
         // Report the starting offset so resumed downloads begin progress from the already-persisted byte count.
         progress?.Report(durablePlaintextLength);
     }

@@ -14,18 +14,18 @@ to stdout remain non-resumable because stdout is not a durable, seekable destina
 
 ## Acceptance Criteria
 
-- [ ] Cancelling a queue download and rerunning the same queue continues from the existing `.shadowdrop-partial` bytes instead of restarting from byte zero.
-- [ ] A failed queue file download keeps its `.shadowdrop-partial` file when the resume marker matches the server URL, share token, file id, file name, file length, KDF salt/hash, and plaintext SHA-256 when available.
-- [ ] A partial file that does not match the current queue entry and share manifest is discarded and redownloaded from byte zero.
-- [ ] Resume happens automatically when a valid partial exists; no new `--resume` flag is required.
-- [ ] Re-running a queue skips an existing completed output file when it matches the queue entry length and, when available, the queue entry plaintext SHA-256.
-- [ ] Re-running a queue resumes the first incomplete output from a valid `.shadowdrop-partial` file and then continues with the remaining queue entries.
-- [ ] An existing completed output file whose length or plaintext SHA-256 does not match the queue entry fails that queue entry with a clear error and leaves the existing file untouched, rather than being silently overwritten.
-- [ ] Interactive file downloads reuse the same validated partial-file resume behavior as queue downloads.
-- [ ] Progress output starts from the already durable byte count when a file is resumed.
-- [ ] Completed resumed downloads are byte-for-byte identical to clean, uninterrupted downloads.
-- [ ] Direct single-file downloads to stdout remain unchanged and do not attempt resume.
-- [ ] Automated tests cover cancellation/failure partial preservation, successful resume from a matching partial, stale partial cleanup, progress starting offset, final byte equality, and unchanged stdout download behavior.
+- [x] Cancelling a queue download and rerunning the same queue continues from the existing `.shadowdrop-partial` bytes instead of restarting from byte zero.
+- [x] A failed queue file download keeps its `.shadowdrop-partial` file when the resume marker matches the server URL, share token, file id, file name, file length, KDF salt/hash, and plaintext SHA-256 when available.
+- [x] A partial file that does not match the current queue entry and share manifest is discarded and redownloaded from byte zero.
+- [x] Resume happens automatically when a valid partial exists; no new `--resume` flag is required.
+- [x] Re-running a queue skips an existing completed output file when it matches the queue entry length and, when available, the queue entry plaintext SHA-256.
+- [x] Re-running a queue resumes the first incomplete output from a valid `.shadowdrop-partial` file and then continues with the remaining queue entries.
+- [x] An existing completed output file whose length or plaintext SHA-256 does not match the queue entry fails that queue entry with a clear error and leaves the existing file untouched, rather than being silently overwritten.
+- [x] Interactive file downloads reuse the same validated partial-file resume behavior as queue downloads.
+- [x] Progress output starts from the already durable byte count when a file is resumed.
+- [x] Completed resumed downloads are byte-for-byte identical to clean, uninterrupted downloads.
+- [x] Direct single-file downloads to stdout remain unchanged and do not attempt resume.
+- [x] Automated tests cover cancellation/failure partial preservation, successful resume from a matching partial, stale partial cleanup, progress starting offset, final byte equality, and unchanged stdout download behavior.
 
 ## Technical Details
 
