@@ -1164,6 +1164,66 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldResetQueuePartialWhenResumeMarkerCannotBeRead()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("Unix file permissions are required to make the marker unreadable without changing the parent directory.");
+            return;
+        }
+
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            await File.WriteAllBytesAsync(partialPath, fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
+            await WriteResumeMarkerAsync(markerPath,
+                                         "https://shadowdrop.test/base-path/",
+                                         "shared-token",
+                                         fixture.FileId.ToString("D"),
+                                         fixture.FileName,
+                                         fixture.Plaintext.LongLength,
+                                         Convert.ToBase64String(fixture.KdfSalt),
+                                         null);
+            File.SetUnixFileMode(markerPath, UnixFileMode.None);
+            var queuePath = CreateQueueFile(rootDirectory, fixture);
+
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                request =>
+                {
+                    request.Headers.Range.Should().BeNull();
+                    return fixture.CreateDownloadResponse();
+                });
+            using var httpClient = new HttpClient(handler);
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+        }
+        finally
+        {
+            if (!OperatingSystem.IsWindows() && File.Exists(Path.Combine(rootDirectory, "payload.bin.shadowdrop-partial.json")))
+            {
+                File.SetUnixFileMode(Path.Combine(rootDirectory, "payload.bin.shadowdrop-partial.json"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldResolveQueueOutputPathUnderCurrentDirectory_WhenOutputRootOmitted()
     {
         var fixture = DownloadHttpFixture.Create();
@@ -1330,6 +1390,59 @@ public sealed class DownloadCommandHandlerTests
             exitCode.Should().Be(0);
             (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
             interactiveSession.Summaries.Should().Contain(summary => summary.Title == "Download complete");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldResumeQueuePartialWithEquivalentServerUrlVariant()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            await File.WriteAllBytesAsync(partialPath, fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
+            await WriteResumeMarkerAsync(markerPath,
+                                         "https://shadowdrop.test/base-path/",
+                                         "shared-token",
+                                         fixture.FileId.ToString("D"),
+                                         fixture.FileName,
+                                         fixture.Plaintext.LongLength,
+                                         Convert.ToBase64String(fixture.KdfSalt),
+                                         null);
+            var queuePath = CreateQueueFileWithServerUrl(rootDirectory, fixture, "https://shadowdrop.test/base-path");
+
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                request =>
+                {
+                    request.Headers.Range.Should().NotBeNull();
+                    request.Headers.Range!.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                    return fixture.CreateDownloadResponse(new()
+                    {
+                        Start = fixture.ChunkSize,
+                        End = fixture.Plaintext.LongLength
+                    });
+                });
+            using var httpClient = new HttpClient(handler);
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
         }
         finally
         {
@@ -1689,7 +1802,14 @@ public sealed class DownloadCommandHandlerTests
 
     private static String ComputeSha256(Byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
 
-    private static String CreateQueueFile(String rootDirectory, DownloadHttpFixture fixture, String? plaintextSha256 = null, params String[] outputPaths)
+    private static String CreateQueueFile(String rootDirectory, DownloadHttpFixture fixture, String? plaintextSha256 = null, params String[] outputPaths) =>
+        CreateQueueFileCore(rootDirectory, fixture, "https://shadowdrop.test/base-path/", plaintextSha256, outputPaths);
+
+    private static String CreateQueueFileCore(String rootDirectory,
+                                              DownloadHttpFixture fixture,
+                                              String serverUrl,
+                                              String? plaintextSha256,
+                                              params String[] outputPaths)
     {
         var queuePath = Path.Combine(rootDirectory, "queue.json");
         var paths = outputPaths.Length == 0 ? ["payload.bin"] : outputPaths;
@@ -1699,7 +1819,7 @@ public sealed class DownloadCommandHandlerTests
             QueueVersion = "1.0",
             Files = paths.Select(path => new QueueFileEntry
             {
-                ServerUrl = "https://shadowdrop.test/base-path/",
+                ServerUrl = serverUrl,
                 ShareToken = "shared-token",
                 FileId = fixture.FileId.ToString(),
                 FileName = fixture.FileName,
@@ -1711,6 +1831,9 @@ public sealed class DownloadCommandHandlerTests
         File.WriteAllText(queuePath, queueJson);
         return queuePath;
     }
+
+    private static String CreateQueueFileWithServerUrl(String rootDirectory, DownloadHttpFixture fixture, String serverUrl, params String[] outputPaths) =>
+        CreateQueueFileCore(rootDirectory, fixture, serverUrl, null, outputPaths);
 
     private static CliApplicationServices CreateServices(Stream standardOutStream,
                                                          TextWriter standardOut,

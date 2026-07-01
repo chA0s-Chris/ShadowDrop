@@ -294,7 +294,7 @@ internal sealed class DownloadCommandHandler(
     {
         var fileId = ParseFileId(file.FileId);
         return new(ResumeMarkerVersion,
-                   serverUrl.AbsoluteUri,
+                   ShareDownloadUriFactory.NormalizeServerUrl(serverUrl).AbsoluteUri,
                    shareToken,
                    fileId.ToString("D"),
                    file.FileName,
@@ -377,6 +377,14 @@ internal sealed class DownloadCommandHandler(
             return JsonSerializer.Deserialize(stream, CliJsonSerializerContext.Default.DownloadResumeMarker);
         }
         catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
         {
             return null;
         }

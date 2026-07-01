@@ -10,7 +10,9 @@ internal static class ShareDownloadUriFactory
     public static Uri CreateManifestUri(Uri serverUrl, String shareToken) =>
         CreateRelativeUri(serverUrl, $"d/{Uri.EscapeDataString(shareToken)}");
 
-    private static Uri CreateRelativeUri(Uri serverUrl, String relativePath) => new(EnsureDirectoryUri(serverUrl), relativePath);
+    internal static Uri NormalizeServerUrl(Uri serverUrl) => EnsureDirectoryUri(serverUrl);
+
+    private static Uri CreateRelativeUri(Uri serverUrl, String relativePath) => new(NormalizeServerUrl(serverUrl), relativePath);
 
     private static Uri EnsureDirectoryUri(Uri serverUrl)
     {
