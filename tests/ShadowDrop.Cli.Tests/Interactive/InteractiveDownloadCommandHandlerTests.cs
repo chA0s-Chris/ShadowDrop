@@ -79,7 +79,8 @@ public sealed class InteractiveDownloadCommandHandlerTests
         await File.WriteAllTextAsync(configPath, "{ not valid json");
         var standardError = new StringWriter();
         var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(configFilePath: configPath),
-                                                            new(new NeverCalledHandler()), new FakeInteractiveSession(), standardError);
+                                                            new(new NeverCalledHandler()), new FakeInteractiveSession(), standardError,
+                                                            CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(Options("plain-token", ValidKey), CancellationToken.None);
 
@@ -91,7 +92,8 @@ public sealed class InteractiveDownloadCommandHandlerTests
     public async Task ExecuteAsync_ShouldFail_WhenQueuePathProvided()
     {
         var standardError = new StringWriter();
-        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), new FakeInteractiveSession(), standardError);
+        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), new FakeInteractiveSession(), standardError,
+                                                            CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(Options(queuePath: new("queue.json")), CancellationToken.None);
 
@@ -105,7 +107,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
         var standardError = new StringWriter();
         var session = new FakeInteractiveSession();
         var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(new NeverCalledHandler()), session,
-                                                            standardError);
+                                                            standardError, CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(
             Options("https://shadowdrop.test/not-a-share", ValidKey), CancellationToken.None);
@@ -122,7 +124,8 @@ public sealed class InteractiveDownloadCommandHandlerTests
         {
             IsInteractiveSupported = false
         };
-        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), session, standardError);
+        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), session, standardError,
+                                                            CliBannerWriterFactory.Suppressed);
 
         var exitCode = await handler.ExecuteAsync(Options(), CancellationToken.None);
 
@@ -222,7 +225,8 @@ public sealed class InteractiveDownloadCommandHandlerTests
 
     private static InteractiveDownloadCommandHandler CreateHandler(FakeInteractiveSession session,
                                                                    params Func<HttpRequestMessage, HttpResponseMessage>[] responses) =>
-        new(FakeConfiguration.Resolver(), new(new SequenceHttpMessageHandler(responses)), session, new StringWriter());
+        new(FakeConfiguration.Resolver(), new(new SequenceHttpMessageHandler(responses)), session, new StringWriter(),
+            CliBannerWriterFactory.Suppressed);
 
     private static InteractiveDownloadCommandHandler CreateHandler(FakeInteractiveSession session, params HttpResponseMessage[] responses) =>
         CreateHandler(session, responses.Select<HttpResponseMessage, Func<HttpRequestMessage, HttpResponseMessage>>(response => _ => response).ToArray());

@@ -119,7 +119,8 @@ public sealed class InteractiveUploadCommandHandlerTests
             session,
             new StringWriter(),
             standardError ?? new StringWriter(),
-            TimeProvider.System);
+            TimeProvider.System,
+            CliBannerWriterFactory.Suppressed);
 
     private static String MissingFilePath() => Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
 

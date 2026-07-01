@@ -16,7 +16,8 @@ internal sealed class DownloadCommandHandler(
     HttpClient httpClient,
     Stream standardOutStream,
     TextWriter standardError,
-    IDownloadProgressReporter progressReporter)
+    IDownloadProgressReporter progressReporter,
+    CliBannerWriter bannerWriter)
 {
     private const String SecretFreeQueueKeyMissingMessage =
         "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file. "
@@ -63,6 +64,10 @@ internal sealed class DownloadCommandHandler(
                 var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
                 var fileName = file.FileName ?? file.FileId ?? "download.bin";
+
+                // Direct downloads write raw decrypted bytes to stdout, so the banner always goes to stderr
+                // alongside the progress reporter's own output, never to stdout.
+                await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
                 var succeeded = await progressReporter.RunSingleAsync(
                     fileName,
                     file.Length,
@@ -486,6 +491,10 @@ internal sealed class DownloadCommandHandler(
                              .ToList();
 
             var totalBytes = SumQueueBytes(queue.Files!);
+
+            // Queue downloads write decrypted files to disk, not stdout, but the banner still goes to stderr
+            // alongside the progress reporter's own output for consistency with the direct-download path.
+            await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
             var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
             return summary.Failed == 0 ? 0 : 1;
         }

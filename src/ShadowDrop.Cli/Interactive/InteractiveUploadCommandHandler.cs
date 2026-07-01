@@ -17,7 +17,8 @@ internal sealed class InteractiveUploadCommandHandler(
     ICliInteractiveSession interactiveSession,
     TextWriter standardOut,
     TextWriter standardError,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -72,7 +73,7 @@ internal sealed class InteractiveUploadCommandHandler(
                                                      options.DisplayName,
                                                      options.DisplayNameMappings);
 
-        return await new UploadCommandHandler(configurationResolver, httpClient, standardOut, standardError, timeProvider)
+        return await new UploadCommandHandler(configurationResolver, httpClient, standardOut, standardError, timeProvider, bannerWriter)
             .ExecuteAsync(uploadOptions, cancellationToken);
     }
 

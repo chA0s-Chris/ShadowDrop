@@ -2,6 +2,8 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Downloads.Progress;
 
+using ShadowDrop.Cli.Terminals;
+
 /// <summary>
 /// The kind of download progress output to emit.
 /// </summary>
@@ -19,11 +21,6 @@ internal enum DownloadProgressMode
 }
 
 /// <summary>
-/// Describes the terminal capabilities that determine the download progress output mode.
-/// </summary>
-internal readonly record struct TerminalCapabilities(Boolean IsErrorRedirected, Boolean IsCiEnvironment, Boolean SupportsRichOutput);
-
-/// <summary>
 /// Selects the download progress output mode from terminal capabilities.
 /// </summary>
 internal static class DownloadProgressModeSelector
@@ -32,7 +29,7 @@ internal static class DownloadProgressModeSelector
     /// Returns <see cref="DownloadProgressMode.Rich"/> only for an interactive terminal that supports rich output and is not redirected or running in CI.
     /// </summary>
     public static DownloadProgressMode Select(TerminalCapabilities capabilities) =>
-        capabilities is { IsErrorRedirected: false, IsCiEnvironment: false, SupportsRichOutput: true }
+        capabilities is { IsRedirected: false, IsCiEnvironment: false, SupportsRichOutput: true }
             ? DownloadProgressMode.Rich
             : DownloadProgressMode.Plain;
 }

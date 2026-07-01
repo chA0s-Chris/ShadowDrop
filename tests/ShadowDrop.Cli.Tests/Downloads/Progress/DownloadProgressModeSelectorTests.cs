@@ -5,6 +5,7 @@ namespace ShadowDrop.Tests.Downloads.Progress;
 using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli.Downloads.Progress;
+using ShadowDrop.Cli.Terminals;
 
 public sealed class DownloadProgressModeSelectorTests
 {
@@ -12,9 +13,9 @@ public sealed class DownloadProgressModeSelectorTests
     [TestCase(false, true, true)]
     [TestCase(false, false, false)]
     [TestCase(true, true, true)]
-    public void Select_ShouldReturnPlain_WhenRedirectedOrCiOrUnsupported(Boolean isErrorRedirected, Boolean isCiEnvironment, Boolean supportsRichOutput)
+    public void Select_ShouldReturnPlain_WhenRedirectedOrCiOrUnsupported(Boolean isRedirected, Boolean isCiEnvironment, Boolean supportsRichOutput)
     {
-        var capabilities = new TerminalCapabilities(isErrorRedirected, isCiEnvironment, supportsRichOutput);
+        var capabilities = new TerminalCapabilities(isRedirected, isCiEnvironment, supportsRichOutput);
 
         DownloadProgressModeSelector.Select(capabilities).Should().Be(DownloadProgressMode.Plain);
     }
@@ -22,7 +23,7 @@ public sealed class DownloadProgressModeSelectorTests
     [Test]
     public void Select_ShouldReturnRich_ForInteractiveTerminalSupportingRichOutput()
     {
-        var capabilities = new TerminalCapabilities(IsErrorRedirected: false, IsCiEnvironment: false, SupportsRichOutput: true);
+        var capabilities = new TerminalCapabilities(IsRedirected: false, IsCiEnvironment: false, SupportsRichOutput: true);
 
         DownloadProgressModeSelector.Select(capabilities).Should().Be(DownloadProgressMode.Rich);
     }

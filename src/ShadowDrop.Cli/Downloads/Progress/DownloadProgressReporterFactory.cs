@@ -2,24 +2,21 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Downloads.Progress;
 
+using ShadowDrop.Cli.Terminals;
 using Spectre.Console;
 
 /// <summary>
 /// Selects a rich Spectre.Console reporter for interactive terminals and a deterministic plain-text reporter otherwise.
 /// </summary>
-internal sealed class DownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider) : IDownloadProgressReporterFactory
+internal sealed class DownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider, ITerminalCapabilityProvider capabilityProvider)
+    : IDownloadProgressReporterFactory
 {
-    private static TerminalCapabilities DetectCapabilities()
-    {
-        var isErrorRedirected = Console.IsErrorRedirected;
-        var isCi = !String.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"));
-        var isDumbTerminal = String.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.OrdinalIgnoreCase);
-        return new(isErrorRedirected, isCi, SupportsRichOutput: !isErrorRedirected && !isDumbTerminal);
-    }
+    public DownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider)
+        : this(standardError, timeProvider, new TerminalCapabilityProvider()) { }
 
     public IDownloadProgressReporter Create()
     {
-        if (DownloadProgressModeSelector.Select(DetectCapabilities()) == DownloadProgressMode.Rich)
+        if (DownloadProgressModeSelector.Select(capabilityProvider.DetectForStandardError()) == DownloadProgressMode.Rich)
         {
             var richConsole = AnsiConsole.Create(new AnsiConsoleSettings
             {
