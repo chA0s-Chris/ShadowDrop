@@ -19,6 +19,7 @@ internal sealed class DownloadCommandHandler(
     IDownloadProgressReporter progressReporter,
     CliBannerWriter bannerWriter)
 {
+    private const Int32 ResumeMarkerVersion = 1;
     private const String SecretFreeQueueKeyMissingMessage =
         "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file. "
         + "The key is printed by 'upload' as 'share-key:', or stored as the 'shareKey' value in its --secrets-out file. "
@@ -176,7 +177,8 @@ internal sealed class DownloadCommandHandler(
                                             String? bearerToken,
                                             String outputPath,
                                             CancellationToken cancellationToken,
-                                            IProgress<Int64>? progress = null)
+                                            IProgress<Int64>? progress = null,
+                                            String? expectedPlaintextSha256 = null)
     {
         var directoryPath = Path.GetDirectoryName(outputPath);
         if (!String.IsNullOrWhiteSpace(directoryPath))
@@ -184,28 +186,48 @@ internal sealed class DownloadCommandHandler(
             Directory.CreateDirectory(directoryPath);
         }
 
-        var partialPath = $"{outputPath}.shadowdrop-partial";
-        try
+        var (partialPath, markerPath) = ResolvePartialPaths(outputPath);
+        var marker = CreateResumeMarker(serverUrl, shareToken, file, expectedPlaintextSha256);
+
+        if (await TrySkipCompletedOutputAsync(outputPath, marker, progress, cancellationToken))
         {
-            await using var destination = new FileStream(partialPath,
-                                                         FileMode.Create,
-                                                         FileAccess.Write,
-                                                         FileShare.None,
-                                                         81920,
-                                                         FileOptions.Asynchronous);
-            await DownloadToStreamAsync(serverUrl, shareToken, file, shareKeyBytes, bearerToken, destination, progress, cancellationToken);
-            await destination.FlushAsync(cancellationToken);
-            File.Move(partialPath, outputPath, true);
+            ResetResumeState(partialPath, markerPath);
+            return;
         }
-        catch
+
+        PrepareResumeState(partialPath, markerPath, marker);
+
+        await using (var destination = new FileStream(partialPath,
+                                                      FileMode.OpenOrCreate,
+                                                      FileAccess.ReadWrite,
+                                                      FileShare.None,
+                                                      81920,
+                                                      FileOptions.Asynchronous))
         {
-            if (File.Exists(partialPath))
+            var durablePlaintextLength = destination.Length;
+            destination.Position = durablePlaintextLength;
+            // Only write the marker when it is missing or stale. Rewriting a matching marker on every resume would
+            // needlessly truncate a valid file, and a crash mid-write would orphan the partial on the next run.
+            if (!File.Exists(markerPath) || LoadResumeMarker(markerPath) is not { } persistedMarker || !IsResumeMarkerMatch(persistedMarker, marker))
             {
-                File.Delete(partialPath);
+                await PersistResumeMarkerAsync(markerPath, marker, cancellationToken);
             }
 
-            throw;
+            await DownloadToStreamAsync(serverUrl,
+                                        shareToken,
+                                        file,
+                                        shareKeyBytes,
+                                        bearerToken,
+                                        destination,
+                                        progress,
+                                        cancellationToken,
+                                        durablePlaintextLength,
+                                        file.Length);
+            await destination.FlushAsync(cancellationToken);
         }
+
+        File.Move(partialPath, outputPath, true);
+        File.Delete(markerPath);
     }
 
     internal async Task<ShareManifestContract> GetManifestAsync(Uri serverUrl, String shareToken, String? bearerToken, CancellationToken cancellationToken)
@@ -265,6 +287,22 @@ internal sealed class DownloadCommandHandler(
         _ => null
     };
 
+    private static DownloadResumeMarker CreateResumeMarker(Uri serverUrl,
+                                                           String shareToken,
+                                                           ShareManifestFileContract file,
+                                                           String? expectedPlaintextSha256)
+    {
+        var fileId = ParseFileId(file.FileId);
+        return new(ResumeMarkerVersion,
+                   ShareDownloadUriFactory.NormalizeServerUrl(serverUrl).AbsoluteUri,
+                   shareToken,
+                   fileId.ToString("D"),
+                   file.FileName,
+                   file.Length,
+                   file.KdfSalt,
+                   expectedPlaintextSha256 ?? file.PlaintextSha256);
+    }
+
     private static Byte[] DecodeBase64(String? base64Value, String errorMessage)
     {
         if (String.IsNullOrWhiteSpace(base64Value))
@@ -285,6 +323,28 @@ internal sealed class DownloadCommandHandler(
     private static Boolean HasExplicitCredentials(DownloadCommandOptions options) =>
         !String.IsNullOrWhiteSpace(options.ShareKey) || options.ShareKeyFile is not null || !String.IsNullOrWhiteSpace(options.BearerToken);
 
+    private static async Task<String> HashFileSha256Async(String path, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(path);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexStringLower(hash);
+    }
+
+    private static async Task<Boolean> IsExistingOutputMatchAsync(String outputPath,
+                                                                  Int64 expectedLength,
+                                                                  String? expectedPlaintextSha256,
+                                                                  CancellationToken cancellationToken)
+    {
+        var fileInfo = new FileInfo(outputPath);
+        if (!fileInfo.Exists || fileInfo.Length != expectedLength)
+        {
+            return false;
+        }
+
+        return expectedPlaintextSha256 is null ||
+               String.Equals(await HashFileSha256Async(outputPath, cancellationToken), expectedPlaintextSha256, StringComparison.Ordinal);
+    }
+
     private static Boolean IsInsideRoot(String path, String root)
     {
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -299,10 +359,115 @@ internal sealed class DownloadCommandHandler(
         return path.StartsWith(rootPrefix, comparison);
     }
 
+    private static Boolean IsResumeMarkerMatch(DownloadResumeMarker marker, DownloadResumeMarker expected) =>
+        marker.Version == expected.Version &&
+        marker.FileLength == expected.FileLength &&
+        String.Equals(marker.ServerUrl, expected.ServerUrl, StringComparison.Ordinal) &&
+        String.Equals(marker.ShareToken, expected.ShareToken, StringComparison.Ordinal) &&
+        String.Equals(marker.FileId, expected.FileId, StringComparison.Ordinal) &&
+        String.Equals(marker.FileName, expected.FileName, StringComparison.Ordinal) &&
+        String.Equals(marker.KdfSalt, expected.KdfSalt, StringComparison.Ordinal) &&
+        String.Equals(marker.PlaintextSha256, expected.PlaintextSha256, StringComparison.Ordinal);
+
+    private static DownloadResumeMarker? LoadResumeMarker(String markerPath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(markerPath);
+            return JsonSerializer.Deserialize(stream, CliJsonSerializerContext.Default.DownloadResumeMarker);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task PersistResumeMarkerAsync(String markerPath, DownloadResumeMarker marker, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(markerPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
+        await JsonSerializer.SerializeAsync(stream, marker, CliJsonSerializerContext.Default.DownloadResumeMarker, cancellationToken);
+    }
+
+    private static void PrepareResumeState(String partialPath, String markerPath, DownloadResumeMarker expectedMarker)
+    {
+        var partialExists = File.Exists(partialPath);
+        var markerExists = File.Exists(markerPath);
+
+        if (!partialExists)
+        {
+            if (markerExists)
+            {
+                File.Delete(markerPath);
+            }
+
+            return;
+        }
+
+        var partialLength = new FileInfo(partialPath).Length;
+        if (partialLength == 0)
+        {
+            var marker = markerExists ? LoadResumeMarker(markerPath) : null;
+            if (markerExists && (marker is null || !IsResumeMarkerMatch(marker, expectedMarker)))
+            {
+                File.Delete(markerPath);
+            }
+
+            return;
+        }
+
+        var canResume = partialLength <= expectedMarker.FileLength &&
+                        markerExists &&
+                        LoadResumeMarker(markerPath) is { } resumeMarker &&
+                        IsResumeMarkerMatch(resumeMarker, expectedMarker);
+        if (!canResume)
+        {
+            ResetResumeState(partialPath, markerPath);
+        }
+    }
+
+    private static void ResetResumeState(String partialPath, String markerPath)
+    {
+        if (File.Exists(partialPath))
+        {
+            File.Delete(partialPath);
+        }
+
+        if (File.Exists(markerPath))
+        {
+            File.Delete(markerPath);
+        }
+    }
+
+    private static String? ResolveExpectedPlaintextSha256(QueueFileEntry entry, ShareManifestFileContract file)
+    {
+        if (entry.PlaintextSha256 is not null &&
+            file.PlaintextSha256 is not null &&
+            !String.Equals(entry.PlaintextSha256, file.PlaintextSha256, StringComparison.Ordinal))
+        {
+            throw new DownloadCommandException("Queue entry does not match share metadata.");
+        }
+
+        return entry.PlaintextSha256 ?? file.PlaintextSha256;
+    }
+
     private static String ResolveOutputRoot(DirectoryInfo? outputRoot)
     {
         var root = outputRoot?.FullName ?? Environment.CurrentDirectory;
         return Path.GetFullPath(root);
+    }
+
+    private static (String PartialPath, String MarkerPath) ResolvePartialPaths(String outputPath)
+    {
+        var partialPath = $"{outputPath}.shadowdrop-partial";
+        return (partialPath, $"{partialPath}.json");
     }
 
     private static String ResolveQueueOutputPath(String outputRoot, String outputPath)
@@ -379,6 +544,47 @@ internal sealed class DownloadCommandHandler(
         return value;
     }
 
+    private static async Task<Boolean> TrySkipCompletedOutputAsync(String outputPath,
+                                                                   DownloadResumeMarker marker,
+                                                                   IProgress<Int64>? progress,
+                                                                   CancellationToken cancellationToken)
+    {
+        if (!File.Exists(outputPath))
+        {
+            return false;
+        }
+
+        if (!await IsExistingOutputMatchAsync(outputPath, marker.FileLength, marker.PlaintextSha256, cancellationToken))
+        {
+            throw new DownloadCommandException("Existing output file does not match the shared file.");
+        }
+
+        progress?.Report(marker.FileLength);
+        return true;
+    }
+
+    private static async Task<Boolean> TrySkipCompletedQueueOutputAsync(QueueFileEntry entry,
+                                                                        String outputPath,
+                                                                        IProgress<Int64>? progress,
+                                                                        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(outputPath))
+        {
+            return false;
+        }
+
+        var expectedLength = entry.Length!.Value;
+        if (!await IsExistingOutputMatchAsync(outputPath, expectedLength, entry.PlaintextSha256, cancellationToken))
+        {
+            throw new DownloadCommandException("Existing output file does not match the queue entry.");
+        }
+
+        var (partialPath, markerPath) = ResolvePartialPaths(outputPath);
+        ResetResumeState(partialPath, markerPath);
+        progress?.Report(expectedLength);
+        return true;
+    }
+
     private async Task DownloadToStreamAsync(Uri serverUrl,
                                              String shareToken,
                                              ShareManifestFileContract file,
@@ -386,7 +592,9 @@ internal sealed class DownloadCommandHandler(
                                              String? bearerToken,
                                              Stream destination,
                                              IProgress<Int64>? progress,
-                                             CancellationToken cancellationToken)
+                                             CancellationToken cancellationToken,
+                                             Int64 durablePlaintextLength = 0,
+                                             Int64? totalPlaintextSize = null)
     {
         var fileId = ParseFileId(file.FileId);
         var downloadUri = ShareDownloadUriFactory.CreateFileUri(serverUrl, shareToken, fileId);
@@ -401,6 +609,8 @@ internal sealed class DownloadCommandHandler(
                                                        shareSecret,
                                                        new(fileId, kdfSalt),
                                                        bearerToken,
+                                                       durablePlaintextLength,
+                                                       totalPlaintextSize,
                                                        progress: progress);
             await session.DownloadAsync(cancellationToken);
         }
@@ -482,11 +692,23 @@ internal sealed class DownloadCommandHandler(
                                                 async (progress, token) =>
                                                 {
                                                     var outputPath = ResolveQueueOutputPath(outputRoot, entry.OutputPath!);
+                                                    if (await TrySkipCompletedQueueOutputAsync(entry, outputPath, progress, token))
+                                                    {
+                                                        return;
+                                                    }
+
                                                     var shareReference = ResolveQueueShareReference(entry);
                                                     var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, token);
                                                     var file = SelectQueuedFile(manifest, entry);
-                                                    await DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file,
-                                                                              capturedShareKeyBytes, bearerToken, outputPath, token, progress);
+                                                    await DownloadToFileAsync(shareReference.ServerUrl,
+                                                                              shareReference.ShareToken,
+                                                                              file,
+                                                                              capturedShareKeyBytes,
+                                                                              bearerToken,
+                                                                              outputPath,
+                                                                              token,
+                                                                              progress,
+                                                                              ResolveExpectedPlaintextSha256(entry, file));
                                                 }))
                              .ToList();
 

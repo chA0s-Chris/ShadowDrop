@@ -105,10 +105,10 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                 {
                     await item.DownloadAsync(progress, cancellationToken);
                     var elapsed = timeProvider.GetElapsedTime(fileStart);
-                    var bytes = progress.Value;
+                    var transferredBytes = progress.TransferredValue;
                     downloaded++;
-                    totalDownloadedBytes += bytes;
-                    completedBytes += bytes;
+                    totalDownloadedBytes += transferredBytes;
+                    completedBytes += progress.Value;
                     CompleteTask(task, item.SizeBytes);
                     if (overall is not null)
                     {
@@ -116,7 +116,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                     }
 
                     console.MarkupLineInterpolated(
-                        $"[green]SUCCESS[/] {position}/{total} {fileName} -> {outputPath} ({FormatStats(bytes, elapsed)})");
+                        $"[green]SUCCESS[/] {position}/{total} {fileName} -> {outputPath} ({FormatStats(transferredBytes, elapsed)})");
                 }
                 catch (Exception exception)
                 {
@@ -176,7 +176,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
             try
             {
                 await downloadAsync(progress, cancellationToken);
-                bytes = progress.Value;
+                bytes = progress.TransferredValue;
                 CompleteTask(task, sizeBytes);
             }
             catch (Exception exception)
@@ -187,7 +187,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                     throw;
                 }
 
-                bytes = progress.Value;
+                bytes = progress.TransferredValue;
                 task.StopTask();
                 failureMessage = message;
             }

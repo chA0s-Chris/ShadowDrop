@@ -20,6 +20,8 @@ public sealed class PlainTextDownloadProgressReporterTests
         [
             new("alpha.bin", 1000, "out/alpha.bin", (progress, _) =>
             {
+                // A real download always reports its starting offset (0 here) before any bytes transfer.
+                progress!.Report(0);
                 timeProvider.Advance(TimeSpan.FromSeconds(1));
                 progress!.Report(1000);
                 return Task.CompletedTask;
@@ -81,6 +83,8 @@ public sealed class PlainTextDownloadProgressReporterTests
 
         await reporter.RunSingleAsync("alpha.bin", 2000, (progress, _) =>
         {
+            // A real download always reports its starting offset (0 here) before any bytes transfer.
+            progress!.Report(0);
             timeProvider.Advance(TimeSpan.FromSeconds(2));
             progress!.Report(2000);
             return Task.CompletedTask;

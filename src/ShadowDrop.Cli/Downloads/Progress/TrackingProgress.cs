@@ -7,7 +7,13 @@ namespace ShadowDrop.Cli.Downloads.Progress;
 /// </summary>
 internal sealed class TrackingProgress(Action<Int64>? onReport = null) : IProgress<Int64>
 {
+    private Int64 _startingValue = -1;
     private Int64 _value;
+
+    /// <summary>
+    /// Gets the byte count transferred since the first reported value, excluding any starting offset from a resumed download.
+    /// </summary>
+    public Int64 TransferredValue => Value - Math.Max(Interlocked.Read(ref _startingValue), 0);
 
     /// <summary>
     /// Gets the most recent reported cumulative byte count.
@@ -17,6 +23,7 @@ internal sealed class TrackingProgress(Action<Int64>? onReport = null) : IProgre
     /// <inheritdoc />
     public void Report(Int64 value)
     {
+        Interlocked.CompareExchange(ref _startingValue, value, -1);
         Interlocked.Exchange(ref _value, value);
         onReport?.Invoke(value);
     }
