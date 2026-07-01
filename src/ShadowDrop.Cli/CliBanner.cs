@@ -69,7 +69,8 @@ internal static class CliBanner
         console.WriteLine();
     }
 
-    // Keeps both rendered lines the same width: the hyphen run always matches the top line's fixed-width
-    // decoration (12 characters) plus the label length.
+    // Keeps both rendered lines the same width. The top wraps the label in 12 characters of decoration
+    // (".--// " before, " \\--." after) while the bottom wraps the hyphen run in 8 ("`--/" before, "\--´"
+    // after), so matching widths requires hyphens = label.Length + 4 (the 12 - 8 decoration difference).
     private static Int32 HyphenCount(String version) => $"ShadowDrop v{version}".Length + 4;
 }

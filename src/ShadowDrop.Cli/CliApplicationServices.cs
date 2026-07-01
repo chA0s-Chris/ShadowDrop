@@ -104,8 +104,9 @@ internal sealed record CliApplicationServices(
 
     public static CliApplicationServices CreateDefault()
     {
-        // A single provider is shared so banner rendering and download progress selection observe identical
-        // terminal capabilities and the environment is probed only once.
+        // A single provider is shared so banner rendering and download progress selection use the same
+        // detection implementation rather than two independently constructed providers. The provider re-reads
+        // the environment on each call, so this is a single source of truth, not caching.
         var terminalCapabilityProvider = new TerminalCapabilityProvider();
         return new(new(new(), new EnvironmentReader()),
                    CliHttpClientFactory.CreateClient,
