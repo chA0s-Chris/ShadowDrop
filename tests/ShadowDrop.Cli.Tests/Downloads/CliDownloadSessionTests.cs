@@ -12,6 +12,31 @@ using System.Net;
 public sealed class CliDownloadSessionTests
 {
     [Test]
+    public void Constructor_ShouldRejectNonSeekableDestination_WhenResuming()
+    {
+        var fixture = DownloadFixture.Create();
+        using var httpClient =
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
+            {
+                BaseAddress = new("https://shadowdrop.test/")
+            };
+        using var destination = new NonSeekableWriteStream();
+        using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
+
+        var act = () => new CliDownloadSession(httpClient,
+                                               new(httpClient.BaseAddress, "d/share-token/files/file-id"),
+                                               destination,
+                                               shareSecret,
+                                               fixture.CreateFileEncryptionContext(),
+                                               durablePlaintextLength: fixture.ChunkSize,
+                                               totalPlaintextSize: fixture.Plaintext.LongLength);
+
+        act.Should().Throw<ArgumentException>()
+           .WithMessage("*resumed download requires a seekable destination stream*")
+           .And.ParamName.Should().Be("destination");
+    }
+
+    [Test]
     public void Constructor_ShouldReportDurablePlaintextLengthImmediately_WhenResuming()
     {
         var fixture = DownloadFixture.Create();
@@ -302,6 +327,28 @@ public sealed class CliDownloadSessionTests
         public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(Int64 value) => throw new NotSupportedException();
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+    }
+
+    private sealed class NonSeekableWriteStream : Stream
+    {
+        public override Boolean CanRead => false;
+        public override Boolean CanSeek => false;
+        public override Boolean CanWrite => true;
+        public override Int64 Length => throw new NotSupportedException();
+
+        public override Int64 Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() { }
+
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count) { }
     }
 
     private sealed class RecordingProgress(Action<Int64> onReport) : IProgress<Int64>

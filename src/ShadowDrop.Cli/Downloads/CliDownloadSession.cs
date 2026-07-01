@@ -38,7 +38,9 @@ public sealed class CliDownloadSession : IDisposable
     /// <paramref name="shareSecret"/>, or <paramref name="encryptionContext"/> is <see langword="null"/>.
     /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="durablePlaintextLength"/> is negative.</exception>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="destination"/> is not writable.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="destination"/> is not writable, or when a resumed download is requested with a non-seekable destination.
+    /// </exception>
     public CliDownloadSession(HttpClient httpClient,
                               Uri downloadUri,
                               Stream destination,
@@ -67,6 +69,11 @@ public sealed class CliDownloadSession : IDisposable
         if (!destination.CanWrite)
         {
             throw new ArgumentException("The destination stream must be writable.", nameof(destination));
+        }
+
+        if (durablePlaintextLength > 0 && !destination.CanSeek)
+        {
+            throw new ArgumentException("A resumed download requires a seekable destination stream.", nameof(destination));
         }
 
         _httpClient = httpClient;
