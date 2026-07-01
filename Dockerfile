@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.8-noble-chiseled
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.9-noble-chiseled
 
 ENV ASPNETCORE_HTTP_PORTS=19423 \
     ShadowDrop__Metadata__LiteDbPath=/app/data/metadata/shadowdrop.db \
