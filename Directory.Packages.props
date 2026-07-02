@@ -18,8 +18,8 @@
     <PackageVersion Include="SemanticVersioning" Version="3.0.0" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
-    <PackageVersion Include="Spectre.Console" Version="0.57.1" />
-    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.1" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.2" />
     <PackageVersion Include="System.CommandLine" Version="2.0.9" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
   </ItemGroup>
