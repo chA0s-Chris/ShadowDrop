@@ -21,16 +21,28 @@ public sealed class ShareSecretTests
     }
 
     [Test]
-    public void FromBytes_ShouldCopyTheFirst32Bytes()
+    public void FromBytes_ShouldCopyBytes()
     {
-        var bytes = CreateSequentialBytes(40);
-        var expected = bytes.Take(32).ToArray();
+        var bytes = CreateSequentialBytes(32);
+        var expected = bytes.ToArray();
 
         using var secret = ShareSecret.FromBytes(bytes);
         bytes[0] = Byte.MaxValue;
         bytes[31] = Byte.MaxValue;
 
         secret.KeyMaterial.ToArray().Should().Equal(expected);
+    }
+
+    [Test]
+    public void FromBytes_ShouldThrowArgumentException_WhenInputIsTooLong()
+    {
+        var bytes = CreateSequentialBytes(33);
+
+        var act = () => ShareSecret.FromBytes(bytes);
+
+        act.Should()
+           .Throw<ArgumentException>()
+           .WithParameterName("bytes");
     }
 
     [Test]

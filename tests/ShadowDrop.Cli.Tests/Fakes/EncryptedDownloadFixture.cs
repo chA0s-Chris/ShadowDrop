@@ -51,8 +51,9 @@ internal sealed class EncryptedDownloadFixture
         var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
         using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
         var encryptedChunks = new List<Byte[]>();
+        var chunkCount = plaintext.LongLength / chunkSize;
 
-        for (var chunkIndex = 0L; chunkIndex < plaintext.LongLength / chunkSize; chunkIndex++)
+        for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
         {
             var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
             var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
@@ -62,7 +63,8 @@ internal sealed class EncryptedDownloadFixture
                                                                          fileId,
                                                                          chunkSize,
                                                                          chunkIndex,
-                                                                         chunkPlaintext.Length));
+                                                                         chunkPlaintext.Length,
+                                                                         chunkIndex == chunkCount - 1));
             encryptedChunks.Add(encryptedChunk.Ciphertext);
         }
 

@@ -91,7 +91,25 @@ public sealed class ChunkEncryptionServiceTests
             Guid.NewGuid(),
             metadata.ChunkSize,
             metadata.ChunkIndex,
-            metadata.PlaintextChunkLength);
+            metadata.PlaintextChunkLength,
+            metadata.IsFinal);
+
+        var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
+
+        act.Should().Throw<CryptographicException>();
+    }
+
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void DecryptChunk_ShouldThrowCryptographicException_WhenIsFinalIsTampered(Boolean isFinal, Boolean tamperedIsFinal)
+    {
+        var fixture = CreateTestFixture();
+        using var secret = fixture.Secret;
+        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var plaintext = CreatePlaintext(32);
+        var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length, isFinal);
+        var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
+        var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize, metadata.ChunkIndex, metadata.PlaintextChunkLength, tamperedIsFinal);
 
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
@@ -253,7 +271,8 @@ public sealed class ChunkEncryptionServiceTests
         FileEncryptionContext context,
         Int32 chunkSize,
         Int64 chunkIndex,
-        Int32 plaintextChunkLength)
+        Int32 plaintextChunkLength,
+        Boolean isFinal = false)
     {
         return new(
             CryptoVersion.V1,
@@ -261,7 +280,8 @@ public sealed class ChunkEncryptionServiceTests
             context.FileId,
             chunkSize,
             chunkIndex,
-            plaintextChunkLength);
+            plaintextChunkLength,
+            isFinal);
     }
 
     private static Byte[] CreatePlaintext(Int32 length)
@@ -343,7 +363,7 @@ public sealed class ChunkEncryptionServiceTests
         {
             var chunkOffset = chunkIndex * chunkSize;
             var plaintextChunkLength = Math.Min(chunkSize, plaintext.Length - chunkOffset);
-            var metadata = CreateMetadata(context, chunkSize, chunkIndex, plaintextChunkLength);
+            var metadata = CreateMetadata(context, chunkSize, chunkIndex, plaintextChunkLength, chunkIndex == chunkCount - 1);
             var encryptedChunk = ChunkEncryptionService.EncryptChunk(
                 plaintext.AsSpan(chunkOffset, plaintextChunkLength),
                 key,

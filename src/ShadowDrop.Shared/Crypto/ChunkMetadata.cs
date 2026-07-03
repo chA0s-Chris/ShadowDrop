@@ -16,6 +16,7 @@ public sealed record ChunkMetadata
     /// <param name="chunkSize">The configured plaintext chunk size.</param>
     /// <param name="chunkIndex">The zero-based chunk index.</param>
     /// <param name="plaintextChunkLength">The plaintext length of the chunk.</param>
+    /// <param name="isFinal">A value indicating whether this chunk is the final chunk of the file.</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when a numeric argument is outside the supported range.</exception>
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="version"/> or <paramref name="algorithm"/> is
@@ -27,7 +28,8 @@ public sealed record ChunkMetadata
         Guid fileId,
         Int32 chunkSize,
         Int64 chunkIndex,
-        Int32 plaintextChunkLength)
+        Int32 plaintextChunkLength,
+        Boolean isFinal)
     {
         if (version != CryptoVersion.V1)
         {
@@ -50,6 +52,7 @@ public sealed record ChunkMetadata
         ChunkSize = chunkSize;
         ChunkIndex = chunkIndex;
         PlaintextChunkLength = plaintextChunkLength;
+        IsFinal = isFinal;
     }
 
     /// <summary>
@@ -71,6 +74,11 @@ public sealed record ChunkMetadata
     /// Gets the file identifier.
     /// </summary>
     public Guid FileId { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether this chunk is the final chunk of the file.
+    /// </summary>
+    public Boolean IsFinal { get; }
 
     /// <summary>
     /// Gets the plaintext length of the chunk.

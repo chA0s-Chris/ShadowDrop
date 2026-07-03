@@ -10,7 +10,7 @@ using System.Security.Cryptography;
 /// </summary>
 public static class ChunkEncryptionService
 {
-    private const Int32 AadLength = 34;
+    private const Int32 AadLength = 35;
     private const Int32 AesGcmTagLength = 16;
     private const Int32 AesKeyLength = 32;
     private const Int32 HkdfInfoLength = 18;
@@ -180,6 +180,7 @@ public static class ChunkEncryptionService
         BinaryPrimitives.WriteInt32BigEndian(destination[18..22], metadata.ChunkSize);
         BinaryPrimitives.WriteInt64BigEndian(destination[22..30], metadata.ChunkIndex);
         BinaryPrimitives.WriteInt32BigEndian(destination[30..34], metadata.PlaintextChunkLength);
+        destination[34] = metadata.IsFinal ? (Byte)1 : (Byte)0;
     }
 
     private static void BuildInfoBlob(FileEncryptionContext context, Span<Byte> destination)

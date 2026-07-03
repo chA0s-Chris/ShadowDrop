@@ -53,6 +53,7 @@ internal sealed class EncryptedFileContent : HttpContent
         using var contentKey = ChunkEncryptionService.DeriveContentKey(_shareSecret, _encryptionContext);
         var buffer = new Byte[_chunkSize];
         var chunkIndex = 0L;
+        var chunkCount = checked(((_file.Length - 1) / _chunkSize) + 1);
 
         try
         {
@@ -71,7 +72,8 @@ internal sealed class EncryptedFileContent : HttpContent
                                                                              _encryptionContext.FileId,
                                                                              _chunkSize,
                                                                              chunkIndex,
-                                                                             bytesRead));
+                                                                             bytesRead,
+                                                                             chunkIndex == chunkCount - 1));
                 await stream.WriteAsync(encryptedChunk.CiphertextMemory, effectiveCancellationToken);
                 chunkIndex++;
             }

@@ -1959,7 +1959,8 @@ public sealed class ApiWalkingSkeletonTests
                                                                          fileId,
                                                                          metadata.ChunkSize,
                                                                          chunkIndex,
-                                                                         plaintextChunkLength));
+                                                                         plaintextChunkLength,
+                                                                         chunkIndex == ((metadata.TotalPlaintextSize - 1) / metadata.ChunkSize)));
             var chunkPlaintextStart = chunkIndex * metadata.ChunkSize;
             var sliceStart = (Int32)Math.Max(responsePlaintextRange.Start, chunkPlaintextStart) - (Int32)chunkPlaintextStart;
             var sliceEndExclusive = (Int32)Math.Min(responsePlaintextRange.End, chunkPlaintextStart + plaintextChunkLength) - (Int32)chunkPlaintextStart;
@@ -2000,7 +2001,8 @@ public sealed class ApiWalkingSkeletonTests
                                              fileId,
                                              chunkSize,
                                              chunkIndex,
-                                             chunkPlaintext.Length);
+                                             chunkPlaintext.Length,
+                                             chunkIndex == chunkCount - 1);
             var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext, contentKey, metadata);
             ciphertext.Write(encryptedChunk.Ciphertext);
         }
