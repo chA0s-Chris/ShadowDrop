@@ -16,23 +16,23 @@ keeping admin routes off the public interface or behind upstream request control
 
 ## Acceptance Criteria
 
-- [ ] Deployment documentation explains that `/api/admin/*` must not be exposed directly to the
+- [x] Deployment documentation explains that `/api/admin/*` must not be exposed directly to the
   public Internet without upstream rate limiting or equivalent access controls, because invalid
   bearer tokens still trigger PBKDF2 verification work.
-- [ ] The documented hardening path covers both recommended options: disable admin operations with
+- [x] The documented hardening path covers both recommended options: disable admin operations with
   `ShadowDrop__ApiExposure__EnableAdminOperations=false` when the server is download-only, or expose
   admin operations only on a trusted management boundary such as loopback, VPN, private network, or
   reverse-proxy-protected route.
-- [ ] The documentation includes concrete reverse-proxy guidance for request throttling on
+- [x] The documentation includes concrete reverse-proxy guidance for request throttling on
   `/api/admin/*` and makes clear that the ShadowDrop application currently relies on this layer
   rather than an in-process limiter.
-- [ ] Configuration samples and appsettings comments or equivalent docs make the default
+- [x] Configuration samples and appsettings comments or equivalent docs make the default
   `EnableAdminOperations=true` behavior explicit so operators must consciously decide how admin
   routes are exposed.
-- [ ] Automated tests verify that disabling admin operations leaves `/api/admin/*` unmapped and
+- [x] Automated tests verify that disabling admin operations leaves `/api/admin/*` unmapped and
   avoids resolving `AdminTokenService` for those routes, so the documented download-only hardening
   path does not execute PBKDF2 on admin requests.
-- [ ] No application-level rate limiter is reintroduced unless the project explicitly revisits the
+- [x] No application-level rate limiter is reintroduced unless the project explicitly revisits the
   issue #36 decision.
 
 ## Technical Details
