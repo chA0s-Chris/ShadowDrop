@@ -413,6 +413,14 @@ internal sealed class DownloadCommandHandler(
         }
 
         await using var stream = new FileStream(markerPath, streamOptions);
+        if (!OperatingSystem.IsWindows())
+        {
+            // FileMode.Create can overwrite an existing marker without changing its permissions, and
+            // UnixCreateMode only applies to newly created files. Since the marker contains the plaintext
+            // share token, enforce owner-only mode explicitly so an overwritten marker is tightened too.
+            File.SetUnixFileMode(markerPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
         await JsonSerializer.SerializeAsync(stream, marker, CliJsonSerializerContext.Default.DownloadResumeMarker, cancellationToken);
     }
 

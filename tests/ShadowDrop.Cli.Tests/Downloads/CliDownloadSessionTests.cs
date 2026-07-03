@@ -192,6 +192,25 @@ public sealed class CliDownloadSessionTests
         session.DurablePlaintextLength.Should().Be(0);
     }
 
+    [Test]
+    public async Task DownloadAsync_ShouldThrowInvalidDataException_WhenResponseContainsTrailingDataAfterFinalChunk()
+    {
+        var fixture = DownloadFixture.Create();
+        using var handler = new StubHttpMessageHandler(_ => fixture.CreateResponseWithTrailingData(4));
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new("https://shadowdrop.test/")
+        };
+        await using var destination = new MemoryStream();
+        using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
+        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+                                                   fixture.CreateFileEncryptionContext());
+
+        var act = async () => await session.DownloadAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidDataException>();
+    }
+
     private sealed class DownloadFixture
     {
         private DownloadFixture(Guid fileId, Byte[] keyMaterial, Byte[] kdfSalt, Byte[] plaintext, Int32 chunkSize, Byte[][] encryptedChunks)
@@ -264,6 +283,17 @@ public sealed class CliDownloadSessionTests
                                   },
                                   responseBody.LongLength,
                                   declaredLength);
+        }
+
+        public HttpResponseMessage CreateResponseWithTrailingData(Int32 trailingByteCount)
+        {
+            var range = new RequestedPlaintextRangeContract
+            {
+                Start = 0,
+                End = Plaintext.LongLength
+            };
+            var responseBody = CreateResponseBody(range).Concat(Enumerable.Repeat((Byte)0xAB, trailingByteCount)).ToArray();
+            return CreateResponse(new MemoryStream(responseBody, false), range, responseBody.LongLength);
         }
 
         public HttpResponseMessage CreateSuccessResponse(RequestedPlaintextRangeContract? requestedRange = null)

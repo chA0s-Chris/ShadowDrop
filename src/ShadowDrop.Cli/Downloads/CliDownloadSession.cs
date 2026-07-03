@@ -156,7 +156,11 @@ public sealed class CliDownloadSession : IDisposable
     private static async Task ValidateStreamExhaustionAsync(Stream encryptedStream, CancellationToken cancellationToken)
     {
         var buffer = new Byte[1];
-        _ = await encryptedStream.ReadAsync(buffer, cancellationToken);
+        var bytesRead = await encryptedStream.ReadAsync(buffer, cancellationToken);
+        if (bytesRead > 0)
+        {
+            throw new InvalidDataException("The streamed CLI download response body contained unexpected trailing data after the final encrypted chunk.");
+        }
     }
 
     private async Task CopyDecryptedPlaintextAsync(CliDownloadMetadataContract metadata, Stream encryptedStream, CancellationToken cancellationToken)
