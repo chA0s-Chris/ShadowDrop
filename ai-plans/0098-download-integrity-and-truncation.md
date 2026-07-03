@@ -28,39 +28,39 @@ download path, which currently verifies nothing about the bytes it produces.
 
 ## Acceptance Criteria
 
-- [ ] The chunk AAD binds a final-chunk marker (`isFinal`), so a chunk encrypted as a
+- [x] The chunk AAD binds a final-chunk marker (`isFinal`), so a chunk encrypted as a
   non-final chunk fails authentication when presented as the final chunk, and vice versa.
-- [ ] A server that serves the first `k` full-sized chunks of a longer file and declares the
+- [x] A server that serves the first `k` full-sized chunks of a longer file and declares the
   total plaintext size as `k * ChunkSize` causes the CLI download to fail with a decryption
   error instead of writing a truncated file.
-- [ ] Upload encryption sets `isFinal` on the last chunk only, including when the plaintext
+- [x] Upload encryption sets `isFinal` on the last chunk only, including when the plaintext
   length is an exact multiple of the chunk size (the final full-sized chunk is still marked
   final).
-- [ ] Server-side direct-HTTP decryption (`DownloadFileService`) and CLI decryption
+- [x] Server-side direct-HTTP decryption (`DownloadFileService`) and CLI decryption
   (`CliDownloadSession`) each derive the expected `isFinal` for a chunk from the file's
   total chunk count — never from the response or range span — and supply it when decrypting.
-- [ ] A clean, uninterrupted CLI download of a multi-chunk file still succeeds and is
+- [x] A clean, uninterrupted CLI download of a multi-chunk file still succeeds and is
   byte-for-byte correct; an interrupted-and-resumed download still succeeds and matches a
   clean download.
-- [ ] After a CLI download completes, the caller (`DownloadCommandHandler`) verifies the total
+- [x] After a CLI download completes, the caller (`DownloadCommandHandler`) verifies the total
   plaintext bytes produced against the manifest `Length`, and — when the manifest carries
   `PlaintextSha256` — verifies the produced plaintext's hash; a mismatch fails the download
   with a clear error. This covers the direct/stdout path, not only the resume/queue path.
-- [ ] On the file/queue path a verification failure does not move the partial to the final
+- [x] On the file/queue path a verification failure does not move the partial to the final
   output and resets the resume state (the partial and its marker are deleted), so a retry
   re-downloads from scratch instead of resuming the mismatched partial forever; on the
   direct/stdout path verification is detect-only (nonzero exit + stderr message) because
   bytes are already streamed out, and truncation *prevention* there comes from the AAD
   `isFinal` change plus stream-exhaustion checks, not the hash.
-- [ ] The resume marker file (`*.shadowdrop-partial.json`) is created owner-only, consistent
+- [x] The resume marker file (`*.shadowdrop-partial.json`) is created owner-only, consistent
   with the other sensitive-file writers, so the persisted share token is not world-readable.
-- [ ] `ShareSecret.FromBytes` requires exactly 32 bytes rather than accepting any buffer of
+- [x] `ShareSecret.FromBytes` requires exactly 32 bytes rather than accepting any buffer of
   at least 32 bytes.
-- [ ] The dead `DownloadFileService.ResolveAsync(string, ...)` overload is removed.
-- [ ] `GetEncryptedOffsetForChunkIndex`'s `fullSizedChunkCount` cap carries an assertion or
+- [x] The dead `DownloadFileService.ResolveAsync(string, ...)` overload is removed.
+- [x] `GetEncryptedOffsetForChunkIndex`'s `fullSizedChunkCount` cap carries an assertion or
   comment documenting why an index strictly between `ChunkCount - 1` and `ChunkCount` cannot
   reach it.
-- [ ] Automated tests need to be written.
+- [x] Automated tests need to be written.
 
 ## Technical Details
 

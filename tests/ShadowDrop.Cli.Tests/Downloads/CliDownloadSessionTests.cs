@@ -8,6 +8,7 @@ using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using System.Net;
+using System.Security.Cryptography;
 
 public sealed class CliDownloadSessionTests
 {
@@ -170,6 +171,27 @@ public sealed class CliDownloadSessionTests
         session.DurablePlaintextLength.Should().Be(fixture.Plaintext.LongLength);
     }
 
+    [Test]
+    public async Task DownloadAsync_ShouldThrowCryptographicException_WhenServerRelabelsNonFinalChunkAsFinal()
+    {
+        var fixture = DownloadFixture.Create();
+        using var handler = new StubHttpMessageHandler(_ => fixture.CreateRelabeledTruncatedResponse(1));
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new("https://shadowdrop.test/")
+        };
+        await using var destination = new MemoryStream();
+        using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
+        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+                                                   fixture.CreateFileEncryptionContext());
+
+        var act = async () => await session.DownloadAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<CryptographicException>();
+        destination.Length.Should().Be(0);
+        session.DurablePlaintextLength.Should().Be(0);
+    }
+
     private sealed class DownloadFixture
     {
         private DownloadFixture(Guid fileId, Byte[] keyMaterial, Byte[] kdfSalt, Byte[] plaintext, Int32 chunkSize, Byte[][] encryptedChunks)
@@ -205,8 +227,9 @@ public sealed class CliDownloadSessionTests
             var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
             using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
             var encryptedChunks = new List<Byte[]>();
+            var chunkCount = plaintext.LongLength / chunkSize;
 
-            for (var chunkIndex = 0L; chunkIndex < plaintext.LongLength / chunkSize; chunkIndex++)
+            for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
             {
                 var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
                 var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
@@ -216,7 +239,8 @@ public sealed class CliDownloadSessionTests
                                                                              fileId,
                                                                              chunkSize,
                                                                              chunkIndex,
-                                                                             chunkPlaintext.Length));
+                                                                             chunkPlaintext.Length,
+                                                                             chunkIndex == chunkCount - 1));
                 encryptedChunks.Add(encryptedChunk.Ciphertext);
             }
 
@@ -227,6 +251,20 @@ public sealed class CliDownloadSessionTests
 
         public HttpResponseMessage CreateInterruptedResponse(Int32 bytesBeforeFailure) =>
             CreateResponse(new InterruptingStream(CreateResponseBody(), bytesBeforeFailure));
+
+        public HttpResponseMessage CreateRelabeledTruncatedResponse(Int32 servedFullSizedChunkCount)
+        {
+            var declaredLength = servedFullSizedChunkCount * ChunkSize;
+            var responseBody = EncryptedChunks.Take(servedFullSizedChunkCount).SelectMany(static chunk => chunk).ToArray();
+            return CreateResponse(new MemoryStream(responseBody, false),
+                                  new()
+                                  {
+                                      Start = 0,
+                                      End = declaredLength
+                                  },
+                                  responseBody.LongLength,
+                                  declaredLength);
+        }
 
         public HttpResponseMessage CreateSuccessResponse(RequestedPlaintextRangeContract? requestedRange = null)
         {
@@ -241,7 +279,8 @@ public sealed class CliDownloadSessionTests
 
         private HttpResponseMessage CreateResponse(Stream contentStream,
                                                    RequestedPlaintextRangeContract? requestedRange = null,
-                                                   Int64? contentLength = null)
+                                                   Int64? contentLength = null,
+                                                   Int64? totalPlaintextSize = null)
         {
             var range = requestedRange ?? new RequestedPlaintextRangeContract
             {
@@ -259,7 +298,8 @@ public sealed class CliDownloadSessionTests
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, chunkRange.LastChunkIndex.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeStartHeaderName, range.Start.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.PlaintextRangeEndHeaderName, range.End.ToString());
-            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName, Plaintext.LongLength.ToString());
+            response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.TotalPlaintextSizeHeaderName,
+                                                     (totalPlaintextSize ?? Plaintext.LongLength).ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.ChunkSizeHeaderName, ChunkSize.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName, ChunkSize.ToString());
             return response;

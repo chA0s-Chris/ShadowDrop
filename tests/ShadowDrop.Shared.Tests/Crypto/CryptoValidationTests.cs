@@ -17,7 +17,8 @@ public sealed class CryptoValidationTests
             Guid.NewGuid(),
             64,
             0,
-            32);
+            32,
+            false);
 
         act.Should()
            .Throw<ArgumentException>()
@@ -33,7 +34,8 @@ public sealed class CryptoValidationTests
             Guid.NewGuid(),
             64,
             0,
-            32);
+            32,
+            false);
 
         act.Should()
            .Throw<ArgumentException>()
@@ -49,7 +51,8 @@ public sealed class CryptoValidationTests
             Guid.NewGuid(),
             64,
             0,
-            65);
+            65,
+            false);
 
         act.Should()
            .Throw<ArgumentOutOfRangeException>()

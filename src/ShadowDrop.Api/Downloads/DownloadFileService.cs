@@ -28,49 +28,6 @@ public sealed class DownloadFileService
         _timeProvider = timeProvider;
     }
 
-    public Task<DownloadLookupResult> ResolveAsync(String shareToken,
-                                                   Guid fileId,
-                                                   String? mode,
-                                                   String? authorizationBearerToken,
-                                                   String? headerKeyMaterial,
-                                                   String? queryKeyMaterial,
-                                                   String? rangeHeader,
-                                                   CancellationToken cancellationToken)
-    {
-        DownloadRequestMode requestMode;
-        if (mode is null)
-        {
-            requestMode = DownloadRequestMode.DirectHttp;
-        }
-        else if (String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase))
-        {
-            requestMode = DownloadRequestMode.Cli;
-        }
-        else
-        {
-            return Task.FromResult(new DownloadLookupResult(DownloadLookupStatus.InvalidRequest));
-        }
-
-        var requestedRange = default(RequestedByteRange?);
-        var hasMalformedRangeHeader = false;
-        if (!String.IsNullOrWhiteSpace(rangeHeader))
-        {
-            var parsedRange = ParseRequestedByteRange(rangeHeader);
-            requestedRange = parsedRange.Range;
-            hasMalformedRangeHeader = parsedRange.IsMalformed;
-        }
-
-        return ResolveAsync(new(requestMode,
-                                shareToken,
-                                fileId,
-                                authorizationBearerToken,
-                                headerKeyMaterial,
-                                queryKeyMaterial,
-                                requestedRange,
-                                hasMalformedRangeHeader),
-                            cancellationToken);
-    }
-
     public async Task<DownloadLookupResult> ResolveAsync(DownloadRequest request, CancellationToken cancellationToken)
     {
         var shareResolution = await TryResolveShareAsync(request.ShareToken, request.AuthorizationBearerToken, cancellationToken);
@@ -254,6 +211,9 @@ public sealed class DownloadFileService
             return 0;
         }
 
+        // Valid callers pass either an existing chunk index or ChunkCount as the exclusive end boundary.
+        // Therefore the cap only protects the end-boundary case; indexes between ChunkCount - 1 and
+        // ChunkCount cannot exist because chunk indexes are integral.
         var fullSizedChunkCount = Math.Min(chunkIndex, Math.Max(uploadedFile.ChunkCount - 1, 0));
         var offset = checked(fullSizedChunkCount * (uploadedFile.ChunkSize + AesGcmTagLength));
         if (chunkIndex == uploadedFile.ChunkCount)
@@ -825,7 +785,8 @@ public sealed class DownloadFileService
                                              _uploadedFile.FileId,
                                              _uploadedFile.ChunkSize,
                                              _nextChunkIndex,
-                                             plaintextChunkLength);
+                                             plaintextChunkLength,
+                                             _nextChunkIndex == _uploadedFile.ChunkCount - 1);
             _currentChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), _contentKey, metadata);
             _currentChunkOffset = 0;
             _remainingSpanPlaintextLength -= plaintextChunkLength;

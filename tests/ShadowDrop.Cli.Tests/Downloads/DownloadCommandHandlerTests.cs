@@ -262,6 +262,89 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldCreateResumeMarkerOwnerOnly_WhenFileDownloadIsInterrupted()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("Unix file permissions are required to validate owner-only marker mode.");
+            return;
+        }
+
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var markerPath = $"{outputPath}.shadowdrop-partial.json";
+            var queuePath = CreateQueueFile(rootDirectory, fixture);
+            var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
+
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                _ => fixture.CreateInterruptedDownloadResponse(firstChunkEncryptedLength + 7));
+            using var httpClient = new HttpClient(handler);
+
+            var exitCode = await CliApplication.InvokeAsync(
+                ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            File.Exists(markerPath).Should().BeTrue();
+            File.GetUnixFileMode(markerPath).Should().Be(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldDeletePartialAndMarker_WhenFileVerificationFails()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var wrongSha256 = new String('0', 64);
+            var outputPath = Path.Combine(rootDirectory, "payload.bin");
+            var partialPath = $"{outputPath}.shadowdrop-partial";
+            var markerPath = $"{partialPath}.json";
+            var queuePath = CreateQueueFile(rootDirectory, fixture, wrongSha256);
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(plaintextSha256: wrongSha256),
+                _ => fixture.CreateDownloadResponse());
+            using var httpClient = new HttpClient(handler);
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(
+                ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            File.Exists(outputPath).Should().BeFalse();
+            File.Exists(partialPath).Should().BeFalse();
+            File.Exists(markerPath).Should().BeFalse();
+            standardError.ToString().Should().Contain("Downloaded file did not match the shared file.");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldDeleteStaleQueuePartialAndRestartFromByteZero()
     {
         var fixture = DownloadHttpFixture.Create();
@@ -1454,6 +1537,56 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldReturnFailureAfterStdoutDownload_WhenPlaintextHashDoesNotMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey],
+            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Downloaded file hash did not match the shared file.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldReturnFailureAfterStdoutDownload_WhenPlaintextLengthDoesNotMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var manifestFile = fixture.CreateManifestFile() with
+        {
+            Length = fixture.Plaintext.LongLength + 1
+        };
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponseWithFiles(manifestFile),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var binaryOutput = new MemoryStream();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey],
+            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Downloaded file length mismatch");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldReuseManifestCacheForEquivalentServerUrlVariants()
     {
         var fixture = DownloadHttpFixture.Create();
@@ -2111,8 +2244,9 @@ public sealed class DownloadCommandHandlerTests
             var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
             using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, encryptionContext);
             var encryptedChunks = new List<Byte[]>();
+            var chunkCount = plaintext.LongLength / chunkSize;
 
-            for (var chunkIndex = 0L; chunkIndex < plaintext.LongLength / chunkSize; chunkIndex++)
+            for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
             {
                 var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
                 var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
@@ -2122,7 +2256,8 @@ public sealed class DownloadCommandHandlerTests
                                                                              fileId,
                                                                              chunkSize,
                                                                              chunkIndex,
-                                                                             chunkPlaintext.Length));
+                                                                             chunkPlaintext.Length,
+                                                                             chunkIndex == chunkCount - 1));
                 encryptedChunks.Add(encryptedChunk.Ciphertext);
             }
 

@@ -33,19 +33,19 @@ public sealed class ShareSecret : IDisposable
     }
 
     /// <summary>
-    /// Creates a share secret from the first 32 bytes of the provided buffer.
+    /// Creates a share secret from a 32-byte buffer.
     /// </summary>
     /// <param name="bytes">The buffer containing the share secret material.</param>
     /// <returns>A new <see cref="ShareSecret"/> instance.</returns>
-    /// <exception cref="ArgumentException">Thrown when <paramref name="bytes"/> is shorter than 32 bytes.</exception>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="bytes"/> is not exactly 32 bytes long.</exception>
     public static ShareSecret FromBytes(ReadOnlySpan<Byte> bytes)
     {
-        if (bytes.Length < KeyLength)
+        if (bytes.Length != KeyLength)
         {
-            throw new ArgumentException("Share secrets must contain at least 32 bytes of key material.", nameof(bytes));
+            throw new ArgumentException("Share secrets must contain exactly 32 bytes of key material.", nameof(bytes));
         }
 
-        var keyMaterial = bytes[..KeyLength].ToArray();
+        var keyMaterial = bytes.ToArray();
         return new(keyMaterial);
     }
 

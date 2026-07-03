@@ -175,7 +175,8 @@ public sealed class CliDownloadSession : IDisposable
                                                                          _encryptionContext.FileId,
                                                                          metadata.ChunkSize,
                                                                          chunkIndex,
-                                                                         plaintextChunkLength));
+                                                                         plaintextChunkLength,
+                                                                         chunkIndex == chunkCount - 1));
 
             var chunkPlaintextStart = checked(chunkIndex * (Int64)metadata.ChunkSize);
             var chunkPlaintextEnd = checked(chunkPlaintextStart + plaintextChunkLength);
