@@ -14,17 +14,17 @@ treat direct-HTTP URLs as ordinary links.
 
 ## Acceptance Criteria
 
-- [ ] `DEPLOYMENT_HARDENING.md` contains a "Direct-HTTP download URL sensitivity" section stating
+- [x] `DEPLOYMENT_HARDENING.md` contains a "Direct-HTTP download URL sensitivity" section stating
   that direct-HTTP `download-url` values are as sensitive as the file contents because the URL
   carries the share key material in the `sd-key` query parameter.
-- [ ] `README.md` links to the new section in `DEPLOYMENT_HARDENING.md`.
-- [ ] The documentation tells users not to send, paste, store, or proxy direct-HTTP URLs through
+- [x] `README.md` links to the new section in `DEPLOYMENT_HARDENING.md`.
+- [x] The documentation tells users not to send, paste, store, or proxy direct-HTTP URLs through
   channels that log full URLs, including browser history, referrers, chat systems, and intermediary
   HTTP logs.
-- [ ] The documentation distinguishes the browser-friendly `download-url` from the emitted
+- [x] The documentation distinguishes the browser-friendly `download-url` from the emitted
   `curl-command`, which passes the key in the `ShadowDrop-Key` header and omits `sd-key` from the
   request URL.
-- [ ] The change is documentation-only; no runtime behavior, API contract, CLI output, or
+- [x] The change is documentation-only; no runtime behavior, API contract, CLI output, or
   cryptographic format changes are made.
 
 ## Technical Details
