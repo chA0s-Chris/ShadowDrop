@@ -75,7 +75,11 @@ A server that only needs to serve downloads can disable the admin surface
 entirely:
 
 ```bash
--e ShadowDrop__ApiExposure__EnableAdminOperations=false
+docker run -d --name shadowdrop \
+  -p 19423:19423 \
+  -v shadowdrop-data:/app/data \
+  -e ShadowDrop__ApiExposure__EnableAdminOperations=false \
+  chaos/shadowdrop:latest
 ```
 
 With admin operations disabled, `/api/admin/*` is not mapped and the bootstrap

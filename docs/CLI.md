@@ -39,7 +39,7 @@ install -m 755 "shadowdrop-cli-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
-| `queue create <share-token>`   | Write a download queue file for an existing share.             |
+| `queue create [share-token]`   | Write a download queue file for an existing share.             |
 | `download [share-token]`       | Download and decrypt a shared file (or `--queue <file>`).      |
 
 ## Configuration
