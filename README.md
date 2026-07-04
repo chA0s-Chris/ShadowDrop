@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/chA0s-Chris/ShadowDrop" /></a>
-  <a href="https://github.com/chA0s-Chris/ShadowDrop/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/chA0s-Chris/ShadowDrop" /></a>
-  <a href="https://hub.docker.com/r/chaos/shadowdrop"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/chaos/shadowdrop" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/chA0s-Chris/ShadowDrop?style=for-the-badge" /></a>
+  <a href="https://github.com/chA0s-Chris/ShadowDrop/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/chA0s-Chris/ShadowDrop?style=for-the-badge" /></a>
+  <a href="https://hub.docker.com/r/chaos/shadowdrop"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/chaos/shadowdrop?style=for-the-badge" /></a>
 </p>
 
 ShadowDrop is a self-hosted service for secure one-off file handoffs. The CLI
