@@ -13,7 +13,7 @@ before it can be rejected. The request path is:
 1. `AdminBearerTokenEndpointFilterExtensions.RequireAdminBearerToken` parses the
    `Authorization: Bearer ...` header.
 2. `AdminTokenService.IsValidToken` loads the stored admin credential and runs
-   PBKDF2 verification for invalid non-empty tokens.
+   PBKDF2 verification for any non-empty token (valid or invalid).
 
 That PBKDF2 work is intentional for valid authentication, but it means a public
 admin route can be used as unauthenticated CPU amplification if the deployment
