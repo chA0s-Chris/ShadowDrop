@@ -12,9 +12,11 @@
 </p>
 
 ShadowDrop is a self-hosted service for secure one-off file handoffs. The CLI
-encrypts files on the sender's machine (AES-256-GCM), the server stores and
-serves only ciphertext, and content is decrypted on the recipient's side. The
-server never sees plaintext or, in the default mode, any key material.
+encrypts files on the sender's machine (AES-256-GCM), and default CLI
+downloads keep decryption on the recipient's side so the server stores and
+serves only ciphertext without seeing key material. Direct-HTTP downloads trade
+that property for browser/curl compatibility by sending key material to the
+server for server-side decryption.
 
 A typical handoff: an operator runs the ShadowDrop container, uploads files
 with the CLI, sends the recipient the share URL, and delivers the decryption

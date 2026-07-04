@@ -120,9 +120,12 @@ shadowdrop upload report.pdf --direct-http
 ```
 
 The `download-url` works in a browser but carries the decryption key in the
-`sd-key` query parameter — it is as sensitive as the file itself. Prefer
-passing the `curl-command`, which delivers the key in a header instead. Read
-[Security Trade-offs](SECURITY_TRADEOFFS.md) before choosing this mode.
+`sd-key` query parameter, and the `curl-command` sends the same key in the
+`ShadowDrop-Key` header. In both cases the server receives the key and decrypts
+the file before streaming it, so the URL or command is as sensitive as the file
+itself. Prefer the `curl-command` because it keeps the key out of URL-based
+logs and browser history. Read [Security Trade-offs](SECURITY_TRADEOFFS.md)
+before choosing this mode.
 
 ### Writing credentials to a file: `--secrets-out`
 

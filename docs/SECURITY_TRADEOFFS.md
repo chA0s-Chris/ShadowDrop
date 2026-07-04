@@ -27,8 +27,10 @@ themselves — treat it like the plaintext.
 
 ## Direct-HTTP mode (`--direct-http`)
 
-Direct-HTTP shares exist for recipients who cannot run the CLI. The emitted
-`download-url` embeds the key material in the `sd-key` query parameter, so
+Direct-HTTP shares exist for recipients who cannot run the CLI. They send the
+decryption key to the server via the `sd-key` query parameter or the
+`ShadowDrop-Key` header, and the server decrypts the file before streaming the
+response. The emitted `download-url` embeds the key material in `sd-key`, so
 **possession of the URL equals possession of the file**:
 
 ```text
