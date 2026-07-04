@@ -15,41 +15,41 @@ introduction, badges, quick-starts, and pointers; the detailed operator document
 
 ## Acceptance Criteria
 
-- [ ] `README.md` explains what ShadowDrop is and the intended self-hosted secure file handoff
+- [x] `README.md` explains what ShadowDrop is and the intended self-hosted secure file handoff
   use case.
-- [ ] `README.md` keeps the existing logo header unchanged and places badges directly below it
+- [x] `README.md` keeps the existing logo header unchanged and places badges directly below it
   (e.g. MIT license, current release version, Docker pulls).
-- [ ] `README.md` states the distribution channels: the API image on Docker Hub
+- [x] `README.md` states the distribution channels: the API image on Docker Hub
   (`chaos/shadowdrop`) and the CLI via the project's GitHub releases.
-- [ ] The documentation explains the Docker Hub tagging scheme: `1.2.3` (exact version), `1.2`
+- [x] The documentation explains the Docker Hub tagging scheme: `1.2.3` (exact version), `1.2`
   (highest patch of that minor), `1` (highest `1.x.x`), and `latest` (latest production
   version, never pre-releases).
-- [ ] `README.md` contains a quick-start for the API (run the container) and a quick-start for
+- [x] `README.md` contains a quick-start for the API (run the container) and a quick-start for
   the CLI (configure, upload, download) with short copy-pasteable examples.
-- [ ] `README.md` stays brief — as a guideline, at most ~200 lines of Markdown (excluding the
+- [x] `README.md` stays brief — as a guideline, at most ~200 lines of Markdown (excluding the
   logo/badge header); everything beyond the quick-starts is linked from the README and lives
   in `docs/`.
-- [ ] The documentation (README plus `docs/`) covers the Docker/container deployment path,
+- [x] The documentation (README plus `docs/`) covers the Docker/container deployment path,
   including port `19423`, `/app/data` persistence, reverse-proxy TLS expectations, and
   `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`.
-- [ ] The documentation covers CLI configuration sources: `--server-url`, `--upload-token`,
+- [x] The documentation covers CLI configuration sources: `--server-url`, `--upload-token`,
   `SHADOWDROP_SERVER_URL`, `SHADOWDROP_UPLOAD_TOKEN`, and `~/.config/shadowdrop/config.json`.
-- [ ] The documentation includes copy-pasteable examples for upload, direct HTTP
+- [x] The documentation includes copy-pasteable examples for upload, direct HTTP
   upload/download, separate-key CLI download, queue generation/download, `--secrets-out`, and
   `--embed-secrets`.
-- [ ] The documentation explains when generated URLs use the CLI-provided server URL, including
+- [x] The documentation explains when generated URLs use the CLI-provided server URL, including
   reverse-proxy/public-hostname guidance.
-- [ ] The documentation explains security trade-offs: separate-key mode, direct HTTP mode,
+- [x] The documentation explains security trade-offs: separate-key mode, direct HTTP mode,
   `sd-key` query leakage, `curl-command` header-based key delivery, bearer tokens, and
   `--insecure` versus `--cacert`.
-- [ ] The documentation states current MVP limitations, including incomplete release publishing
+- [x] The documentation states current MVP limitations, including incomplete release publishing
   if still true at implementation time.
-- [ ] The documentation explains that the CLI upload token is the admin bearer token (uploads
+- [x] The documentation explains that the CLI upload token is the admin bearer token (uploads
   go through `/api/admin/uploads`), including the consequence that uploading requires access
   to the admin exposure boundary described in `docs/DEPLOYMENT_HARDENING.md`.
-- [ ] Commands and option names in the documentation are verified against the CLI's `--help`
+- [x] Commands and option names in the documentation are verified against the CLI's `--help`
   output and existing tests.
-- [ ] A follow-up issue is filed for aligning the published CLI executable/install flow with
+- [x] A follow-up issue is filed for aligning the published CLI executable/install flow with
   the documented `shadowdrop` command name.
 
 ## Technical Details
