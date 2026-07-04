@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Cli.Downloads;
@@ -97,6 +98,7 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.GetAsync("/api/admin/management/ping");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        fixture.Services.GetService<AdminTokenService>().Should().BeNull();
     }
 
     [Test]

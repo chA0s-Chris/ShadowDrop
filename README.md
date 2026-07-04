@@ -5,4 +5,6 @@
   </picture>
 </p>
 
-TBD
+## Deployment
+
+- [Deployment hardening](docs/DEPLOYMENT_HARDENING.md)
