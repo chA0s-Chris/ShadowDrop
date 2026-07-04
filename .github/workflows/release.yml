@@ -11,6 +11,9 @@ on:
         type: string
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   # Fast-fail gate: reject obviously invalid or fat-fingered input before any artifact build or Docker
   # work runs. This is a convenience check, not the authoritative validator -- OnBuildCreated's
@@ -41,6 +44,10 @@ jobs:
       - validate-version
       - release-artifacts
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
+      VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -80,9 +87,104 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
-      - name: Build multi-platform Docker image
-        run: bash build.sh BuildDockerImageMultiPlatform --release-version "${{ inputs.version }}"
+      - name: Calculate release metadata
+        id: release
+        shell: bash
+        run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
-      # Out of scope for #71 (deliberately not implemented here): this workflow does NOT create a git
-      # tag, publish a GitHub Release, log in to a registry, or push/publish the image. Those
-      # release/publish steps build on the multi-platform image produced above and will be added later.
+      - name: Build and smoke test multi-platform Docker image
+        run: bash build.sh SmokeTestDockerImageMultiPlatform --release-version "$VERSION"
+
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ env.DOCKERHUB_PAT }}
+
+      - name: Push Docker Hub image
+        shell: bash
+        env:
+          DOCKER_TAGS: ${{ steps.release.outputs.docker_tags }}
+          SOURCE_IMAGE: shadowdrop:${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r tag; do
+            if [[ -z "$tag" ]]; then
+              continue
+            fi
+
+            docker tag "$SOURCE_IMAGE" "$tag"
+            docker push "$tag"
+          done <<< "$DOCKER_TAGS"
+
+  github-release:
+    needs: build-docker-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifact bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: shadowdrop-release-artifacts
+          path: artifacts/release
+
+      - name: Calculate release metadata
+        id: release
+        shell: bash
+        run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Draft GitHub release
+        uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter.yml
+          version: ${{ inputs.version }}
+          name: ${{ steps.release.outputs.release_name }}
+          tag: ${{ steps.release.outputs.git_tag }}
+          prerelease: ${{ steps.release.outputs.is_prerelease }}
+          publish: false
+          commitish: ${{ github.sha }}
+          footer: |
+            Docker image: [${{ steps.release.outputs.docker_image_tag }}](${{ steps.release.outputs.docker_hub_url }})
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GIT_TAG: ${{ steps.release.outputs.git_tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          release_assets=(artifacts/release/cli/shadowdrop-cli-* artifacts/release/cli/CHECKSUMS.sha256)
+          if [[ "${#release_assets[@]}" -ne 7 ]]; then
+            echo "Expected 6 CLI binaries plus CHECKSUMS.sha256, but found ${#release_assets[@]} assets." >&2
+            printf '%s\n' "${release_assets[@]}" >&2
+            exit 1
+          fi
+
+          gh release upload "$GIT_TAG" "${release_assets[@]}" --clobber
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GIT_TAG: ${{ steps.release.outputs.git_tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            gh release edit "$GIT_TAG" --draft=false --prerelease
+          else
+            gh release edit "$GIT_TAG" --draft=false --latest
+          fi

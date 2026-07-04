@@ -4,23 +4,23 @@ Issue [#110](https://github.com/chA0s-Chris/ShadowDrop/issues/110) completes the
 
 ## Acceptance Criteria
 
-- [ ] `release.yml` logs in to Docker Hub using repository secrets.
-- [ ] The Docker image is pushed to Docker Hub as `chaos/shadowdrop:x.x.x` for every release.
-- [ ] Pre-release versions such as `x.x.x-xxx` are pushed with their full pre-release tag, for example `chaos/shadowdrop:x.x.x-xxx`.
-- [ ] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:latest`.
-- [ ] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:x.x`.
-- [ ] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:x`.
-- [ ] The Docker image passes the existing multi-platform smoke test before it is pushed.
-- [ ] The Docker Hub push does not run unless the multi-platform build and smoke test in the same job have succeeded.
-- [ ] The workflow creates a GitHub release for the requested version.
-- [ ] The workflow creates the git tag `vx.x.x` for the requested version, pointing at the commit the workflow was dispatched for.
-- [ ] The GitHub release changelog is generated using Release Drafter.
-- [ ] The GitHub release includes the six CLI binaries: Linux x64, Linux arm64, Windows x64, Windows arm64, macOS x64, and macOS arm64.
-- [ ] The GitHub release includes the generated `CHECKSUMS.sha256` file.
-- [ ] The GitHub release includes a link to the Docker Hub image.
-- [ ] The workflow keeps the existing version validation behavior so invalid SemVer input fails before publishing.
-- [ ] Publish steps do not run unless the release artifacts and Docker image build have succeeded.
-- [ ] Automated tests or workflow validation checks cover the release tag calculation and pre-release detection.
+- [x] `release.yml` logs in to Docker Hub using repository secrets.
+- [x] The Docker image is pushed to Docker Hub as `chaos/shadowdrop:x.x.x` for every release.
+- [x] Pre-release versions such as `x.x.x-xxx` are pushed with their full pre-release tag, for example `chaos/shadowdrop:x.x.x-xxx`.
+- [x] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:latest`.
+- [x] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:x.x`.
+- [x] Non-pre-release versions are additionally tagged and pushed as `chaos/shadowdrop:x`.
+- [x] The Docker image passes the existing multi-platform smoke test before it is pushed.
+- [x] The Docker Hub push does not run unless the multi-platform build and smoke test in the same job have succeeded.
+- [x] The workflow creates a GitHub release for the requested version.
+- [x] The workflow creates the git tag `vx.x.x` for the requested version, pointing at the commit the workflow was dispatched for.
+- [x] The GitHub release changelog is generated using Release Drafter.
+- [x] The GitHub release includes the six CLI binaries: Linux x64, Linux arm64, Windows x64, Windows arm64, macOS x64, and macOS arm64.
+- [x] The GitHub release includes the generated `CHECKSUMS.sha256` file.
+- [x] The GitHub release includes a link to the Docker Hub image.
+- [x] The workflow keeps the existing version validation behavior so invalid SemVer input fails before publishing.
+- [x] Publish steps do not run unless the release artifacts and Docker image build have succeeded.
+- [x] Automated tests or workflow validation checks cover the release tag calculation and pre-release detection.
 
 ## Technical Details
 
