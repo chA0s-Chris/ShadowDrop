@@ -12,14 +12,14 @@ handled as non-cacheable sensitive material.
 
 ## Acceptance Criteria
 
-- [ ] Direct-HTTP download responses include `Cache-Control: no-store` for both full-file and range
+- [x] Direct-HTTP download responses include `Cache-Control: no-store` for both full-file and range
   responses while preserving the existing content, range, disposition, and ShadowDrop metadata
   headers.
-- [ ] Share manifest JSON responses include `Cache-Control: no-store` while preserving the existing
+- [x] Share manifest JSON responses include `Cache-Control: no-store` while preserving the existing
   JSON contract and status-code behavior.
-- [ ] CLI streamed-download responses do not gain new cache directives; `Cache-Control: no-store`
+- [x] CLI streamed-download responses do not gain new cache directives; `Cache-Control: no-store`
   is limited to direct-HTTP plaintext downloads and share manifest JSON responses.
-- [ ] Automated tests need to be written.
+- [x] Automated tests need to be written.
 
 ## Technical Details
 

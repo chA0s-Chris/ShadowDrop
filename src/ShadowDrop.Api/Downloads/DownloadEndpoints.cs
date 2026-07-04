@@ -96,7 +96,7 @@ public static class DownloadEndpoints
 
         return result.Status switch
         {
-            DownloadLookupStatus.Success => Results.Json(result.Manifest),
+            DownloadLookupStatus.Success => new NoStoreResult(Results.Json(result.Manifest)),
             DownloadLookupStatus.InvalidShare or DownloadLookupStatus.ExpiredShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
             DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
@@ -179,6 +179,14 @@ public static class DownloadEndpoints
             }).TrimEnd('\0')
             : value;
         return sanitized.Length > 500 ? sanitized[..500] : sanitized;
+    }
+
+    private static void SetNoStoreCacheControl(HttpContext httpContext)
+    {
+        httpContext.Response.GetTypedHeaders().CacheControl = new()
+        {
+            NoStore = true
+        };
     }
 
     private static DownloadRequest? TryCreateDownloadRequest(String token, Guid fileId, HttpRequest request)
@@ -270,6 +278,7 @@ public static class DownloadEndpoints
 
             if (resolution.Mode == DownloadMode.DirectHttp)
             {
+                SetNoStoreCacheControl(httpContext);
                 httpContext.Response.Headers.AcceptRanges = "bytes";
                 if (resolution.RequestedRange is not null)
                 {
@@ -302,6 +311,15 @@ public static class DownloadEndpoints
 
             await using var contentStream = resolution.ContentStream;
             await contentStream.CopyToAsync(httpContext.Response.Body, httpContext.RequestAborted);
+        }
+    }
+
+    private sealed class NoStoreResult(IResult innerResult) : IResult
+    {
+        public async Task ExecuteAsync(HttpContext httpContext)
+        {
+            SetNoStoreCacheControl(httpContext);
+            await innerResult.ExecuteAsync(httpContext);
         }
     }
 
