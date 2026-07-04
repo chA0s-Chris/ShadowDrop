@@ -46,17 +46,6 @@
       "matchManagers": [
         "github-actions"
       ]
-    },
-    {
-      "description": "Ignore Squad-related workflows",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchFileNames": [
-        ".github/workflows/squad-*.yml",
-        ".github/workflows/sync-squad-labels.yml"
-      ],
-      "enabled": false
     }
   ]
 }
