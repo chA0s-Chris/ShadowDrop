@@ -94,10 +94,10 @@ the lifetime of the share. Systems that record complete URLs can retain the key
 material even after the user has stopped using the link.
 
 Do not send, paste, store, or proxy direct-HTTP URLs through channels that log
-full URLs, including browser history, referrers, chat systems, reverse proxies,
-access logs, intermediary HTTP logs, or other request tracing systems. Use
-direct-HTTP `download-url` values only in contexts where complete-URL logging is
-acceptable.
+full URLs, including browser history, HTTP referrer headers, chat systems,
+reverse proxies, access logs, intermediary HTTP logs, or other request tracing
+systems. Use direct-HTTP `download-url` values only in contexts where
+complete-URL logging is acceptable.
 
 For command-line transfers, prefer the emitted `curl-command`. It sends the key
 material in the `ShadowDrop-Key` header and omits `sd-key` from the request URL,
