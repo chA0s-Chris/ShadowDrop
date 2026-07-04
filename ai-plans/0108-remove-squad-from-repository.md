@@ -8,15 +8,15 @@ The repository should no longer carry Squad/Copilot-agent configuration because 
 
 ## Acceptance Criteria
 
-- [ ] The `.squad/` directory is removed from the repository.
-- [ ] The `.copilot/` directory is removed from the repository.
-- [ ] `.github/agents/squad.agent.md` is removed from the repository.
-- [ ] Any `.github/workflows/*squad*.yml` workflow files are removed from the repository.
-- [ ] Squad-specific entries are removed from `.gitignore`.
-- [ ] `.github/copilot-instructions.md` is kept, but its `./.squad` ignored-directory entry and entire RTK section are removed.
-- [ ] `.mcp.json` is removed from the repository.
-- [ ] The GitHub label named `squad` and every GitHub label whose name contains `:` are removed from the repository.
-- [ ] Repository validation is run with `rtk ./build.sh` after the cleanup, and any failures caused by the removal are addressed.
+- [x] The `.squad/` directory is removed from the repository.
+- [x] The `.copilot/` directory is removed from the repository.
+- [x] `.github/agents/squad.agent.md` is removed from the repository.
+- [x] Any `.github/workflows/*squad*.yml` workflow files are removed from the repository.
+- [x] Squad-specific entries are removed from `.gitignore`.
+- [x] `.github/copilot-instructions.md` is kept, but its `./.squad` ignored-directory entry and entire RTK section are removed.
+- [x] `.mcp.json` is removed from the repository.
+- [x] The GitHub label named `squad` and every GitHub label whose name contains `:` are removed from the repository.
+- [x] Repository validation is run with `rtk ./build.sh` after the cleanup, and any failures caused by the removal are addressed.
 
 ## Technical Details
 
