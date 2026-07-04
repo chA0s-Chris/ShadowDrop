@@ -79,3 +79,29 @@ route /api/admin/* {
 Adjust the trusted source ranges and limits to match the deployment, but keep
 both properties: untrusted clients should not reach `/api/admin/*`, and allowed
 clients should still be throttled before requests are forwarded to Kestrel.
+
+## Direct-HTTP download URL sensitivity
+
+Direct-HTTP `download-url` values are as sensitive as the file contents because
+the URL carries the share key material in the `sd-key` query parameter:
+
+```text
+/d/<share-token>/files/<file-id>?sd-key=<base64-key-material>
+```
+
+Possession of this URL is equivalent to possession of the plaintext file for
+the lifetime of the share. Systems that record complete URLs can retain the key
+material even after the user has stopped using the link.
+
+Do not send, paste, store, or proxy direct-HTTP URLs through channels that log
+full URLs, including browser history, HTTP referrer headers, chat systems,
+reverse proxies, access logs, intermediary HTTP logs, or other request tracing
+systems. Use direct-HTTP `download-url` values only in contexts where
+complete-URL logging is acceptable.
+
+For command-line transfers, prefer the emitted `curl-command`. It sends the key
+material in the `ShadowDrop-Key` header and omits `sd-key` from the request URL,
+which keeps the key out of URL-based browser history and HTTP access logs.
+
+If a direct-HTTP URL may have been exposed through a logging channel, revoke the
+share or let it expire before treating the file contents as protected again.

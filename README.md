@@ -8,3 +8,4 @@
 ## Deployment
 
 - [Deployment hardening](docs/DEPLOYMENT_HARDENING.md)
+  - [Direct-HTTP download URL sensitivity](docs/DEPLOYMENT_HARDENING.md#direct-http-download-url-sensitivity)
