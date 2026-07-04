@@ -112,8 +112,9 @@ configuration sources, download queues, and credential-handling options.
   published to Docker Hub or GitHub releases yet. Until the first release lands, build locally:
   `bash build.sh BuildDockerImage` for the image and
   `bash build.sh PublishCli` for the CLI.
-- The published CLI binaries are named `shadowdrop-cli-<version>-<platform>`;
-  renaming to `shadowdrop` is a manual install step for now.
+- Release CLI binaries are named `shadowdrop-cli-<version>-<platform>` (the
+  same names `bash build.sh PublishCli` produces locally); renaming to
+  `shadowdrop` is a manual install step for now.
 - There is no separate upload-token provisioning: uploading requires the admin
   bearer token and therefore access to the admin exposure boundary.
 - There is no web UI; shares are consumed via the CLI or direct HTTP.

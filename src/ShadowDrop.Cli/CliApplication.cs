@@ -306,7 +306,7 @@ internal static class CliApplication
         shareRevokeCommand.Options.Add(insecureOption);
         shareRevokeCommand.Options.Add(uploadTokenOption);
 
-        var shareCleanupCommand = new Command("cleanup", "Delete local blobs for expired and revoked shares.");
+        var shareCleanupCommand = new Command("cleanup", "Delete server blobs for expired and revoked shares.");
         shareCleanupCommand.Options.Add(serverOption);
         shareCleanupCommand.Options.Add(caCertOption);
         shareCleanupCommand.Options.Add(insecureOption);

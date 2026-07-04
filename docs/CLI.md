@@ -34,13 +34,13 @@ install -m 755 "shadowdrop-cli-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
 
 | Command                        | Purpose                                                        |
 | ------------------------------ | -------------------------------------------------------------- |
-| `upload <files>`               | Encrypt, upload, and create a share in one step.               |
+| `upload [files]`               | Encrypt, upload, and create a share in one step (files are optional only with `--interactive`). |
 | `upload raw <files>`           | Encrypt and upload only; prints file IDs and the share key.    |
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
 | `queue create <share-token>`   | Write a download queue file for an existing share.             |
-| `download <share-token>`       | Download and decrypt a shared file (or `--queue <file>`).      |
+| `download [share-token]`       | Download and decrypt a shared file (or `--queue <file>`).      |
 
 ## Configuration
 
