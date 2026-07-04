@@ -618,6 +618,7 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Headers.CacheControl.Should().BeNull();
         response.Headers.AcceptRanges.Should().BeEmpty();
         response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
         response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
@@ -627,6 +628,31 @@ public sealed class ApiWalkingSkeletonTests
         response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
         response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeEndHeaderName).Should().ContainSingle("128");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
+    }
+
+    [Test]
+    public async Task PublicDownloadEndpoint_ShouldReturnManifestWithNoStoreCacheControl()
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+        var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, false));
+
+        var response = await client.GetAsync($"/d/{share.ShareToken}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.CacheControl.Should().NotBeNull();
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
+        var manifest = await response.Content.ReadFromJsonAsync<ShareManifestContract>(JsonOptions);
+        manifest.Should().NotBeNull();
+        manifest!.Files.Should().ContainSingle();
+        var manifestFile = manifest.Files!.Single();
+        manifestFile.FileId.Should().Be(fileId.ToString());
+        manifestFile.FileName.Should().Be("renamed.bin");
+        manifestFile.Length.Should().Be(128);
+        manifestFile.ChunkSize.Should().Be(64);
+        manifestFile.ChunkCount.Should().Be(2);
     }
 
     [Test]
@@ -1098,8 +1124,13 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
+        response.Headers.CacheControl.Should().NotBeNull();
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
         response.Headers.AcceptRanges.Should().ContainSingle("bytes");
         response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
+        response.Content.Headers.ContentDisposition.Should().NotBeNull();
+        response.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
+        response.Content.Headers.ContentDisposition.FileNameStar.Should().Be("renamed.bin");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
     }
 
@@ -1118,12 +1149,18 @@ public sealed class ApiWalkingSkeletonTests
         var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+        response.Headers.CacheControl.Should().NotBeNull();
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
         response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         response.Content.Headers.ContentLength.Should().Be(32);
         response.Content.Headers.ContentRange.Should().NotBeNull();
         response.Content.Headers.ContentRange!.From.Should().Be(64);
         response.Content.Headers.ContentRange.To.Should().Be(95);
         response.Content.Headers.ContentRange.Length.Should().Be(directHttpFixture.Plaintext.LongLength);
+        response.Content.Headers.ContentDisposition.Should().NotBeNull();
+        response.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
+        response.Content.Headers.ContentDisposition.FileNameStar.Should().Be("renamed.bin");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext.Skip(64).Take(32));
     }
 
