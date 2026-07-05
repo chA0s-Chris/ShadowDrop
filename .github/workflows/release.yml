@@ -10,6 +10,14 @@ on:
           artifacts and tags the multi-platform Docker image, so the two always match.
         type: string
         required: true
+      publish_floating_tags:
+        description: >-
+          Also move the floating latest/MAJOR/MAJOR.MINOR Docker tags to this release. Leave enabled
+          for normal, ascending releases. Set to false when publishing an older version out of order
+          so those tags are not dragged backward. Pre-releases never receive floating tags either way.
+        type: boolean
+        default: true
+        required: false
 
 permissions:
   contents: read
@@ -90,6 +98,8 @@ jobs:
       - name: Calculate release metadata
         id: release
         shell: bash
+        env:
+          INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
         run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build and smoke test multi-platform Docker image
@@ -105,7 +115,7 @@ jobs:
         shell: bash
         env:
           DOCKER_TAGS: ${{ steps.release.outputs.docker_tags }}
-          SOURCE_IMAGE: shadowdrop:${{ inputs.version }}
+          SOURCE_IMAGE: ${{ steps.release.outputs.source_image }}
         run: |
           set -euo pipefail
 
@@ -141,6 +151,8 @@ jobs:
       - name: Calculate release metadata
         id: release
         shell: bash
+        env:
+          INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
         run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Draft GitHub release
