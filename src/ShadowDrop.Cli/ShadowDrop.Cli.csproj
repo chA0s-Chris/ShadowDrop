@@ -1,6 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- Publish output is the documented `shadowdrop` command; keep in sync with CliExecutableName in build/BuildPipeline.Publish.cs. -->
+    <AssemblyName>shadowdrop</AssemblyName>
     <IsAotCompatible>true</IsAotCompatible>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>true</PublishAot>

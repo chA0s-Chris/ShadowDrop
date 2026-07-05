@@ -12,15 +12,15 @@ release, the release artifact and installation flow should produce an executable
 
 ## Acceptance Criteria
 
-- [ ] Installing the CLI from a release makes the documented `shadowdrop` command
+- [x] Installing the CLI from a release makes the documented `shadowdrop` command
   (`shadowdrop.exe` on Windows) available through a single documented install/copy step for
   each supported platform — including a Windows equivalent — without the user having to derive
   an undocumented rename of a `shadowdrop-cli-*` file. Release artifacts are named
   `shadowdrop-<version>-<rid>` (`.exe` on Windows).
-- [ ] The install instructions in `README.md` and `docs/CLI.md` are updated to match the
+- [x] The install instructions in `README.md` and `docs/CLI.md` are updated to match the
   implemented flow.
-- [ ] `CHECKSUMS.sha256` or its successor still covers whatever artifacts users download.
-- [ ] The selected release/install flow is verified by an automated test, build target, or
+- [x] `CHECKSUMS.sha256` or its successor still covers whatever artifacts users download.
+- [x] The selected release/install flow is verified by an automated test, build target, or
   documented manual verification that confirms the downloaded artifact installs/runs as
   `shadowdrop` on at least the current development platform.
 
