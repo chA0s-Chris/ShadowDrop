@@ -178,7 +178,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          release_assets=(artifacts/release/cli/shadowdrop-cli-* artifacts/release/cli/CHECKSUMS.sha256)
+          release_assets=(artifacts/release/cli/shadowdrop-* artifacts/release/cli/CHECKSUMS.sha256)
           if [[ "${#release_assets[@]}" -ne 7 ]]; then
             echo "Expected 6 CLI binaries plus CHECKSUMS.sha256, but found ${#release_assets[@]} assets." >&2
             printf '%s\n' "${release_assets[@]}" >&2

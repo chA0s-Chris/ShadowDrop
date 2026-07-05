@@ -11,18 +11,32 @@ workflows.
 Download the binary for your platform from the
 [GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases). Each
 release ships single-file native binaries named
-`shadowdrop-cli-<version>-<platform>` for `linux-x64`, `linux-arm64`,
+`shadowdrop-<version>-<platform>` for `linux-x64`, `linux-arm64`,
 `osx-x64`, `osx-arm64`, `win-x64`, and `win-arm64` (Windows binaries end in
 `.exe`), plus a `CHECKSUMS.sha256` file.
 
-Verify the checksum, then install the binary as `shadowdrop`:
+Verify the checksum, then install the binary as `shadowdrop` (`shadowdrop.exe`
+on Windows). On Linux/macOS:
 
 ```bash
 VERSION=1.0.0
-curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-cli-${VERSION}-linux-x64"
+curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-${VERSION}-linux-x64"
 curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/CHECKSUMS.sha256"
-sha256sum -c --ignore-missing CHECKSUMS.sha256
-install -m 755 "shadowdrop-cli-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
+grep "shadowdrop-${VERSION}-linux-x64" CHECKSUMS.sha256 | $sum -c -
+install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+```
+
+On Windows (PowerShell), verify the checksum and copy the binary to a directory
+on your `PATH` as `shadowdrop.exe`:
+
+```powershell
+$Version = "1.0.0"
+Invoke-WebRequest "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v$Version/shadowdrop-$Version-win-x64.exe" -OutFile "shadowdrop-$Version-win-x64.exe"
+Invoke-WebRequest "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v$Version/CHECKSUMS.sha256" -OutFile "CHECKSUMS.sha256"
+# Confirm the hash matches the CHECKSUMS.sha256 entry for this file:
+(Get-FileHash "shadowdrop-$Version-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
+Copy-Item "shadowdrop-$Version-win-x64.exe" "$Env:LOCALAPPDATA\Microsoft\WindowsApps\shadowdrop.exe"
 ```
 
 > **Note:** Release publishing is not wired up yet (see the MVP limitations in

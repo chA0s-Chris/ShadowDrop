@@ -13,6 +13,10 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 internal partial class BuildPipeline
 {
+    // Must match <AssemblyName> in src/ShadowDrop.Cli/ShadowDrop.Cli.csproj: this is the name the CLI
+    // publish emits and the documented command users invoke, so the published executable and the
+    // versioned release artifact are both derived from it here.
+    private const String CliExecutableName = "shadowdrop";
     private const String DockerContainerPort = "19423";
 
     // Serilog's default console template renders the level as `[{Timestamp:HH:mm:ss} {Level:u3}]`,
@@ -212,7 +216,7 @@ internal partial class BuildPipeline
     private static String GetCliPublishedExecutableName(String runtimeIdentifier)
     {
         var extension = IsWindowsRuntime(runtimeIdentifier) ? ".exe" : String.Empty;
-        return $"ShadowDrop.Cli{extension}";
+        return $"{CliExecutableName}{extension}";
     }
 
     private static Int32 GetContainerHostPort(String containerName)
@@ -421,7 +425,7 @@ internal partial class BuildPipeline
     private String GetCliArtifactName(String runtimeIdentifier)
     {
         var extension = IsWindowsRuntime(runtimeIdentifier) ? ".exe" : String.Empty;
-        return $"shadowdrop-cli-{SemanticVersion}-{runtimeIdentifier}{extension}";
+        return $"{CliExecutableName}-{SemanticVersion}-{runtimeIdentifier}{extension}";
     }
 
     private String GetDockerImageTag() => $"{DockerImageRepository}:{SemanticVersion}";

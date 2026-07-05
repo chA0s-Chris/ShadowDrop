@@ -54,12 +54,21 @@ control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before goi
 
 Download the binary for your platform from the
 [releases page](https://github.com/chA0s-Chris/ShadowDrop/releases) (verify it
-against `CHECKSUMS.sha256`) and put it on your `PATH` as `shadowdrop`:
+against `CHECKSUMS.sha256` — see [docs/CLI.md](docs/CLI.md#installation)) and put
+it on your `PATH` as `shadowdrop`:
 
 ```bash
 VERSION=1.0.0
-curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-cli-${VERSION}-linux-x64"
-install -m 755 "shadowdrop-cli-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-${VERSION}-linux-x64"
+install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+```
+
+On Windows, download `shadowdrop-<version>-win-x64.exe` and copy it to a
+directory on your `PATH` as `shadowdrop.exe`, e.g. in PowerShell:
+
+```powershell
+$Version = "1.0.0"
+Copy-Item "shadowdrop-$Version-win-x64.exe" "$Env:LOCALAPPDATA\Microsoft\WindowsApps\shadowdrop.exe"
 ```
 
 Point the CLI at your server. The upload token **is** the admin bearer token
@@ -114,9 +123,9 @@ configuration sources, download queues, and credential-handling options.
   published to Docker Hub or GitHub releases yet. Until the first release lands, build locally:
   `bash build.sh BuildDockerImage` for the image and
   `bash build.sh PublishCli` for the CLI.
-- Release CLI binaries are named `shadowdrop-cli-<version>-<platform>` (the
-  same names `bash build.sh PublishCli` produces locally); renaming to
-  `shadowdrop` is a manual install step for now.
+- Release CLI binaries are named `shadowdrop-<version>-<platform>` (the same
+  names `bash build.sh PublishCli` produces locally); the documented install
+  step above places the binary on your `PATH` as `shadowdrop`.
 - There is no separate upload-token provisioning: uploading requires the admin
   bearer token and therefore access to the admin exposure boundary.
 - There is no web UI; shares are consumed via the CLI or direct HTTP.

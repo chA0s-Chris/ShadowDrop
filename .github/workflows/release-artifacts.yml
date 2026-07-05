@@ -67,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-linux
-          path: artifacts/publish/cli/*/shadowdrop-cli-*-linux-*
+          path: artifacts/publish/cli/*/shadowdrop-*-linux-*
           if-no-files-found: error
 
   publish-cli-macos:
@@ -89,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-macos
-          path: artifacts/publish/cli/*/shadowdrop-cli-*-osx-*
+          path: artifacts/publish/cli/*/shadowdrop-*-osx-*
           if-no-files-found: error
 
   publish-cli-windows:
@@ -111,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: shadowdrop-cli-windows
-          path: artifacts/publish/cli/*/shadowdrop-cli-*-win-*.exe
+          path: artifacts/publish/cli/*/shadowdrop-*-win-*.exe
           if-no-files-found: error
 
   collect-release-artifacts:
@@ -134,19 +134,19 @@ jobs:
 
           mkdir -p artifacts/release/api artifacts/release/cli
           cp -R artifacts/downloaded/shadowdrop-api/. artifacts/release/api/
-          find artifacts/downloaded -type f -name 'shadowdrop-cli-*' -exec cp {} artifacts/release/cli/ \;
+          find artifacts/downloaded -type f -name 'shadowdrop-*' -exec cp {} artifacts/release/cli/ \;
 
           expected_count=6
-          actual_count="$(find artifacts/release/cli -maxdepth 1 -type f -name 'shadowdrop-cli-*' | wc -l)"
+          actual_count="$(find artifacts/release/cli -maxdepth 1 -type f -name 'shadowdrop-*' | wc -l)"
           if [ "$actual_count" -ne "$expected_count" ]; then
             echo "Expected $expected_count CLI artifacts but found $actual_count."
-            find artifacts/release/cli -maxdepth 1 -type f -name 'shadowdrop-cli-*' -print
+            find artifacts/release/cli -maxdepth 1 -type f -name 'shadowdrop-*' -print
             exit 1
           fi
 
           (
             cd artifacts/release/cli
-            sha256sum shadowdrop-cli-* > CHECKSUMS.sha256
+            sha256sum shadowdrop-* > CHECKSUMS.sha256
           )
 
       - name: Upload complete release artifact bundle
