@@ -33,6 +33,12 @@ jobs:
           dotnet-version: |
             10.0.x
 
+      - name: Validate release metadata script
+        run: bash scripts/test-calculate-docker-tags.sh
+
+      - name: Validate GitHub Actions workflows
+        uses: raven-actions/actionlint@v2
+
       - name: Run NUKE pipeline
         run: bash build.sh Test TestEndToEnd
 
