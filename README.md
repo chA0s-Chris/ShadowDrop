@@ -62,7 +62,7 @@ curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION
 install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
 ```
 
-On Windows, download `shadowdrop-${VERSION}-win-x64.exe` and copy it to a
+On Windows, download `shadowdrop-<version>-win-x64.exe` and copy it to a
 directory on your `PATH` as `shadowdrop.exe`, e.g. in PowerShell:
 
 ```powershell

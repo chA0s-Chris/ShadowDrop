@@ -22,7 +22,8 @@ on Windows). On Linux/macOS:
 VERSION=1.0.0
 curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-${VERSION}-linux-x64"
 curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/CHECKSUMS.sha256"
-sha256sum -c --ignore-missing CHECKSUMS.sha256
+shasum -a 256 --ignore-missing -c CHECKSUMS.sha256 2>/dev/null \
+  || sha256sum --ignore-missing -c CHECKSUMS.sha256
 install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
 ```
 
