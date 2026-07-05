@@ -54,7 +54,8 @@ control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before goi
 
 Download the binary for your platform from the
 [releases page](https://github.com/chA0s-Chris/ShadowDrop/releases) (verify it
-against `CHECKSUMS.sha256`) and put it on your `PATH` as `shadowdrop`:
+against `CHECKSUMS.sha256` — see [docs/CLI.md](docs/CLI.md#installation)) and put
+it on your `PATH` as `shadowdrop`:
 
 ```bash
 VERSION=1.0.0
