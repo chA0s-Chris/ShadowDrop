@@ -11,9 +11,9 @@ assert_output() {
   local actual
 
   if [[ -n "$include_floating" ]]; then
-    actual="$(INCLUDE_FLOATING_TAGS="$include_floating" "$subject" "$version")"
+    actual="$(INCLUDE_FLOATING_TAGS="$include_floating" bash "$subject" "$version")"
   else
-    actual="$("$subject" "$version")"
+    actual="$(bash "$subject" "$version")"
   fi
 
   if [[ "$actual" == "$expected" ]]; then
@@ -28,7 +28,7 @@ assert_output() {
 assert_invalid() {
   local version="$1"
 
-  if "$subject" "$version" >/dev/null 2>&1; then
+  if bash "$subject" "$version" >/dev/null 2>&1; then
     echo "Expected version '${version}' to be rejected." >&2
     exit 1
   fi
@@ -37,7 +37,7 @@ assert_invalid() {
 assert_invalid_floating() {
   local include_floating="$1"
 
-  if INCLUDE_FLOATING_TAGS="$include_floating" "$subject" "1.2.3" >/dev/null 2>&1; then
+  if INCLUDE_FLOATING_TAGS="$include_floating" bash "$subject" "1.2.3" >/dev/null 2>&1; then
     echo "Expected INCLUDE_FLOATING_TAGS='${include_floating}' to be rejected." >&2
     exit 1
   fi

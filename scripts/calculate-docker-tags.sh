@@ -2,12 +2,12 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "Usage: $0 <semver> [docker-image]" >&2
+  echo "Usage: $0 <semver> [docker-repository]" >&2
   exit 2
 fi
 
 version="$1"
-image="${2:-chaos/shadowdrop}"
+repository="${2:-chaos/shadowdrop}"
 
 # Whether a stable release also moves the floating latest/MAJOR/MAJOR.MINOR tags. Set to false when
 # releasing an older version out of order so those tags are not dragged backward. Pre-releases never
@@ -29,14 +29,14 @@ minor="${BASH_REMATCH[2]}"
 prerelease_suffix="${BASH_REMATCH[4]}"
 
 is_prerelease=false
-docker_tags=("${image}:${version}")
+docker_tags=("${repository}:${version}")
 
 if [[ -n "$prerelease_suffix" ]]; then
   is_prerelease=true
 elif [[ "$include_floating" == "true" ]]; then
-  docker_tags+=("${image}:latest")
-  docker_tags+=("${image}:${major}.${minor}")
-  docker_tags+=("${image}:${major}")
+  docker_tags+=("${repository}:latest")
+  docker_tags+=("${repository}:${major}.${minor}")
+  docker_tags+=("${repository}:${major}")
 fi
 
 # Local image produced by the NUKE pipeline (DockerImageRepository = "shadowdrop"); the release
@@ -47,9 +47,9 @@ printf 'is_prerelease=%s\n' "$is_prerelease"
 printf 'git_tag=v%s\n' "$version"
 printf 'release_name=v%s\n' "$version"
 printf 'source_image=%s\n' "$source_image"
-printf 'docker_repository=%s\n' "$image"
-printf 'docker_image_tag=%s:%s\n' "$image" "$version"
-printf 'docker_hub_url=https://hub.docker.com/r/%s\n' "$image"
+printf 'docker_repository=%s\n' "$repository"
+printf 'docker_image_tag=%s:%s\n' "$repository" "$version"
+printf 'docker_hub_url=https://hub.docker.com/r/%s\n' "$repository"
 printf 'docker_tags<<SHADOWDROP_DOCKER_TAGS\n'
 printf '%s\n' "${docker_tags[@]}"
 printf 'SHADOWDROP_DOCKER_TAGS\n'

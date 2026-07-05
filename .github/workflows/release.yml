@@ -100,7 +100,7 @@ jobs:
         shell: bash
         env:
           INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
-        run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
+        run: bash scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build and smoke test multi-platform Docker image
         run: bash build.sh SmokeTestDockerImageMultiPlatform --release-version "$VERSION"
@@ -153,7 +153,7 @@ jobs:
         shell: bash
         env:
           INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
-        run: scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
+        run: bash scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Draft GitHub release
         uses: release-drafter/release-drafter@v7
