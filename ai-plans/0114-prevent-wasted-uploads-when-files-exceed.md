@@ -6,14 +6,14 @@ The upload workflow should validate the full selected batch before sending file 
 
 ## Acceptance Criteria
 
-- [ ] The API provides a way for the CLI to know the effective maximum file payload size before file contents are sent.
-- [ ] If the CLI cannot resolve the effective upload limit from the server, the upload command fails with a clear error and a non-zero exit code before any upload starts.
-- [ ] The CLI preflights all selected files before uploading the first byte.
-- [ ] If any selected file exceeds the maximum upload size, the CLI uploads zero bytes for the entire batch and exits with failure.
-- [ ] The CLI reports which file or files exceeded the limit and includes the configured maximum size in the error output.
-- [ ] If any upload fails at runtime, the CLI stops the remaining batch and exits with failure.
-- [ ] The server still enforces the upload size limit independently of the CLI.
-- [ ] Automated tests cover oversized single-file upload and oversized multi-file upload behavior.
+- [x] The API provides a way for the CLI to know the effective maximum file payload size before file contents are sent.
+- [x] If the CLI cannot resolve the effective upload limit from the server, the upload command fails with a clear error and a non-zero exit code before any upload starts.
+- [x] The CLI preflights all selected files before uploading the first byte.
+- [x] If any selected file exceeds the maximum upload size, the CLI uploads zero bytes for the entire batch and exits with failure.
+- [x] The CLI reports which file or files exceeded the limit and includes the configured maximum size in the error output.
+- [x] If any upload fails at runtime, the CLI stops the remaining batch and exits with failure.
+- [x] The server still enforces the upload size limit independently of the CLI.
+- [x] Automated tests cover oversized single-file upload and oversized multi-file upload behavior.
 
 ## Technical Details
 

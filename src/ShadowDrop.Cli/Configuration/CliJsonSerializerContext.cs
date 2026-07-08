@@ -11,6 +11,7 @@ using System.Text.Json.Serialization;
 
 [JsonSerializable(typeof(CliConfigFile))]
 [JsonSerializable(typeof(ShareManifestContract))]
+[JsonSerializable(typeof(UploadCapabilitiesResponse))]
 [JsonSerializable(typeof(UploadReservationResponse))]
 [JsonSerializable(typeof(UploadResponse))]
 [JsonSerializable(typeof(UploadMetadataPayload))]
@@ -18,6 +19,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(CreateShareCliResult))]
 [JsonSerializable(typeof(ShareCleanupResultContract))]
 [JsonSerializable(typeof(UploadCommandResult))]
+[JsonSerializable(typeof(UploadFailure))]
 [JsonSerializable(typeof(DirectHttpDownload))]
 [JsonSerializable(typeof(CredentialDocument))]
 [JsonSerializable(typeof(DownloadResumeMarker))]

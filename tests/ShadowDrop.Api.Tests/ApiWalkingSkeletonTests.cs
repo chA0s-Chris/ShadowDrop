@@ -58,6 +58,38 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public async Task UploadCapabilitiesRoute_ShouldExposeEffectiveMaximumFilePayloadSize()
+    {
+        var uploadMaxBytes = UploadLimitCalculator.MultipartEnvelopeAllowanceBytes + 1234;
+        await using var fixture = new TestApiFactory(uploadMaxBytes: uploadMaxBytes);
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var response = await client.GetAsync("/api/admin/uploads/capabilities");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = document.RootElement;
+        root.GetProperty("maxUploadBodyBytes").GetInt64().Should().Be(uploadMaxBytes);
+        root.GetProperty("multipartEnvelopeAllowanceBytes").GetInt64().Should().Be(UploadLimitCalculator.MultipartEnvelopeAllowanceBytes);
+        root.GetProperty("maxFilePayloadBytes").GetInt64().Should().Be(1234);
+    }
+
+    [Test]
+    public async Task UploadCapabilitiesRoute_ShouldRequireValidAdminBearerToken()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+
+        var noAuthResponse = await client.GetAsync("/api/admin/uploads/capabilities");
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        var wrongTokenResponse = await client.GetAsync("/api/admin/uploads/capabilities");
+
+        noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
     public async Task Startup_ShouldCreateConfiguredMetadataAndStorageDirectories()
     {
         await using var fixture = new TestApiFactory();
@@ -450,6 +482,24 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid upload request.");
+        Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UploadRoute_ShouldReturn413_AndNotPersist_WhenRequestBodyExceedsConfiguredLimit()
+    {
+        var uploadMaxBytes = UploadLimitCalculator.MultipartEnvelopeAllowanceBytes + 128;
+        await using var fixture = new TestApiFactory(uploadMaxBytes: uploadMaxBytes);
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
+        var oversizedCiphertext = new Byte[uploadMaxBytes + 1024];
+        using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId), oversizedCiphertext);
+
+        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
+        (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Upload payload too large."}""");
         Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
     }
 
@@ -1536,7 +1586,8 @@ public sealed class ApiWalkingSkeletonTests
 
     [TestCase("0")]
     [TestCase("-1")]
-    public void Config_ShouldFail_WhenUploadMaxBytesIsNotPositive(String maxBytes)
+    [TestCase("131072")]
+    public void Config_ShouldFail_WhenUploadMaxBytesDoesNotExceedMultipartEnvelopeAllowance(String maxBytes)
     {
         var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
                                          "artifacts",
@@ -1831,19 +1882,21 @@ public sealed class ApiWalkingSkeletonTests
         private const String MetadataPathEnvironmentVariable = "ShadowDrop__Metadata__LiteDbPath";
         private const String PublicDownloadsExposureEnvironmentVariable = "ShadowDrop__ApiExposure__EnablePublicDownloads";
         private const String StorageRootEnvironmentVariable = "ShadowDrop__Storage__LocalRoot";
+        private const String UploadMaxBytesEnvironmentVariable = "ShadowDrop__Upload__MaxBytes";
         private readonly String? _previousAdminOperationsExposure;
         private readonly String? _previousBootstrapToken;
         private readonly String? _previousCleanupCronExpression;
         private readonly String? _previousMetadataPath;
         private readonly String? _previousPublicDownloadsExposure;
         private readonly String? _previousStorageRoot;
+        private readonly String? _previousUploadMaxBytes;
         private readonly String? _relativePathPrefix;
         private readonly String _temporaryRootDirectory;
         private readonly Boolean _useRelativePaths;
         private String? _resolvedRelativeRoot;
 
         public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true,
-                              Boolean useRelativePaths = false, String? cleanupCronExpression = null)
+                              Boolean useRelativePaths = false, String? cleanupCronExpression = null, Int64? uploadMaxBytes = null)
         {
             _useRelativePaths = useRelativePaths;
             BootstrapToken = "test-bootstrap-token";
@@ -1870,6 +1923,7 @@ public sealed class ApiWalkingSkeletonTests
             _previousPublicDownloadsExposure = Environment.GetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable);
             _previousAdminOperationsExposure = Environment.GetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable);
             _previousCleanupCronExpression = Environment.GetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable);
+            _previousUploadMaxBytes = Environment.GetEnvironmentVariable(UploadMaxBytesEnvironmentVariable);
 
             Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, withBootstrapToken ? BootstrapToken : null);
             Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, MetadataDatabasePath);
@@ -1877,6 +1931,7 @@ public sealed class ApiWalkingSkeletonTests
             Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, enablePublicDownloads ? "true" : "false");
             Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, enableAdminOperations ? "true" : "false");
             Environment.SetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable, cleanupCronExpression);
+            Environment.SetEnvironmentVariable(UploadMaxBytesEnvironmentVariable, uploadMaxBytes?.ToString(CultureInfo.InvariantCulture));
         }
 
         public String BootstrapToken { get; }
@@ -1910,6 +1965,7 @@ public sealed class ApiWalkingSkeletonTests
                 Environment.SetEnvironmentVariable(PublicDownloadsExposureEnvironmentVariable, _previousPublicDownloadsExposure);
                 Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, _previousAdminOperationsExposure);
                 Environment.SetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable, _previousCleanupCronExpression);
+                Environment.SetEnvironmentVariable(UploadMaxBytesEnvironmentVariable, _previousUploadMaxBytes);
             }
 
             base.Dispose(disposing);

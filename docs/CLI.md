@@ -162,6 +162,20 @@ shadowdrop upload raw a.bin b.bin
 shadowdrop share create <file-id-1> <file-id-2> --expires-in 3d
 ```
 
+### Upload size limits and batch behavior
+
+Before any file content is sent, `upload` and `upload raw` fetch the server's
+effective upload size limit (derived from the server's `Upload:MaxBytes`
+setting) and validate the whole batch against it. If any selected file would
+exceed the limit, the command reports every oversized file with its computed
+upload size and the maximum, uploads nothing, and exits non-zero. Resolving
+the limit is mandatory: against a server that does not expose it — for
+example, an older ShadowDrop release — every upload fails before any transfer
+starts, so keep the server at least as new as the CLI. If an upload fails
+mid-batch (network, server, or storage errors), the remaining files are not
+attempted and the command exits non-zero; the server independently enforces
+the same limit regardless of the client.
+
 ## Downloading
 
 ### Separate-key download
