@@ -8,31 +8,31 @@ Unlike the upload commands, which reserve stdout for a parseable `key:value` con
 
 ## Acceptance Criteria
 
-- [ ] Single-file CLI downloads write to `./<original-filename>` by default.
-- [ ] When the manifest announces no usable filename, the default output path falls back to `./<fileId>`, or `./download.bin` when the fileId is also absent.
-- [ ] Single-file CLI downloads support `--out <file-path>` for an explicit destination file.
-- [ ] Single-file CLI downloads support `--out <existing-directory>` for a directory destination using the original filename.
-- [ ] `--out` with a trailing directory separator is treated as a directory destination whether or not the directory exists, creating it when missing.
-- [ ] If `--out` has no trailing separator and does not name an existing directory, it is treated as an explicit file path.
-- [ ] For explicit output file paths, the CLI creates all missing parent directories and fails with a non-zero exit code if parent directory creation fails.
-- [ ] `--out` accepts an absolute path or a relative path containing `..`, writing to exactly the location the user named.
-- [ ] `--out` combined with `--queue` fails with a non-zero exit code and an error directing the user to `--output-root`.
-- [ ] Single-file CLI downloads no longer write decrypted file bytes to stdout implicitly.
-- [ ] Download progress and normal status output uses stdout for both single-file and queue downloads, in plain-text and rich modes alike.
-- [ ] Interactive prompts, guided download summaries, and banner output remain on stderr.
-- [ ] Download errors, including per-item failure lines, remain on stderr.
-- [ ] A manifest `fileName` containing a path separator (`/` or `\`) resolves to its leaf name inside the intended output directory.
-- [ ] A manifest `fileName` of `.` or `..`, or one that sanitizes to an empty name, fails with a non-zero exit code and an error on stderr.
-- [ ] An existing destination file that matches the shared file by length and `plaintextSha256` is accepted as already downloaded, and the command exits zero.
-- [ ] When the manifest omits `plaintextSha256`, an existing destination file matching by length alone is accepted as already downloaded.
-- [ ] An existing destination file that does not match the shared file causes a non-zero exit with an error on stderr, and the existing file is left untouched.
-- [ ] Interrupted single-file downloads still resume from an existing `.partial` file and resume marker.
-- [ ] Queue downloads keep queue `outputPath` and `--output-root` semantics.
-- [ ] Queue and interactive downloads continue to commit their output successfully when no destination file exists at commit time.
-- [ ] `docs/CLI.md` and `README.md` are updated to remove shell redirection as the normal single-file download flow, showing default file output, explicit file output, and directory output instead.
-- [ ] `docs/CLI.md` documents that download progress and status output moved from stderr to stdout, calling it out as a breaking change for scripts.
-- [ ] Tests cover default output path, announced-filename fallback, explicit output file path, existing-directory `--out`, trailing-separator `--out`, absolute and `..`-containing `--out`, `--out` with `--queue`, existing-file match and mismatch, unsafe filename handling, and stdout/stderr behavior.
-- [ ] An end-to-end smoke test asserts a single-file download lands at the default path.
+- [x] Single-file CLI downloads write to `./<original-filename>` by default.
+- [x] When the manifest `fileName` is missing, null, or whitespace, default output and directory-style `--out` destinations use `<fileId>` as the filename, or `download.bin` when the fileId is also absent.
+- [x] Single-file CLI downloads support `--out <file-path>` for an explicit destination file.
+- [x] Single-file CLI downloads support `--out <existing-directory>` for a directory destination using the original filename.
+- [x] `--out` with a trailing directory separator is treated as a directory destination whether or not the directory exists, creating it when missing.
+- [x] If `--out` has no trailing separator and does not name an existing directory, it is treated as an explicit file path.
+- [x] For explicit output file paths, the CLI creates all missing parent directories and fails with a non-zero exit code if parent directory creation fails.
+- [x] `--out` accepts an absolute path or a relative path containing `..`, writing to exactly the location the user named.
+- [x] `--out` combined with `--queue` fails with a non-zero exit code and an error directing the user to `--output-root`.
+- [x] Single-file CLI downloads no longer write decrypted file bytes to stdout implicitly.
+- [x] Download progress and normal status output uses stdout for both single-file and queue downloads, in plain-text and rich modes alike.
+- [x] Interactive prompts, guided download summaries, and banner output remain on stderr.
+- [x] Download errors, including per-item failure lines, remain on stderr.
+- [x] A manifest `fileName` containing a path separator (`/` or `\`) resolves to its leaf name inside the intended output directory.
+- [x] A manifest `fileName` of `.` or `..`, or one that sanitizes to an empty name, fails with a non-zero exit code and an error on stderr.
+- [x] An existing destination file that matches the shared file by length and `plaintextSha256` is accepted as already downloaded, and the command exits zero.
+- [x] When the manifest omits `plaintextSha256`, an existing destination file matching by length alone is accepted as already downloaded.
+- [x] An existing destination file that does not match the shared file causes a non-zero exit with an error on stderr, and the existing file is left untouched.
+- [x] Interrupted single-file downloads still resume from an existing `.partial` file and resume marker.
+- [x] Queue downloads keep queue `outputPath` and `--output-root` semantics.
+- [x] Queue and interactive downloads continue to commit their output successfully when no destination file exists at commit time.
+- [x] `docs/CLI.md` and `README.md` are updated to remove shell redirection as the normal single-file download flow, showing default file output, explicit file output, and directory output instead.
+- [x] `docs/CLI.md` documents that download progress and status output moved from stderr to stdout, calling it out as a breaking change for scripts.
+- [x] Tests cover default output path, announced-filename fallback, explicit output file path, existing-directory `--out`, trailing-separator `--out`, absolute and `..`-containing `--out`, `--out` with `--queue`, existing-file match and mismatch, unsafe filename handling, and stdout/stderr behavior.
+- [x] An end-to-end smoke test asserts a single-file download lands at the default path.
 
 ## Technical Details
 

@@ -8,6 +8,9 @@ internal sealed record DownloadCommandOptions(
     String? FileId,
     FileInfo? QueuePath,
     DirectoryInfo? OutputRoot,
+    // Bound as a raw String rather than a FileInfo: FileInfo normalizes away the trailing directory separator
+    // that DownloadDestinationResolver needs to see to tell a directory destination from a file one.
+    String? Out,
     String? ShareKey,
     FileInfo? ShareKeyFile,
     String? BearerToken);

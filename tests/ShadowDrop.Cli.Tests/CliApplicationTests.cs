@@ -148,13 +148,13 @@ public sealed class CliApplicationTests
             return new(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+                                                  // ReSharper disable once AccessToDisposedClosure
                                                   _ => httpClient,
-                                                  Stream.Null,
                                                   standardOut,
                                                   standardError,
                                                   new FakeInteractiveSession(),
                                                   TimeProvider.System,
-                                                  new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                                                  new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
                                                   FixedTerminalCapabilityProvider.Plain);
 
         var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString()], services, CancellationToken.None);
@@ -206,13 +206,13 @@ public sealed class CliApplicationTests
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+                                                  // ReSharper disable once AccessToDisposedClosure
                                                   _ => httpClient,
-                                                  Stream.Null,
                                                   standardOut,
                                                   standardError,
                                                   new FakeInteractiveSession(),
                                                   TimeProvider.System,
-                                                  new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                                                  new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
                                                   FixedTerminalCapabilityProvider.Plain);
 
         var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString(), "--no-banner"], services, CancellationToken.None);
@@ -227,12 +227,11 @@ public sealed class CliApplicationTests
                                                          FakeInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
             _ => new(new NeverCalledHandler()),
-            Stream.Null,
             standardOut,
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),
             TimeProvider.System,
-            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+            new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
             FixedTerminalCapabilityProvider.Plain);
 
     private sealed class NeverCalledHandler : HttpMessageHandler

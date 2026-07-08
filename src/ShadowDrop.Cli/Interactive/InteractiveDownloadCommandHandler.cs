@@ -32,8 +32,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             return 1;
         }
 
-        var handler = new DownloadCommandHandler(configurationResolver, httpClient, Stream.Null, standardError, NullDownloadProgressReporter.Instance,
-                                                 bannerWriter);
+        var handler = new DownloadCommandHandler(configurationResolver, httpClient, standardError, NullDownloadProgressReporter.Instance, bannerWriter);
         Byte[]? shareKeyBytes = null;
         try
         {
@@ -92,13 +91,9 @@ internal sealed class InteractiveDownloadCommandHandler(
         }
     }
 
-    private static String ResolveOutputFileName(ShareManifestFileContract file)
-    {
-        var fileName = Path.GetFileName(file.FileName ?? String.Empty);
-        return String.IsNullOrWhiteSpace(fileName)
-            ? file.FileId ?? "download.bin"
-            : fileName;
-    }
+    // Routed through the shared destination resolver so a server-announced name cannot introduce path segments
+    // into the prompted default, exactly as in the non-interactive single-file download.
+    private static String ResolveOutputFileName(ShareManifestFileContract file) => DownloadDestinationResolver.ResolveAnnouncedFileName(file);
 
     private CliResolvedConfiguration ResolveConfiguration(String? serverUrlOverride)
     {

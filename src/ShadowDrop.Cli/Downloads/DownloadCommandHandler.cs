@@ -14,7 +14,6 @@ using System.Text.Json;
 internal sealed class DownloadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
-    Stream standardOutStream,
     TextWriter standardError,
     IDownloadProgressReporter progressReporter,
     CliBannerWriter bannerWriter)
@@ -64,16 +63,16 @@ internal sealed class DownloadCommandHandler(
                 var manifestClient = new ShareManifestClient(httpClient);
                 var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
-                var fileName = file.FileName ?? file.FileId ?? "download.bin";
+                var outputPath = DownloadDestinationResolver.Resolve(options.Out, file);
 
-                // Direct downloads write raw decrypted bytes to stdout, so the banner always goes to stderr
-                // alongside the progress reporter's own output, never to stdout.
+                // The progress reporter writes to stdout, so the banner stays on stderr alongside errors and
+                // diagnostics, keeping a redirected stdout free of decoration.
                 await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
                 var succeeded = await progressReporter.RunSingleAsync(
-                    fileName,
+                    Path.GetFileName(outputPath),
                     file.Length,
-                    (progress, token) => DownloadToStreamAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken,
-                                                               standardOutStream, progress, token),
+                    (progress, token) => DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken,
+                                                             outputPath, token, progress, file.PlaintextSha256),
                     ClassifyDownloadError,
                     cancellationToken);
                 return succeeded ? 0 : 1;
@@ -222,8 +221,7 @@ internal sealed class DownloadCommandHandler(
                                         progress,
                                         cancellationToken,
                                         durablePlaintextLength,
-                                        file.Length,
-                                        verifyCompletedStream: false);
+                                        file.Length);
             await destination.FlushAsync(cancellationToken);
         }
 
@@ -233,7 +231,10 @@ internal sealed class DownloadCommandHandler(
             throw new DownloadCommandException("Downloaded file did not match the shared file.");
         }
 
-        File.Move(partialPath, outputPath, true);
+        // Every caller rejects a mismatched existing destination before the download starts (TrySkipCompletedOutputAsync
+        // above, or the queue's own check), so refusing to overwrite here only fails for a destination that appeared
+        // mid-download. Atomic-create semantics on the destination itself would defeat resume, hence the .partial file.
+        File.Move(partialPath, outputPath, false);
         File.Delete(markerPath);
     }
 
@@ -622,19 +623,11 @@ internal sealed class DownloadCommandHandler(
                                              IProgress<Int64>? progress,
                                              CancellationToken cancellationToken,
                                              Int64 durablePlaintextLength = 0,
-                                             Int64? totalPlaintextSize = null,
-                                             Boolean verifyCompletedStream = true)
+                                             Int64? totalPlaintextSize = null)
     {
         var fileId = ParseFileId(file.FileId);
         var downloadUri = ShareDownloadUriFactory.CreateFileUri(serverUrl, shareToken, fileId);
         Byte[]? kdfSalt = null;
-        var originalDestination = destination;
-        IncrementalHash? plaintextHash = null;
-        if (verifyCompletedStream && file.PlaintextSha256 is not null)
-        {
-            plaintextHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            destination = new HashingWriteStream(destination, plaintextHash);
-        }
 
         try
         {
@@ -651,20 +644,6 @@ internal sealed class DownloadCommandHandler(
                                                        progress: progress);
             await session.DownloadAsync(cancellationToken);
             await destination.FlushAsync(cancellationToken);
-            if (verifyCompletedStream && session.DurablePlaintextLength != file.Length)
-            {
-                throw new DownloadCommandException(
-                    $"Downloaded file length mismatch: expected {file.Length} bytes but received {session.DurablePlaintextLength} bytes.");
-            }
-
-            if (plaintextHash is not null)
-            {
-                var actualHash = Convert.ToHexStringLower(plaintextHash.GetHashAndReset());
-                if (!String.Equals(actualHash, file.PlaintextSha256, StringComparison.Ordinal))
-                {
-                    throw new DownloadCommandException("Downloaded file hash did not match the shared file.");
-                }
-            }
         }
         catch (FormatException)
         {
@@ -696,13 +675,6 @@ internal sealed class DownloadCommandHandler(
             {
                 CryptographicOperations.ZeroMemory(kdfSalt);
             }
-
-            if (!ReferenceEquals(destination, originalDestination))
-            {
-                await destination.DisposeAsync();
-            }
-
-            plaintextHash?.Dispose();
         }
     }
 
@@ -880,57 +852,6 @@ internal sealed class DownloadCommandHandler(
         }
 
         return new(serverUrl, resolvedToken);
-    }
-
-    private sealed class HashingWriteStream(Stream inner, IncrementalHash hash) : Stream
-    {
-        public override Boolean CanRead => false;
-
-        // Deliberately hides a seekable destination: this wrapper only serves fresh (offset-zero) direct
-        // downloads, where CliDownloadSession's seek-based resume validation must never engage.
-        public override Boolean CanSeek => false;
-        public override Boolean CanWrite => inner.CanWrite;
-        public override Int64 Length => throw new NotSupportedException();
-
-        public override Int64 Position
-        {
-            get => throw new NotSupportedException();
-            set => throw new NotSupportedException();
-        }
-
-        public override void Flush() => inner.Flush();
-
-        public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
-
-        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
-
-        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
-
-        public override void SetLength(Int64 value) => throw new NotSupportedException();
-
-        public override void Write(Byte[] buffer, Int32 offset, Int32 count)
-        {
-            hash.AppendData(buffer.AsSpan(offset, count));
-            inner.Write(buffer, offset, count);
-        }
-
-        public override void Write(ReadOnlySpan<Byte> buffer)
-        {
-            hash.AppendData(buffer);
-            inner.Write(buffer);
-        }
-
-        public override Task WriteAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
-        {
-            hash.AppendData(buffer.AsSpan(offset, count));
-            return inner.WriteAsync(buffer, offset, count, cancellationToken);
-        }
-
-        public override async ValueTask WriteAsync(ReadOnlyMemory<Byte> buffer, CancellationToken cancellationToken = default)
-        {
-            hash.AppendData(buffer.Span);
-            await inner.WriteAsync(buffer, cancellationToken);
-        }
     }
 
     private sealed record ShareReference(Uri ServerUrl, String ShareToken);

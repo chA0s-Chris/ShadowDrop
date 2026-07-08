@@ -7,32 +7,41 @@ using Spectre.Console;
 
 /// <summary>
 /// Selects a rich Spectre.Console reporter for interactive terminals and a deterministic plain-text reporter otherwise.
+/// Progress output goes to standard output — downloads write file bytes to disk, never to stdout — so the rich-vs-plain
+/// decision follows the capabilities of standard output.
 /// </summary>
-internal sealed class DownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider, ITerminalCapabilityProvider capabilityProvider)
+internal sealed class DownloadProgressReporterFactory(
+    TextWriter standardOut,
+    TextWriter standardError,
+    TimeProvider timeProvider,
+    ITerminalCapabilityProvider capabilityProvider)
     : IDownloadProgressReporterFactory
 {
-    public DownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider)
-        : this(standardError, timeProvider, new TerminalCapabilityProvider()) { }
+    public DownloadProgressReporterFactory(TextWriter standardOut, TextWriter standardError, TimeProvider timeProvider)
+        : this(standardOut, standardError, timeProvider, new TerminalCapabilityProvider()) { }
+
+    private static IAnsiConsole CreateConsole(TextWriter writer) =>
+        AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(writer)
+        });
 
     public IDownloadProgressReporter Create()
     {
-        if (DownloadProgressModeSelector.Select(capabilityProvider.DetectForStandardError()) == DownloadProgressMode.Rich)
+        if (DownloadProgressModeSelector.Select(capabilityProvider.DetectForStandardOutput()) == DownloadProgressMode.Rich)
         {
-            var richConsole = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Out = new AnsiConsoleOutput(standardError)
-            });
-            return new SpectreDownloadProgressReporter(richConsole, timeProvider);
+            return new SpectreDownloadProgressReporter(CreateConsole(standardOut), CreateConsole(standardError), timeProvider);
         }
 
-        return new PlainTextDownloadProgressReporter(standardError, timeProvider);
+        return new PlainTextDownloadProgressReporter(standardOut, standardError, timeProvider);
     }
 }
 
 /// <summary>
 /// Always creates a deterministic plain-text reporter, used by tests to assert output without depending on terminal capabilities.
 /// </summary>
-internal sealed class PlainDownloadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider) : IDownloadProgressReporterFactory
+internal sealed class PlainDownloadProgressReporterFactory(TextWriter standardOut, TextWriter standardError, TimeProvider timeProvider)
+    : IDownloadProgressReporterFactory
 {
-    public IDownloadProgressReporter Create() => new PlainTextDownloadProgressReporter(standardError, timeProvider);
+    public IDownloadProgressReporter Create() => new PlainTextDownloadProgressReporter(standardOut, standardError, timeProvider);
 }

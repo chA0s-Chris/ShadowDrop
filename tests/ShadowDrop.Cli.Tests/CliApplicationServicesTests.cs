@@ -12,7 +12,7 @@ using ShadowDrop.Cli.Tls;
 public sealed class CliApplicationServicesTests
 {
     [Test]
-    public void Constructor_ShouldDefaultStreamAndInteractiveSession_WhenUsingTextWriterOverload()
+    public void Constructor_ShouldDefaultInteractiveSessionAndTimeProvider_WhenUsingTextWriterOverload()
     {
         using var httpClient = new HttpClient();
         var standardOut = new StringWriter();
@@ -20,24 +20,8 @@ public sealed class CliApplicationServicesTests
 
         var services = new CliApplicationServices(CreateResolver(), httpClient, standardOut, standardError);
 
-        services.StandardOutStream.Should().BeSameAs(Stream.Null);
         services.StandardOut.Should().BeSameAs(standardOut);
         services.StandardError.Should().BeSameAs(standardError);
-        services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
-        services.TimeProvider.Should().BeSameAs(TimeProvider.System);
-    }
-
-    [Test]
-    public void Constructor_ShouldRetainProvidedStream_WhenUsingStreamOverload()
-    {
-        using var httpClient = new HttpClient();
-        using var stream = new MemoryStream();
-        var standardOut = new StringWriter();
-        var standardError = new StringWriter();
-
-        var services = new CliApplicationServices(CreateResolver(), httpClient, stream, standardOut, standardError);
-
-        services.StandardOutStream.Should().BeSameAs(stream);
         services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
         services.TimeProvider.Should().BeSameAs(TimeProvider.System);
     }
@@ -49,13 +33,13 @@ public sealed class CliApplicationServicesTests
 
         services.ConfigurationResolver.Should().NotBeNull();
         services.HttpClientFactory.Should().NotBeNull();
-        services.StandardOutStream.Should().NotBeNull();
+        services.StandardOut.Should().BeSameAs(Console.Out);
+        services.StandardError.Should().BeSameAs(Console.Error);
         services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
         services.TimeProvider.Should().BeSameAs(TimeProvider.System);
 
         using var httpClient = services.HttpClientFactory(CliTlsOptions.Default);
         httpClient.Should().NotBeNull();
-        services.StandardOutStream.Dispose();
     }
 
     private static CliConfigurationResolver CreateResolver() => new(new(), new EnvironmentReader());

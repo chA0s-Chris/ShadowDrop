@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using NUnit.Framework;
 using ShadowDrop.Api;
-using ShadowDrop.Api.Shares;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
@@ -18,7 +17,6 @@ using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -27,6 +25,8 @@ using System.Text.Json;
 public sealed class DownloadCommandHandlerTests
 {
     private const String ValidShareKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    private readonly List<String> _scratchDirectories = [];
 
     [Test]
     public void DecodeShareKey_ShouldReturn32Bytes_WhenValueIsValidHex()
@@ -56,6 +56,62 @@ public sealed class DownloadCommandHandlerTests
         act.Should().Throw<DownloadCommandException>().WithMessage("Share key invalid or missing.");
     }
 
+    [TearDown]
+    public void DeleteScratchDirectories()
+    {
+        foreach (var directory in _scratchDirectories.Where(Directory.Exists))
+        {
+            Directory.Delete(directory, true);
+        }
+
+        _scratchDirectories.Clear();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldAcceptExistingOutputFile_WhenItMatchesTheSharedFile()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(plaintextSha256: ComputeSha256(fixture.Plaintext)));
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+        await File.WriteAllBytesAsync(outputPath, fixture.Plaintext);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        // The file is already there and matches, so no content request is made and the command reports success.
+        exitCode.Should().Be(0);
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+        standardOut.ToString().Should().Contain($"SUCCESS {fixture.FileName}");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldAcceptExistingOutputFileMatchingByLength_WhenManifestOmitsPlaintextSha256()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+        var sameLengthContent = new Byte[fixture.Plaintext.Length];
+        await File.WriteAllBytesAsync(outputPath, sameLengthContent);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        // Without an announced hash there is nothing to compare beyond the length, so the file counts as downloaded.
+        exitCode.Should().Be(0);
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(sameLengthContent);
+        standardOut.ToString().Should().Contain($"SUCCESS {fixture.FileName}");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldContinueQueueProcessingAfterIndividualFailures()
     {
@@ -76,23 +132,21 @@ public sealed class DownloadCommandHandlerTests
                 new(Guid.NewGuid().ToString(), "missing.bin", 88, "missing.bin")
             ]
         });
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputsDirectory, "--share-key", upload.ShareKey],
-                                                        CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath,
+                                                        CreateServices(standardOut, standardError, fixture.ConfigFilePath,
                                                                        httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
         (await File.ReadAllBytesAsync(Path.Combine(outputsDirectory, "stable.bin"))).Should().BeEquivalentTo(await File.ReadAllBytesAsync(inputFile));
         File.Exists(Path.Combine(outputsDirectory, "missing.bin")).Should().BeFalse();
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS 1/2 stable.bin -> stable.bin")
-                     .And.Contain("FAILED 2/2 missing.bin -> missing.bin")
-                     .And.Contain("Requested file not found in share.")
-                     .And.Contain("SUMMARY downloaded 1/2 files");
+        standardOut.ToString().Should().Contain("SUCCESS 1/2 stable.bin -> stable.bin")
+                   .And.Contain("SUMMARY downloaded 1/2 files");
+        standardError.ToString().Should().Contain("FAILED 2/2 missing.bin -> missing.bin")
+                     .And.Contain("Requested file not found in share.");
     }
 
     [Test]
@@ -152,21 +206,18 @@ public sealed class DownloadCommandHandlerTests
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
-            binaryOutput.Length.Should().Be(0);
-            standardOut.ToString().Should().BeEmpty();
             File.Exists(firstOutputPath).Should().BeFalse();
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Server connection failed.")
-                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
+            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Server connection failed.");
         }
         finally
         {
@@ -236,21 +287,18 @@ public sealed class DownloadCommandHandlerTests
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
-            binaryOutput.Length.Should().Be(0);
-            standardOut.ToString().Should().BeEmpty();
             File.Exists(firstOutputPath).Should().BeFalse();
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Share metadata invalid or missing.")
-                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
+            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Share metadata invalid or missing.");
         }
         finally
         {
@@ -259,6 +307,30 @@ public sealed class DownloadCommandHandlerTests
                 Directory.Delete(rootDirectory, true);
             }
         }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldCreateMissingDirectory_WhenOutEndsWithASeparator()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var missingDirectory = Path.Combine(CreateScratchDirectory(), "incoming");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            [
+                "download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey,
+                "--out", missingDirectory + Path.DirectorySeparatorChar
+            ],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        (await File.ReadAllBytesAsync(Path.Combine(missingDirectory, fixture.FileName))).Should().Equal(fixture.Plaintext);
     }
 
     [Test]
@@ -288,7 +360,7 @@ public sealed class DownloadCommandHandlerTests
 
             var exitCode = await CliApplication.InvokeAsync(
                 ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                 CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -326,7 +398,7 @@ public sealed class DownloadCommandHandlerTests
 
             var exitCode = await CliApplication.InvokeAsync(
                 ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                CreateServices(new StringWriter(), standardError, httpClient: httpClient),
                 CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -371,7 +443,7 @@ public sealed class DownloadCommandHandlerTests
             using var httpClient = new HttpClient(handler);
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
@@ -389,33 +461,32 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldDownloadSingleFileToStdout_WhenCliShareKeyOverridesKeyFile()
+    public async Task InvokeAsync_ShouldDownloadSingleFileToOutputPath_WhenCliShareKeyOverridesKeyFile()
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("report.bin", 128);
         var upload = await fixture.UploadFilesAsync([inputFile]);
         var share = upload.Share;
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var invalidKeyFile = Path.Combine(fixture.RootDirectory, "invalid-key.txt");
         await File.WriteAllTextAsync(invalidKeyFile, "not-a-secret");
+        var outputPath = Path.Combine(fixture.RootDirectory, "downloads", "report.bin");
         using var httpClient = fixture.CreateClient();
 
         var exitCode = await CliApplication.InvokeAsync(
             [
                 "download", share.ShareToken, "--server-url", httpClient.BaseAddress!.ToString(), "--share-key", upload.ShareKey,
-                "--share-key-file", invalidKeyFile
+                "--share-key-file", invalidKeyFile, "--out", outputPath
             ],
-            CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
+            CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
             CancellationToken.None);
 
         exitCode.Should().Be(0);
-        binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("START report.bin")
-                     .And.Contain("SUCCESS report.bin")
-                     .And.Contain("SUMMARY downloaded 1 file");
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(await File.ReadAllBytesAsync(inputFile));
+        standardOut.ToString().Should().Contain("START report.bin")
+                   .And.Contain("SUCCESS report.bin")
+                   .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -423,7 +494,6 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         using var httpClient = new HttpClient(new NeverCalledHandler());
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var queuePath = Path.Combine(fixture.RootDirectory, "secret-free.queue.json");
@@ -446,15 +516,34 @@ public sealed class DownloadCommandHandlerTests
                                      """);
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath],
-                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
-        binaryOutput.Length.Should().Be(0);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("secret-free")
                      .And.Contain("--share-key")
                      .And.Contain("--embed-secrets");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenAnnouncedFileNameCannotBeSanitized()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(fileName: ".."));
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputDirectory = CreateScratchDirectory();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputDirectory],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        Directory.EnumerateFileSystemEntries(outputDirectory).Should().BeEmpty();
+        standardError.ToString().Should().Contain("The shared file name cannot be used as a safe output file name.");
     }
 
     [Test]
@@ -466,7 +555,7 @@ public sealed class DownloadCommandHandlerTests
         try
         {
             var exitCode = await CliApplication.InvokeAsync(["download", "plain-share-token", "--share-key", ValidShareKey],
-                                                            CreateServices(Stream.Null, new StringWriter(), standardError, configPath),
+                                                            CreateServices(new StringWriter(), standardError, configPath),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -484,10 +573,59 @@ public sealed class DownloadCommandHandlerTests
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--share-key", ValidShareKey],
-                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+                                                        CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Specify either a share token or --queue.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenOutCombinedWithInteractive()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--out", "report.bin"],
+                                                        CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --out option cannot be combined with --interactive. The guided download prompts for its destination.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenOutCombinedWithQueue()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", "queue.json", "--out", "report.bin"],
+                                                        CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --out option cannot be combined with --queue. Use --output-root instead.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFail_WhenOutParentDirectoryCannotBeCreated()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        // A regular file where the parent directory would have to be created makes directory creation fail.
+        var blockingFile = Path.Combine(CreateScratchDirectory(), "blocker");
+        await File.WriteAllTextAsync(blockingFile, "not a directory");
+        var outputPath = Path.Combine(blockingFile, fixture.FileName);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("Download failed due to a local I/O error.");
     }
 
     [Test]
@@ -497,7 +635,7 @@ public sealed class DownloadCommandHandlerTests
 
         var exitCode = await CliApplication.InvokeAsync(
             ["download", "some-share", "--queue", "queue.json", "--share-key", ValidShareKey],
-            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+            CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("The --queue option cannot be combined with a share token, --file, or --server-url.");
@@ -512,7 +650,7 @@ public sealed class DownloadCommandHandlerTests
         try
         {
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", ValidShareKey],
-                                                            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+                                                            CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
             exitCode.Should().Be(1);
             standardError.ToString().Should().Contain("The queue file is invalid.");
@@ -530,7 +668,7 @@ public sealed class DownloadCommandHandlerTests
         var missingPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.key");
 
         var exitCode = await CliApplication.InvokeAsync(["download", "some-share", "--share-key-file", missingPath],
-                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+                                                        CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Share key invalid or missing.");
@@ -542,7 +680,7 @@ public sealed class DownloadCommandHandlerTests
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "some-share", "--share-key", "not-hex"],
-                                                        CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+                                                        CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Share key invalid or missing.");
@@ -555,10 +693,31 @@ public sealed class DownloadCommandHandlerTests
 
         var exitCode = await CliApplication.InvokeAsync(
             ["download", "https://shadowdrop.test/not-a-share", "--share-key", ValidShareKey],
-            CreateServices(Stream.Null, new StringWriter(), standardError), CancellationToken.None);
+            CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Share token invalid or missing.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFailAndLeaveExistingOutputFileUntouched_WhenItDoesNotMatchTheSharedFile()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(plaintextSha256: ComputeSha256(fixture.Plaintext)));
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+        await File.WriteAllTextAsync(outputPath, "pre-existing content");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        (await File.ReadAllTextAsync(outputPath)).Should().Be("pre-existing content");
+        standardError.ToString().Should().Contain("Existing output file does not match the shared file.");
     }
 
     [Test]
@@ -577,7 +736,7 @@ public sealed class DownloadCommandHandlerTests
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CreateServices(new StringWriter(), standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -612,7 +771,7 @@ public sealed class DownloadCommandHandlerTests
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CreateServices(new StringWriter(), standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -634,7 +793,7 @@ public sealed class DownloadCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "share-123"], CreateServices(Stream.Null, standardOut, standardError),
+        var exitCode = await CliApplication.InvokeAsync(["download", "share-123"], CreateServices(standardOut, standardError),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -650,7 +809,6 @@ public sealed class DownloadCommandHandlerTests
         var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
         var share = upload.Share;
         using var httpClient = fixture.CreateClient();
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var interactiveSession = new FakeInteractiveSession();
@@ -661,8 +819,7 @@ public sealed class DownloadCommandHandlerTests
         interactiveSession.EnqueueTextResponse(outputPath);
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), share.ShareToken],
-                                                        CreateServices(binaryOutput,
-                                                                       standardOut,
+                                                        CreateServices(standardOut,
                                                                        standardError,
                                                                        fixture.ConfigFilePath,
                                                                        httpClient: httpClient,
@@ -686,25 +843,24 @@ public sealed class DownloadCommandHandlerTests
         var inputFile = fixture.CreateInputFile("protected.bin", 96);
         var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
         var share = upload.Share;
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
+        var outputPath = Path.Combine(fixture.RootDirectory, "downloads", "protected.bin");
         using var httpClient = fixture.CreateClient();
 
         var exitCode = await CliApplication.InvokeAsync(
             [
                 "download", share.ShareToken, "--server-url", httpClient.BaseAddress!.ToString(), "--share-key", upload.ShareKey, "--bearer-token",
-                share.DownloadBearerToken!
+                share.DownloadBearerToken!, "--out", outputPath
             ],
-            CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
+            CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
             CancellationToken.None);
 
         exitCode.Should().Be(0);
-        binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(inputFile));
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("START protected.bin")
-                     .And.Contain("SUCCESS protected.bin")
-                     .And.Contain("SUMMARY downloaded 1 file");
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(await File.ReadAllBytesAsync(inputFile));
+        standardOut.ToString().Should().Contain("START protected.bin")
+                   .And.Contain("SUCCESS protected.bin")
+                   .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -751,20 +907,17 @@ public sealed class DownloadCommandHandlerTests
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, configPath, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, configPath, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
-            binaryOutput.Length.Should().Be(0);
             (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
-            standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin")
-                         .And.NotContain("Configuration file invalid or unreadable.");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin");
+            standardError.ToString().Should().NotContain("Configuration file invalid or unreadable.");
         }
         finally
         {
@@ -773,6 +926,55 @@ public sealed class DownloadCommandHandlerTests
                 Directory.Delete(rootDirectory, true);
             }
         }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldLeaveNoOutputFile_WhenPlaintextHashDoesNotMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        // The mismatched bytes never reach the destination: they are discarded together with the partial file.
+        File.Exists(outputPath).Should().BeFalse();
+        standardError.ToString().Should().Contain("Downloaded file did not match the shared file.");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldLeaveNoOutputFile_WhenPlaintextLengthDoesNotMatch()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var manifestFile = fixture.CreateManifestFile() with
+        {
+            Length = fixture.Plaintext.LongLength + 1
+        };
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponseWithFiles(manifestFile),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        File.Exists(outputPath).Should().BeFalse();
+        standardError.ToString().Should().Contain("Downloaded file did not match the shared file.");
     }
 
     [Test]
@@ -795,19 +997,17 @@ public sealed class DownloadCommandHandlerTests
                 new(upload.FileIds[0].ToString().ToUpperInvariant(), "stable.bin", 72, "stable.bin")
             ]
         });
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputsDirectory, "--share-key", upload.ShareKey],
-                                                        CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath,
+                                                        CreateServices(standardOut, standardError, fixture.ConfigFilePath,
                                                                        httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(0);
         (await File.ReadAllBytesAsync(outputPath)).Should().BeEquivalentTo(await File.ReadAllBytesAsync(inputFile));
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS 1/1 stable.bin -> stable.bin");
+        standardOut.ToString().Should().Contain("SUCCESS 1/1 stable.bin -> stable.bin");
     }
 
     [Test]
@@ -818,25 +1018,25 @@ public sealed class DownloadCommandHandlerTests
         var secondInput = fixture.CreateInputFile("beta.bin", 80);
         var upload = await fixture.UploadFilesAsync([firstInput, secondInput]);
         var share = upload.Share;
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = fixture.CreateClient();
 
+        var outputDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         var exitCode = await CliApplication.InvokeAsync(
             [
                 "download", share.ShareToken, "--server-url", httpClient.BaseAddress!.ToString(), "--share-key", upload.ShareKey, "--file",
-                upload.FileIds[1].ToString().ToUpperInvariant()
+                upload.FileIds[1].ToString().ToUpperInvariant(), "--out", outputDirectory + Path.DirectorySeparatorChar
             ],
-            CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
+            CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient),
             CancellationToken.None);
 
         exitCode.Should().Be(0);
-        binaryOutput.ToArray().Should().Equal(await File.ReadAllBytesAsync(secondInput));
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("START beta.bin")
-                     .And.Contain("SUCCESS beta.bin")
-                     .And.Contain("SUMMARY downloaded 1 file");
+        // A trailing separator makes --out a directory destination, so the announced name decides the file name.
+        (await File.ReadAllBytesAsync(Path.Combine(outputDirectory, "beta.bin"))).Should().Equal(await File.ReadAllBytesAsync(secondInput));
+        standardOut.ToString().Should().Contain("START beta.bin")
+                   .And.Contain("SUCCESS beta.bin")
+                   .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -857,12 +1057,15 @@ public sealed class DownloadCommandHandlerTests
 
             using (var handler = new SequenceHttpMessageHandler(
                        _ => fixture.CreateManifestResponse(),
+                       // ReSharper disable once AccessToDisposedClosure
                        _ => fixture.CreateCancellingDownloadResponse(firstChunkEncryptedLength + 7, cancellation)))
             using (var httpClient = new HttpClient(handler))
             {
                 var firstAttempt = async () => await CliApplication.InvokeAsync(
                     ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    // ReSharper disable once AccessToDisposedClosure
+                    CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    // ReSharper disable once AccessToDisposedClosure
                     cancellation.Token);
 
                 await firstAttempt.Should().ThrowAsync<OperationCanceledException>();
@@ -879,7 +1082,7 @@ public sealed class DownloadCommandHandlerTests
                        {
                            var range = request.Headers.Range;
                            range.Should().NotBeNull();
-                           range!.Ranges.Should().ContainSingle();
+                           range.Ranges.Should().ContainSingle();
                            range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
                            range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
                            return fixture.CreateDownloadResponse(new()
@@ -892,7 +1095,7 @@ public sealed class DownloadCommandHandlerTests
             {
                 var secondExitCode = await CliApplication.InvokeAsync(
                     ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                     CancellationToken.None);
 
                 secondExitCode.Should().Be(0);
@@ -933,7 +1136,7 @@ public sealed class DownloadCommandHandlerTests
             {
                 var firstExitCode = await CliApplication.InvokeAsync(
                     ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                    CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                    CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                     CancellationToken.None);
 
                 firstExitCode.Should().Be(1);
@@ -944,14 +1147,14 @@ public sealed class DownloadCommandHandlerTests
             File.Exists(markerPath).Should().BeTrue();
             (await File.ReadAllBytesAsync(partialPath)).Should().Equal(fixture.Plaintext.Take(fixture.ChunkSize));
 
-            var secondStandardError = new StringWriter();
+            var secondStandardOut = new StringWriter();
             using (var handler = new SequenceHttpMessageHandler(
                        _ => fixture.CreateManifestResponse(),
                        request =>
                        {
                            var range = request.Headers.Range;
                            range.Should().NotBeNull();
-                           range!.Ranges.Should().ContainSingle();
+                           range.Ranges.Should().ContainSingle();
                            range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
                            range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
                            return fixture.CreateDownloadResponse(new()
@@ -964,7 +1167,7 @@ public sealed class DownloadCommandHandlerTests
             {
                 var secondExitCode = await CliApplication.InvokeAsync(
                     ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                    CreateServices(new MemoryStream(), new StringWriter(), secondStandardError, httpClient: httpClient),
+                    CreateServices(secondStandardOut, new StringWriter(), httpClient: httpClient),
                     CancellationToken.None);
 
                 secondExitCode.Should().Be(0);
@@ -972,7 +1175,7 @@ public sealed class DownloadCommandHandlerTests
 
             (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
             // Only the 64 B transferred during this resumed run is reported, not the file's full 128 B size.
-            secondStandardError.ToString().Should().Contain("SUCCESS 1/1 payload.bin -> payload.bin (64 B in");
+            secondStandardOut.ToString().Should().Contain("SUCCESS 1/1 payload.bin -> payload.bin (64 B in");
             File.Exists(partialPath).Should().BeFalse();
             File.Exists(markerPath).Should().BeFalse();
         }
@@ -983,6 +1186,56 @@ public sealed class DownloadCommandHandlerTests
                 Directory.Delete(rootDirectory, true);
             }
         }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveAndResumeSingleFilePartialAfterInterruptedDownload()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+        var partialPath = $"{outputPath}.shadowdrop-partial";
+        var markerPath = $"{partialPath}.json";
+        var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
+        String[] arguments = ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath];
+
+        using (var handler = new SequenceHttpMessageHandler(
+                   _ => fixture.CreateManifestResponse(),
+                   _ => fixture.CreateInterruptedDownloadResponse(firstChunkEncryptedLength + 7)))
+        using (var httpClient = new HttpClient(handler))
+        {
+            var firstExitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                                 CancellationToken.None);
+
+            firstExitCode.Should().Be(1);
+        }
+
+        File.Exists(outputPath).Should().BeFalse();
+        (await File.ReadAllBytesAsync(partialPath)).Should().Equal(fixture.Plaintext.Take(fixture.ChunkSize));
+        File.Exists(markerPath).Should().BeTrue();
+
+        using (var handler = new SequenceHttpMessageHandler(
+                   _ => fixture.CreateManifestResponse(),
+                   request =>
+                   {
+                       // The resumed run asks only for the bytes it still needs, exactly as a queue download would.
+                       request.Headers.Range!.Ranges.Single().From.Should().Be(fixture.ChunkSize);
+                       return fixture.CreateDownloadResponse(new()
+                       {
+                           Start = fixture.ChunkSize,
+                           End = fixture.Plaintext.LongLength
+                       });
+                   }))
+        using (var httpClient = new HttpClient(handler))
+        {
+            var secondExitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                                  CancellationToken.None);
+
+            secondExitCode.Should().Be(0);
+        }
+
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+        File.Exists(partialPath).Should().BeFalse();
+        File.Exists(markerPath).Should().BeFalse();
     }
 
     [Test]
@@ -1001,20 +1254,20 @@ public sealed class DownloadCommandHandlerTests
                 return fixture.CreateDownloadResponse();
             });
         using var httpClient = new HttpClient(handler);
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "https://shadowdrop.test/base-path/d/share-token", "--share-key", fixture.ShareKey],
-                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
-                                                        CancellationToken.None);
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/base-path/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
 
         exitCode.Should().Be(0);
-        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain($"START {fixture.FileName}")
-                     .And.Contain($"SUCCESS {fixture.FileName}")
-                     .And.Contain("SUMMARY downloaded 1 file");
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+        standardOut.ToString().Should().Contain($"START {fixture.FileName}")
+                   .And.Contain($"SUCCESS {fixture.FileName}")
+                   .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [Test]
@@ -1038,23 +1291,20 @@ public sealed class DownloadCommandHandlerTests
                 new(upload.FileIds[1].ToString(), "beta.bin", 80, "beta.bin")
             ]
         });
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputsDirectory, "--share-key", upload.ShareKey],
-                                                        CreateServices(binaryOutput, standardOut, standardError, fixture.ConfigFilePath,
+                                                        CreateServices(standardOut, standardError, fixture.ConfigFilePath,
                                                                        httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(0);
         (await File.ReadAllBytesAsync(Path.Combine(outputsDirectory, "alpha.bin"))).Should().BeEquivalentTo(await File.ReadAllBytesAsync(firstInput));
         (await File.ReadAllBytesAsync(Path.Combine(outputsDirectory, "beta.bin"))).Should().BeEquivalentTo(await File.ReadAllBytesAsync(secondInput));
-        binaryOutput.Length.Should().Be(0);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("SUCCESS 1/2 alpha.bin -> alpha.bin")
-                     .And.Contain("SUCCESS 2/2 beta.bin -> beta.bin")
-                     .And.Contain("SUMMARY downloaded 2/2 files");
+        standardOut.ToString().Should().Contain("SUCCESS 1/2 alpha.bin -> alpha.bin")
+                   .And.Contain("SUCCESS 2/2 beta.bin -> beta.bin")
+                   .And.Contain("SUMMARY downloaded 2/2 files");
     }
 
     [Test]
@@ -1062,7 +1312,6 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         using var httpClient = new HttpClient(new NeverCalledHandler());
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var queuePath = Path.Combine(fixture.RootDirectory, "invalid.queue.json");
@@ -1084,11 +1333,10 @@ public sealed class DownloadCommandHandlerTests
                                      """);
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new('a', 64)],
-                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
-        binaryOutput.Length.Should().Be(0);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("files[0].outputPath: The outputPath value is required.")
                      .And.Contain("The queue file is invalid.");
@@ -1102,8 +1350,7 @@ public sealed class DownloadCommandHandlerTests
         var interactiveSession = new FakeInteractiveSession();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--output-root", "downloads"],
-                                                        CreateServices(Stream.Null,
-                                                                       standardOut,
+                                                        CreateServices(standardOut,
                                                                        standardError,
                                                                        httpClient: new HttpClient(new NeverCalledHandler()),
                                                                        interactiveSession: interactiveSession),
@@ -1143,20 +1390,16 @@ public sealed class DownloadCommandHandlerTests
                 ]
             });
             await File.WriteAllTextAsync(queuePath, queueJson);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
-                                                            CreateServices(binaryOutput,
-                                                                           standardOut,
+                                                            CreateServices(standardOut,
                                                                            standardError,
                                                                            httpClient: new HttpClient(new NeverCalledHandler())),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
-            binaryOutput.Length.Should().Be(0);
-            standardOut.ToString().Should().BeEmpty();
             File.Exists(Path.Combine(rootDirectory, "downloads-evil", "report.txt")).Should().BeFalse();
             standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../downloads-evil/report.txt: Queue output path escapes the output root.");
         }
@@ -1197,20 +1440,16 @@ public sealed class DownloadCommandHandlerTests
                 ]
             });
             await File.WriteAllTextAsync(queuePath, queueJson);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
-                                                            CreateServices(binaryOutput,
-                                                                           standardOut,
+                                                            CreateServices(standardOut,
                                                                            standardError,
                                                                            httpClient: new HttpClient(new NeverCalledHandler())),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
-            binaryOutput.Length.Should().Be(0);
-            standardOut.ToString().Should().BeEmpty();
             File.Exists(Path.Combine(rootDirectory, "outside.bin")).Should().BeFalse();
             standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../outside.bin: Queue output path escapes the output root.");
         }
@@ -1231,16 +1470,14 @@ public sealed class DownloadCommandHandlerTests
             Content = new StreamContent(new ThrowingReadStream(new IOException("Simulated manifest read failure.")))
         });
         using var httpClient = new HttpClient(handler);
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--server-url", "https://shadowdrop.test", "--share-key", new('a', 64)],
-                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                        CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
-        binaryOutput.Length.Should().Be(0);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Server connection failed.")
                      .And.NotContain("local I/O");
@@ -1286,7 +1523,7 @@ public sealed class DownloadCommandHandlerTests
             using var httpClient = new HttpClient(handler);
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
@@ -1341,18 +1578,16 @@ public sealed class DownloadCommandHandlerTests
                 _ => fixture.CreateManifestResponse(),
                 _ => fixture.CreateDownloadResponse());
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
             (await File.ReadAllBytesAsync(Path.Combine(rootDirectory, "default-root.bin"))).Should().Equal(fixture.Plaintext);
-            standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> default-root.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> default-root.bin");
         }
         finally
         {
@@ -1405,17 +1640,17 @@ public sealed class DownloadCommandHandlerTests
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var standardError = new StringWriter();
+            var standardOut = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, new StringWriter(), httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
             (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> payload.bin")
-                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> payload.bin")
+                       .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
         }
         finally
         {
@@ -1467,7 +1702,7 @@ public sealed class DownloadCommandHandlerTests
 
             var exitCode = await CliApplication.InvokeAsync(
                 ["download", "--interactive", "--server-url", "https://shadowdrop.test/base-path/", "shared-token"],
-                CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient, interactiveSession: interactiveSession),
+                CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient, interactiveSession: interactiveSession),
                 CancellationToken.None);
 
             exitCode.Should().Be(0);
@@ -1521,7 +1756,7 @@ public sealed class DownloadCommandHandlerTests
             using var httpClient = new HttpClient(handler);
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), new StringWriter(), httpClient: httpClient),
+                                                            CreateServices(new StringWriter(), new StringWriter(), httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
@@ -1534,56 +1769,6 @@ public sealed class DownloadCommandHandlerTests
                 Directory.Delete(rootDirectory, true);
             }
         }
-    }
-
-    [Test]
-    public async Task InvokeAsync_ShouldReturnFailureAfterStdoutDownload_WhenPlaintextHashDoesNotMatch()
-    {
-        var fixture = DownloadHttpFixture.Create();
-        using var handler = new SequenceHttpMessageHandler(
-            _ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)),
-            _ => fixture.CreateDownloadResponse());
-        using var httpClient = new HttpClient(handler);
-        var binaryOutput = new MemoryStream();
-        var standardOut = new StringWriter();
-        var standardError = new StringWriter();
-
-        var exitCode = await CliApplication.InvokeAsync(
-            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey],
-            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
-            CancellationToken.None);
-
-        exitCode.Should().Be(1);
-        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("Downloaded file hash did not match the shared file.");
-    }
-
-    [Test]
-    public async Task InvokeAsync_ShouldReturnFailureAfterStdoutDownload_WhenPlaintextLengthDoesNotMatch()
-    {
-        var fixture = DownloadHttpFixture.Create();
-        var manifestFile = fixture.CreateManifestFile() with
-        {
-            Length = fixture.Plaintext.LongLength + 1
-        };
-        using var handler = new SequenceHttpMessageHandler(
-            _ => fixture.CreateManifestResponseWithFiles(manifestFile),
-            _ => fixture.CreateDownloadResponse());
-        using var httpClient = new HttpClient(handler);
-        var binaryOutput = new MemoryStream();
-        var standardOut = new StringWriter();
-        var standardError = new StringWriter();
-
-        var exitCode = await CliApplication.InvokeAsync(
-            ["download", "shared-token", "--server-url", "https://shadowdrop.test/base-path/", "--share-key", fixture.ShareKey],
-            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
-            CancellationToken.None);
-
-        exitCode.Should().Be(1);
-        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("Downloaded file length mismatch");
     }
 
     [Test]
@@ -1645,21 +1830,19 @@ public sealed class DownloadCommandHandlerTests
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
             var standardOut = new StringWriter();
             var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
             manifestRequests.Should().Be(1);
             (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
-                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
+                       .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
         }
         finally
         {
@@ -1671,29 +1854,31 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldRouteBannerToStandardError_ForDirectDownloadByteOutput()
+    public async Task InvokeAsync_ShouldRouteBannerToStandardError_ForSingleFileDownload()
     {
         var fixture = DownloadHttpFixture.Create();
         using var handler = new SequenceHttpMessageHandler(
             _ => fixture.CreateManifestResponse(),
             _ => fixture.CreateDownloadResponse());
         using var httpClient = new HttpClient(handler);
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
+        var outputPath = Path.Combine(CreateScratchDirectory(), fixture.FileName);
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey],
-                                                        CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient,
-                                                                       terminalCapabilityProvider: FixedTerminalCapabilityProvider.Plain),
-                                                        CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputPath],
+            CreateServices(standardOut, standardError, httpClient: httpClient, terminalCapabilityProvider: FixedTerminalCapabilityProvider.Plain),
+            CancellationToken.None);
 
         exitCode.Should().Be(0);
-        // The decrypted byte stream stays pure on stdout; the banner is routed to stderr so it never corrupts it.
-        binaryOutput.ToArray().Should().Equal(fixture.Plaintext);
-        standardOut.ToString().Should().BeEmpty();
+        (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
+
+        // Progress moved to stdout, but the banner stays on stderr alongside errors and diagnostics.
         var expectedBanner = new StringWriter();
         await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
         standardError.ToString().Should().Contain(expectedBanner.ToString());
+        standardOut.ToString().Should().NotContain(expectedBanner.ToString())
+                   .And.Contain($"SUCCESS {fixture.FileName}");
     }
 
     [Test]
@@ -1709,15 +1894,15 @@ public sealed class DownloadCommandHandlerTests
             await File.WriteAllBytesAsync(outputPath, fixture.Plaintext);
             var queuePath = CreateQueueFile(rootDirectory, fixture, ComputeSha256(fixture.Plaintext));
             using var httpClient = new HttpClient(new NeverCalledHandler());
-            var standardError = new StringWriter();
+            var standardOut = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(new MemoryStream(), new StringWriter(), standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, new StringWriter(), httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
             (await File.ReadAllBytesAsync(outputPath)).Should().Equal(fixture.Plaintext);
-            standardError.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> payload.bin");
         }
         finally
         {
@@ -1735,7 +1920,6 @@ public sealed class DownloadCommandHandlerTests
         var inputFile = fixture.CreateInputFile("interactive-protected.bin", 72);
         var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
         var share = upload.Share;
-        var binaryOutput = new MemoryStream();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         var interactiveSession = new FakeInteractiveSession();
@@ -1744,8 +1928,7 @@ public sealed class DownloadCommandHandlerTests
         using var httpClient = fixture.CreateClient();
 
         var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--server-url", httpClient.BaseAddress!.ToString(), share.ShareToken],
-                                                        CreateServices(binaryOutput,
-                                                                       standardOut,
+                                                        CreateServices(standardOut,
                                                                        standardError,
                                                                        fixture.ConfigFilePath,
                                                                        httpClient: httpClient,
@@ -1753,7 +1936,6 @@ public sealed class DownloadCommandHandlerTests
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
-        binaryOutput.Length.Should().Be(0);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("Download authorization failed.");
         interactiveSession.TextPrompts.Should().ContainInOrder(("Share key:", true), ("Download bearer token:", true));
@@ -1800,7 +1982,7 @@ public sealed class DownloadCommandHandlerTests
             });
             await File.WriteAllTextAsync(queuePath, queueJson);
 
-            var standardError = new ObservingTextWriter();
+            var standardOut = new ObservingTextWriter();
             using var handler = new SequenceHttpMessageHandler(
                 request =>
                 {
@@ -1814,25 +1996,22 @@ public sealed class DownloadCommandHandlerTests
                 },
                 request =>
                 {
-                    standardError.Lines.Should().Contain(line => line.StartsWith($"SUCCESS 1/2 {fixture.FileName} -> first.bin"));
+                    standardOut.Lines.Should().Contain(line => line.StartsWith($"SUCCESS 1/2 {fixture.FileName} -> first.bin"));
                     request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/shared-token/files/{fixture.FileId:D}?mode=cli"));
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
-            var binaryOutput = new MemoryStream();
-            var standardOut = new StringWriter();
+            var standardError = new StringWriter();
 
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(binaryOutput, standardOut, standardError, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(0);
-            binaryOutput.Length.Should().Be(0);
             (await File.ReadAllBytesAsync(firstOutputPath)).Should().Equal(fixture.Plaintext);
             (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardOut.ToString().Should().BeEmpty();
-            standardError.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
-                         .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
+            standardOut.ToString().Should().Contain($"SUCCESS 1/2 {fixture.FileName} -> first.bin")
+                       .And.Contain($"SUCCESS 2/2 {fixture.FileName} -> second.bin");
         }
         finally
         {
@@ -1841,6 +2020,63 @@ public sealed class DownloadCommandHandlerTests
                 Directory.Delete(rootDirectory, true);
             }
         }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteSingleFileIntoExistingDirectory_WhenOutNamesOne()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var outputDirectory = CreateScratchDirectory();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey, "--out", outputDirectory],
+            CreateServices(standardOut, standardError, httpClient: httpClient),
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        (await File.ReadAllBytesAsync(Path.Combine(outputDirectory, fixture.FileName))).Should().Equal(fixture.Plaintext);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldWriteSingleFileToCurrentDirectory_WhenOutIsAbsent()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        using var handler = new SequenceHttpMessageHandler(
+            _ => fixture.CreateManifestResponse(),
+            _ => fixture.CreateDownloadResponse());
+        using var httpClient = new HttpClient(handler);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var workingDirectory = CreateScratchDirectory();
+        var previousDirectory = Environment.CurrentDirectory;
+
+        try
+        {
+            Environment.CurrentDirectory = workingDirectory;
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "https://shadowdrop.test/d/share-token", "--share-key", fixture.ShareKey],
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+        }
+        finally
+        {
+            Environment.CurrentDirectory = previousDirectory;
+        }
+
+        (await File.ReadAllBytesAsync(Path.Combine(workingDirectory, fixture.FileName))).Should().Equal(fixture.Plaintext);
+
+        // stdout carries the lifecycle record, never the decrypted bytes.
+        standardOut.ToString().Should().Contain($"START {fixture.FileName}")
+                   .And.Contain($"SUCCESS {fixture.FileName}")
+                   .And.Contain("SUMMARY downloaded 1 file");
     }
 
     [TestCase(null)]
@@ -1968,8 +2204,7 @@ public sealed class DownloadCommandHandlerTests
     private static String CreateQueueFileWithServerUrl(String rootDirectory, DownloadHttpFixture fixture, String serverUrl, params String[] outputPaths) =>
         CreateQueueFileCore(rootDirectory, fixture, serverUrl, null, outputPaths);
 
-    private static CliApplicationServices CreateServices(Stream standardOutStream,
-                                                         TextWriter standardOut,
+    private static CliApplicationServices CreateServices(TextWriter standardOut,
                                                          TextWriter standardError,
                                                          String? configPath = null,
                                                          IReadOnlyDictionary<String, String?>? environmentValues = null,
@@ -1978,12 +2213,11 @@ public sealed class DownloadCommandHandlerTests
                                                          ITerminalCapabilityProvider? terminalCapabilityProvider = null) =>
         new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
             httpClient ?? new HttpClient(new NeverCalledHandler()),
-            standardOutStream,
             standardOut,
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),
             TimeProvider.System,
-            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+            new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
             terminalCapabilityProvider ?? new TerminalCapabilityProvider());
 
     private static async Task WriteResumeMarkerAsync(String markerPath,
@@ -2007,6 +2241,16 @@ public sealed class DownloadCommandHandlerTests
             plaintextSha256
         });
         await File.WriteAllTextAsync(markerPath, json);
+    }
+
+    // Single-file downloads land on disk, so tests that exercise them need a scratch destination outside the
+    // working directory. Registered directories are removed after each test.
+    private String CreateScratchDirectory()
+    {
+        var directory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        _scratchDirectories.Add(directory);
+        return directory;
     }
 
     private sealed class CancellingReadStream(Stream inner, Int32 bytesBeforeCancellation, CancellationTokenSource cancellation) : Stream
@@ -2133,22 +2377,6 @@ public sealed class DownloadCommandHandlerTests
             return queuePath;
         }
 
-        public async Task<ShareFixture> CreateShareAsync(IReadOnlyList<Guid> fileIds, Boolean requireDownloadToken = false)
-        {
-            using var client = CreateClient();
-            client.DefaultRequestHeaders.Authorization = new("Bearer", BootstrapToken);
-            var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-30T00:00:00Z"),
-                                                 fileIds.Select(id => new CreateShareFileRequest(id)).ToArray(),
-                                                 false,
-                                                 requireDownloadToken,
-                                                 requireDownloadToken ? DateTimeOffset.Parse("2026-06-30T12:00:00Z") : null);
-            using var response = await client.PostAsJsonAsync("/api/admin/shares", request);
-            response.EnsureSuccessStatusCode();
-            var result = await response.Content.ReadFromJsonAsync<CreateShareResult>();
-            result.Should().NotBeNull();
-            return new(result.ShareToken, result.DownloadBearerToken);
-        }
-
         public async Task<UploadFixture> UploadFilesAsync(IReadOnlyList<String> filePaths, Boolean requireDownloadToken = false)
         {
             using var httpClient = CreateClient();
@@ -2167,7 +2395,7 @@ public sealed class DownloadCommandHandlerTests
 
             args.Add("--json");
             var exitCode = await CliApplication.InvokeAsync(args.ToArray(),
-                                                            CreateServices(Stream.Null, standardOut, standardError, ConfigFilePath, httpClient: httpClient),
+                                                            CreateServices(standardOut, standardError, ConfigFilePath, httpClient: httpClient),
                                                             CancellationToken.None);
             exitCode.Should().Be(0, standardError.ToString());
             using var document = JsonDocument.Parse(standardOut.ToString());

@@ -778,13 +778,11 @@ public sealed class UploadCommandHandlerTests
         await using var fixture = new CliUploadApiFactory();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var binaryOut = new MemoryStream();
         using var httpClient = fixture.CreateClient();
         fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
         var services = new CliApplicationServices(
             new(new StubConfigPathResolver(fixture.ConfigFilePath), new StubEnvironmentReader(new Dictionary<String, String?>())),
             httpClient,
-            binaryOut,
             standardOut,
             standardError,
             new FakeInteractiveSession(),
@@ -799,10 +797,12 @@ public sealed class UploadCommandHandlerTests
         var shareUrl = result.RootElement.GetProperty("shareUrl").GetString()!;
         var shareKey = result.RootElement.GetProperty("credentials").GetProperty("shareKey").GetString()!;
 
-        var downloadExit = await CliApplication.InvokeAsync(["download", shareUrl, "--share-key", shareKey], services, CancellationToken.None);
+        var downloadPath = Path.Combine(fixture.RootDirectory, "roundtrip-download.bin");
+        var downloadExit = await CliApplication.InvokeAsync(["download", shareUrl, "--share-key", shareKey, "--out", downloadPath], services,
+                                                            CancellationToken.None);
 
         downloadExit.Should().Be(0);
-        binaryOut.ToArray().Should().Equal(plaintext);
+        (await File.ReadAllBytesAsync(downloadPath)).Should().Equal(plaintext);
     }
 
     [Test]
@@ -1422,13 +1422,11 @@ public sealed class UploadCommandHandlerTests
         await using var fixture = new CliUploadApiFactory();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var binaryOut = new MemoryStream();
         using var httpClient = fixture.CreateClient();
         fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
         var services = new CliApplicationServices(
             new(new StubConfigPathResolver(fixture.ConfigFilePath), new StubEnvironmentReader(new Dictionary<String, String?>())),
             httpClient,
-            binaryOut,
             standardOut,
             standardError,
             new FakeInteractiveSession(),
@@ -1447,10 +1445,12 @@ public sealed class UploadCommandHandlerTests
         using var shareResult = JsonDocument.Parse(createOut.ToString());
         var shareUrl = shareResult.RootElement.GetProperty("shareUrl").GetString()!;
 
-        var downloadExit = await CliApplication.InvokeAsync(["download", shareUrl, "--share-key", shareKey], services, CancellationToken.None);
+        var downloadPath = Path.Combine(fixture.RootDirectory, "composed-download.bin");
+        var downloadExit = await CliApplication.InvokeAsync(["download", shareUrl, "--share-key", shareKey, "--out", downloadPath], services,
+                                                            CancellationToken.None);
 
         downloadExit.Should().Be(0);
-        binaryOut.ToArray().Should().Equal(plaintext);
+        (await File.ReadAllBytesAsync(downloadPath)).Should().Equal(plaintext);
     }
 
     [Test]
@@ -1901,12 +1901,11 @@ public sealed class UploadCommandHandlerTests
         var resolvedHttpClient = httpClient ?? new HttpClient(new NeverCalledHandler());
         return new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
                    _ => resolvedHttpClient,
-                   Stream.Null,
                    standardOut,
                    standardError,
                    interactiveSession ?? new FakeInteractiveSession(),
                    TimeProvider.System,
-                   new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+                   new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
                    FixedTerminalCapabilityProvider.Plain);
     }
 

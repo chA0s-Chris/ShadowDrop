@@ -11,7 +11,6 @@ using ShadowDrop.Cli.Tls;
 internal sealed record CliApplicationServices(
     CliConfigurationResolver ConfigurationResolver,
     Func<CliTlsOptions, HttpClient> HttpClientFactory,
-    Stream StandardOutStream,
     TextWriter StandardOut,
     TextWriter StandardError,
     ICliInteractiveSession InteractiveSession,
@@ -25,49 +24,30 @@ internal sealed record CliApplicationServices(
                                   TextWriter standardError)
         : this(configurationResolver,
                _ => httpClient,
-               Stream.Null,
                standardOut,
                standardError,
                new SpectreCliInteractiveSession(standardError),
                TimeProvider.System,
-               new DownloadProgressReporterFactory(standardError, TimeProvider.System),
+               new DownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
-                                  Stream standardOutStream,
-                                  TextWriter standardOut,
-                                  TextWriter standardError)
-        : this(configurationResolver,
-               _ => httpClient,
-               standardOutStream,
-               standardOut,
-               standardError,
-               new SpectreCliInteractiveSession(standardError),
-               TimeProvider.System,
-               new DownloadProgressReporterFactory(standardError, TimeProvider.System),
-               new TerminalCapabilityProvider()) { }
-
-    public CliApplicationServices(CliConfigurationResolver configurationResolver,
-                                  HttpClient httpClient,
-                                  Stream standardOutStream,
                                   TextWriter standardOut,
                                   TextWriter standardError,
                                   ICliInteractiveSession interactiveSession,
                                   TimeProvider timeProvider)
         : this(configurationResolver,
                _ => httpClient,
-               standardOutStream,
                standardOut,
                standardError,
                interactiveSession,
                timeProvider,
-               new DownloadProgressReporterFactory(standardError, timeProvider),
+               new DownloadProgressReporterFactory(standardOut, standardError, timeProvider),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
-                                  Stream standardOutStream,
                                   TextWriter standardOut,
                                   TextWriter standardError,
                                   ICliInteractiveSession interactiveSession,
@@ -75,7 +55,6 @@ internal sealed record CliApplicationServices(
                                   IDownloadProgressReporterFactory downloadProgressReporterFactory)
         : this(configurationResolver,
                _ => httpClient,
-               standardOutStream,
                standardOut,
                standardError,
                interactiveSession,
@@ -85,7 +64,6 @@ internal sealed record CliApplicationServices(
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
-                                  Stream standardOutStream,
                                   TextWriter standardOut,
                                   TextWriter standardError,
                                   ICliInteractiveSession interactiveSession,
@@ -94,7 +72,6 @@ internal sealed record CliApplicationServices(
                                   ITerminalCapabilityProvider terminalCapabilityProvider)
         : this(configurationResolver,
                _ => httpClient,
-               standardOutStream,
                standardOut,
                standardError,
                interactiveSession,
@@ -110,12 +87,11 @@ internal sealed record CliApplicationServices(
         var terminalCapabilityProvider = new TerminalCapabilityProvider();
         return new(new(new(), new EnvironmentReader()),
                    CliHttpClientFactory.CreateClient,
-                   Console.OpenStandardOutput(),
                    Console.Out,
                    Console.Error,
                    new SpectreCliInteractiveSession(Console.Error),
                    TimeProvider.System,
-                   new DownloadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                   new DownloadProgressReporterFactory(Console.Out, Console.Error, TimeProvider.System, terminalCapabilityProvider),
                    terminalCapabilityProvider);
     }
 }

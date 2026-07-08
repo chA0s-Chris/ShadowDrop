@@ -12,9 +12,10 @@ public sealed class PlainTextDownloadProgressReporterTests
     [Test]
     public async Task RunQueueAsync_ShouldEmitIndexedLifecycleLinesAndSummary()
     {
-        var writer = new StringWriter();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
         var timeProvider = new ManualTimeProvider();
-        var reporter = new PlainTextDownloadProgressReporter(writer, timeProvider);
+        var reporter = new PlainTextDownloadProgressReporter(standardOut, standardError, timeProvider);
 
         QueueDownloadItem[] items =
         [
@@ -23,7 +24,7 @@ public sealed class PlainTextDownloadProgressReporterTests
                 // A real download always reports its starting offset (0 here) before any bytes transfer.
                 progress!.Report(0);
                 timeProvider.Advance(TimeSpan.FromSeconds(1));
-                progress!.Report(1000);
+                progress.Report(1000);
                 return Task.CompletedTask;
             }),
             new("beta.bin", 2000, "out/beta.bin", (_, _) => throw new DownloadCommandException("boom"))
@@ -33,19 +34,21 @@ public sealed class PlainTextDownloadProgressReporterTests
 
         summary.Downloaded.Should().Be(1);
         summary.Failed.Should().Be(1);
-        var lines = ReadLines(writer);
-        lines.Should().Contain("START 1/2 alpha.bin (1.0 KB)");
-        lines.Should().Contain("SUCCESS 1/2 alpha.bin -> out/alpha.bin (1.0 KB in 1.0s, 1.0 KB/s)");
-        lines.Should().Contain("START 2/2 beta.bin (2.0 KB)");
-        lines.Should().Contain("FAILED 2/2 beta.bin -> out/beta.bin: boom");
-        lines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 1/2 files, failed 1 file (1.0 KB in"));
+        var outLines = ReadLines(standardOut);
+        outLines.Should().Contain("START 1/2 alpha.bin (1.0 KB)");
+        outLines.Should().Contain("SUCCESS 1/2 alpha.bin -> out/alpha.bin (1.0 KB in 1.0s, 1.0 KB/s)");
+        outLines.Should().Contain("START 2/2 beta.bin (2.0 KB)");
+        outLines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 1/2 files, failed 1 file (1.0 KB in"));
+
+        // Per-item failures stay on stderr so a redirected stdout carries only the lifecycle record.
+        outLines.Should().NotContain(line => line.StartsWith("FAILED"));
+        ReadLines(standardError).Should().Equal("FAILED 2/2 beta.bin -> out/beta.bin: boom");
     }
 
     [Test]
     public async Task RunQueueAsync_ShouldRethrow_WhenErrorIsNotClassified()
     {
-        var writer = new StringWriter();
-        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+        var reporter = new PlainTextDownloadProgressReporter(new StringWriter(), new StringWriter(), new ManualTimeProvider());
         QueueDownloadItem[] items =
         [
             new("alpha.bin", 1000, "out/alpha.bin", (_, _) => throw new InvalidOperationException("unexpected"))
@@ -57,10 +60,11 @@ public sealed class PlainTextDownloadProgressReporterTests
     }
 
     [Test]
-    public async Task RunSingleAsync_ShouldEmitFailedAndSummaryLines_WhenErrorIsClassified()
+    public async Task RunSingleAsync_ShouldEmitFailedOnStandardErrorAndSummaryOnStandardOut_WhenErrorIsClassified()
     {
-        var writer = new StringWriter();
-        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var reporter = new PlainTextDownloadProgressReporter(standardOut, standardError, new ManualTimeProvider());
 
         var succeeded = await reporter.RunSingleAsync("alpha.bin", 2000,
                                                       (_, _) => throw new DownloadCommandException("boom"),
@@ -68,41 +72,43 @@ public sealed class PlainTextDownloadProgressReporterTests
                                                       CancellationToken.None);
 
         succeeded.Should().BeFalse();
-        var lines = ReadLines(writer);
-        lines[0].Should().Be("START alpha.bin (2.0 KB)");
-        lines.Should().Contain("FAILED alpha.bin: boom");
-        lines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 0 files, failed 1 file ("));
+        var outLines = ReadLines(standardOut);
+        outLines[0].Should().Be("START alpha.bin (2.0 KB)");
+        outLines.Should().Contain(line => line.StartsWith("SUMMARY downloaded 0 files, failed 1 file ("));
+        ReadLines(standardError).Should().Equal("FAILED alpha.bin: boom");
     }
 
     [Test]
-    public async Task RunSingleAsync_ShouldEmitStartSuccessAndSummaryLines()
+    public async Task RunSingleAsync_ShouldEmitStartSuccessAndSummaryLinesOnStandardOut()
     {
-        var writer = new StringWriter();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
         var timeProvider = new ManualTimeProvider();
-        var reporter = new PlainTextDownloadProgressReporter(writer, timeProvider);
+        var reporter = new PlainTextDownloadProgressReporter(standardOut, standardError, timeProvider);
 
         await reporter.RunSingleAsync("alpha.bin", 2000, (progress, _) =>
         {
             // A real download always reports its starting offset (0 here) before any bytes transfer.
             progress!.Report(0);
             timeProvider.Advance(TimeSpan.FromSeconds(2));
-            progress!.Report(2000);
+            progress.Report(2000);
             return Task.CompletedTask;
         }, ClassifyError, CancellationToken.None);
 
-        var lines = ReadLines(writer);
+        var lines = ReadLines(standardOut);
         lines.Should().HaveCount(3);
         lines[0].Should().Be("START alpha.bin (2.0 KB)");
         lines[1].Should().Be("SUCCESS alpha.bin (2.0 KB in 2.0s, 1.0 KB/s)");
         lines[2].Should().Be("SUMMARY downloaded 1 file (2.0 KB in 2.0s, 1.0 KB/s)");
+        standardError.ToString().Should().BeEmpty();
     }
 
     [Test]
     public async Task RunSingleAsync_ShouldKeepLifecycleRecordOnOneLine_WhenFileNameContainsLineBreaks()
     {
-        var writer = new StringWriter();
+        var standardOut = new StringWriter();
         var timeProvider = new ManualTimeProvider();
-        var reporter = new PlainTextDownloadProgressReporter(writer, timeProvider);
+        var reporter = new PlainTextDownloadProgressReporter(standardOut, new StringWriter(), timeProvider);
 
         await reporter.RunSingleAsync("alpha\r\nINJECTED.bin", 2000, (progress, _) =>
         {
@@ -112,7 +118,7 @@ public sealed class PlainTextDownloadProgressReporterTests
         }, ClassifyError, CancellationToken.None);
 
         // The CR/LF in the name must not split the deterministic records: exactly START/SUCCESS/SUMMARY, with the name collapsed to one line.
-        var lines = ReadLines(writer);
+        var lines = ReadLines(standardOut);
         lines.Should().HaveCount(3);
         lines[0].Should().Be("START alpha  INJECTED.bin (2.0 KB)");
         lines[1].Should().StartWith("SUCCESS alpha  INJECTED.bin (");
@@ -121,8 +127,8 @@ public sealed class PlainTextDownloadProgressReporterTests
     [Test]
     public async Task RunSingleAsync_ShouldOmitSizeFromStart_WhenSizeUnknown()
     {
-        var writer = new StringWriter();
-        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+        var standardOut = new StringWriter();
+        var reporter = new PlainTextDownloadProgressReporter(standardOut, new StringWriter(), new ManualTimeProvider());
 
         await reporter.RunSingleAsync("alpha.bin", null, (progress, _) =>
         {
@@ -130,14 +136,13 @@ public sealed class PlainTextDownloadProgressReporterTests
             return Task.CompletedTask;
         }, ClassifyError, CancellationToken.None);
 
-        ReadLines(writer)[0].Should().Be("START alpha.bin");
+        ReadLines(standardOut)[0].Should().Be("START alpha.bin");
     }
 
     [Test]
     public async Task RunSingleAsync_ShouldRethrow_WhenErrorIsNotClassified()
     {
-        var writer = new StringWriter();
-        var reporter = new PlainTextDownloadProgressReporter(writer, new ManualTimeProvider());
+        var reporter = new PlainTextDownloadProgressReporter(new StringWriter(), new StringWriter(), new ManualTimeProvider());
 
         var act = async () => await reporter.RunSingleAsync("alpha.bin", 2000,
                                                             (_, _) => throw new InvalidOperationException("unexpected"),
