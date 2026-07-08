@@ -168,29 +168,31 @@ internal sealed record UploadExecutionResult(
     Boolean AllSucceeded,
     String? BatchErrorMessage = null)
 {
-    public IReadOnlyList<UploadFailure> Failures
-    {
-        get
-        {
-            List<UploadFailure> failures = [];
-            if (BatchErrorMessage is not null)
-            {
-                failures.Add(new(null, null, BatchErrorMessage, null, null));
-            }
-
-            failures.AddRange(Files.Where(static result => result.UploadedFileId is null)
-                                   .Select(static result => new UploadFailure(result.FileNumber,
-                                                                              result.File.Name,
-                                                                              result.ErrorMessage ?? "Upload failed.",
-                                                                              result.UploadSizeBytes,
-                                                                              result.MaxFilePayloadBytes)));
-            return failures;
-        }
-    }
+    // Materialized once: callers read this repeatedly, and a getter that rebuilt the list per access
+    // would hand out a fresh instance every time.
+    public IReadOnlyList<UploadFailure> Failures { get; } = BuildFailures(Files, BatchErrorMessage);
 
     public IReadOnlyList<Guid> UploadedFileIds => Files.Where(static result => result.UploadedFileId is not null)
                                                        .Select(static result => result.UploadedFileId!.Value)
                                                        .ToArray();
+
+    private static IReadOnlyList<UploadFailure> BuildFailures(IReadOnlyList<UploadFileExecutionResult> files,
+                                                              String? batchErrorMessage)
+    {
+        List<UploadFailure> failures = [];
+        if (batchErrorMessage is not null)
+        {
+            failures.Add(new(null, null, batchErrorMessage, null, null));
+        }
+
+        failures.AddRange(files.Where(static result => result.UploadedFileId is null)
+                               .Select(static result => new UploadFailure(result.FileNumber,
+                                                                          result.File.Name,
+                                                                          result.ErrorMessage ?? "Upload failed.",
+                                                                          result.UploadSizeBytes,
+                                                                          result.MaxFilePayloadBytes)));
+        return failures;
+    }
 }
 
 internal sealed record UploadFileExecutionResult(
