@@ -21,13 +21,13 @@ responsible for renaming the built executable and release artifacts to the docum
   `ShadowDrop.Cli`, and the stale comments referencing the removed `<AssemblyName>` override are
   deleted from that file, the CLI csproj, and
   `tests/ShadowDrop.E2E.Tests/Infrastructure/ProductArtifacts.cs`.
-- [ ] The merged Cobertura report contains a `<package name="ShadowDrop.Cli">` entry with non-zero
+- [x] The merged Cobertura report contains a `<package name="ShadowDrop.Cli">` entry with non-zero
   line coverage, and the CI coverage summary produced by `CodeCoverageSummary` lists
   `ShadowDrop.Cli` as a row.
 - [x] Published CLI artifacts are still named `shadowdrop-<version>-<rid>` and
   `shadowdrop-<version>-<rid>.exe`.
 - [x] The installed/user-facing executable remains `shadowdrop` / `shadowdrop.exe`.
-- [ ] A manual `workflow_dispatch` run of the Release Artifacts workflow on the feature branch
+- [x] A manual `workflow_dispatch` run of the Release Artifacts workflow on the feature branch
   produces correctly named CLI artifacts for the Linux, macOS, and Windows runtime identifiers.
 - [x] `PublishCliArtifacts` fails the publish target if either the published executable
   (`ShadowDrop.Cli` / `ShadowDrop.Cli.exe`) or the renamed release artifact
