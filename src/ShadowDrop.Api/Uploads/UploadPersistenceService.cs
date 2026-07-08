@@ -89,7 +89,10 @@ public sealed class UploadPersistenceService
                     _logger.LogWarning(exception, "Upload rejected because the payload exceeded the configured limit. FileId: {FileId}", request.FileId);
                     break;
                 case OperationCanceledException:
-                    _logger.LogInformation("Upload canceled. FileId: {FileId}", request.FileId);
+                    _logger.LogInformation(exception,
+                                           "Upload canceled. FileId: {FileId}; CancellationRequested: {CancellationRequested}",
+                                           request.FileId,
+                                           cancellationToken.IsCancellationRequested);
                     break;
                 default:
                     _logger.LogError(exception, "Upload failed unexpectedly. FileId: {FileId}", request.FileId);
