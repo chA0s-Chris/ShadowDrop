@@ -496,13 +496,6 @@ internal partial class BuildPipeline
 
             var artifact = releaseDirectory / GetCliArtifactName(runtimeIdentifier);
             File.Copy(publishedExecutable, artifact, true);
-
-            if (!artifact.FileExists())
-            {
-                throw new FileNotFoundException(
-                    $"CLI publish for '{runtimeIdentifier}' did not produce the release artifact '{artifact}'.");
-            }
-
             EnsureExecutableMode(artifact, runtimeIdentifier);
         }
 

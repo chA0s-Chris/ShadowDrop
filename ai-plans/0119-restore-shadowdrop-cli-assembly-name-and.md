@@ -29,9 +29,9 @@ responsible for renaming the built executable and release artifacts to the docum
 - [x] The installed/user-facing executable remains `shadowdrop` / `shadowdrop.exe`.
 - [x] A manual `workflow_dispatch` run of the Release Artifacts workflow on the feature branch
   produces correctly named CLI artifacts for the Linux, macOS, and Windows runtime identifiers.
-- [x] `PublishCliArtifacts` fails the publish target if either the published executable
-  (`ShadowDrop.Cli` / `ShadowDrop.Cli.exe`) or the renamed release artifact
-  (`shadowdrop-<version>-<rid>`) is missing.
+- [x] `PublishCliArtifacts` fails the publish target if the published executable
+  (`ShadowDrop.Cli` / `ShadowDrop.Cli.exe`) is missing; the copy to the versioned release artifact
+  name (`shadowdrop-<version>-<rid>`) fails loudly via `File.Copy`.
 
 ## Technical Details
 
@@ -68,8 +68,9 @@ Only the assembly identity changes. The config-directory name
 
 `PublishCliArtifacts` already throws `FileNotFoundException` when the published executable is missing,
 which becomes the regression guard for the publish-output name once `GetCliPublishedExecutableName`
-returns `ShadowDrop.Cli`. Add the mirror assertion after the copy so a missing or misnamed release
-artifact also fails the target. No build-pipeline test project is needed.
+returns `ShadowDrop.Cli`. No mirror assertion is needed after the copy: `File.Copy` throws on every
+failure path, so a missing release artifact cannot go unnoticed. No build-pipeline test project is
+needed.
 
 Keep the documented install flow intact. Users should still end up with an executable named
 `shadowdrop` or `shadowdrop.exe`; only the internal assembly identity and publish-pipeline rename
