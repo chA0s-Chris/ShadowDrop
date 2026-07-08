@@ -15,12 +15,16 @@ using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
+using System.Globalization;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 
 [NonParallelizable]
 public sealed class UploadCommandHandlerTests
 {
+    private const Int64 MultipartEnvelopeAllowanceBytes = 128L * 1024;
+
     [Test]
     public void DirectHttpCurlCommandFactory_ShouldPosixQuoteHeaderUrlAndFileName()
     {
@@ -432,6 +436,24 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldFailBeforeUploading_WhenServerDoesNotExposeUploadLimit()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new UploadLimitUnavailableHandler());
+        fixture.WriteConfig("https://shadowdrop.test/", fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("payload.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("Upload limit could not be resolved from the server");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldFailCleanly_WhenConfigFileContainsMalformedJson()
     {
         var standardOut = new StringWriter();
@@ -534,7 +556,8 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 1 failed: Authentication token invalid or missing.");
+        standardError.ToString().Should().Contain("Authentication token invalid or missing.")
+                     .And.NotContain("File 1 failed");
         standardError.ToString().Should().NotContain("wrong-token")
                      .And.NotContain(httpClient.BaseAddress!.ToString())
                      .And.NotContain(filePath);
@@ -903,6 +926,55 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRejectOversizedMultiFileBatchBeforeUploadingAnyFile()
+    {
+        var uploadMaxBytes = MultipartEnvelopeAllowanceBytes + 80;
+        await using var fixture = new CliUploadApiFactory(uploadMaxBytes);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var smallPath = fixture.CreateInputFile("small.bin", 16);
+        var oversizedPath = fixture.CreateInputFile("oversized.bin", 96);
+        var hugePath = fixture.CreateInputFile("huge.bin", 128);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", smallPath, oversizedPath, hugePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("File 2 failed")
+                     .And.Contain("oversized.bin")
+                     .And.Contain("File 3 failed")
+                     .And.Contain("huge.bin")
+                     .And.Contain("maximum is 80 bytes")
+                     .And.NotContain("Uploaded file");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectOversizedSingleFileBeforeUploading()
+    {
+        var uploadMaxBytes = MultipartEnvelopeAllowanceBytes + 80;
+        await using var fixture = new CliUploadApiFactory(uploadMaxBytes);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("oversized.bin", 128);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("oversized.bin")
+                     .And.Contain("Upload size is 144 bytes; maximum is 80 bytes.")
+                     .And.NotContain("Uploaded file");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectQueueOutForDirectHttpShare()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -942,6 +1014,35 @@ public sealed class UploadCommandHandlerTests
         standardError.ToString().Should().Contain("Direct HTTP shares do not support writing secrets to a separate file");
         fixture.GetStoredUploads().Should().BeEmpty();
         File.Exists(secretsPath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldReportOversizedFileDetailsInJson()
+    {
+        var uploadMaxBytes = MultipartEnvelopeAllowanceBytes + 80;
+        await using var fixture = new CliUploadApiFactory(uploadMaxBytes);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("oversized-json.bin", 128);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        using var result = JsonDocument.Parse(standardOut.ToString());
+        var root = result.RootElement;
+        root.GetProperty("status").GetString().Should().Be("upload-failed");
+        root.GetProperty("uploadedFileIds").GetArrayLength().Should().Be(0);
+        var failure = root.GetProperty("failures").EnumerateArray().Should().ContainSingle().Subject;
+        failure.GetProperty("fileNumber").GetInt32().Should().Be(1);
+        failure.GetProperty("fileName").GetString().Should().Be("oversized-json.bin");
+        failure.GetProperty("message").GetString().Should().Contain("maximum upload size");
+        failure.GetProperty("uploadSizeBytes").GetInt64().Should().Be(144);
+        failure.GetProperty("maxFilePayloadBytes").GetInt64().Should().Be(80);
+        standardError.ToString().Should().Contain("File 1 failed").And.Contain("oversized-json.bin");
+        fixture.GetStoredUploads().Should().BeEmpty();
     }
 
     [Test]
@@ -1661,6 +1762,26 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task UploadRaw_ShouldRejectMissingFilesBeforeUploadingBatch()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var okFile = fixture.CreateInputFile("ok.bin", 64);
+        var missingFile = Path.Combine(fixture.RootDirectory, "missing.bin");
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", okFile, missingFile], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("File 2 failed: File is missing.");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
     public async Task UploadRaw_ShouldReportFileIdsAndShareKey_WithoutCreatingShare()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -1682,25 +1803,66 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
-    public async Task UploadRaw_ShouldReportSucceededFileIdsOnStdout_OnPartialFailure()
+    public async Task UploadRaw_ShouldReportRuntimeFailureDetailsInJson()
     {
         await using var fixture = new CliUploadApiFactory();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = fixture.CreateClient();
-        fixture.WriteConfig(httpClient.BaseAddress!.ToString(), fixture.BootstrapToken);
+        var handler = new RuntimeFailureUploadHandler();
+        using var httpClient = new HttpClient(handler);
+        fixture.WriteConfig("https://shadowdrop.test/", fixture.BootstrapToken);
         var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
-        var okFile = fixture.CreateInputFile("ok.bin", 64);
-        var missingFile = Path.Combine(fixture.RootDirectory, "missing.bin");
+        var firstFile = fixture.CreateInputFile("raw-first.bin", 64);
+        var secondFile = fixture.CreateInputFile("raw-second.bin", 64);
+        var thirdFile = fixture.CreateInputFile("raw-third.bin", 64);
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", okFile, missingFile], services, CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", firstFile, secondFile, thirdFile, "--json"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        using var result = JsonDocument.Parse(standardOut.ToString());
+        var root = result.RootElement;
+        root.GetProperty("status").GetString().Should().Be("upload-failed");
+        root.GetProperty("uploadedFileIds").GetArrayLength().Should().Be(1);
+        root.GetProperty("credentials").ValueKind.Should().Be(JsonValueKind.Null);
+        var failure = root.GetProperty("failures").EnumerateArray().Should().ContainSingle().Subject;
+        failure.GetProperty("fileNumber").GetInt32().Should().Be(2);
+        failure.GetProperty("fileName").GetString().Should().Be("raw-second.bin");
+        failure.GetProperty("message").GetString().Should().Be("Upload failed; please verify file and try again.");
+        failure.TryGetProperty("uploadSizeBytes", out _).Should().BeFalse();
+        failure.TryGetProperty("maxFilePayloadBytes", out _).Should().BeFalse();
+        standardError.ToString().Should().Contain("Uploaded file 1 of 3.")
+                     .And.Contain("File 2 failed")
+                     .And.NotContain("File 3 failed");
+        handler.UploadRequests.Should().Be(2);
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldStopRemainingBatchAndReportSucceededFileIds_WhenRuntimeUploadFails()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var handler = new RuntimeFailureUploadHandler();
+        using var httpClient = new HttpClient(handler);
+        fixture.WriteConfig("https://shadowdrop.test/", fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var firstFile = fixture.CreateInputFile("first.bin", 64);
+        var secondFile = fixture.CreateInputFile("second.bin", 64);
+        var thirdFile = fixture.CreateInputFile("third.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", firstFile, secondFile, thirdFile], services, CancellationToken.None);
 
         exitCode.Should().Be(1);
         var stdoutLines = standardOut.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         stdoutLines.Should().ContainSingle().Which.Should().StartWith("file-id:");
         Guid.Parse(Value(stdoutLines[0])).Should().NotBe(Guid.Empty);
         standardOut.ToString().Should().NotContain("share-key:");
-        standardError.ToString().Should().Contain("File 2 failed: File is missing.");
+        standardError.ToString().Should().Contain("Uploaded file 1 of 3.")
+                     .And.Contain("File 2 failed: Upload failed; please verify file and try again.")
+                     .And.NotContain("File 3 failed");
+        handler.CapabilitiesRequests.Should().Be(1);
+        handler.ReservationRequests.Should().Be(2);
+        handler.UploadRequests.Should().Be(2);
     }
 
     [Test]
@@ -1823,14 +1985,16 @@ public sealed class UploadCommandHandlerTests
         private const String BootstrapTokenEnvironmentVariable = "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN";
         private const String MetadataPathEnvironmentVariable = "ShadowDrop__Metadata__LiteDbPath";
         private const String StorageRootEnvironmentVariable = "ShadowDrop__Storage__LocalRoot";
+        private const String UploadMaxBytesEnvironmentVariable = "ShadowDrop__Upload__MaxBytes";
         private readonly String? _previousAdminOperationsExposure;
         private readonly String? _previousBootstrapToken;
         private readonly String? _previousMetadataPath;
         private readonly String? _previousStorageRoot;
+        private readonly String? _previousUploadMaxBytes;
         private readonly String _rootDirectory =
             Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "cli-upload-tests", Guid.NewGuid().ToString("N"));
 
-        public CliUploadApiFactory()
+        public CliUploadApiFactory(Int64? uploadMaxBytes = null)
         {
             Directory.CreateDirectory(_rootDirectory);
             ConfigFilePath = Path.Combine(_rootDirectory, ".config", "shadowdrop", "config.json");
@@ -1840,10 +2004,12 @@ public sealed class UploadCommandHandlerTests
             _previousMetadataPath = Environment.GetEnvironmentVariable(MetadataPathEnvironmentVariable);
             _previousStorageRoot = Environment.GetEnvironmentVariable(StorageRootEnvironmentVariable);
             _previousAdminOperationsExposure = Environment.GetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable);
+            _previousUploadMaxBytes = Environment.GetEnvironmentVariable(UploadMaxBytesEnvironmentVariable);
             Environment.SetEnvironmentVariable(BootstrapTokenEnvironmentVariable, BootstrapToken);
             Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, MetadataDatabasePath);
             Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, StorageRoot);
             Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, "true");
+            Environment.SetEnvironmentVariable(UploadMaxBytesEnvironmentVariable, uploadMaxBytes?.ToString(CultureInfo.InvariantCulture));
         }
 
         public String BootstrapToken { get; } = Convert.ToHexStringLower(Encoding.UTF8.GetBytes($"bootstrap-{Guid.NewGuid():N}"));
@@ -1902,6 +2068,7 @@ public sealed class UploadCommandHandlerTests
             Environment.SetEnvironmentVariable(MetadataPathEnvironmentVariable, _previousMetadataPath);
             Environment.SetEnvironmentVariable(StorageRootEnvironmentVariable, _previousStorageRoot);
             Environment.SetEnvironmentVariable(AdminOperationsExposureEnvironmentVariable, _previousAdminOperationsExposure);
+            Environment.SetEnvironmentVariable(UploadMaxBytesEnvironmentVariable, _previousUploadMaxBytes);
             if (Directory.Exists(_rootDirectory))
             {
                 Directory.Delete(_rootDirectory, true);
@@ -1921,6 +2088,55 @@ public sealed class UploadCommandHandlerTests
             throw new AssertionException("HTTP client should not have been called.");
     }
 
+    private sealed class RuntimeFailureUploadHandler : HttpMessageHandler
+    {
+        private readonly Queue<Guid> _reservedFileIds = new();
+
+        public Int32 CapabilitiesRequests { get; private set; }
+
+        public Int32 ReservationRequests { get; private set; }
+
+        public Int32 UploadRequests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path == "/api/admin/uploads/capabilities")
+            {
+                CapabilitiesRequests++;
+                return CreateJsonResponse(HttpStatusCode.OK, """{"maxFilePayloadBytes":4096}""");
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads/reservations")
+            {
+                ReservationRequests++;
+                var fileId = Guid.NewGuid();
+                _reservedFileIds.Enqueue(fileId);
+                return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{fileId}}"}""");
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads")
+            {
+                UploadRequests++;
+                if (UploadRequests == 1)
+                {
+                    await request.Content!.CopyToAsync(Stream.Null, cancellationToken);
+                    return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{_reservedFileIds.Dequeue()}}"}""");
+                }
+
+                return new(HttpStatusCode.BadRequest);
+            }
+
+            throw new AssertionException($"Unexpected request: {request.Method} {path}");
+        }
+
+        private static HttpResponseMessage CreateJsonResponse(HttpStatusCode statusCode, String json) =>
+            new(statusCode)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+    }
+
     private sealed class StubConfigPathResolver(String? configPath) : CliConfigPathResolver
     {
         public override String? GetConfigFilePath() => configPath;
@@ -1929,5 +2145,15 @@ public sealed class UploadCommandHandlerTests
     private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
     {
         public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+    }
+
+    private sealed class UploadLimitUnavailableHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            request.Method.Should().Be(HttpMethod.Get);
+            request.RequestUri!.AbsolutePath.Should().Be("/api/admin/uploads/capabilities");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
     }
 }

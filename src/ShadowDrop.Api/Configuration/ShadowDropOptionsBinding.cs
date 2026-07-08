@@ -4,6 +4,7 @@ namespace ShadowDrop.Api.Configuration;
 
 using Cronos;
 using ShadowDrop.Api.Infrastructure.Storage;
+using ShadowDrop.Api.Uploads;
 
 public static class ShadowDropOptionsBinding
 {
@@ -28,9 +29,11 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
         }
 
-        if (options.Upload.MaxBytes <= 0)
+        if (options.Upload.MaxBytes <= UploadLimitCalculator.MultipartEnvelopeAllowanceBytes)
         {
-            throw new InvalidOperationException("The configuration value 'ShadowDrop:Upload:MaxBytes' must be greater than zero.");
+            throw new InvalidOperationException(
+                $"The configuration value 'ShadowDrop:Upload:MaxBytes' must be greater than {UploadLimitCalculator.MultipartEnvelopeAllowanceBytes} "
+                + "(the reserved multipart envelope allowance in bytes).");
         }
 
         CronExpression cleanupSchedule;

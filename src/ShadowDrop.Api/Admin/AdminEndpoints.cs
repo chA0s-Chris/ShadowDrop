@@ -28,6 +28,7 @@ public static class AdminEndpoints
             shareRoutes.MapPost("/{shareId:guid}/revoke", RevokeShareAsync);
 
             var uploadRoutes = adminRoutes.MapGroup("/uploads");
+            uploadRoutes.MapGet("/capabilities", GetUploadCapabilities);
             uploadRoutes.MapPost("/reservations", ReserveUploadAsync);
             uploadRoutes.MapPost("/", UploadAsync)
                         .DisableAntiforgery();
@@ -71,6 +72,14 @@ public static class AdminEndpoints
                 Error = "Invalid share request."
             });
         }
+    }
+
+    private static IResult GetUploadCapabilities(ShadowDropOptions options)
+    {
+        var maxFilePayloadBytes = UploadLimitCalculator.ResolveMaxFilePayloadBytes(options.Upload.MaxBytes);
+        return Results.Ok(new UploadCapabilitiesResult(options.Upload.MaxBytes,
+                                                       UploadLimitCalculator.MultipartEnvelopeAllowanceBytes,
+                                                       maxFilePayloadBytes));
     }
 
     private static async Task<IResult> GetUploadedFileMetadataAsync(Guid fileId,

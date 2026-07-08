@@ -9,16 +9,21 @@ internal static class UploadProgressReporter
 {
     public static async Task ReportAsync(TextWriter standardError, UploadExecutionResult uploadResult, Int32 requestedFileCount)
     {
+        if (uploadResult.BatchErrorMessage is not null)
+        {
+            await standardError.WriteLineAsync(uploadResult.BatchErrorMessage);
+        }
+
         for (var index = 0; index < uploadResult.Files.Count; index++)
         {
             var fileResult = uploadResult.Files[index];
             if (fileResult.UploadedFileId is not null)
             {
-                await standardError.WriteLineAsync($"Uploaded file {index + 1} of {requestedFileCount}.");
+                await standardError.WriteLineAsync($"Uploaded file {fileResult.FileNumber} of {requestedFileCount}.");
             }
             else
             {
-                await standardError.WriteLineAsync($"File {index + 1} failed: {fileResult.ErrorMessage}");
+                await standardError.WriteLineAsync($"File {fileResult.FileNumber} failed: {fileResult.ErrorMessage}");
             }
         }
     }

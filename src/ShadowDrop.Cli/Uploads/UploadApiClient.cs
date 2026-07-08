@@ -13,6 +13,45 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
     private const Int32 MaxAttempts = 3;
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
 
+    public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
+    {
+        var response = await SendWithRetryAsync(() =>
+        {
+            var request = CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/admin/uploads/capabilities"), uploadToken);
+            return request;
+        }, cancellationToken);
+
+        using (response)
+        {
+            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                throw new UploadCommandException("Authentication token invalid or missing.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw CreateCapabilitiesFailure();
+            }
+
+            try
+            {
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var capabilities =
+                    await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadCapabilitiesResponse, cancellationToken);
+                if (capabilities is null || capabilities.MaxFilePayloadBytes <= 0)
+                {
+                    throw CreateCapabilitiesFailure();
+                }
+
+                return capabilities;
+            }
+            catch (JsonException)
+            {
+                throw CreateCapabilitiesFailure();
+            }
+        }
+    }
+
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
     {
         var response = await SendWithRetryAsync(() =>
@@ -95,6 +134,9 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
             }
         }
     }
+
+    private static UploadCommandException CreateCapabilitiesFailure() =>
+        new("Upload limit could not be resolved from the server; upgrade the server or verify connectivity.");
 
     private static HttpRequestMessage CreateRequest(HttpMethod method, Uri requestUri, String uploadToken)
     {

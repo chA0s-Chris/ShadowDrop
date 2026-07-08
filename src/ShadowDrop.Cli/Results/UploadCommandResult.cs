@@ -30,7 +30,29 @@ internal sealed record UploadCommandResult(
     String? QueueFile,
     [property: JsonPropertyName("directHttpDownloads")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<DirectHttpDownload>? DirectHttpDownloads = null);
+    IReadOnlyList<DirectHttpDownload>? DirectHttpDownloads = null,
+    [property: JsonPropertyName("failures")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<UploadFailure>? Failures = null);
+
+/// <summary>
+/// A failed upload entry emitted in JSON mode so callers can inspect rejected files without parsing stderr.
+/// </summary>
+internal sealed record UploadFailure(
+    [property: JsonPropertyName("fileNumber")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    Int32? FileNumber,
+    [property: JsonPropertyName("fileName")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    String? FileName,
+    [property: JsonPropertyName("message")]
+    String Message,
+    [property: JsonPropertyName("uploadSizeBytes")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    Int64? UploadSizeBytes,
+    [property: JsonPropertyName("maxFilePayloadBytes")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    Int64? MaxFilePayloadBytes);
 
 /// <summary>
 /// A direct HTTP file download URL emitted for browser- or curl-compatible shares.

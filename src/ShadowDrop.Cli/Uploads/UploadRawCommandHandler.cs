@@ -52,7 +52,17 @@ internal sealed class UploadRawCommandHandler(
         {
             if (options.Json)
             {
-                await UploadResultWriter.WriteAsync(standardOut, new(UploadCommandStatus.UploadFailed, uploadedFileIds, null, null, null, null, null, null));
+                await UploadResultWriter.WriteAsync(standardOut,
+                                                    new(UploadCommandStatus.UploadFailed,
+                                                        uploadedFileIds,
+                                                        null,
+                                                        null,
+                                                        null,
+                                                        null,
+                                                        null,
+                                                        null,
+                                                        null,
+                                                        uploadResult.Failures.Count > 0 ? uploadResult.Failures : null));
             }
             else
             {

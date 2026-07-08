@@ -245,7 +245,8 @@ internal sealed class UploadCommandHandler(
             credentials,
             secretsFile,
             queueFile,
-            directHttpDownloads);
+            directHttpDownloads,
+            uploadResult.Failures.Count > 0 ? uploadResult.Failures : null);
 
     private async Task EmitResultAsync(UploadCommandOptions options,
                                        Uri serverUrl,
