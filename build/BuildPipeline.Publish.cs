@@ -18,7 +18,8 @@ internal partial class BuildPipeline
     private const String CliExecutableName = "shadowdrop";
 
     // The name `dotnet publish` emits, i.e. the CLI assembly identity (the project default, since
-    // ShadowDrop.Cli.csproj sets no <AssemblyName>). Renamed to CliExecutableName during publish.
+    // ShadowDrop.Cli.csproj sets no <AssemblyName>). Copied to the versioned release artifact name
+    // (see GetCliArtifactName) during publish.
     private const String CliPublishedAssemblyName = "ShadowDrop.Cli";
     private const String DockerContainerPort = "19423";
 
