@@ -41,7 +41,6 @@ public static class DownloadEndpoints
                                                      Guid fileId,
                                                      HttpRequest request,
                                                      DownloadFileService downloadFileService,
-                                                     ILoggerFactory loggerFactory,
                                                      CancellationToken cancellationToken)
     {
         var downloadRequest = TryCreateDownloadRequest(token, fileId, request);
@@ -50,14 +49,8 @@ public static class DownloadEndpoints
             return new StatusDownloadResult(StatusCodes.Status400BadRequest, "{\"error\":\"Invalid download request.\"}");
         }
 
+        // DownloadFileService logs every non-success resolution with the failure reason and safe share/file context.
         var result = await downloadFileService.ResolveAsync(downloadRequest, cancellationToken);
-        if (result.Status != DownloadLookupStatus.Success)
-        {
-            loggerFactory.CreateLogger(typeof(DownloadEndpoints))
-                         .LogInformation("Public download request failed with status {Status} for file {FileId}.",
-                                         result.Status,
-                                         fileId);
-        }
 
         return result.Status switch
         {
@@ -84,15 +77,10 @@ public static class DownloadEndpoints
     private static async Task<IResult> GetShareManifestAsync(String token,
                                                              HttpRequest request,
                                                              DownloadFileService downloadFileService,
-                                                             ILoggerFactory loggerFactory,
                                                              CancellationToken cancellationToken)
     {
+        // DownloadFileService logs every non-success resolution with the failure reason and safe share/file context.
         var result = await downloadFileService.ResolveManifestAsync(token, TryGetBearerToken(request), cancellationToken);
-        if (result.Status != DownloadLookupStatus.Success)
-        {
-            loggerFactory.CreateLogger(typeof(DownloadEndpoints))
-                         .LogInformation("Share manifest request failed with status {Status}.", result.Status);
-        }
 
         return result.Status switch
         {

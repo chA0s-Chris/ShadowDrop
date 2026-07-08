@@ -66,7 +66,7 @@ public static class AdminEndpoints
         catch (CreateShareValidationException exception)
         {
             loggerFactory.CreateLogger(typeof(AdminEndpoints))
-                         .LogWarning(exception, "Share request validation failed.");
+                         .LogWarning(exception, "Share request validation failed");
             return Results.BadRequest(new
             {
                 Error = "Invalid share request."
@@ -124,7 +124,7 @@ public static class AdminEndpoints
         catch (UploadValidationException exception)
         {
             loggerFactory.CreateLogger(typeof(AdminEndpoints))
-                         .LogWarning(exception, "Upload request validation failed.");
+                         .LogWarning(exception, "Upload request validation failed");
             return Results.BadRequest(new
             {
                 Error = "Invalid upload request."
@@ -133,7 +133,7 @@ public static class AdminEndpoints
         catch (UploadPayloadTooLargeException exception)
         {
             loggerFactory.CreateLogger(typeof(AdminEndpoints))
-                         .LogWarning(exception, "Upload request exceeded the configured size limit.");
+                         .LogWarning(exception, "Upload request exceeded the configured size limit");
             return Results.Json(new
             {
                 Error = "Upload payload too large."

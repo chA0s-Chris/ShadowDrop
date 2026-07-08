@@ -4,7 +4,11 @@ namespace ShadowDrop.Api.Uploads;
 
 public interface IUploadedFileMetadataRepository
 {
+    Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken);
+
     Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken);
+
+    Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken);
 
     Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken);
 

@@ -12,10 +12,12 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     private readonly ILiteCollection<UploadedFileDocument> _collection;
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
+    private readonly ILogger<LiteDbUploadedFileMetadataRepository> _logger;
     private readonly Lock _syncRoot = new();
 
-    public LiteDbUploadedFileMetadataRepository(ShadowDropOptions options)
+    public LiteDbUploadedFileMetadataRepository(ShadowDropOptions options, ILogger<LiteDbUploadedFileMetadataRepository> logger)
     {
+        _logger = logger;
         _databasePath = options.Metadata.LiteDbPath;
         var databaseDirectory = Path.GetDirectoryName(_databasePath)
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
@@ -75,6 +77,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         if (deleted)
         {
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            _logger.LogInformation("Upload reservation expired. FileId: {FileId}", document.FileId);
         }
 
         return deleted;
@@ -91,10 +94,24 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         if (deletedCount > 0)
         {
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            _logger.LogInformation("Expired upload reservations pruned. Count: {Count}", deletedCount);
         }
     }
 
     public void Dispose() => _database.Dispose();
+
+    public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var now = DateTimeOffset.UtcNow;
+        var cutoff = GetReservationCutoffUnixTimeMilliseconds(now);
+        var count = _collection.Count(document => document.IsReserved
+                                                  && !document.IsClaimed
+                                                  && document.ReservedAtUnixTimeMilliseconds != null
+                                                  && document.ReservedAtUnixTimeMilliseconds.Value > cutoff);
+        return Task.FromResult(count);
+    }
 
     public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken)
     {
@@ -102,6 +119,21 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
 
         var document = _collection.FindById(fileId);
         return Task.FromResult(document is null || document.IsReserved ? null : Map(document));
+    }
+
+    public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var completedFileCount = 0;
+        var totalEncryptedBytes = 0L;
+        foreach (var document in _collection.Find(document => !document.IsReserved))
+        {
+            completedFileCount++;
+            totalEncryptedBytes += document.EncryptedLength;
+        }
+
+        return Task.FromResult(new UploadedFileStorageStats(completedFileCount, totalEncryptedBytes));
     }
 
     public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
@@ -127,6 +159,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             document.IsClaimed = false;
             _collection.Update(document);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            _logger.LogInformation("Upload reservation released. FileId: {FileId}", fileId);
             return Task.CompletedTask;
         }
     }
@@ -155,6 +188,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                     ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 });
                 FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+                _logger.LogInformation("Upload reservation created. FileId: {FileId}", fileId);
                 return Task.FromResult(fileId);
             }
         }
@@ -171,13 +205,20 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             var document = _collection.FindById(fileId);
             if (!IsActiveReservation(document, now))
             {
-                DeleteExpiredReservation(document, now);
+                if (!DeleteExpiredReservation(document, now))
+                {
+                    _logger.LogDebug(
+                        "Upload reservation claim rejected because the reservation was missing or already claimed. FileId: {FileId}",
+                        fileId);
+                }
+
                 return Task.FromResult(false);
             }
 
             document!.IsClaimed = true;
             _collection.Update(document);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            _logger.LogInformation("Upload reservation claimed. FileId: {FileId}", fileId);
             return Task.FromResult(true);
         }
     }
@@ -193,12 +234,21 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             var document = _collection.FindById(record.FileId);
             if (document is not { IsReserved: true })
             {
+                _logger.LogWarning(
+                    "Upload reservation completion rejected because the reservation was missing. FileId: {FileId}",
+                    record.FileId);
                 return Task.FromResult(false);
             }
 
             if (!document.IsClaimed)
             {
-                DeleteExpiredReservation(document, now);
+                if (!DeleteExpiredReservation(document, now))
+                {
+                    _logger.LogWarning(
+                        "Upload reservation completion rejected because the reservation was not claimed. FileId: {FileId}",
+                        record.FileId);
+                }
+
                 return Task.FromResult(false);
             }
 
@@ -228,6 +278,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 PlaintextSha256 = record.PlaintextSha256
             });
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            // UploadPersistenceService logs the operator-facing "Upload completed" event with a superset of these fields.
+            _logger.LogDebug("Upload reservation completed. FileId: {FileId}; BlobKey: {BlobKey}", record.FileId, record.BlobKey);
             return Task.FromResult(true);
         }
     }

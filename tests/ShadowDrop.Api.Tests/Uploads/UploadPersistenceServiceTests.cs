@@ -4,6 +4,9 @@ namespace ShadowDrop.Tests.Uploads;
 
 using FluentAssertions;
 using LiteDB;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using NUnit.Framework;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Uploads;
@@ -21,7 +24,7 @@ public sealed class UploadPersistenceServiceTests
 
         File.Exists(options.Metadata.LiteDbPath).Should().BeFalse();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var reservedRecord = await ReserveAndCompleteAsync(repository, record);
         var storedRecord = await repository.GetAsync(reservedRecord.FileId, CancellationToken.None);
 
@@ -36,7 +39,7 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         var options = fixture.CreateOptions();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
@@ -52,7 +55,7 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         var options = fixture.CreateOptions();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var reservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         var claimed = await repository.TryClaimReservationAsync(reservationId, CancellationToken.None);
         claimed.Should().BeTrue();
@@ -72,7 +75,7 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         var options = fixture.CreateOptions();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var reservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         (await repository.TryClaimReservationAsync(reservationId, CancellationToken.None)).Should().BeTrue();
         ExpireReservation(options.Metadata.LiteDbPath, reservationId);
@@ -90,7 +93,7 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         var options = fixture.CreateOptions();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
@@ -107,7 +110,7 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         var options = fixture.CreateOptions();
 
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
@@ -124,9 +127,9 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         await using var content = CreateCiphertextStream();
         var options = fixture.CreateOptions();
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var repository = new ThrowingMetadataRepository();
-        var sut = new UploadPersistenceService(blobStorage, repository);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = CreateRequest(Guid.NewGuid());
 
         Func<Task> act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
@@ -136,15 +139,39 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task PersistAsync_ShouldLogCompletionWithSizesButNoSecretMaterial()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        await using var content = CreateCiphertextStream();
+        var options = fixture.CreateOptions();
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var collector = new FakeLogCollector();
+        var sut = new UploadPersistenceService(blobStorage, repository, new FakeLogger<UploadPersistenceService>(collector));
+        var request = await CreateReservedRequestAsync(repository);
+
+        var result = await sut.PersistAsync(request, content, CancellationToken.None);
+
+        var logRecords = collector.GetSnapshot();
+        logRecords.Should().Contain(logRecord => logRecord.Level == LogLevel.Information && logRecord.Message.Contains("Upload completed"));
+        var completionRecord = logRecords.Single(logRecord => logRecord.Message.Contains("Upload completed"));
+        var values = completionRecord.StructuredState!.Select(pair => pair.Value);
+        values.Should().NotContain(value => value != null && value.Contains(request.KdfSaltBase64));
+        values.Should().NotContain(value => value != null && value.Contains(request.PlaintextSha256!));
+        values.Should().NotContain(value => value != null && value.Contains(request.OriginalFileName));
+        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "FileId" && pair.Value == result.FileId.ToString());
+    }
+
+    [Test]
     public async Task PersistAsync_ShouldRejectCompletedFileIdWithoutDeletingExistingBlob()
     {
         await using var fixture = new UploadPersistenceFixture();
         await using var initialContent = CreateCiphertextStream();
         await using var duplicateContent = new MemoryStream(Enumerable.Repeat((Byte)99, 32).ToArray(), false);
         var options = fixture.CreateOptions();
-        var blobStorage = new LocalBlobStorage(options);
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
-        var sut = new UploadPersistenceService(blobStorage, repository);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = await CreateReservedRequestAsync(repository);
 
         var initialResult = await sut.PersistAsync(request, initialContent, CancellationToken.None);
@@ -166,7 +193,7 @@ public sealed class UploadPersistenceServiceTests
         var fileId = Guid.NewGuid();
         var repository = new AtomicClaimMetadataRepository(fileId);
         var blobStorage = new BlockingBlobStorage();
-        var sut = new UploadPersistenceService(blobStorage, repository);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = CreateRequest(fileId);
         await using var firstContent = CreateCiphertextStream();
         await using var secondContent = CreateCiphertextStream();
@@ -193,9 +220,9 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         await using var content = CreateCiphertextStream();
         var options = fixture.CreateOptions();
-        var blobStorage = new LocalBlobStorage(options);
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
-        var sut = new UploadPersistenceService(blobStorage, repository);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
@@ -213,9 +240,9 @@ public sealed class UploadPersistenceServiceTests
         await using var fixture = new UploadPersistenceFixture();
         await using var content = CreateCiphertextStream();
         var options = fixture.CreateOptions();
-        var blobStorage = new LocalBlobStorage(options);
-        using var repository = new LiteDbUploadedFileMetadataRepository(options);
-        var sut = new UploadPersistenceService(blobStorage, repository);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = await CreateReservedRequestAsync(repository);
 
         var result = await sut.PersistAsync(request, content, CancellationToken.None);
@@ -308,7 +335,11 @@ public sealed class UploadPersistenceServiceTests
 
         public Boolean IsCompleted { get; private set; }
 
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
         {
@@ -378,7 +409,11 @@ public sealed class UploadPersistenceServiceTests
 
     private sealed class ThrowingMetadataRepository : IUploadedFileMetadataRepository
     {
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult<UploadedFileRecord?>(null);
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => Task.CompletedTask;
 

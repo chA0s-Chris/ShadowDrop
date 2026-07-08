@@ -11,30 +11,30 @@ secrets, tokens, keys, plaintext file contents, or cryptographic material.
 
 ## Acceptance Criteria
 
-- [ ] API startup logs include an effective configuration summary without secrets.
-- [ ] API startup logs include metadata-derived counts and stored blob bytes without recursively
+- [x] API startup logs include an effective configuration summary without secrets.
+- [x] API startup logs include metadata-derived counts and stored blob bytes without recursively
   scanning blob storage.
-- [ ] Startup summary stats are exposed through dedicated repository/service methods; the host layer
+- [x] Startup summary stats are exposed through dedicated repository/service methods; the host layer
   does not query LiteDB or blob storage directly.
-- [ ] Upload reservation lifecycle events (creation, claim, completion, expiration, release) emit
+- [x] Upload reservation lifecycle events (creation, claim, completion, expiration, release) emit
   structured logs with non-secret identifiers and levels per the level policy in the technical
   details.
-- [ ] Upload completion emits structured logs with non-secret identifiers and sizes.
-- [ ] Blob storage save/open/delete operations emit structured logs at the levels defined by the
+- [x] Upload completion emits structured logs with non-secret identifiers and sizes.
+- [x] Blob storage save/open/delete operations emit structured logs at the levels defined by the
   level policy.
-- [ ] Share creation and revocation emit structured logs with non-secret share context.
-- [ ] Cleanup runs emit structured logs distinguishing skipped, started, completed, and failed runs.
-- [ ] Download manifest, file, and range resolution failures emit structured logs with safe
+- [x] Share creation and revocation emit structured logs with non-secret share context.
+- [x] Cleanup runs emit structured logs distinguishing skipped, started, completed, and failed runs.
+- [x] Download manifest, file, and range resolution failures emit structured logs with safe
   share/file context.
-- [ ] Unexpected exceptions in storage/metadata/download/upload paths are logged with exception
+- [x] Unexpected exceptions in storage/metadata/download/upload paths are logged with exception
   details and non-secret context.
-- [ ] Expected validation/client errors are logged at warning level or below, per the level policy
+- [x] Expected validation/client errors are logged at warning level or below, per the level policy
   in the technical details.
-- [ ] Logs never include admin tokens, share tokens, download bearer tokens, direct-download keys,
+- [x] Logs never include admin tokens, share tokens, download bearer tokens, direct-download keys,
   share keys, KDF material, or plaintext file contents.
-- [ ] Repository stats methods have automated tests for completed file count, encrypted byte totals,
+- [x] Repository stats methods have automated tests for completed file count, encrypted byte totals,
   share status counts, and active pending reservation count.
-- [ ] Key logging paths have automated tests asserting log event presence, level, and absence of
+- [x] Key logging paths have automated tests asserting log event presence, level, and absence of
   secret values in structured state.
 
 ## Technical Details

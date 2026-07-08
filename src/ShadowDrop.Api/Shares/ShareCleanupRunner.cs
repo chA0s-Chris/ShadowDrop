@@ -10,10 +10,11 @@ public sealed class ShareCleanupRunner(ShareCleanupService cleanupService, ILogg
     {
         if (!await _semaphore.WaitAsync(0, cancellationToken))
         {
-            logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress.");
+            logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress");
             return new(0, 0, 0, 0, 0, Skipped: true);
         }
 
+        logger.LogInformation("Share cleanup started");
         try
         {
             return await cleanupService.RunAsync(cancellationToken);

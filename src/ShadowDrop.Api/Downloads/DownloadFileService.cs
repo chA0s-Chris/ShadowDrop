@@ -13,6 +13,7 @@ public sealed class DownloadFileService
 {
     private const Int32 AesGcmTagLength = 16;
     private readonly IBlobStorage _blobStorage;
+    private readonly ILogger<DownloadFileService> _logger;
     private readonly IShareMetadataRepository _shareMetadataRepository;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadedFileMetadataRepository _uploadedFileMetadataRepository;
@@ -20,12 +21,14 @@ public sealed class DownloadFileService
     public DownloadFileService(IShareMetadataRepository shareMetadataRepository,
                                IUploadedFileMetadataRepository uploadedFileMetadataRepository,
                                IBlobStorage blobStorage,
-                               TimeProvider timeProvider)
+                               TimeProvider timeProvider,
+                               ILogger<DownloadFileService> logger)
     {
         _shareMetadataRepository = shareMetadataRepository;
         _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
         _blobStorage = blobStorage;
         _timeProvider = timeProvider;
+        _logger = logger;
     }
 
     public async Task<DownloadLookupResult> ResolveAsync(DownloadRequest request, CancellationToken cancellationToken)
@@ -41,12 +44,18 @@ public sealed class DownloadFileService
         var fileEntry = share.Files.SingleOrDefault(file => file.FileId == request.FileId);
         if (fileEntry is null)
         {
+            _logger.LogWarning("Download request rejected because the file is not part of the share. ShareId: {ShareId}; FileId: {FileId}",
+                               share.ShareId,
+                               request.FileId);
             return new(DownloadLookupStatus.NotFound);
         }
 
         var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(request.FileId, cancellationToken);
         if (uploadedFile is null)
         {
+            _logger.LogWarning("Download request rejected because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}",
+                               share.ShareId,
+                               request.FileId);
             return new(DownloadLookupStatus.NotFound);
         }
 
@@ -54,17 +63,28 @@ public sealed class DownloadFileService
         {
             if (!share.DirectHttpEnabled)
             {
+                _logger.LogWarning("Download request rejected because direct-HTTP mode is not enabled for the share. ShareId: {ShareId}; FileId: {FileId}",
+                                   share.ShareId,
+                                   request.FileId);
                 return new(DownloadLookupStatus.InvalidRequest);
             }
 
             if (request.HasMalformedRangeHeader)
             {
+                _logger.LogWarning("Download request rejected because the range header was malformed. ShareId: {ShareId}; FileId: {FileId}",
+                                   share.ShareId,
+                                   request.FileId);
                 return new(DownloadLookupStatus.InvalidRange);
             }
 
             var rangeResolution = ResolveDirectHttpRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
             if (rangeResolution.Status != DownloadLookupStatus.Success)
             {
+                _logger.LogWarning(
+                    "Download request rejected because the requested range was invalid. ShareId: {ShareId}; FileId: {FileId}; Status: {Status}",
+                    share.ShareId,
+                    request.FileId,
+                    rangeResolution.Status);
                 return new(rangeResolution.Status);
             }
 
@@ -72,6 +92,10 @@ public sealed class DownloadFileService
             var hasQueryKey = !String.IsNullOrWhiteSpace(request.QueryKeyMaterial);
             if (hasHeaderKey == hasQueryKey)
             {
+                _logger.LogWarning(
+                    "Download request rejected because key material was missing or provided in both the header and query string. ShareId: {ShareId}; FileId: {FileId}",
+                    share.ShareId,
+                    request.FileId);
                 return new(DownloadLookupStatus.InvalidRequest);
             }
 
@@ -101,17 +125,28 @@ public sealed class DownloadFileService
 
         if (share.DirectHttpEnabled)
         {
+            _logger.LogWarning("Download request rejected because streamed CLI mode is not enabled for the share. ShareId: {ShareId}; FileId: {FileId}",
+                               share.ShareId,
+                               request.FileId);
             return new(DownloadLookupStatus.InvalidRequest);
         }
 
         if (request.HasMalformedRangeHeader)
         {
+            _logger.LogWarning("Download request rejected because the range header was malformed. ShareId: {ShareId}; FileId: {FileId}",
+                               share.ShareId,
+                               request.FileId);
             return new(DownloadLookupStatus.InvalidRange);
         }
 
         var cliRangeResolution = ResolveCliRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
         if (cliRangeResolution.Status != DownloadLookupStatus.Success || cliRangeResolution.RequestedRange is null)
         {
+            _logger.LogWarning(
+                "Download request rejected because the requested range was invalid. ShareId: {ShareId}; FileId: {FileId}; Status: {Status}",
+                share.ShareId,
+                request.FileId,
+                cliRangeResolution.Status);
             return new(cliRangeResolution.Status);
         }
 
@@ -153,6 +188,10 @@ public sealed class DownloadFileService
             var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(file.FileId, cancellationToken);
             if (uploadedFile is null)
             {
+                _logger.LogWarning(
+                    "Share manifest request rejected because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}",
+                    shareResolution.Context.Share.ShareId,
+                    file.FileId);
                 return new(DownloadLookupStatus.NotFound);
             }
 
@@ -438,6 +477,9 @@ public sealed class DownloadFileService
             encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
             if (encryptedContent is null)
             {
+                _logger.LogWarning("Download content missing from blob storage. FileId: {FileId}; BlobKey: {BlobKey}",
+                                   uploadedFile.FileId,
+                                   uploadedFile.BlobKey);
                 return new(DownloadLookupStatus.NotFound, null, 0, null);
             }
 
@@ -469,6 +511,11 @@ public sealed class DownloadFileService
                                                        or InvalidDataException
                                                        or OverflowException)
         {
+            _logger.LogWarning(exception,
+                               "Download request rejected because CLI content resolution failed. FileId: {FileId}; BlobKey: {BlobKey}",
+                               uploadedFile.FileId,
+                               uploadedFile.BlobKey);
+
             if (encryptedContent is not null)
             {
                 await encryptedContent.DisposeAsync();
@@ -493,6 +540,9 @@ public sealed class DownloadFileService
                     encryptedContent = await TryOpenEncryptedContentAsync(uploadedFile.BlobKey, cancellationToken);
                     if (encryptedContent is null)
                     {
+                        _logger.LogWarning("Download content missing from blob storage. FileId: {FileId}; BlobKey: {BlobKey}",
+                                           uploadedFile.FileId,
+                                           uploadedFile.BlobKey);
                         return (new(DownloadLookupStatus.NotFound, null), false);
                     }
 
@@ -512,6 +562,11 @@ public sealed class DownloadFileService
                                                        or IOException
                                                        or OverflowException)
         {
+            _logger.LogWarning(exception,
+                               "Download request rejected because direct-HTTP content resolution failed. FileId: {FileId}; BlobKey: {BlobKey}",
+                               uploadedFile.FileId,
+                               uploadedFile.BlobKey);
+
             if (encryptedContent is not null)
             {
                 await encryptedContent.DisposeAsync();
@@ -537,18 +592,21 @@ public sealed class DownloadFileService
     {
         if (String.IsNullOrWhiteSpace(shareToken))
         {
+            _logger.LogWarning("Download request rejected because no share token was provided");
             return new(DownloadLookupStatus.InvalidShare, null);
         }
 
         var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(shareToken), cancellationToken);
         if (share is null || share.RevokedAtUtc is not null)
         {
+            _logger.LogWarning("Download request rejected because the share is unknown or revoked. ShareId: {ShareId}", share?.ShareId);
             return new(DownloadLookupStatus.InvalidShare, null);
         }
 
         var now = _timeProvider.GetUtcNow();
         if (share.ExpiresAtUtc < now)
         {
+            _logger.LogWarning("Download request rejected because the share has expired. ShareId: {ShareId}", share.ShareId);
             return new(DownloadLookupStatus.ExpiredShare, null);
         }
 
@@ -556,12 +614,18 @@ public sealed class DownloadFileService
         {
             if (String.IsNullOrWhiteSpace(authorizationBearerToken))
             {
+                _logger.LogWarning(
+                    "Download request rejected because a bearer token was required but not provided. ShareId: {ShareId}",
+                    share.ShareId);
                 return new(DownloadLookupStatus.Forbidden, null);
             }
 
             if (share.DownloadBearerToken.ExpiresAtUtc < now
                 || !TokenHashing.MatchesStoredHash(authorizationBearerToken, share.DownloadBearerToken.TokenHashBase64))
             {
+                _logger.LogWarning(
+                    "Download request rejected because the bearer token was invalid or expired. ShareId: {ShareId}",
+                    share.ShareId);
                 return new(DownloadLookupStatus.Forbidden, null);
             }
         }

@@ -5,6 +5,7 @@ namespace ShadowDrop.Tests.Shares;
 using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using NUnit.Framework;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Shares;
@@ -45,9 +46,9 @@ public sealed class ShareCleanupServiceTests
     {
         await using var fixture = new ShareCleanupFixture();
         var options = fixture.CreateOptions();
-        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
         var share = CreateShareRecord(uploadedFile.FileId, DateTimeOffset.Parse("2026-06-10T00:00:00Z"));
         await shareRepository.CreateAsync(share, CancellationToken.None);
@@ -66,9 +67,9 @@ public sealed class ShareCleanupServiceTests
     {
         await using var fixture = new ShareCleanupFixture();
         var options = fixture.CreateOptions();
-        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
         var share = CreateShareRecord(uploadedFile.FileId, DateTimeOffset.Parse("2026-06-01T00:00:00Z"));
         await shareRepository.CreateAsync(share, CancellationToken.None);
@@ -83,13 +84,65 @@ public sealed class ShareCleanupServiceTests
     }
 
     [Test]
+    public async Task RunAsync_ShouldLogCompletionAtInformation_WhenNoFailuresOccurred()
+    {
+        await using var fixture = new ShareCleanupFixture();
+        var options = fixture.CreateOptions();
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        using var shareRepository = new LiteDbShareMetadataRepository(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
+        await shareRepository.CreateAsync(CreateShareRecord(uploadedFile.FileId, DateTimeOffset.Parse("2026-06-01T00:00:00Z")), CancellationToken.None);
+        var collector = new FakeLogCollector();
+        var sut = CreateService(shareRepository,
+                                uploadedFileRepository,
+                                blobStorage,
+                                DateTimeOffset.Parse("2026-06-02T00:00:00Z"),
+                                new FakeLogger<ShareCleanupService>(collector));
+
+        var result = await sut.RunAsync(CancellationToken.None);
+
+        result.Failures.Should().Be(0);
+        var completionRecord = collector.GetSnapshot().Single(logRecord => logRecord.Message.Contains("Share cleanup completed"));
+        completionRecord.Level.Should().Be(LogLevel.Information);
+        completionRecord.Message.Should().NotContain("with failures");
+        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "0");
+    }
+
+    [Test]
+    public async Task RunAsync_ShouldLogCompletionAtWarning_WhenFailuresOccurred()
+    {
+        await using var fixture = new ShareCleanupFixture();
+        var options = fixture.CreateOptions();
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        using var shareRepository = new LiteDbShareMetadataRepository(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+
+        // A share referencing a file that has no upload metadata forces the cleanup run to record a failure.
+        await shareRepository.CreateAsync(CreateShareRecord(Guid.NewGuid(), DateTimeOffset.Parse("2026-06-01T00:00:00Z")), CancellationToken.None);
+        var collector = new FakeLogCollector();
+        var sut = CreateService(shareRepository,
+                                uploadedFileRepository,
+                                blobStorage,
+                                DateTimeOffset.Parse("2026-06-02T00:00:00Z"),
+                                new FakeLogger<ShareCleanupService>(collector));
+
+        var result = await sut.RunAsync(CancellationToken.None);
+
+        result.Failures.Should().Be(1);
+        var completionRecord = collector.GetSnapshot().Single(logRecord => logRecord.Message.Contains("Share cleanup completed with failures"));
+        completionRecord.Level.Should().Be(LogLevel.Warning);
+        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "1");
+    }
+
+    [Test]
     public async Task RunAsync_ShouldMarkShareFailed_WhenUploadMetadataIsMissing_AndRetryFailedShare()
     {
         await using var fixture = new ShareCleanupFixture();
         var options = fixture.CreateOptions();
-        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var share = CreateShareRecord(Guid.NewGuid(), DateTimeOffset.Parse("2026-06-01T00:00:00Z"));
         await shareRepository.CreateAsync(share, CancellationToken.None);
         var sut = CreateService(shareRepository, uploadedFileRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
@@ -107,9 +160,9 @@ public sealed class ShareCleanupServiceTests
     {
         await using var fixture = new ShareCleanupFixture();
         var options = fixture.CreateOptions();
-        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
         const String secretMaterial = "SUPER-SECRET-SHARE-MATERIAL";
         var share = new ShareRecord(Guid.NewGuid(),
@@ -141,9 +194,9 @@ public sealed class ShareCleanupServiceTests
     {
         await using var fixture = new ShareCleanupFixture();
         var options = fixture.CreateOptions();
-        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options);
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
-        var blobStorage = new LocalBlobStorage(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var uploadedFile = await CompleteUploadAsync(uploadedFileRepository, blobStorage);
         File.Delete(Path.Combine(options.Storage.LocalRoot, uploadedFile.BlobKey));
         var share = CreateShareRecord(uploadedFile.FileId, DateTimeOffset.Parse("2026-06-01T00:00:00Z"));
@@ -156,6 +209,27 @@ public sealed class ShareCleanupServiceTests
         firstResult.Should().Be(new ShareCleanupResult(1, 1, 0, 1, 0));
         secondResult.Should().Be(new ShareCleanupResult(0, 0, 0, 0, 0));
         (await shareRepository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
+    }
+
+    [Test]
+    public async Task RunIfIdleAsync_ShouldLogStartedEvent_AndNotSkipped_WhenIdle()
+    {
+        await using var fixture = new ShareCleanupFixture();
+        var options = fixture.CreateOptions();
+        using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        using var shareRepository = new LiteDbShareMetadataRepository(options);
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        var cleanupService = CreateService(shareRepository, uploadedFileRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
+        var collector = new FakeLogCollector();
+        using var sut = new ShareCleanupRunner(cleanupService, new FakeLogger<ShareCleanupRunner>(collector));
+
+        var result = await sut.RunIfIdleAsync(CancellationToken.None);
+
+        result.Skipped.Should().BeFalse();
+        var logRecords = collector.GetSnapshot();
+        logRecords.Should().ContainSingle();
+        logRecords[0].Level.Should().Be(LogLevel.Information);
+        logRecords[0].Message.Should().Contain("Share cleanup started");
     }
 
     [Test]
@@ -177,7 +251,8 @@ public sealed class ShareCleanupServiceTests
                                                                       "sha"));
         var blobStorage = new BlockingBlobStorage();
         var cleanupService = CreateService(shareRepository, uploadRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
-        using var runner = new ShareCleanupRunner(cleanupService, NullLogger<ShareCleanupRunner>.Instance);
+        var collector = new FakeLogCollector();
+        using var runner = new ShareCleanupRunner(cleanupService, new FakeLogger<ShareCleanupRunner>(collector));
 
         var firstRun = runner.RunIfIdleAsync(CancellationToken.None);
         await blobStorage.DeleteStarted.Task;
@@ -187,6 +262,12 @@ public sealed class ShareCleanupServiceTests
 
         secondRun.Skipped.Should().BeTrue();
         firstResult.Should().Be(new ShareCleanupResult(1, 1, 1, 0, 0));
+
+        var logRecords = collector.GetSnapshot();
+        logRecords.Should().ContainSingle(logRecord => logRecord.Message.Contains("Share cleanup started"))
+                  .Which.Level.Should().Be(LogLevel.Information);
+        logRecords.Should().ContainSingle(logRecord => logRecord.Message.Contains("Share cleanup skipped"))
+                  .Which.Level.Should().Be(LogLevel.Information);
     }
 
     private static async Task<UploadedFileRecord> CompleteUploadAsync(IUploadedFileMetadataRepository repository, IBlobStorage blobStorage)
@@ -213,12 +294,13 @@ public sealed class ShareCleanupServiceTests
     private static ShareCleanupService CreateService(IShareMetadataRepository shareRepository,
                                                      IUploadedFileMetadataRepository uploadedFileRepository,
                                                      IBlobStorage blobStorage,
-                                                     DateTimeOffset nowUtc) =>
+                                                     DateTimeOffset nowUtc,
+                                                     ILogger<ShareCleanupService>? logger = null) =>
         new(shareRepository,
             uploadedFileRepository,
             blobStorage,
             new FrozenTimeProvider(nowUtc),
-            NullLogger<ShareCleanupService>.Instance);
+            logger ?? NullLogger<ShareCleanupService>.Instance);
 
     private static ShareRecord CreateShareRecord(Guid fileId, DateTimeOffset expiresAtUtc) =>
         new(Guid.NewGuid(),
@@ -318,6 +400,9 @@ public sealed class ShareCleanupServiceTests
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ShareRecord>>([_share]);
 
+        public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
@@ -338,8 +423,12 @@ public sealed class ShareCleanupServiceTests
 
     private sealed class InMemoryUploadedFileRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository
     {
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
             Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -487,6 +576,9 @@ public sealed class ShareCleanupServiceTests
             CleanupScanned.Release();
             return Task.FromResult<IReadOnlyList<ShareRecord>>([]);
         }
+
+        public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
 
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();

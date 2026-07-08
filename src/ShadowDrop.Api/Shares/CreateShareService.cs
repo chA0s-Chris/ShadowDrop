@@ -9,63 +9,83 @@ using System.Security.Cryptography;
 public sealed class CreateShareService
 {
     private const Int32 MinimumTokenEntropyBytes = 32;
+    private readonly ILogger<CreateShareService> _logger;
     private readonly IShareMetadataRepository _shareMetadataRepository;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadedFileMetadataRepository _uploadedFileMetadataRepository;
 
     public CreateShareService(IUploadedFileMetadataRepository uploadedFileMetadataRepository,
                               IShareMetadataRepository shareMetadataRepository,
-                              TimeProvider timeProvider)
+                              TimeProvider timeProvider,
+                              ILogger<CreateShareService> logger)
     {
         _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
         _shareMetadataRepository = shareMetadataRepository;
         _timeProvider = timeProvider;
+        _logger = logger;
     }
 
     public async Task<CreateShareResult> CreateAsync(CreateShareRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        ValidateRequest(request);
-
-        var distinctFileIds = new HashSet<Guid>();
-        var files = new List<ShareFileEntryRecord>(request.Files!.Count);
-        foreach (var fileRequest in request.Files)
+        try
         {
-            if (!distinctFileIds.Add(fileRequest.FileId))
+            ValidateRequest(request);
+
+            var distinctFileIds = new HashSet<Guid>();
+            var files = new List<ShareFileEntryRecord>(request.Files!.Count);
+            foreach (var fileRequest in request.Files)
             {
-                throw new CreateShareValidationException("Duplicate file ids are not allowed.");
+                if (!distinctFileIds.Add(fileRequest.FileId))
+                {
+                    throw new CreateShareValidationException("Duplicate file ids are not allowed.");
+                }
+
+                var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileRequest.FileId, cancellationToken);
+                if (uploadedFile is null)
+                {
+                    throw new CreateShareValidationException("All referenced files must exist.");
+                }
+
+                files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
             }
 
-            var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileRequest.FileId, cancellationToken);
-            if (uploadedFile is null)
-            {
-                throw new CreateShareValidationException("All referenced files must exist.");
-            }
+            var shareId = Guid.NewGuid();
+            var createdAtUtc = _timeProvider.GetUtcNow();
+            var shareToken = GenerateOpaqueToken();
+            var downloadBearerToken = request.GenerateDownloadBearerToken == true ? GenerateOpaqueToken() : null;
+            var record = new ShareRecord(shareId,
+                                         TokenHashing.ComputeHashBase64(shareToken),
+                                         createdAtUtc,
+                                         request.ExpiresAtUtc.ToUniversalTime(),
+                                         null,
+                                         ShareCleanupState.Pending,
+                                         request.DirectHttpEnabled ?? false,
+                                         downloadBearerToken is null
+                                             ? null
+                                             : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
+                                                                             request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
+                                         files);
 
-            files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
+            await _shareMetadataRepository.CreateAsync(record, cancellationToken);
+
+            _logger.LogInformation(
+                "Share created. ShareId: {ShareId}; FileCount: {FileCount}; ExpiresAtUtc: {ExpiresAtUtc}; DirectHttpEnabled: {DirectHttpEnabled}; " +
+                "HasDownloadBearerToken: {HasDownloadBearerToken}",
+                shareId,
+                files.Count,
+                record.ExpiresAtUtc,
+                record.DirectHttpEnabled,
+                downloadBearerToken is not null);
+
+            return new(shareId, shareToken, downloadBearerToken);
         }
-
-        var shareId = Guid.NewGuid();
-        var createdAtUtc = _timeProvider.GetUtcNow();
-        var shareToken = GenerateOpaqueToken();
-        var downloadBearerToken = request.GenerateDownloadBearerToken == true ? GenerateOpaqueToken() : null;
-        var record = new ShareRecord(shareId,
-                                     TokenHashing.ComputeHashBase64(shareToken),
-                                     createdAtUtc,
-                                     request.ExpiresAtUtc.ToUniversalTime(),
-                                     null,
-                                     ShareCleanupState.Pending,
-                                     request.DirectHttpEnabled ?? false,
-                                     downloadBearerToken is null
-                                         ? null
-                                         : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
-                                                                         request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
-                                     files);
-
-        await _shareMetadataRepository.CreateAsync(record, cancellationToken);
-
-        return new(shareId, shareToken, downloadBearerToken);
+        catch (CreateShareValidationException exception)
+        {
+            _logger.LogWarning(exception, "Share creation rejected");
+            throw;
+        }
     }
 
     private static String GenerateOpaqueToken()
