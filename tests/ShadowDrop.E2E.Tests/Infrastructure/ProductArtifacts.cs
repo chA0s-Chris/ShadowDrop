@@ -43,8 +43,7 @@ internal sealed class ProductArtifacts : IDisposable
             await BuildProjectAsync(RepositoryLayout.CliProjectPath, cliOutput, cancellationToken);
 
             var apiAssemblyPath = RequireAssembly(apiOutput, "ShadowDrop.Api.dll");
-            // The CLI assembly is named `shadowdrop` (see <AssemblyName> in ShadowDrop.Cli.csproj), not the project name.
-            var cliAssemblyPath = RequireAssembly(cliOutput, "shadowdrop.dll");
+            var cliAssemblyPath = RequireAssembly(cliOutput, "ShadowDrop.Cli.dll");
 
             return new(workspace, apiAssemblyPath, cliAssemblyPath);
         }
