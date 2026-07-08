@@ -81,6 +81,12 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(file);
 
+        // Preflight snapshotted the length that the metadata and Content-Length are derived from, but the bytes
+        // are streamed later. Re-stat before reserving a file ID so a file changed in between fails cheaply
+        // instead of burning a reservation on a request that cannot satisfy its own Content-Length. This narrows
+        // the window; it cannot close it.
+        RevalidatePreflightSnapshot(file);
+
         var fileId = await uploadApiClient.ReserveFileIdAsync(serverUrl, uploadToken, cancellationToken);
         var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
         var encryptionContext = new FileEncryptionContext(fileId, kdfSalt);
@@ -159,6 +165,22 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
         }
 
         return new(preflightedFiles, errors);
+    }
+
+    private static void RevalidatePreflightSnapshot(PreflightedUploadFile file)
+    {
+        // FileInfo caches Exists/Length; Refresh() is what makes this a re-stat rather than a replay of preflight.
+        file.File.Refresh();
+
+        if (!file.File.Exists)
+        {
+            throw new UploadCommandException("File is missing.");
+        }
+
+        if (file.File.Length != file.PlaintextLength)
+        {
+            throw new UploadCommandException($"{file.File.Name} changed while preparing the upload.");
+        }
     }
 }
 
