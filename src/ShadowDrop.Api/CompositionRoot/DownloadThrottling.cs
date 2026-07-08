@@ -27,7 +27,7 @@ internal static class DownloadThrottling
             return app;
         }
 
-        logger.Warning("DEVELOPMENT-ONLY download throttle is active at {BytesPerSecond} B/s ({EnvironmentVariable}). Never enable this in production.",
+        logger.Warning("DEVELOPMENT-ONLY download throttle is active at {BytesPerSecond} B/s ({EnvironmentVariable}). Never enable this in production",
                        bytesPerSecond,
                        ThrottleEnvironmentVariable);
 

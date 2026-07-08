@@ -23,7 +23,7 @@ public sealed class ShareCleanupHostedService(
             var nextOccurrence = _schedule.GetNextOccurrence(now, TimeZoneInfo.Utc);
             if (nextOccurrence is null)
             {
-                logger.LogError("Share cleanup schedule produced no future occurrence.");
+                logger.LogError("Share cleanup schedule produced no future occurrence");
                 return;
             }
 
@@ -49,7 +49,7 @@ public sealed class ShareCleanupHostedService(
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Scheduled share cleanup failed.");
+            logger.LogError(exception, "Scheduled share cleanup failed");
         }
     }
 }

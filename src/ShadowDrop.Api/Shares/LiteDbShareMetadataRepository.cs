@@ -152,6 +152,47 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         return Task.FromResult(candidates);
     }
 
+    public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        var completedState = ShareCleanupState.Completed.ToString().ToUpperInvariant();
+        var failedState = ShareCleanupState.Failed.ToString().ToUpperInvariant();
+
+        var active = 0;
+        var expired = 0;
+        var revoked = 0;
+        var cleanupCompleted = 0;
+        var cleanupFailed = 0;
+
+        foreach (var document in _collection.FindAll())
+        {
+            if (String.Equals(document.CleanupState, completedState, StringComparison.Ordinal))
+            {
+                cleanupCompleted++;
+            }
+            else if (String.Equals(document.CleanupState, failedState, StringComparison.Ordinal))
+            {
+                cleanupFailed++;
+            }
+            else if (document.RevokedAtUnixTimeMilliseconds is not null)
+            {
+                revoked++;
+            }
+            else if (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds)
+            {
+                expired++;
+            }
+            else
+            {
+                active++;
+            }
+        }
+
+        return Task.FromResult(new ShareStatusCounts(active, expired, revoked, cleanupCompleted, cleanupFailed));
+    }
+
     public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -17,8 +17,9 @@ public class Program
                                   .CreateBuilder(args)
                                   .ConfigureServices(Log.Logger)
                                   .Build()
-                                  .ConfigureMiddleware(Log.Logger)
-                                  .PrepareStartup(Log.Logger);
+                                  .ConfigureMiddleware(Log.Logger);
+
+            await app.PrepareStartupAsync(Log.Logger);
 
             await app.RunAsync();
             return 0;

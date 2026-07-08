@@ -54,7 +54,7 @@ public static class DependencyInjection
         return builder;
     }
 
-    private static Int64 ResolveMaxRequestBodySize(Int64 maxUploadBytes) =>
+    internal static Int64 ResolveMaxRequestBodySize(Int64 maxUploadBytes) =>
         maxUploadBytes > Int64.MaxValue - RequestBodyHeadroomBytes
             ? Int64.MaxValue
             : maxUploadBytes + RequestBodyHeadroomBytes;

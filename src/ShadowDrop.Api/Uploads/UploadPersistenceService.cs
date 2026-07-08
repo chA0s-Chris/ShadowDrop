@@ -5,12 +5,16 @@ namespace ShadowDrop.Api.Uploads;
 public sealed class UploadPersistenceService
 {
     private readonly IBlobStorage _blobStorage;
+    private readonly ILogger<UploadPersistenceService> _logger;
     private readonly IUploadedFileMetadataRepository _metadataRepository;
 
-    public UploadPersistenceService(IBlobStorage blobStorage, IUploadedFileMetadataRepository metadataRepository)
+    public UploadPersistenceService(IBlobStorage blobStorage,
+                                    IUploadedFileMetadataRepository metadataRepository,
+                                    ILogger<UploadPersistenceService> logger)
     {
         _blobStorage = blobStorage;
         _metadataRepository = metadataRepository;
+        _logger = logger;
     }
 
     public async Task<UploadResult> PersistAsync(UploadPersistenceRequest request, Stream encryptedContent, CancellationToken cancellationToken)
@@ -55,6 +59,17 @@ public sealed class UploadPersistenceService
                 throw new UploadValidationException("The file id is invalid or no longer available.");
             }
 
+            _logger.LogInformation(
+                "Upload completed. FileId: {FileId}; BlobKey: {BlobKey}; PlaintextLength: {PlaintextLength}; EncryptedLength: {EncryptedLength}; " +
+                "ChunkSize: {ChunkSize}; ChunkCount: {ChunkCount}; ContentType: {ContentType}",
+                record.FileId,
+                record.BlobKey,
+                record.PlaintextLength,
+                record.EncryptedLength,
+                record.ChunkSize,
+                record.ChunkCount,
+                record.ContentType);
+
             return new(record.FileId,
                        record.PlaintextLength,
                        record.EncryptedLength,
@@ -63,8 +78,27 @@ public sealed class UploadPersistenceService
                        record.EncryptionFormatVersion,
                        record.AlgorithmId);
         }
-        catch
+        catch (Exception exception)
         {
+            switch (exception)
+            {
+                case UploadValidationException:
+                    _logger.LogWarning(exception, "Upload rejected. FileId: {FileId}", request.FileId);
+                    break;
+                case UploadPayloadTooLargeException:
+                    _logger.LogWarning(exception, "Upload rejected because the payload exceeded the configured limit. FileId: {FileId}", request.FileId);
+                    break;
+                case OperationCanceledException:
+                    _logger.LogInformation(exception,
+                                           "Upload canceled. FileId: {FileId}; CancellationRequested: {CancellationRequested}",
+                                           request.FileId,
+                                           cancellationToken.IsCancellationRequested);
+                    break;
+                default:
+                    _logger.LogError(exception, "Upload failed unexpectedly. FileId: {FileId}", request.FileId);
+                    break;
+            }
+
             if (blob is not null)
             {
                 try

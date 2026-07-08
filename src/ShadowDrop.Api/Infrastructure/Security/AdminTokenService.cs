@@ -93,7 +93,7 @@ public sealed class AdminTokenService : IDisposable
             TokenHashBase64 = Convert.ToBase64String(hashBytes),
             Iterations = TokenHashIterations
         });
-        logger.LogInformation("Bootstrap admin token was initialized.");
+        logger.LogInformation("Bootstrap admin token was initialized");
     }
 
     public void Dispose()

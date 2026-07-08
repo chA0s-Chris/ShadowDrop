@@ -29,7 +29,7 @@ public sealed class ShareCleanupService(
                 var uploadedFile = await uploadedFileMetadataRepository.GetAsync(file.FileId, cancellationToken);
                 if (uploadedFile is null)
                 {
-                    logger.LogWarning("Share cleanup failed because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}.",
+                    logger.LogWarning("Share cleanup failed because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}",
                                       share.ShareId,
                                       file.FileId);
                     shareFailed = true;
@@ -50,7 +50,7 @@ public sealed class ShareCleanupService(
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
                     logger.LogWarning(exception,
-                                      "Share cleanup failed while deleting a blob. ShareId: {ShareId}; FileId: {FileId}.",
+                                      "Share cleanup failed while deleting a blob. ShareId: {ShareId}; FileId: {FileId}",
                                       share.ShareId,
                                       file.FileId);
                     shareFailed = true;
@@ -60,7 +60,7 @@ public sealed class ShareCleanupService(
             var cleanupState = shareFailed ? ShareCleanupState.Failed : ShareCleanupState.Completed;
             if (!await shareMetadataRepository.TryUpdateCleanupStateAsync(share.ShareId, cleanupState, cancellationToken))
             {
-                logger.LogWarning("Share cleanup could not update metadata because the share was missing. ShareId: {ShareId}.",
+                logger.LogWarning("Share cleanup could not update metadata because the share was missing. ShareId: {ShareId}",
                                   share.ShareId);
                 shareFailed = true;
             }
@@ -76,13 +76,27 @@ public sealed class ShareCleanupService(
         }
 
         var result = new ShareCleanupResult(candidates.Count, sharesCompleted, blobsDeleted, blobsAlreadyMissing, failures);
-        logger.LogInformation(
-            "Share cleanup completed. CandidatesScanned: {CandidatesScanned}; SharesCompleted: {SharesCompleted}; BlobsDeleted: {BlobsDeleted}; BlobsAlreadyMissing: {BlobsAlreadyMissing}; Failures: {Failures}.",
-            result.CandidatesScanned,
-            result.SharesCompleted,
-            result.BlobsDeleted,
-            result.BlobsAlreadyMissing,
-            result.Failures);
+        if (result.Failures > 0)
+        {
+            logger.LogWarning(
+                "Share cleanup completed with failures. CandidatesScanned: {CandidatesScanned}; SharesCompleted: {SharesCompleted}; BlobsDeleted: {BlobsDeleted}; BlobsAlreadyMissing: {BlobsAlreadyMissing}; Failures: {Failures}",
+                result.CandidatesScanned,
+                result.SharesCompleted,
+                result.BlobsDeleted,
+                result.BlobsAlreadyMissing,
+                result.Failures);
+        }
+        else
+        {
+            logger.LogInformation(
+                "Share cleanup completed. CandidatesScanned: {CandidatesScanned}; SharesCompleted: {SharesCompleted}; BlobsDeleted: {BlobsDeleted}; BlobsAlreadyMissing: {BlobsAlreadyMissing}; Failures: {Failures}",
+                result.CandidatesScanned,
+                result.SharesCompleted,
+                result.BlobsDeleted,
+                result.BlobsAlreadyMissing,
+                result.Failures);
+        }
+
         return result;
     }
 }
