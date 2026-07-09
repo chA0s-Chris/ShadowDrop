@@ -3,9 +3,11 @@
 namespace ShadowDrop.Cli.Downloads.Progress;
 
 /// <summary>
-/// Emits deterministic plain-text download lifecycle lines to standard error without live progress, suitable for redirected stderr and CI.
+/// Emits deterministic plain-text download lifecycle lines without live progress, suitable for redirected output and CI.
+/// Lifecycle and summary lines go to standard output; per-item failures go to standard error.
 /// </summary>
-internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError, TimeProvider timeProvider) : IDownloadProgressReporter
+internal sealed class PlainTextDownloadProgressReporter(TextWriter standardOut, TextWriter standardError, TimeProvider timeProvider)
+    : IDownloadProgressReporter
 {
     private static String FormatStart(Int32? position, Int32? total, String fileName, Int64? sizeBytes)
     {
@@ -40,7 +42,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
             var position = index + 1;
             var fileName = DisplayText.SingleLine(item.FileName);
             var outputPath = DisplayText.SingleLine(item.OutputPath);
-            await standardError.WriteLineAsync(FormatStart(position, total, fileName, item.SizeBytes));
+            await standardOut.WriteLineAsync(FormatStart(position, total, fileName, item.SizeBytes));
             var progress = new TrackingProgress();
             var fileStart = timeProvider.GetTimestamp();
             try
@@ -50,7 +52,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
                 var bytes = progress.TransferredValue;
                 downloaded++;
                 totalDownloadedBytes += bytes;
-                await standardError.WriteLineAsync(
+                await standardOut.WriteLineAsync(
                     $"SUCCESS {position}/{total} {fileName} -> {outputPath} ({FormatStats(bytes, elapsed)})");
             }
             catch (Exception exception)
@@ -67,7 +69,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         }
 
         var totalElapsed = timeProvider.GetElapsedTime(queueStart);
-        await standardError.WriteLineAsync(
+        await standardOut.WriteLineAsync(
             $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
         return new(downloaded, failed);
     }
@@ -82,7 +84,7 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
         ArgumentNullException.ThrowIfNull(classifyError);
 
         fileName = DisplayText.SingleLine(fileName);
-        await standardError.WriteLineAsync(FormatStart(null, null, fileName, sizeBytes));
+        await standardOut.WriteLineAsync(FormatStart(null, null, fileName, sizeBytes));
         var progress = new TrackingProgress();
         var start = timeProvider.GetTimestamp();
         try
@@ -99,14 +101,14 @@ internal sealed class PlainTextDownloadProgressReporter(TextWriter standardError
 
             var failedElapsed = timeProvider.GetElapsedTime(start);
             await standardError.WriteLineAsync($"FAILED {fileName}: {message}");
-            await standardError.WriteLineAsync($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(progress.TransferredValue, failedElapsed)})");
+            await standardOut.WriteLineAsync($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(progress.TransferredValue, failedElapsed)})");
             return false;
         }
 
         var elapsed = timeProvider.GetElapsedTime(start);
         var bytes = progress.TransferredValue;
-        await standardError.WriteLineAsync($"SUCCESS {fileName} ({FormatStats(bytes, elapsed)})");
-        await standardError.WriteLineAsync($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
+        await standardOut.WriteLineAsync($"SUCCESS {fileName} ({FormatStats(bytes, elapsed)})");
+        await standardOut.WriteLineAsync($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
         return true;
     }
 }

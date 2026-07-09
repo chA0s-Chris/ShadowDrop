@@ -6,8 +6,9 @@ using Spectre.Console;
 
 /// <summary>
 /// Emits rich Spectre.Console live progress for interactive terminals, including an active-file spinner, percentage, speed, and ETA columns.
+/// Progress and summary output goes to <paramref name="console"/> (standard output); per-item failures go to <paramref name="errorConsole"/>.
 /// </summary>
-internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, TimeProvider timeProvider) : IDownloadProgressReporter
+internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAnsiConsole errorConsole, TimeProvider timeProvider) : IDownloadProgressReporter
 {
     private static void CompleteTask(ProgressTask task, Int64? sizeBytes)
     {
@@ -137,7 +138,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
                         overall.Value = completedBytes;
                     }
 
-                    console.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {fileName} -> {outputPath}: {message}");
+                    errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {fileName} -> {outputPath}: {message}");
                 }
             }
 
@@ -196,7 +197,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, Time
         var elapsed = timeProvider.GetElapsedTime(start);
         if (failureMessage is not null)
         {
-            console.MarkupLineInterpolated($"[red]FAILED[/] {fileName}: {failureMessage}");
+            errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {fileName}: {failureMessage}");
             console.MarkupLineInterpolated($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(bytes, elapsed)})");
             return false;
         }

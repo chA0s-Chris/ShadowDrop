@@ -176,6 +176,13 @@ internal static class CliApplication
             Description = "Root directory for relative outputPath values in a download queue."
         };
 
+        // Bound as a raw String, not a FileInfo: FileInfo drops the trailing directory separator that tells a
+        // directory destination apart from an explicit file path.
+        var downloadOutOption = new Option<String?>("--out")
+        {
+            Description = "Destination file, or directory when it exists or ends with a separator. Defaults to ./<file-name>."
+        };
+
         var shareKeyOption = new Option<String?>("--share-key")
         {
             Description = "Share key as lowercase hexadecimal key material or secret:<hex>."
@@ -204,6 +211,7 @@ internal static class CliApplication
         downloadCommand.Options.Add(fileOption);
         downloadCommand.Options.Add(queueOption);
         downloadCommand.Options.Add(outputRootOption);
+        downloadCommand.Options.Add(downloadOutOption);
         downloadCommand.Options.Add(shareKeyOption);
         downloadCommand.Options.Add(shareKeyFileOption);
         downloadCommand.Options.Add(bearerTokenOption);
@@ -356,6 +364,7 @@ internal static class CliApplication
                    fileOption,
                    queueOption,
                    outputRootOption,
+                   downloadOutOption,
                    shareKeyOption,
                    shareKeyFileOption,
                    bearerTokenOption,
@@ -516,6 +525,7 @@ internal static class CliApplication
                                                      parseResult.GetValue(commandModel.FileOption),
                                                      parseResult.GetValue(commandModel.QueueOption),
                                                      parseResult.GetValue(commandModel.OutputRootOption),
+                                                     parseResult.GetValue(commandModel.DownloadOutOption),
                                                      parseResult.GetValue(commandModel.ShareKeyOption),
                                                      parseResult.GetValue(commandModel.ShareKeyFileOption),
                                                      parseResult.GetValue(commandModel.BearerTokenOption));
@@ -523,6 +533,25 @@ internal static class CliApplication
             if (options.OutputRoot is not null && options.QueuePath is null)
             {
                 await services.StandardError.WriteLineAsync("The --output-root option requires --queue.");
+                return 1;
+            }
+
+            if (options.Out is not null && String.IsNullOrWhiteSpace(options.Out))
+            {
+                await services.StandardError.WriteLineAsync("The --out option requires a non-empty path.");
+                return 1;
+            }
+
+            if (options.Out is not null && options.QueuePath is not null)
+            {
+                await services.StandardError.WriteLineAsync("The --out option cannot be combined with --queue. Use --output-root instead.");
+                return 1;
+            }
+
+            if (options.Out is not null && parseResult.GetValue(commandModel.DownloadInteractiveOption))
+            {
+                await services.StandardError.WriteLineAsync(
+                    "The --out option cannot be combined with --interactive. The guided download prompts for its destination.");
                 return 1;
             }
 
@@ -537,7 +566,6 @@ internal static class CliApplication
 
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
                                                              httpClient,
-                                                             services.StandardOutStream,
                                                              services.StandardError,
                                                              services.DownloadProgressReporterFactory.Create(),
                                                              bannerWriter);
@@ -612,6 +640,7 @@ internal static class CliApplication
         Option<String?> FileOption,
         Option<FileInfo?> QueueOption,
         Option<DirectoryInfo?> OutputRootOption,
+        Option<String?> DownloadOutOption,
         Option<String?> ShareKeyOption,
         Option<FileInfo?> ShareKeyFileOption,
         Option<String?> BearerTokenOption,

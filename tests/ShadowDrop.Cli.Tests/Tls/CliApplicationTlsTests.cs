@@ -81,12 +81,11 @@ public sealed class CliApplicationTlsTests
                                                          IReadOnlyDictionary<String, String?>? environment = null) =>
         new(new(new StubConfigPathResolver(), new StubEnvironmentReader(environment ?? new Dictionary<String, String?>())),
             httpClientFactory,
-            Stream.Null,
             standardOut,
             standardError,
             new FakeInteractiveSession(),
             TimeProvider.System,
-            new PlainDownloadProgressReporterFactory(standardError, TimeProvider.System),
+            new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
             new TerminalCapabilityProvider());
 
     private sealed class NeverCalledHandler : HttpMessageHandler

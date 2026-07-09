@@ -91,14 +91,17 @@ shadowdrop upload report.pdf
 ```
 
 Send the recipient the share URL, and the share key over a **different**
-channel. The recipient downloads and decrypts with the CLI (the decrypted
-content is written to stdout):
+channel. The recipient downloads and decrypts with the CLI; the file lands in
+the current directory under its original name:
 
 ```bash
 shadowdrop download "https://drop.example.com/d/qHxI_3N1cTzPNkt1WSi2rieBiSi858y-OA1Sc_OQlz4" \
-  --share-key 5f4a5a7048d41e66dd2833126184beefa46ecf4e9c3c49091a1aafb2e7acfa78 \
-  > report.pdf
+  --share-key 5f4a5a7048d41e66dd2833126184beefa46ecf4e9c3c49091a1aafb2e7acfa78
+# writes ./report.pdf
 ```
+
+Pass `--out <file>` for an explicit destination, or `--out <directory>` to keep
+the original name inside a directory of your choosing.
 
 For recipients without the CLI there is a direct-HTTP mode (`--direct-http`)
 that emits a browser-compatible URL and a `curl` command — with weaker

@@ -54,7 +54,7 @@ Copy-Item "shadowdrop-$Version-win-x64.exe" "$Env:LOCALAPPDATA\Microsoft\Windows
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
 | `queue create [share-token]`   | Write a download queue file for an existing share.             |
-| `download [share-token]`       | Download and decrypt a shared file (or `--queue <file>`).      |
+| `download [share-token]`       | Download and decrypt a shared file to disk (or `--queue <file>`). |
 
 ## Configuration
 
@@ -181,19 +181,52 @@ the same limit regardless of the client.
 ### Separate-key download
 
 The recipient passes the share URL (or bare share token plus `--server-url`)
-and the key. The decrypted content is written to **stdout**:
+and the key. The decrypted file is written to `./<original-filename>`:
 
 ```bash
 shadowdrop download "https://drop.example.com/d/qHxI_…" \
-  --share-key 5f4a5a7048d41e66dd2833126184beefa46ecf4e9c3c49091a1aafb2e7acfa78 \
-  > report.pdf
+  --share-key 5f4a5a7048d41e66dd2833126184beefa46ecf4e9c3c49091a1aafb2e7acfa78
+# writes ./report.pdf
 ```
+
+Use `--out` to choose the destination:
+
+```bash
+# explicit file path (parent directories are created as needed)
+shadowdrop download "https://drop.example.com/d/qHxI_…" --share-key 5f4a… --out incoming/renamed.pdf
+
+# directory destination — an existing directory, or any value ending in a separator
+shadowdrop download "https://drop.example.com/d/qHxI_…" --share-key 5f4a… --out incoming/
+# writes ./incoming/report.pdf
+```
+
+A value that neither ends in a separator nor names an existing directory is
+taken as a file path. Absolute paths and `..` segments in `--out` are honored
+as written; the share's announced filename, by contrast, is reduced to a safe
+leaf name and can never introduce directories of its own.
+
+If the destination file already exists and matches the shared file, the command
+reports it as already downloaded and exits zero; if it exists but differs, the
+command fails and leaves the file untouched. Interrupted downloads resume from
+the `.partial` file left next to the destination.
 
 `--share-key-file <path>` reads the key from a file instead. If the share
 holds multiple files, pick one with `--file <file-id>` — or use a queue to
 download all of them to disk. If the share was created with
 `--download-token`, the recipient must also pass `--bearer-token <token>`
 (this value is only ever taken from the command line).
+
+### Download output streams
+
+Download progress, `START`/`SUCCESS` lines, and the final `SUMMARY` are written
+to **stdout**, for both single-file and queue downloads and in both plain-text
+and rich terminal modes. Errors, per-item `FAILED` lines, interactive prompts,
+the guided download summary, and the banner go to **stderr**.
+
+> **Breaking change:** download progress and status output moved from stderr to
+> stdout. Scripts that captured stderr to read progress, or that relied on
+> stdout carrying the decrypted bytes, must be updated. `download` no longer
+> writes file content to stdout at all — use the default output path or `--out`.
 
 ### Download queues (multi-file, resumable)
 
