@@ -69,7 +69,7 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
-        var uploadedFileId = await sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+        var uploadedFileId = await sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
 
         uploadedFileId.Should().Be(fixture.FileId);
         handler.RequestCount.Should().Be(2);
@@ -104,7 +104,7 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
-        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Server connection failed.");
@@ -134,7 +134,7 @@ public sealed class UploadApiClientTests
             return Task.CompletedTask;
         });
 
-        var uploadedFileId = await sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+        var uploadedFileId = await sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
 
         uploadedFileId.Should().Be(fixture.FileId);
         delays.Should().Equal(TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(400));
@@ -174,7 +174,7 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
-        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, CancellationToken.None);
+        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Upload failed; please verify file and try again.");
@@ -195,7 +195,7 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
-        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, cancellationTokenSource.Token);
+        var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, cancellationTokenSource.Token);
 
         await act.Should().ThrowAsync<TaskCanceledException>();
         handler.RequestCount.Should().Be(1);

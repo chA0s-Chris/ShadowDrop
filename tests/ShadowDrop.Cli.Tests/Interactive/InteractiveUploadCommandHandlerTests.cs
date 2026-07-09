@@ -7,6 +7,7 @@ using NUnit.Framework;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Uploads;
+using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Tests.Fakes;
 
 [NonParallelizable]
@@ -113,14 +114,18 @@ public sealed class InteractiveUploadCommandHandlerTests
     private static InteractiveUploadCommandHandler CreateHandler(FakeInteractiveSession session,
                                                                  HttpMessageHandler handler,
                                                                  CliConfigurationResolver? resolver = null,
-                                                                 TextWriter? standardError = null) =>
-        new(resolver ?? FakeConfiguration.Resolver(),
-            new(handler),
-            session,
-            new StringWriter(),
-            standardError ?? new StringWriter(),
-            TimeProvider.System,
-            CliBannerWriterFactory.Suppressed);
+                                                                 TextWriter? standardError = null)
+    {
+        var errorWriter = standardError ?? new StringWriter();
+        return new(resolver ?? FakeConfiguration.Resolver(),
+                   new(handler),
+                   session,
+                   new StringWriter(),
+                   errorWriter,
+                   TimeProvider.System,
+                   new PlainUploadProgressReporterFactory(errorWriter, TimeProvider.System),
+                   CliBannerWriterFactory.Suppressed);
+    }
 
     private static String MissingFilePath() => Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
 

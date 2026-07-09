@@ -33,6 +33,7 @@ public sealed class EncryptedFileContentTests
                                                          new(fileId, kdfSalt),
                                                          chunkSize,
                                                          encryptedLength,
+                                                         null,
                                                          CancellationToken.None);
             using var sink = new MemoryStream();
 
@@ -90,12 +91,51 @@ public sealed class EncryptedFileContentTests
                                                          new(fileId, kdfSalt),
                                                          128,
                                                          new FileInfo(filePath).Length + (4 * 16),
+                                                         null,
                                                          new CancellationToken(true));
             using var sink = new MemoryStream();
 
             Func<Task> act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
 
             await act.Should().ThrowAsync<OperationCanceledException>();
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task CopyToAsync_ShouldReportCumulativeEncryptedBytesAfterEachChunk()
+    {
+        const Int32 chunkSize = 128;
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "encrypted-file-content-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var fileId = Guid.NewGuid();
+            var filePath = Path.Combine(rootDirectory, "payload.bin");
+            File.WriteAllBytes(filePath, Enumerable.Range(0, 300).Select(static value => (Byte)value).ToArray());
+            var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
+            using var shareSecret = ShareSecret.Generate();
+            var encryptedLength = 300 + (3 * EncryptedChunk.AuthenticationTagLength);
+            var progress = new CapturingProgress();
+            using var content = new EncryptedFileContent(new(filePath),
+                                                         shareSecret,
+                                                         new(fileId, kdfSalt),
+                                                         chunkSize,
+                                                         encryptedLength,
+                                                         progress,
+                                                         CancellationToken.None);
+            using var sink = new MemoryStream();
+
+            await content.CopyToAsync(sink, null, CancellationToken.None);
+
+            progress.Values.Should().Equal(144, 288, 348);
         }
         finally
         {
@@ -114,5 +154,14 @@ public sealed class EncryptedFileContentTests
         EncryptedFileContent.ZeroPlaintextBuffer(buffer);
 
         buffer.Should().OnlyContain(static value => value == 0);
+    }
+
+    private sealed class CapturingProgress : IProgress<Int64>
+    {
+        private readonly List<Int64> _values = [];
+
+        public IReadOnlyList<Int64> Values => _values;
+
+        public void Report(Int64 value) => _values.Add(value);
     }
 }

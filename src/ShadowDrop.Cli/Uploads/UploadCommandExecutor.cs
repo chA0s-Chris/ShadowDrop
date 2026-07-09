@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Results;
+using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 
@@ -10,10 +11,15 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
 {
     private const Int32 ChunkSize = 1024 * 1024;
 
-    public async Task<UploadExecutionResult> ExecuteAsync(IReadOnlyList<FileInfo> files, Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
+    public async Task<UploadExecutionResult> ExecuteAsync(IReadOnlyList<FileInfo> files,
+                                                          Uri serverUrl,
+                                                          String uploadToken,
+                                                          IUploadProgressReporter progressReporter,
+                                                          CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(serverUrl);
+        ArgumentNullException.ThrowIfNull(progressReporter);
         ArgumentException.ThrowIfNullOrWhiteSpace(uploadToken);
 
         if (files.Count == 0)
@@ -25,6 +31,13 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
         var preflight = PreflightFiles(files);
         if (preflight.Errors.Count > 0)
         {
+            foreach (var error in preflight.Errors)
+            {
+                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, files.Count, error.UploadSizeBytes ?? 0),
+                                                              error.ErrorMessage ?? "Upload failed.",
+                                                              cancellationToken);
+            }
+
             return new(preflight.Errors, null, false);
         }
 
@@ -35,12 +48,20 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
         }
         catch (UploadCommandException exception)
         {
+            await progressReporter.ReportBatchErrorAsync(exception.Message, cancellationToken);
             return new([], null, false, exception.Message);
         }
 
         var oversizedFiles = FindOversizedFiles(preflight.Files, capabilities.MaxFilePayloadBytes);
         if (oversizedFiles.Count > 0)
         {
+            foreach (var error in oversizedFiles)
+            {
+                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, files.Count, error.UploadSizeBytes ?? 0),
+                                                              error.ErrorMessage ?? "Upload failed.",
+                                                              cancellationToken);
+            }
+
             return new(oversizedFiles, null, false);
         }
 
@@ -49,22 +70,39 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
 
         foreach (var file in preflight.Files)
         {
+            UploadFilePlan plan;
             try
             {
-                var plan = await CreatePlanAsync(file, uploadApiClient, serverUrl, uploadToken, cancellationToken);
-                var uploadedFileId = await uploadApiClient.UploadAsync(serverUrl, uploadToken, plan, shareSecret, cancellationToken);
-                results.Add(new(file.File, file.FileNumber, uploadedFileId, null));
+                plan = await CreatePlanAsync(file, uploadApiClient, serverUrl, uploadToken, cancellationToken);
             }
-            catch (UploadCommandException exception)
+            catch (Exception exception) when (ClassifyUploadException(exception) is { } message)
             {
-                results.Add(new(file.File, file.FileNumber, null, exception.Message));
+                await progressReporter.ReportFileFailureAsync(new(file.File.Name, file.FileNumber, files.Count, file.EncryptedLength),
+                                                              message,
+                                                              cancellationToken);
+                results.Add(new(file.File, file.FileNumber, null, message));
                 break;
             }
-            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+
+            var upload =
+                await progressReporter.RunFileAsync(new(file.File.Name, file.FileNumber, files.Count, plan.Metadata.EncryptedLength),
+                                                    (progressSink, token) =>
+                                                        uploadApiClient.UploadAsync(serverUrl,
+                                                                                    uploadToken,
+                                                                                    plan,
+                                                                                    shareSecret,
+                                                                                    progressSink,
+                                                                                    token),
+                                                    ClassifyUploadException,
+                                                    cancellationToken);
+            if (upload.ErrorMessage is null)
             {
-                results.Add(new(file.File, file.FileNumber, null, "File is unreadable."));
-                break;
+                results.Add(new(file.File, file.FileNumber, upload.Value, null));
+                continue;
             }
+
+            results.Add(new(file.File, file.FileNumber, null, upload.ErrorMessage));
+            break;
         }
 
         var allSucceeded = results.All(static result => result.UploadedFileId is not null);
@@ -72,6 +110,14 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
                    allSucceeded ? Convert.ToHexStringLower(shareSecret.KeyMaterial) : null,
                    allSucceeded);
     }
+
+    private static String? ClassifyUploadException(Exception exception) => exception switch
+    {
+        UploadCommandException uploadException => uploadException.Message,
+        UnauthorizedAccessException => "File is unreadable.",
+        IOException => "File is unreadable.",
+        _ => null
+    };
 
     private static async Task<UploadFilePlan> CreatePlanAsync(PreflightedUploadFile file,
                                                               UploadApiClient uploadApiClient,

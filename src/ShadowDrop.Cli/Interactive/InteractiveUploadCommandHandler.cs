@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli.Interactive;
 
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Uploads;
+using ShadowDrop.Cli.Uploads.Progress;
 using System.Text.Json;
 
 /// <summary>
@@ -18,6 +19,7 @@ internal sealed class InteractiveUploadCommandHandler(
     TextWriter standardOut,
     TextWriter standardError,
     TimeProvider timeProvider,
+    IUploadProgressReporterFactory uploadProgressReporterFactory,
     CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
@@ -73,7 +75,13 @@ internal sealed class InteractiveUploadCommandHandler(
                                                      options.DisplayName,
                                                      options.DisplayNameMappings);
 
-        return await new UploadCommandHandler(configurationResolver, httpClient, standardOut, standardError, timeProvider, bannerWriter)
+        return await new UploadCommandHandler(configurationResolver,
+                                              httpClient,
+                                              standardOut,
+                                              standardError,
+                                              timeProvider,
+                                              uploadProgressReporterFactory,
+                                              bannerWriter)
             .ExecuteAsync(uploadOptions, cancellationToken);
     }
 
