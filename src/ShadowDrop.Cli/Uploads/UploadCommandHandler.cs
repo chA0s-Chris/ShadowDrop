@@ -8,6 +8,7 @@ using ShadowDrop.Cli.Output;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Results;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Queue;
 using System.Text.Json;
 
@@ -21,6 +22,7 @@ internal sealed class UploadCommandHandler(
     TextWriter standardOut,
     TextWriter standardError,
     TimeProvider timeProvider,
+    IUploadProgressReporterFactory uploadProgressReporterFactory,
     CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
@@ -96,8 +98,12 @@ internal sealed class UploadCommandHandler(
         }
 
         var executor = new UploadCommandExecutor(httpClient);
-        var uploadResult = await executor.ExecuteAsync(options.Files, serverUrl, configuration.UploadToken, cancellationToken);
-        await UploadProgressReporter.ReportAsync(standardError, uploadResult, options.Files.Length);
+        var uploadResult =
+            await executor.ExecuteAsync(options.Files,
+                                        serverUrl,
+                                        configuration.UploadToken,
+                                        uploadProgressReporterFactory.Create(options.Json),
+                                        cancellationToken);
 
         if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
         {

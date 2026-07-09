@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Crypto;
 using System.Net;
 using System.Net.Http.Headers;
@@ -91,14 +92,19 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
         }
     }
 
-    public async Task<Guid> UploadAsync(Uri serverUrl, String uploadToken, UploadFilePlan plan, ShareSecret shareSecret, CancellationToken cancellationToken)
+    public async Task<Guid> UploadAsync(Uri serverUrl,
+                                        String uploadToken,
+                                        UploadFilePlan plan,
+                                        ShareSecret shareSecret,
+                                        UploadProgressSink? progressSink,
+                                        CancellationToken cancellationToken)
     {
         var response = await SendWithRetryAsync(() =>
         {
             var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads"), uploadToken);
-            request.Content = CreateMultipartContent(plan, shareSecret, cancellationToken);
+            request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, cancellationToken);
             return request;
-        }, cancellationToken);
+        }, cancellationToken, progressSink);
 
         using (response)
         {
@@ -157,7 +163,18 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
     private static Boolean IsTransientStatus(HttpStatusCode statusCode) =>
         statusCode == HttpStatusCode.TooManyRequests || statusCode == HttpStatusCode.ServiceUnavailable;
 
-    private MultipartFormDataContent CreateMultipartContent(UploadFilePlan plan, ShareSecret shareSecret, CancellationToken cancellationToken)
+    private static async Task ReportRetryAsync(UploadProgressSink? progressSink, Int32 nextAttempt, CancellationToken cancellationToken)
+    {
+        if (progressSink is not null)
+        {
+            await progressSink.RetryingAsync(nextAttempt, cancellationToken);
+        }
+    }
+
+    private MultipartFormDataContent CreateMultipartContent(UploadFilePlan plan,
+                                                            ShareSecret shareSecret,
+                                                            IProgress<Int64>? progress,
+                                                            CancellationToken cancellationToken)
     {
         var multipartContent = new MultipartFormDataContent();
         var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(plan.Metadata, CliJsonSerializerContext.Default.UploadMetadataPayload);
@@ -166,13 +183,21 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
         multipartContent.Add(metadataContent, "metadata");
 
         var encryptedContent =
-            new EncryptedFileContent(plan.File, shareSecret, plan.EncryptionContext, plan.ChunkSize, plan.Metadata.EncryptedLength, cancellationToken);
+            new EncryptedFileContent(plan.File,
+                                     shareSecret,
+                                     plan.EncryptionContext,
+                                     plan.ChunkSize,
+                                     plan.Metadata.EncryptedLength,
+                                     progress,
+                                     cancellationToken);
         encryptedContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         multipartContent.Add(encryptedContent, "content", "cipher.bin");
         return multipartContent;
     }
 
-    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> requestFactory, CancellationToken cancellationToken)
+    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> requestFactory,
+                                                               CancellationToken cancellationToken,
+                                                               UploadProgressSink? progressSink = null)
     {
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
@@ -183,6 +208,7 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
                 if ((attempt < MaxAttempts) && IsTransientStatus(response.StatusCode))
                 {
                     response.Dispose();
+                    await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                     await _delayAsync(GetDelay(attempt), cancellationToken);
                     continue;
                 }
@@ -191,6 +217,7 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
             }
             catch (HttpRequestException) when (attempt < MaxAttempts)
             {
+                await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                 await _delayAsync(GetDelay(attempt), cancellationToken);
             }
             catch (HttpRequestException)
@@ -199,6 +226,7 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < MaxAttempts)
             {
+                await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                 await _delayAsync(GetDelay(attempt), cancellationToken);
             }
             catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)

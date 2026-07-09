@@ -113,11 +113,15 @@ public sealed class UploadCommandHandlerTests
         // The banner is written to stderr right before the success output, after the per-file progress lines.
         var expectedBanner = new StringWriter();
         await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
-        standardError.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                     .Should().Equal([
-                         "Uploaded file 1 of 3.", "Uploaded file 2 of 3.", "Uploaded file 3 of 3.",
-                         .. expectedBanner.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-                     ]);
+        standardError.ToString().Should()
+                     .Contain("START 1/3 first.bin (32 B)")
+                     .And.Contain("SUCCESS 1/3 first.bin (32 B/32 B (100.0%)")
+                     .And.Contain("START 2/3 second.bin (64 B)")
+                     .And.Contain("SUCCESS 2/3 second.bin (64 B/64 B (100.0%)")
+                     .And.Contain("START 3/3 third.bin (112 B)")
+                     .And.Contain("SUCCESS 3/3 third.bin (112 B/112 B (100.0%)")
+                     .And.NotContain("PROGRESS")
+                     .And.Contain(expectedBanner.ToString());
         fixture.GetStoredUploads().Should().HaveCount(3);
     }
 
@@ -139,7 +143,9 @@ public sealed class UploadCommandHandlerTests
         Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
         standardOut.ToString().Should().NotContain("download-url:");
         standardOut.ToString().Should().NotContain("download-bearer-token:");
-        standardError.ToString().Should().Contain("Uploaded file 1 of 1.").And.NotContain(fixture.BootstrapToken);
+        standardError.ToString().Should().Contain("SUCCESS 1/1 alpha.bin (144 B/144 B (100.0%)")
+                     .And.NotContain("PROGRESS")
+                     .And.NotContain(fixture.BootstrapToken);
         fixture.GetStoredUploads().Should().ContainSingle();
     }
 
@@ -727,7 +733,7 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 2 failed: File is missing.").And.NotContain(missingFile);
+        standardError.ToString().Should().Contain("FAILED 2/2 missing.bin: File is missing.").And.NotContain(missingFile);
     }
 
     [Test]
@@ -879,7 +885,7 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 1 failed: File is empty.");
+        standardError.ToString().Should().Contain("FAILED 1/1 empty.bin: File is empty.");
         standardError.ToString().Should().NotContain(emptyFile).And.NotContain("share-key:");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
@@ -943,12 +949,12 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 2 failed")
+        standardError.ToString().Should().Contain("FAILED 2/3 oversized.bin")
                      .And.Contain("oversized.bin")
-                     .And.Contain("File 3 failed")
+                     .And.Contain("FAILED 3/3 huge.bin")
                      .And.Contain("huge.bin")
                      .And.Contain("maximum is 80 bytes")
-                     .And.NotContain("Uploaded file");
+                     .And.NotContain("START");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -970,7 +976,7 @@ public sealed class UploadCommandHandlerTests
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().Contain("oversized.bin")
                      .And.Contain("Upload size is 144 bytes; maximum is 80 bytes.")
-                     .And.NotContain("Uploaded file");
+                     .And.NotContain("START");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -1041,7 +1047,7 @@ public sealed class UploadCommandHandlerTests
         failure.GetProperty("message").GetString().Should().Contain("maximum upload size");
         failure.GetProperty("uploadSizeBytes").GetInt64().Should().Be(144);
         failure.GetProperty("maxFilePayloadBytes").GetInt64().Should().Be(80);
-        standardError.ToString().Should().Contain("File 1 failed").And.Contain("oversized-json.bin");
+        standardError.ToString().Should().BeEmpty();
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -1138,7 +1144,7 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-url:").Should().NotBeNull();
         fixture.GetStoredUploads().Should().ContainSingle(record => record.OriginalFileName == "--data.bin");
-        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
+        standardError.ToString().Should().Contain("SUCCESS 1/1 --data.bin");
     }
 
     [Test]
@@ -1160,7 +1166,9 @@ public sealed class UploadCommandHandlerTests
         storedUpload.PlaintextLength.Should().Be(plaintextLength);
         storedUpload.ChunkCount.Should().Be(2);
         storedUpload.EncryptedLength.Should().Be(plaintextLength + (storedUpload.ChunkCount * 16));
-        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
+        standardError.ToString().Should().Contain("SUCCESS 1/1 large.bin")
+                     .And.Contain("(100.0%)")
+                     .And.NotContain("PROGRESS");
     }
 
     [Test]
@@ -1289,7 +1297,7 @@ public sealed class UploadCommandHandlerTests
             CancellationToken.None);
 
         exitCode.Should().Be(0);
-        standardError.ToString().Should().Contain("Uploaded file 1 of 1.");
+        standardError.ToString().Should().Contain("SUCCESS 1/1 alpha.bin");
         Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
         standardOut.ToString().Should().NotContain("wrong-env-token").And.NotContain("wrong-config-token");
         standardError.ToString().Should().NotContain(fixture.BootstrapToken).And.NotContain("wrong-env-token").And.NotContain("wrong-config-token");
@@ -1725,6 +1733,31 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task Upload_ShouldEmitSingleRetryLineThenSucceed_WhenTransientUploadFailureRetries()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var handler = new TransientThenSuccessUploadHandler();
+        using var httpClient = new HttpClient(handler);
+        fixture.WriteConfig("https://shadowdrop.test/", fixture.BootstrapToken);
+        var services = CreateServices(standardOut, standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("retry.bin", 64);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", filePath], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        handler.UploadRequests.Should().Be(2);
+        var errorOutput = standardError.ToString();
+        // A transient 503 restarts request streaming for the same file: exactly one deterministic retry line, then one success.
+        errorOutput.Should().Contain("START 1/1 retry.bin")
+                   .And.Contain("RETRY 1/1 retry.bin attempt 2")
+                   .And.Contain("SUCCESS 1/1 retry.bin (80 B/80 B (100.0%)");
+        errorOutput.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+                   .Count(static line => line.StartsWith("RETRY", StringComparison.Ordinal)).Should().Be(1);
+    }
+
+    [Test]
     public async Task UploadRaw_ShouldEmitJsonResultWithoutShare()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -1777,7 +1810,7 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("File 2 failed: File is missing.");
+        standardError.ToString().Should().Contain("FAILED 2/2 missing.bin: File is missing.");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -1799,6 +1832,8 @@ public sealed class UploadCommandHandlerTests
         Guid.Parse(Value(fileIdLine)).Should().NotBe(Guid.Empty);
         Value(FindLine(standardOut.ToString(), "share-key:")).Should().MatchRegex("^[0-9a-f]{64}$");
         standardOut.ToString().Should().NotContain("share-url:");
+        standardError.ToString().Should().Contain("SUCCESS 1/1 raw.bin (80 B/80 B (100.0%)")
+                     .And.NotContain("PROGRESS");
         fixture.GetStoredUploads().Should().ContainSingle();
     }
 
@@ -1830,9 +1865,7 @@ public sealed class UploadCommandHandlerTests
         failure.GetProperty("message").GetString().Should().Be("Upload failed; please verify file and try again.");
         failure.TryGetProperty("uploadSizeBytes", out _).Should().BeFalse();
         failure.TryGetProperty("maxFilePayloadBytes", out _).Should().BeFalse();
-        standardError.ToString().Should().Contain("Uploaded file 1 of 3.")
-                     .And.Contain("File 2 failed")
-                     .And.NotContain("File 3 failed");
+        standardError.ToString().Should().BeEmpty();
         handler.UploadRequests.Should().Be(2);
     }
 
@@ -1857,9 +1890,9 @@ public sealed class UploadCommandHandlerTests
         stdoutLines.Should().ContainSingle().Which.Should().StartWith("file-id:");
         Guid.Parse(Value(stdoutLines[0])).Should().NotBe(Guid.Empty);
         standardOut.ToString().Should().NotContain("share-key:");
-        standardError.ToString().Should().Contain("Uploaded file 1 of 3.")
-                     .And.Contain("File 2 failed: Upload failed; please verify file and try again.")
-                     .And.NotContain("File 3 failed");
+        standardError.ToString().Should().Contain("SUCCESS 1/3 first.bin")
+                     .And.Contain("FAILED 2/3 second.bin: Upload failed; please verify file and try again.")
+                     .And.NotContain("third.bin");
         handler.CapabilitiesRequests.Should().Be(1);
         handler.ReservationRequests.Should().Be(2);
         handler.UploadRequests.Should().Be(2);
@@ -2144,6 +2177,50 @@ public sealed class UploadCommandHandlerTests
     private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
     {
         public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+    }
+
+    private sealed class TransientThenSuccessUploadHandler : HttpMessageHandler
+    {
+        private readonly Queue<Guid> _reservedFileIds = new();
+
+        public Int32 UploadRequests { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (request.Method == HttpMethod.Get && path == "/api/admin/uploads/capabilities")
+            {
+                return CreateJsonResponse(HttpStatusCode.OK, """{"maxFilePayloadBytes":4096}""");
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads/reservations")
+            {
+                var fileId = Guid.NewGuid();
+                _reservedFileIds.Enqueue(fileId);
+                return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{fileId}}"}""");
+            }
+
+            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads")
+            {
+                UploadRequests++;
+                if (UploadRequests == 1)
+                {
+                    // Transient failure: SendWithRetryAsync recreates the request content and retries the same file.
+                    return new(HttpStatusCode.ServiceUnavailable);
+                }
+
+                await request.Content!.CopyToAsync(Stream.Null, cancellationToken);
+                return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{_reservedFileIds.Dequeue()}}"}""");
+            }
+
+            throw new AssertionException($"Unexpected request: {request.Method} {path}");
+        }
+
+        private static HttpResponseMessage CreateJsonResponse(HttpStatusCode statusCode, String json) =>
+            new(statusCode)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
     }
 
     private sealed class UploadLimitUnavailableHandler : HttpMessageHandler

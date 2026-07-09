@@ -7,6 +7,7 @@ using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Terminals;
 using ShadowDrop.Cli.Tls;
+using ShadowDrop.Cli.Uploads.Progress;
 
 internal sealed record CliApplicationServices(
     CliConfigurationResolver ConfigurationResolver,
@@ -16,6 +17,7 @@ internal sealed record CliApplicationServices(
     ICliInteractiveSession InteractiveSession,
     TimeProvider TimeProvider,
     IDownloadProgressReporterFactory DownloadProgressReporterFactory,
+    IUploadProgressReporterFactory UploadProgressReporterFactory,
     ITerminalCapabilityProvider TerminalCapabilityProvider)
 {
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
@@ -29,6 +31,7 @@ internal sealed record CliApplicationServices(
                new SpectreCliInteractiveSession(standardError),
                TimeProvider.System,
                new DownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
+               new UploadProgressReporterFactory(standardError, TimeProvider.System, new TerminalCapabilityProvider()),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
@@ -44,6 +47,7 @@ internal sealed record CliApplicationServices(
                interactiveSession,
                timeProvider,
                new DownloadProgressReporterFactory(standardOut, standardError, timeProvider),
+               new UploadProgressReporterFactory(standardError, timeProvider, new TerminalCapabilityProvider()),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
@@ -60,6 +64,7 @@ internal sealed record CliApplicationServices(
                interactiveSession,
                timeProvider,
                downloadProgressReporterFactory,
+               new UploadProgressReporterFactory(standardError, timeProvider, new TerminalCapabilityProvider()),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
@@ -77,6 +82,25 @@ internal sealed record CliApplicationServices(
                interactiveSession,
                timeProvider,
                downloadProgressReporterFactory,
+               new UploadProgressReporterFactory(standardError, timeProvider, terminalCapabilityProvider),
+               terminalCapabilityProvider) { }
+
+    public CliApplicationServices(CliConfigurationResolver configurationResolver,
+                                  Func<CliTlsOptions, HttpClient> httpClientFactory,
+                                  TextWriter standardOut,
+                                  TextWriter standardError,
+                                  ICliInteractiveSession interactiveSession,
+                                  TimeProvider timeProvider,
+                                  IDownloadProgressReporterFactory downloadProgressReporterFactory,
+                                  ITerminalCapabilityProvider terminalCapabilityProvider)
+        : this(configurationResolver,
+               httpClientFactory,
+               standardOut,
+               standardError,
+               interactiveSession,
+               timeProvider,
+               downloadProgressReporterFactory,
+               new UploadProgressReporterFactory(standardError, timeProvider, terminalCapabilityProvider),
                terminalCapabilityProvider) { }
 
     public static CliApplicationServices CreateDefault()
@@ -92,6 +116,7 @@ internal sealed record CliApplicationServices(
                    new SpectreCliInteractiveSession(Console.Error),
                    TimeProvider.System,
                    new DownloadProgressReporterFactory(Console.Out, Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                   new UploadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
                    terminalCapabilityProvider);
     }
 }

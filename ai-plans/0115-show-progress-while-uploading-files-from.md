@@ -8,21 +8,22 @@ Out of scope: the existing download progress stack stays unchanged apart from ex
 
 ## Acceptance Criteria
 
-- [ ] Single-file CLI uploads display progress while bytes are being transferred.
-- [ ] Multi-file CLI uploads display progress while each file is being transferred.
-- [ ] Multi-file progress includes the current file position and total file count.
-- [ ] Progress reporting applies to both `shadowdrop upload` and `shadowdrop upload raw`.
-- [ ] Upload progress uses the same terminal mode selection, human-readable size and speed formatting, and rich/plain output conventions as download progress.
-- [ ] Upload progress includes transferred bytes, total bytes, percentage, and transfer speed when those values are available.
-- [ ] Final success output on stdout (`share-url:`, `share-key:`, `file-id:`, or JSON) is byte-identical to current output, and any progress UI is finished or cleared before it is written.
-- [ ] On failure, the final error output on stderr is written after the progress UI is finished or cleared and identifies the failed file.
-- [ ] Non-interactive, redirected, and CI runs use deterministic plain progress output instead of interactive rendering.
-- [ ] Machine-readable output modes (JSON, key-value) emit no progress output at all.
-- [ ] Tests cover encrypted content progress reporting, single-file upload progress, multi-file upload progress, failure output, JSON stdout preservation, and upload progress mode selection.
+- [x] Single-file CLI uploads display progress while bytes are being transferred.
+- [x] Multi-file CLI uploads display progress while each file is being transferred.
+- [x] Multi-file progress includes the current file position and total file count.
+- [x] Progress reporting applies to both `shadowdrop upload` and `shadowdrop upload raw`.
+- [x] Upload progress uses the same terminal mode selection, human-readable size and speed formatting, and rich/plain output conventions as download progress.
+- [x] Upload progress includes transferred bytes, total bytes, and percentage; transfer speed is shown once enough elapsed time has passed to compute it.
+- [x] Final success output on stdout (`share-url:`, `share-key:`, `file-id:`, or JSON) is byte-identical to current output, and any progress UI is finished or cleared before it is written.
+- [x] On failure, the final error output on stderr is written after the progress UI is finished or cleared and identifies the failed file.
+- [x] Non-interactive, redirected, and CI runs use deterministic plain progress output on stderr instead of interactive rendering.
+- [x] The default (key-value) output mode displays upload progress on stderr; the `--json` output mode emits no progress or lifecycle output at all.
+- [x] Progress and lifecycle output is never written to stdout in any mode.
+- [x] Tests cover encrypted content progress reporting, single-file upload progress, multi-file upload progress, failure output, JSON stdout preservation, and upload progress mode selection.
 
 ## Technical Details
 
-Introduce an upload progress reporting abstraction rather than extending the current `UploadProgressReporter` post-result helper in place. The shape can mirror the download progress stack in `ShadowDrop.Cli.Downloads.Progress`: a mode selector based on `ITerminalCapabilityProvider`, a rich Spectre.Console reporter for interactive terminals, a deterministic plain reporter for redirected/CI runs, and a null reporter for machine-readable output: JSON and key-value modes emit no progress or lifecycle output at all, only final output and real errors. Unlike downloads, upload command stdout is still a parseable contract (`share-url:`, `share-key:`, `file-id:`, or JSON), so in the human-readable modes upload progress and lifecycle lines go to stderr, never stdout.
+Introduce an upload progress reporting abstraction rather than extending the current `UploadProgressReporter` post-result helper in place. The shape can mirror the download progress stack in `ShadowDrop.Cli.Downloads.Progress`: a mode selector, a rich Spectre.Console reporter for interactive terminals, a deterministic plain reporter for redirected/CI runs, and a null reporter for `--json`, which emits no progress or lifecycle output at all, only final output and real errors. Because upload progress renders on stderr (not stdout as downloads do), the mode selection follows stderr's capabilities via `ITerminalCapabilityProvider.DetectForStandardError()`. Unlike downloads, upload command stdout is always a parseable contract (`share-url:`, `share-key:`, `file-id:`, or JSON), so upload progress and lifecycle lines always go to stderr, never stdout, and are suppressed entirely under `--json`.
 
 Thread progress through the upload execution path. `UploadCommandHandler` and `UploadRawCommandHandler` should create the reporter and pass it into `UploadCommandExecutor.ExecuteAsync`. The executor already owns batch order, file numbers, preflight, and failure stopping behavior, so it is the right layer to call file-start, file-success, file-failure, and batch-complete reporter methods. Keep the existing final result handling in the command handlers so share creation, queue generation, credential delivery, and JSON/key-value output are not mixed into the progress implementation. `upload --interactive` remains in scope only after the guided prompts complete: once it delegates to `UploadCommandHandler`, it should use the same upload progress behavior as the non-interactive `upload` command.
 

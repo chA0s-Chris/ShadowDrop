@@ -468,6 +468,7 @@ internal static class CliApplication
                                                      httpClient,
                                                      services.StandardOut,
                                                      services.StandardError,
+                                                     services.UploadProgressReporterFactory,
                                                      bannerWriter).ExecuteAsync(rawOptions, cancellationToken);
         }
 
@@ -600,6 +601,7 @@ internal static class CliApplication
                                                              services.StandardOut,
                                                              services.StandardError,
                                                              services.TimeProvider,
+                                                             services.UploadProgressReporterFactory,
                                                              bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
         }
 
@@ -614,6 +616,7 @@ internal static class CliApplication
                                               services.StandardOut,
                                               services.StandardError,
                                               services.TimeProvider,
+                                              services.UploadProgressReporterFactory,
                                               bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
     }
 

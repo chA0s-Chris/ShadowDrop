@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Uploads;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Output;
 using ShadowDrop.Cli.Results;
+using ShadowDrop.Cli.Uploads.Progress;
 using System.Text.Json;
 
 /// <summary>
@@ -17,6 +18,7 @@ internal sealed class UploadRawCommandHandler(
     HttpClient httpClient,
     TextWriter standardOut,
     TextWriter standardError,
+    IUploadProgressReporterFactory uploadProgressReporterFactory,
     CliBannerWriter bannerWriter)
 {
     public async Task<Int32> ExecuteAsync(UploadRawCommandOptions options, CancellationToken cancellationToken)
@@ -43,8 +45,12 @@ internal sealed class UploadRawCommandHandler(
         }
 
         var executor = new UploadCommandExecutor(httpClient);
-        var uploadResult = await executor.ExecuteAsync(options.Files, configuration.ServerUrl, configuration.UploadToken, cancellationToken);
-        await UploadProgressReporter.ReportAsync(standardError, uploadResult, options.Files.Length);
+        var uploadResult =
+            await executor.ExecuteAsync(options.Files,
+                                        configuration.ServerUrl,
+                                        configuration.UploadToken,
+                                        uploadProgressReporterFactory.Create(options.Json),
+                                        cancellationToken);
 
         var uploadedFileIds = uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray();
 
