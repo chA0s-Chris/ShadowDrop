@@ -536,6 +536,12 @@ internal static class CliApplication
                 return 1;
             }
 
+            if (options.Out is not null && String.IsNullOrWhiteSpace(options.Out))
+            {
+                await services.StandardError.WriteLineAsync("The --out option requires a non-empty path.");
+                return 1;
+            }
+
             if (options.Out is not null && options.QueuePath is not null)
             {
                 await services.StandardError.WriteLineAsync("The --out option cannot be combined with --queue. Use --output-root instead.");

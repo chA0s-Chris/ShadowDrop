@@ -605,6 +605,21 @@ public sealed class DownloadCommandHandlerTests
         standardError.ToString().Should().Contain("The --out option cannot be combined with --queue. Use --output-root instead.");
     }
 
+    [TestCase("")]
+    [TestCase("   ")]
+    public async Task InvokeAsync_ShouldFail_WhenOutIsEmptyOrWhitespace(String outValue)
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "https://shadowdrop.test/d/share-token", "--share-key", ValidShareKey, "--out", outValue],
+            CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --out option requires a non-empty path.");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldFail_WhenOutParentDirectoryCannotBeCreated()
     {
