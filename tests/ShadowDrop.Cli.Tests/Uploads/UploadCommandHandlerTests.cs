@@ -113,15 +113,19 @@ public sealed class UploadCommandHandlerTests
         // The banner is written to stderr right before the success output, after the per-file progress lines.
         var expectedBanner = new StringWriter();
         await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
-        standardError.ToString().Should()
-                     .Contain("START 1/3 first.bin (32 B)")
-                     .And.Contain("SUCCESS 1/3 first.bin (32 B/32 B (100.0%)")
-                     .And.Contain("START 2/3 second.bin (64 B)")
-                     .And.Contain("SUCCESS 2/3 second.bin (64 B/64 B (100.0%)")
-                     .And.Contain("START 3/3 third.bin (112 B)")
-                     .And.Contain("SUCCESS 3/3 third.bin (112 B/112 B (100.0%)")
-                     .And.NotContain("PROGRESS")
-                     .And.Contain(expectedBanner.ToString());
+        var standardErrorText = standardError.ToString();
+        standardErrorText.Should()
+                         .Contain("START 1/3 first.bin (32 B)")
+                         .And.Contain("SUCCESS 1/3 first.bin (32 B/32 B (100.0%)")
+                         .And.Contain("START 2/3 second.bin (64 B)")
+                         .And.Contain("SUCCESS 2/3 second.bin (64 B/64 B (100.0%)")
+                         .And.Contain("START 3/3 third.bin (112 B)")
+                         .And.Contain("SUCCESS 3/3 third.bin (112 B/112 B (100.0%)")
+                         .And.NotContain("PROGRESS")
+                         .And.Contain(expectedBanner.ToString());
+        // The banner is emitted after the per-file progress lines, so it must appear after the final SUCCESS line.
+        standardErrorText.IndexOf(expectedBanner.ToString(), StringComparison.Ordinal)
+                         .Should().BeGreaterThan(standardErrorText.IndexOf("SUCCESS 3/3 third.bin", StringComparison.Ordinal));
         fixture.GetStoredUploads().Should().HaveCount(3);
     }
 

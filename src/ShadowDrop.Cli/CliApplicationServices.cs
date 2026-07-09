@@ -25,14 +25,11 @@ internal sealed record CliApplicationServices(
                                   TextWriter standardOut,
                                   TextWriter standardError)
         : this(configurationResolver,
-               _ => httpClient,
+               httpClient,
                standardOut,
                standardError,
                new SpectreCliInteractiveSession(standardError),
-               TimeProvider.System,
-               new DownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
-               new UploadProgressReporterFactory(standardError, TimeProvider.System, new TerminalCapabilityProvider()),
-               new TerminalCapabilityProvider()) { }
+               TimeProvider.System) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -41,14 +38,12 @@ internal sealed record CliApplicationServices(
                                   ICliInteractiveSession interactiveSession,
                                   TimeProvider timeProvider)
         : this(configurationResolver,
-               _ => httpClient,
+               httpClient,
                standardOut,
                standardError,
                interactiveSession,
                timeProvider,
-               new DownloadProgressReporterFactory(standardOut, standardError, timeProvider),
-               new UploadProgressReporterFactory(standardError, timeProvider, new TerminalCapabilityProvider()),
-               new TerminalCapabilityProvider()) { }
+               new DownloadProgressReporterFactory(standardOut, standardError, timeProvider)) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
                                   HttpClient httpClient,
@@ -58,13 +53,12 @@ internal sealed record CliApplicationServices(
                                   TimeProvider timeProvider,
                                   IDownloadProgressReporterFactory downloadProgressReporterFactory)
         : this(configurationResolver,
-               _ => httpClient,
+               httpClient,
                standardOut,
                standardError,
                interactiveSession,
                timeProvider,
                downloadProgressReporterFactory,
-               new UploadProgressReporterFactory(standardError, timeProvider, new TerminalCapabilityProvider()),
                new TerminalCapabilityProvider()) { }
 
     public CliApplicationServices(CliConfigurationResolver configurationResolver,
