@@ -143,10 +143,11 @@ try {
     $namePattern = "-" + [Regex]::Escape($rid) + "\.exe$"
     $manifestEntries = @()
     foreach ($line in [IO.File]::ReadAllLines($checksumFile)) {
-        if ($line -match '^([0-9A-Fa-f]{64})\s+\*?(.+?)\s*$' -and $Matches[2] -match $namePattern) {
+        $manifestMatch = [Regex]::Match($line, '^([0-9A-Fa-f]{64})\s+\*?(.+?)\s*$')
+        if ($manifestMatch.Success -and $manifestMatch.Groups[2].Value -match $namePattern) {
             $manifestEntries += [PSCustomObject]@{
-                Hash = $Matches[1].ToLowerInvariant()
-                Name = $Matches[2]
+                Hash = $manifestMatch.Groups[1].Value.ToLowerInvariant()
+                Name = $manifestMatch.Groups[2].Value
             }
         }
     }
