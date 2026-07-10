@@ -52,24 +52,32 @@ control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before goi
 
 ## Quick start: CLI
 
-Download the binary for your platform from the
-[releases page](https://github.com/chA0s-Chris/ShadowDrop/releases) (verify it
-against `CHECKSUMS.sha256` — see [docs/CLI.md](docs/CLI.md#installation)) and put
-it on your `PATH` as `shadowdrop`:
+On Linux and macOS, install the latest stable CLI to `~/.local/bin`:
 
 ```bash
-VERSION=1.0.0
-curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-${VERSION}-linux-x64"
-install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh
 ```
 
-On Windows, download `shadowdrop-<version>-win-x64.exe` and copy it to a
-directory on your `PATH` as `shadowdrop.exe`, e.g. in PowerShell:
+On Windows, install it to `$env:LOCALAPPDATA\ShadowDrop\bin`:
 
 ```powershell
-$Version = "1.0.0"
-Copy-Item "shadowdrop-$Version-win-x64.exe" "$Env:LOCALAPPDATA\Microsoft\WindowsApps\shadowdrop.exe"
+iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1 | iex
 ```
+
+Both installers detect the platform, verify the selected binary against the
+release's `CHECKSUMS.sha256`, replace an existing installation, and warn when
+the target directory is not on `PATH`. Override the install directory with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir "$HOME/bin"
+```
+
+```powershell
+& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
+```
+
+See the [CLI installation guide](docs/CLI.md#installation) for supported
+platforms, manual checksum verification, and `PATH` guidance.
 
 Point the CLI at your server. The upload token **is** the admin bearer token
 (the bootstrap admin token from above) — uploads go through the admin API, so
@@ -121,14 +129,6 @@ configuration sources, download queues, and credential-handling options.
 
 ## Current MVP limitations
 
-- **Release publishing is not wired up yet.** The release workflow builds the
-  release artifacts and the multi-platform Docker image, but nothing is
-  published to Docker Hub or GitHub releases yet. Until the first release lands, build locally:
-  `bash build.sh BuildDockerImage` for the image and
-  `bash build.sh PublishCli` for the CLI.
-- Release CLI binaries are named `shadowdrop-<version>-<platform>` (the same
-  names `bash build.sh PublishCli` produces locally); the documented install
-  step above places the binary on your `PATH` as `shadowdrop`.
 - There is no separate upload-token provisioning: uploading requires the admin
   bearer token and therefore access to the admin exposure boundary.
 - There is no web UI; shares are consumed via the CLI or direct HTTP.
