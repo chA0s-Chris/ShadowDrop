@@ -8,41 +8,61 @@ workflows.
 
 ## Installation
 
-Download the binary for your platform from the
+The supported installers detect the operating system and CPU architecture,
+download the matching release binary, verify it against `CHECKSUMS.sha256`,
+and replace an existing user-scoped installation.
+
+On Linux and macOS, install the latest stable release to `~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh
+```
+
+Pass options after `sh -s --` to override the install directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir "$HOME/bin"
+```
+
+On Windows PowerShell 5.1 or PowerShell 7, install the latest stable release to
+`$env:LOCALAPPDATA\ShadowDrop\bin`:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1 | iex
+```
+
+Plain `iwr ... | iex` cannot pass parameters. Use scriptblock invocation for a
+custom install directory:
+
+```powershell
+& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
+```
+
+The installers warn if the destination is absent from the current `PATH`. Add
+the Unix default for the current shell with
+`export PATH="$HOME/.local/bin:$PATH"`, or the Windows default with
+`$env:PATH = "$env:LOCALAPPDATA\ShadowDrop\bin;$env:PATH"`.
+
+For manual installation, download the binary for your platform from the
 [GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases). Each
 release ships single-file native binaries named
 `shadowdrop-<version>-<platform>` for `linux-x64`, `linux-arm64`,
 `osx-x64`, `osx-arm64`, `win-x64`, and `win-arm64` (Windows binaries end in
-`.exe`), plus a `CHECKSUMS.sha256` file.
-
-Verify the checksum, then install the binary as `shadowdrop` (`shadowdrop.exe`
-on Windows). On Linux/macOS:
+`.exe`), plus a `CHECKSUMS.sha256` file. Verify the exact binary against its
+manifest entry before installing it as `shadowdrop` or `shadowdrop.exe`:
 
 ```bash
-VERSION=1.0.0
-curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/shadowdrop-${VERSION}-linux-x64"
-curl -LO "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v${VERSION}/CHECKSUMS.sha256"
-if command -v sha256sum >/dev/null; then sum="sha256sum"; else sum="shasum -a 256"; fi
-grep "shadowdrop-${VERSION}-linux-x64" CHECKSUMS.sha256 | $sum -c -
-install -m 755 "shadowdrop-${VERSION}-linux-x64" ~/.local/bin/shadowdrop
+ASSET=shadowdrop-<version>-linux-x64
+grep "  ${ASSET}$" CHECKSUMS.sha256 | sha256sum -c -
 ```
 
-On Windows (PowerShell), verify the checksum and copy the binary to a directory
-on your `PATH` as `shadowdrop.exe`:
+On macOS, use the matching `osx-*` asset and replace `sha256sum` with
+`shasum -a 256`. On Windows, compare the manifest's exact asset entry with:
 
 ```powershell
-$Version = "1.0.0"
-Invoke-WebRequest "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v$Version/shadowdrop-$Version-win-x64.exe" -OutFile "shadowdrop-$Version-win-x64.exe"
-Invoke-WebRequest "https://github.com/chA0s-Chris/ShadowDrop/releases/download/v$Version/CHECKSUMS.sha256" -OutFile "CHECKSUMS.sha256"
 # Confirm the hash matches the CHECKSUMS.sha256 entry for this file:
-(Get-FileHash "shadowdrop-$Version-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
-Copy-Item "shadowdrop-$Version-win-x64.exe" "$Env:LOCALAPPDATA\Microsoft\WindowsApps\shadowdrop.exe"
+(Get-FileHash "shadowdrop-<version>-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
 ```
-
-> **Note:** Release publishing is not wired up yet (see the MVP limitations in
-> the [README](../README.md)). Until the first release lands, build the CLI
-> locally with `bash build.sh PublishCli`; the binaries appear under
-> `artifacts/publish/cli/`.
 
 ## Commands
 

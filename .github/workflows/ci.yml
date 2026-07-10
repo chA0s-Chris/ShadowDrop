@@ -63,3 +63,45 @@ jobs:
         with:
           header: code-coverage
           path: code-coverage-results.md
+
+  installer-tests-unix:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bats
+        id: setup-bats
+        uses: bats-core/bats-action@4.0.0
+        with:
+          bats-version: 1.12.0
+          support-install: false
+          assert-install: false
+          detik-install: false
+          file-install: false
+
+      - name: Run installer tests
+        run: bats tests/install.bats
+
+  installer-tests-windows:
+    strategy:
+      matrix:
+        shell: [ powershell, pwsh ]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Pester
+        run: |
+          [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -SkipPublisherCheck -Scope CurrentUser
+
+      - name: Run installer tests
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1 -Force
+          Invoke-Pester -Path tests/install.Tests.ps1 -CI
