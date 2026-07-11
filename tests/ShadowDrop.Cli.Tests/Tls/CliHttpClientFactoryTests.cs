@@ -10,6 +10,14 @@ using System.Net.Security;
 public sealed class CliHttpClientFactoryTests
 {
     [Test]
+    public void CreateClient_ShouldDisableOverallRequestTimeout()
+    {
+        using var client = CliHttpClientFactory.CreateClient(CliTlsOptions.Default);
+
+        client.Timeout.Should().Be(Timeout.InfiniteTimeSpan);
+    }
+
+    [Test]
     public void CreateCustomTrustValidationCallback_ShouldAcceptLeafChainingToTrustedRoot()
     {
         using var root = TestCertificateAuthority.CreateSelfSignedRoot();

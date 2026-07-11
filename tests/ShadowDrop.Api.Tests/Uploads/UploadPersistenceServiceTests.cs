@@ -139,6 +139,24 @@ public sealed class UploadPersistenceServiceTests
     }
 
     [Test]
+    public async Task PersistAsync_ShouldDeletePartialBlobAndReleaseClaim_WhenUploadIsCanceled()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+        var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
+        var request = await CreateReservedRequestAsync(repository);
+        await using var content = new CancelingStream(CreateCiphertext());
+
+        var act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        Directory.EnumerateFiles(options.Storage.LocalRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
+        (await repository.TryClaimReservationAsync(request.FileId, CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Test]
     public async Task PersistAsync_ShouldLogCompletionWithSizesButNoSecretMaterial()
     {
         await using var fixture = new UploadPersistenceFixture();
@@ -404,6 +422,22 @@ public sealed class UploadPersistenceServiceTests
             SaveStarted.TrySetResult();
             await AllowSaveToFinish.Task.WaitAsync(cancellationToken);
             return new($"blob/{fileId:N}.blob", encryptedContent.Length);
+        }
+    }
+
+    private sealed class CancelingStream(Byte[] content) : MemoryStream(content, false)
+    {
+        private Boolean _hasRead;
+
+        public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (_hasRead)
+            {
+                throw new OperationCanceledException("Simulated interrupted request body.");
+            }
+
+            _hasRead = true;
+            return base.ReadAsync(buffer[..Math.Min(buffer.Length, 32)], cancellationToken);
         }
     }
 

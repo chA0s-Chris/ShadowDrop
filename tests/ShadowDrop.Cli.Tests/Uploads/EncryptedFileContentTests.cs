@@ -109,6 +109,28 @@ public sealed class EncryptedFileContentTests
     }
 
     [Test]
+    public async Task CopyToAsync_ShouldReportActivityAfterEachEncryptedWrite()
+    {
+        var filePath = Path.Combine(TestContext.CurrentContext.WorkDirectory, $"activity-{Guid.NewGuid():N}.bin");
+        await File.WriteAllBytesAsync(filePath, Enumerable.Range(0, 10).Select(static value => (Byte)value).ToArray());
+        using var shareSecret = ShareSecret.Generate();
+        var context = new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
+        var activityCount = 0;
+
+        try
+        {
+            using var content = new EncryptedFileContent(new(filePath), shareSecret, context, 4, 58, null, CancellationToken.None, () => activityCount++);
+            await content.CopyToAsync(Stream.Null);
+
+            activityCount.Should().Be(3);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Test]
     public async Task CopyToAsync_ShouldReportCumulativeEncryptedBytesAfterEachChunk()
     {
         const Int32 chunkSize = 128;

@@ -108,6 +108,28 @@ public sealed class SpectreUploadProgressReporterTests
     }
 
     [Test]
+    public async Task RunFileAsync_ShouldReportOnlyFinalAttemptBytes_AfterRetry()
+    {
+        using var console = new TestConsole();
+        using var errorConsole = new TestConsole();
+        var reporter = CreateReporter(console, errorConsole);
+
+        var result = await reporter.RunFileAsync<String>(File, async (sink, cancellationToken) =>
+        {
+            sink!.Bytes.Report(24);
+            await sink.RetryingAsync(2, cancellationToken);
+            sink.Bytes.Report(8);
+            return "share-1";
+        }, _ => null, CancellationToken.None);
+
+        result.Value.Should().Be("share-1");
+        console.Output.Should().Contain("RETRY 1/1 alpha.bin attempt 2")
+               .And.Contain("SUCCESS")
+               .And.Contain("8 B/32 B")
+               .And.NotContain("-");
+    }
+
+    [Test]
     public async Task ReportFileFailureAsync_ShouldWriteFailedLineToErrorConsole()
     {
         using var console = new TestConsole();

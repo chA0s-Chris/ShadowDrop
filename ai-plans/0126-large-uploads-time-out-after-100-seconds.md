@@ -6,18 +6,18 @@ Make the timeout policy intentional for long-running streaming uploads, keep can
 
 ## Acceptance Criteria
 
-- [ ] Streaming upload attempts have no total-duration timeout and are not subject to `HttpClient`'s default 100-second overall request timeout.
-- [ ] Each upload attempt has a fixed, non-configurable 10-minute inactivity timeout that resets whenever encrypted request bytes are successfully written; expiration is treated as a transient transport failure under the existing retry policy.
-- [ ] Caller cancellation stops the active upload immediately without retrying, while non-streaming control-plane requests retain a 100-second total deadline and streaming download requests remain exempt from any total-duration deadline.
-- [ ] Retriable upload failures still use the existing bounded attempt count and restart the non-resumable request from byte zero.
-- [ ] Rich upload progress represents each retry as a new attempt without displaying a negative transfer speed, resets its byte, timer, and speed state, and preserves one clear retry notification and terminal result per file.
-- [ ] Terminal byte, elapsed-time, and average-speed statistics describe only the final upload attempt.
-- [ ] If an upload is interrupted before the API receives or claims it, its unclaimed reservation remains subject to the existing one-day expiration and pruning policy.
-- [ ] If an upload is interrupted after the API claims its reservation, partial blob data is deleted and the claim is released so the reservation can be retried while it remains valid.
-- [ ] Deployment documentation includes an nginx streaming-upload example that distinguishes request buffering from response buffering and explains temporary-storage and upstream-retry trade-offs.
-- [ ] Deployment documentation explains multipart request-size headroom, upstream HTTP/1.1 compatibility, inactivity timeout semantics, and limits imposed by additional proxy layers.
-- [ ] Nginx Proxy Manager guidance identifies the Proxy Host's **Advanced** custom nginx configuration and tells operators to align its values with their ShadowDrop limits.
-- [ ] Automated tests cover the explicit HTTP timeout policy, long-running upload behavior without a real 100-second delay, timeout versus caller-cancellation classification, bounded retries, retry-safe rich progress, and interrupted reservation/blob cleanup behavior.
+- [x] Streaming upload attempts have no total-duration timeout and are not subject to `HttpClient`'s default 100-second overall request timeout.
+- [x] Each upload attempt has a fixed, non-configurable 10-minute inactivity timeout that resets whenever encrypted request bytes are successfully written; expiration is treated as a transient transport failure under the existing retry policy.
+- [x] Caller cancellation stops the active upload immediately without retrying, while non-streaming control-plane requests retain a 100-second total deadline and streaming download requests remain exempt from any total-duration deadline.
+- [x] Retriable upload failures still use the existing bounded attempt count and restart the non-resumable request from byte zero.
+- [x] Rich upload progress represents each retry as a new attempt without displaying a negative transfer speed, resets its byte, timer, and speed state, and preserves one clear retry notification and terminal result per file.
+- [x] Terminal byte, elapsed-time, and average-speed statistics describe only the final upload attempt.
+- [x] If an upload is interrupted before the API receives or claims it, its unclaimed reservation remains subject to the existing one-day expiration and pruning policy.
+- [x] If an upload is interrupted after the API claims its reservation, partial blob data is deleted and the claim is released so the reservation can be retried while it remains valid.
+- [x] Deployment documentation includes an nginx streaming-upload example that distinguishes request buffering from response buffering and explains temporary-storage and upstream-retry trade-offs.
+- [x] Deployment documentation explains multipart request-size headroom, upstream HTTP/1.1 compatibility, inactivity timeout semantics, and limits imposed by additional proxy layers.
+- [x] Nginx Proxy Manager guidance identifies the Proxy Host's **Advanced** custom nginx configuration and tells operators to align its values with their ShadowDrop limits.
+- [x] Automated tests cover the explicit HTTP timeout policy, long-running upload behavior without a real 100-second delay, timeout versus caller-cancellation classification, bounded retries, retry-safe rich progress, and interrupted reservation/blob cleanup behavior.
 
 ## Technical Details
 

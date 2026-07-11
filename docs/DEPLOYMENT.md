@@ -109,6 +109,57 @@ public, TLS-terminated hostname (e.g. `https://drop.example.com`), not an
 internal address — otherwise the URLs you hand to recipients will point at a
 host they cannot reach.
 
+### Streaming large uploads through nginx
+
+Every reverse proxy, ingress, load balancer, and CDN in the request path must
+permit the complete multipart request and a transfer lasting as long as the
+slowest supported connection. The body-size limit needs headroom beyond the
+encrypted file itself for multipart boundaries and metadata, and should be
+aligned with ShadowDrop's effective Kestrel request-body limit.
+
+The following nginx location is representative; the `5g` body size gives the
+default 4 GiB upload limit (`ShadowDrop:Upload:MaxBytes`) headroom for multipart
+boundaries and metadata. Adjust the size and timeout values to match your
+ShadowDrop configuration and operating policy:
+
+```nginx
+location /api/admin/uploads {
+    client_max_body_size 5g;
+    client_body_timeout 10m;
+
+    proxy_request_buffering off;
+    proxy_http_version 1.1;
+    proxy_send_timeout 10m;
+    proxy_read_timeout 10m;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass http://shadowdrop:19423;
+}
+```
+
+`proxy_request_buffering off` streams client request bytes to ShadowDrop
+immediately. This is distinct from `proxy_buffering`, which controls response
+buffering and does not change upload handling. With request buffering enabled,
+nginx may place the entire body in client-body temporary storage before the API
+sees the request. Disabling it avoids that temporary-file cost, but nginx can no
+longer retry a partially forwarded, non-resumable upload against another
+upstream. Explicit HTTP/1.1 upstream proxying also preserves streaming
+compatibility with older nginx versions that might otherwise buffer chunked
+requests.
+
+`client_body_timeout`, `proxy_send_timeout`, and `proxy_read_timeout` are
+inactivity limits between successive I/O operations, not total-transfer
+deadlines. Keep them finite to remove stalled connections, while choosing
+values suitable for the slowest expected client. Additional proxy layers may
+still impose their own body-size, inactivity, or total-duration limits.
+
+For Nginx Proxy Manager, add the server-compatible directives to the Proxy
+Host's **Advanced** custom nginx configuration. Align the example body size and
+timeouts with the limits configured for that ShadowDrop deployment; depending
+on the generated configuration, a dedicated location may need to be expressed
+using Nginx Proxy Manager's supported custom-location form.
+
 ## Health check
 
 The server exposes `GET /health` for liveness probes.

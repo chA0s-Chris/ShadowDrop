@@ -60,14 +60,16 @@ internal sealed class SpectreUploadProgressReporter(IAnsiConsole console, IAnsiC
         T? value = default;
         String? failureMessage = null;
         Int64 transferredBytes = 0;
-        var start = timeProvider.GetTimestamp();
+        var attemptStart = timeProvider.GetTimestamp();
 
         await CreateProgress().StartAsync(async context =>
         {
-            var task = context.AddTask(Markup.Escape(FormatDescription(file)), new ProgressTaskSettings
+            ProgressTask CreateTask() => context.AddTask(Markup.Escape(FormatDescription(file)), new ProgressTaskSettings
             {
                 MaxValue = file.TotalBytes > 0 ? file.TotalBytes : 1
             });
+
+            var task = CreateTask();
             var progress = new SynchronousProgress(bytes =>
             {
                 transferredBytes = Math.Clamp(bytes, 0, file.TotalBytes);
@@ -75,8 +77,10 @@ internal sealed class SpectreUploadProgressReporter(IAnsiConsole console, IAnsiC
             });
             var sink = new UploadProgressSink(progress, (attempt, _) =>
             {
-                task.Value = 0;
+                task.StopTask();
+                task = CreateTask();
                 transferredBytes = 0;
+                attemptStart = timeProvider.GetTimestamp();
                 console.MarkupLineInterpolated($"RETRY {FormatFile(file)} attempt {attempt}");
                 return Task.CompletedTask;
             });
@@ -99,7 +103,7 @@ internal sealed class SpectreUploadProgressReporter(IAnsiConsole console, IAnsiC
             }
         });
 
-        var elapsed = timeProvider.GetElapsedTime(start);
+        var elapsed = timeProvider.GetElapsedTime(attemptStart);
         if (failureMessage is not null)
         {
             errorConsole.MarkupLineInterpolated(

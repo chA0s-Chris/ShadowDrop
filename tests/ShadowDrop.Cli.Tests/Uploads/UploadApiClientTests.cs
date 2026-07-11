@@ -202,6 +202,26 @@ public sealed class UploadApiClientTests
     }
 
     [Test]
+    public async Task UploadAsync_ShouldRetryInactivityTimeout_AsTransientFailure()
+    {
+        using var shareSecret = ShareSecret.Generate();
+        using var fixture = new UploadFilePlanFixture();
+        var timeProvider = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var stallEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new StallFirstAttemptHandler(fixture.FileId, stallEntered);
+        using var httpClient = new HttpClient(handler);
+        var sut = new UploadApiClient(httpClient, static (_, _) => Task.CompletedTask, timeProvider);
+
+        var uploadTask = sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
+        await stallEntered.Task;
+        timeProvider.Advance(UploadAttemptTimeout.InactivityTimeout);
+        var uploadedFileId = await uploadTask;
+
+        uploadedFileId.Should().Be(fixture.FileId);
+        handler.RequestCount.Should().Be(2);
+    }
+
+    [Test]
     public void UploadMetadataPayloadSerialization_ShouldPreserveMultipartContract()
     {
         var fileId = Guid.Parse("11111111-2222-3333-4444-555555555555");
@@ -235,6 +255,29 @@ public sealed class UploadApiClientTests
         document.RootElement.GetProperty("fileId").GetGuid().Should().Be(fileId);
         document.RootElement.GetProperty("originalFileName").GetString().Should().Be("payload.bin");
         document.RootElement.GetProperty("plaintextSha256").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private sealed class StallFirstAttemptHandler(Guid fileId, TaskCompletionSource stallEntered) : HttpMessageHandler
+    {
+        public Int32 RequestCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            if (RequestCount == 1)
+            {
+                stallEntered.SetResult();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }
+
+            return new(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    fileId
+                })
+            };
+        }
     }
 
     private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
