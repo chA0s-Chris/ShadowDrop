@@ -4,5 +4,9 @@ namespace ShadowDrop.Api.Configuration;
 
 public sealed class StorageOptions
 {
+    public String GridFsBucketName { get; set; } = "shadowdrop_blobs";
+
     public String LocalRoot { get; set; } = String.Empty;
+
+    public BlobStorageProvider Provider { get; set; } = BlobStorageProvider.FileSystem;
 }

@@ -9,6 +9,17 @@
   "major": {
     "dependencyDashboardApproval": true
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/MongoDbTestImages\\.cs$/"
+      ],
+      "matchStrings": [
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) packageName=(?<packageName>\\S+)\\s+public const String \\w+ = \"mongo:(?<currentValue>[^\"]+)\";"
+      ]
+    }
+  ],
   "packageRules": [
     {
       "description": "Restore old NuGet update behavior for bare versions",
@@ -23,6 +34,13 @@
         "FluentAssertions"
       ],
       "allowedVersions": "<8"
+    },
+    {
+      "description": "Keep the minimum-version compatibility image on MongoDB 5.0 patches",
+      "matchDepNames": [
+        "mongo-5"
+      ],
+      "allowedVersions": "/^5\\.0\\./"
     },
     {
       "groupName": "Test SDK/MTP",

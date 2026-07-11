@@ -2,28 +2,21 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Shares;
 
-public sealed class ShareCleanupRunner(ShareCleanupService cleanupService, ILogger<ShareCleanupRunner> logger) : IDisposable
+public sealed class ShareCleanupRunner(
+    ShareCleanupService cleanupService,
+    IShareCleanupCoordinator coordinator,
+    ILogger<ShareCleanupRunner> logger)
 {
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
-
     public async Task<ShareCleanupResult> RunIfIdleAsync(CancellationToken cancellationToken)
     {
-        if (!await _semaphore.WaitAsync(0, cancellationToken))
+        await using var lease = await coordinator.TryAcquireAsync(cancellationToken);
+        if (lease is null)
         {
             logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress");
             return new(0, 0, 0, 0, 0, Skipped: true);
         }
 
         logger.LogInformation("Share cleanup started");
-        try
-        {
-            return await cleanupService.RunAsync(cancellationToken);
-        }
-        finally
-        {
-            _semaphore.Release();
-        }
+        return await cleanupService.RunAsync(cancellationToken);
     }
-
-    public void Dispose() => _semaphore.Dispose();
 }

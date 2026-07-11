@@ -24,7 +24,8 @@ public sealed class ShareCleanupServiceTests
                                                      new BlockingBlobStorage(),
                                                      timeProvider,
                                                      NullLogger<ShareCleanupService>.Instance);
-        using var runner = new ShareCleanupRunner(cleanupService, NullLogger<ShareCleanupRunner>.Instance);
+        using var coordinator = new InProcessShareCleanupCoordinator();
+        var runner = new ShareCleanupRunner(cleanupService, coordinator, NullLogger<ShareCleanupRunner>.Instance);
         var options = new ShadowDropOptions();
         using var hostedService = new ShareCleanupHostedService(runner, options, timeProvider, NullLogger<ShareCleanupHostedService>.Instance);
 
@@ -221,7 +222,8 @@ public sealed class ShareCleanupServiceTests
         var blobStorage = new LocalBlobStorage(options, NullLogger<LocalBlobStorage>.Instance);
         var cleanupService = CreateService(shareRepository, uploadedFileRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
         var collector = new FakeLogCollector();
-        using var sut = new ShareCleanupRunner(cleanupService, new FakeLogger<ShareCleanupRunner>(collector));
+        using var coordinator = new InProcessShareCleanupCoordinator();
+        var sut = new ShareCleanupRunner(cleanupService, coordinator, new FakeLogger<ShareCleanupRunner>(collector));
 
         var result = await sut.RunIfIdleAsync(CancellationToken.None);
 
@@ -252,7 +254,8 @@ public sealed class ShareCleanupServiceTests
         var blobStorage = new BlockingBlobStorage();
         var cleanupService = CreateService(shareRepository, uploadRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
         var collector = new FakeLogCollector();
-        using var runner = new ShareCleanupRunner(cleanupService, new FakeLogger<ShareCleanupRunner>(collector));
+        using var coordinator = new InProcessShareCleanupCoordinator();
+        var runner = new ShareCleanupRunner(cleanupService, coordinator, new FakeLogger<ShareCleanupRunner>(collector));
 
         var firstRun = runner.RunIfIdleAsync(CancellationToken.None);
         await blobStorage.DeleteStarted.Task;

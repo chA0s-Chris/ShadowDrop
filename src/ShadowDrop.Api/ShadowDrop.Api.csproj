@@ -9,6 +9,7 @@
     <DefineConstants>$(DefineConstants);ENABLE_THROTTLE_DOWNLOAD</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Chaos.Mongo" />
     <PackageReference Include="LiteDB" />
     <PackageReference Include="Cronos" />
     <PackageReference Include="Serilog.AspNetCore" />

@@ -87,6 +87,81 @@ token is not required. See
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#recommended-mitigations) for
 when to choose this shape.
 
+## Persistence providers
+
+Metadata and encrypted blobs are selected independently. The defaults remain
+LiteDB metadata and filesystem blobs, so existing deployments need no
+configuration change.
+
+| Metadata provider | Blob provider | Configuration values |
+| --- | --- | --- |
+| `LiteDb` | `FileSystem` | `Metadata:LiteDbPath`, `Storage:LocalRoot` |
+| `MongoDb` | `FileSystem` | MongoDB settings, `Storage:LocalRoot` |
+| `LiteDb` | `MongoGridFs` | `Metadata:LiteDbPath`, MongoDB settings, optional GridFS bucket name |
+| `MongoDb` | `MongoGridFs` | MongoDB settings and optional GridFS bucket name |
+
+For example, a fully MongoDB-backed container can be configured as follows:
+
+```bash
+docker run -d --name shadowdrop \
+  -p 19423:19423 \
+  --env-file /secure/path/shadowdrop.env \
+  -e ShadowDrop__Metadata__Provider=MongoDb \
+  -e ShadowDrop__Storage__Provider=MongoGridFs \
+  -e ShadowDrop__Storage__GridFsBucketName=shadowdrop_blobs \
+  -e ShadowDrop__Mongo__DatabaseName=shadowdrop \
+  chaos/shadowdrop:latest
+```
+
+The protected environment file supplies `ShadowDrop__Mongo__ConnectionString`
+and `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`. A production orchestrator should inject
+the same values through its secret manager. Do not put a credential-bearing
+connection string in an image, compose file committed to source control, or
+command history. ShadowDrop does not log the MongoDB connection string. It does
+log the selected provider names and database name during startup.
+
+MongoDB 5.0 is the initial minimum supported server version. Both standalone
+servers and replica sets are supported; the implementation does not depend on
+transactions. Sharded clusters have not been validated and are not supported
+by this initial release. Re-evaluate the minimum server version whenever
+Chaos.Mongo or MongoDB.Driver is upgraded.
+
+When either MongoDB provider is selected, startup verifies connectivity and
+creates the required collections/indexes before accepting traffic. Startup
+fails if MongoDB is unavailable or initialization fails. A purely local
+configuration does not create a MongoDB client and does not require MongoDB
+settings.
+
+### Scaling constraints
+
+All four combinations support a single application instance. For multiple
+instances:
+
+- MongoDB metadata with GridFS is the standard horizontally scaled setup.
+- MongoDB metadata with filesystem blobs is suitable only when `LocalRoot` is
+  a shared filesystem mounted consistently on every instance.
+- LiteDB metadata combinations remain single-instance configurations unless a
+  shared-storage arrangement is separately validated.
+- Selecting MongoDB only for GridFS enables distributed cleanup coordination,
+  but it does not make LiteDB metadata safe for multiple writers.
+
+MongoDB-backed cleanup uses a leased Chaos.Mongo distributed lock in addition
+to the in-process guard. Cleanup remains idempotent if a lease expires or an
+instance terminates partway through a run.
+
+### Switching, backup, and restore
+
+Changing a provider selects a different backend; it does **not** migrate data.
+Existing LiteDB metadata and filesystem blobs remain where they are until a
+separate migration facility is implemented. Plan and validate any provider
+change as an explicit data migration.
+
+Back up and restore the active metadata store and blob store as one consistent
+set. For GridFS, include both `<bucket>.files` and `<bucket>.chunks` alongside
+the metadata collections and the Chaos.Mongo lock collection. A mixed
+LiteDB/GridFS or MongoDB/filesystem deployment therefore requires coordinated
+backups across both systems. Test restoration before relying on a backup.
+
 ## TLS and reverse proxies
 
 Run a reverse proxy (Caddy, nginx, Traefik, an ingress controller, …) in front
