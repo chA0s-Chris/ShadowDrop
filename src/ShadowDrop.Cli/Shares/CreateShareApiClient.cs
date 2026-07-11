@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Shares;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Http;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -25,12 +26,13 @@ internal sealed class CreateShareApiClient(HttpClient httpClient)
         };
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", uploadToken);
 
+        using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(httpRequest, cancellationToken);
+            using var response = await httpClient.SendAsync(httpRequest, deadline.Token);
             return response.StatusCode switch
             {
-                HttpStatusCode.Created => await ReadResultAsync(response, cancellationToken),
+                HttpStatusCode.Created => await ReadResultAsync(response, deadline.Token),
                 HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => throw new CreateShareCommandException(
                     "Authentication token invalid or missing."),
                 HttpStatusCode.BadRequest => throw new CreateShareCommandException("Invalid share request."),
@@ -41,7 +43,7 @@ internal sealed class CreateShareApiClient(HttpClient httpClient)
         {
             throw new CreateShareCommandException("Server connection failed.", exception);
         }
-        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             throw new CreateShareCommandException("Server connection failed.", exception);
         }

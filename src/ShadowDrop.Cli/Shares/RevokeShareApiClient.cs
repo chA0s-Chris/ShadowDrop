@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Shares;
 
+using ShadowDrop.Cli.Http;
 using System.Net;
 using System.Net.Http.Headers;
 
@@ -19,9 +20,10 @@ internal sealed class RevokeShareApiClient(HttpClient httpClient)
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(serverUrl, $"/api/admin/shares/{shareId}/revoke"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", uploadToken);
 
+        using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, cancellationToken);
+            using var response = await httpClient.SendAsync(request, deadline.Token);
             switch (response.StatusCode)
             {
                 case HttpStatusCode.NoContent:
@@ -40,7 +42,7 @@ internal sealed class RevokeShareApiClient(HttpClient httpClient)
         {
             throw new RevokeShareCommandException("Server connection failed.", exception);
         }
-        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             throw new RevokeShareCommandException("Server connection failed.", exception);
         }

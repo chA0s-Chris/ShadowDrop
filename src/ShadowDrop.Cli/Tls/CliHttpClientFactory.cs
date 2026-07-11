@@ -17,7 +17,10 @@ internal static class CliHttpClientFactory
     /// <param name="options">The resolved TLS trust settings.</param>
     /// <returns>A new <see cref="HttpClient"/>; the caller owns its lifetime.</returns>
     /// <exception cref="CliTlsConfigurationException">The <c>--cacert</c> file is missing or not a valid PEM certificate.</exception>
-    public static HttpClient CreateClient(CliTlsOptions options) => new(CreateHandler(options));
+    public static HttpClient CreateClient(CliTlsOptions options) => new(CreateHandler(options))
+    {
+        Timeout = Timeout.InfiniteTimeSpan
+    };
 
     /// <summary>
     /// Creates the validation callback used by <c>--cacert</c>. The presented chain is still validated, but

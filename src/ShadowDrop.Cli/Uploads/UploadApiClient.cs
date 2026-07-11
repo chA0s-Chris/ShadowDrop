@@ -3,94 +3,91 @@
 namespace ShadowDrop.Cli.Uploads;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Http;
 using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Crypto;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, CancellationToken, Task>? delayAsync = null)
+internal sealed class UploadApiClient(
+    HttpClient httpClient,
+    Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
+    TimeProvider? timeProvider = null)
 {
     private const Int32 MaxAttempts = 3;
     private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
-    {
-        var response = await SendWithRetryAsync(() =>
-        {
-            var request = CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/admin/uploads/capabilities"), uploadToken);
-            return request;
-        }, cancellationToken);
-
-        using (response)
-        {
-            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+        => await SendWithRetryAsync(
+            (_, _) => CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/admin/uploads/capabilities"), uploadToken),
+            static async (response, responseCancellation) =>
             {
-                throw new UploadCommandException("Authentication token invalid or missing.");
-            }
+                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    throw new UploadCommandException("Authentication token invalid or missing.");
+                }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                throw CreateCapabilitiesFailure();
-            }
-
-            try
-            {
-                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                var capabilities =
-                    await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadCapabilitiesResponse, cancellationToken);
-                if (capabilities is null || capabilities.MaxFilePayloadBytes <= 0)
+                if (!response.IsSuccessStatusCode)
                 {
                     throw CreateCapabilitiesFailure();
                 }
 
-                return capabilities;
-            }
-            catch (JsonException)
-            {
-                throw CreateCapabilitiesFailure();
-            }
-        }
-    }
+                try
+                {
+                    await using var contentStream = await response.Content.ReadAsStreamAsync(responseCancellation);
+                    var capabilities =
+                        await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadCapabilitiesResponse, responseCancellation);
+                    if (capabilities is null || capabilities.MaxFilePayloadBytes <= 0)
+                    {
+                        throw CreateCapabilitiesFailure();
+                    }
+
+                    return capabilities;
+                }
+                catch (JsonException)
+                {
+                    throw CreateCapabilitiesFailure();
+                }
+            },
+            cancellationToken,
+            false);
 
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
-    {
-        var response = await SendWithRetryAsync(() =>
-        {
-            var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads/reservations"), uploadToken);
-            return request;
-        }, cancellationToken);
-
-        using (response)
-        {
-            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+        => await SendWithRetryAsync(
+            (_, _) => CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads/reservations"), uploadToken),
+            static async (response, responseCancellation) =>
             {
-                throw new UploadCommandException("Authentication token invalid or missing.");
-            }
+                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    throw new UploadCommandException("Authentication token invalid or missing.");
+                }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                throw CreateUploadFailure(response.StatusCode);
-            }
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw CreateUploadFailure(response.StatusCode);
+                }
 
-            try
-            {
-                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                var reservation =
-                    await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadReservationResponse, cancellationToken);
-                if (reservation is null || reservation.FileId == Guid.Empty)
+                try
+                {
+                    await using var contentStream = await response.Content.ReadAsStreamAsync(responseCancellation);
+                    var reservation =
+                        await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadReservationResponse, responseCancellation);
+                    if (reservation is null || reservation.FileId == Guid.Empty)
+                    {
+                        throw new UploadCommandException("Upload failed; please verify file and try again.");
+                    }
+
+                    return reservation.FileId;
+                }
+                catch (JsonException)
                 {
                     throw new UploadCommandException("Upload failed; please verify file and try again.");
                 }
-
-                return reservation.FileId;
-            }
-            catch (JsonException)
-            {
-                throw new UploadCommandException("Upload failed; please verify file and try again.");
-            }
-        }
-    }
+            },
+            cancellationToken,
+            false);
 
     public async Task<Guid> UploadAsync(Uri serverUrl,
                                         String uploadToken,
@@ -98,48 +95,50 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
                                         ShareSecret shareSecret,
                                         UploadProgressSink? progressSink,
                                         CancellationToken cancellationToken)
-    {
-        var response = await SendWithRetryAsync(() =>
-        {
-            var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads"), uploadToken);
-            request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, cancellationToken);
-            return request;
-        }, cancellationToken, progressSink);
-
-        using (response)
-        {
-            if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+        => await SendWithRetryAsync(
+            (requestCancellation, reportActivity) =>
             {
-                throw new UploadCommandException("Authentication token invalid or missing.");
-            }
-
-            if (response.StatusCode == HttpStatusCode.BadRequest || response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads"), uploadToken);
+                request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, requestCancellation, reportActivity);
+                return request;
+            },
+            static async (response, responseCancellation) =>
             {
-                throw new UploadCommandException("Upload failed; please verify file and try again.");
-            }
+                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
+                {
+                    throw new UploadCommandException("Authentication token invalid or missing.");
+                }
 
-            if (!response.IsSuccessStatusCode)
-            {
-                throw CreateUploadFailure(response.StatusCode);
-            }
-
-            try
-            {
-                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                var uploadResponse = await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadResponse, cancellationToken);
-                if (uploadResponse is null || uploadResponse.FileId == Guid.Empty)
+                if (response.StatusCode == HttpStatusCode.BadRequest || response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
                 {
                     throw new UploadCommandException("Upload failed; please verify file and try again.");
                 }
 
-                return uploadResponse.FileId;
-            }
-            catch (JsonException)
-            {
-                throw new UploadCommandException("Upload failed; please verify file and try again.");
-            }
-        }
-    }
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw CreateUploadFailure(response.StatusCode);
+                }
+
+                try
+                {
+                    await using var contentStream = await response.Content.ReadAsStreamAsync(responseCancellation);
+                    var uploadResponse =
+                        await JsonSerializer.DeserializeAsync(contentStream, CliJsonSerializerContext.Default.UploadResponse, responseCancellation);
+                    if (uploadResponse is null || uploadResponse.FileId == Guid.Empty)
+                    {
+                        throw new UploadCommandException("Upload failed; please verify file and try again.");
+                    }
+
+                    return uploadResponse.FileId;
+                }
+                catch (JsonException)
+                {
+                    throw new UploadCommandException("Upload failed; please verify file and try again.");
+                }
+            },
+            cancellationToken,
+            true,
+            progressSink);
 
     private static UploadCommandException CreateCapabilitiesFailure() =>
         new("Upload limit could not be resolved from the server; upgrade the server or verify connectivity.");
@@ -174,7 +173,8 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
     private MultipartFormDataContent CreateMultipartContent(UploadFilePlan plan,
                                                             ShareSecret shareSecret,
                                                             IProgress<Int64>? progress,
-                                                            CancellationToken cancellationToken)
+                                                            CancellationToken cancellationToken,
+                                                            Action? reportActivity)
     {
         var multipartContent = new MultipartFormDataContent();
         var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(plan.Metadata, CliJsonSerializerContext.Default.UploadMetadataPayload);
@@ -189,31 +189,37 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
                                      plan.ChunkSize,
                                      plan.Metadata.EncryptedLength,
                                      progress,
-                                     cancellationToken);
+                                     cancellationToken,
+                                     reportActivity);
         encryptedContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         multipartContent.Add(encryptedContent, "content", "cipher.bin");
         return multipartContent;
     }
 
-    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> requestFactory,
-                                                               CancellationToken cancellationToken,
-                                                               UploadProgressSink? progressSink = null)
+    private async Task<T> SendWithRetryAsync<T>(Func<CancellationToken, Action?, HttpRequestMessage> requestFactory,
+                                                Func<HttpResponseMessage, CancellationToken, Task<T>> processResponseAsync,
+                                                CancellationToken cancellationToken,
+                                                Boolean isStreamingUpload,
+                                                UploadProgressSink? progressSink = null)
     {
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
-            using var request = requestFactory();
+            using var uploadTimeout = isStreamingUpload ? new UploadAttemptTimeout(cancellationToken, _timeProvider) : null;
+            using var controlTimeout = isStreamingUpload ? null : new ControlPlaneTimeout(cancellationToken, _timeProvider);
+            var effectiveCancellation = uploadTimeout?.Token ?? controlTimeout!.Token;
+            Action? reportActivity = uploadTimeout is null ? null : uploadTimeout.Reset;
+            using var request = requestFactory(effectiveCancellation, reportActivity);
             try
             {
-                var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, effectiveCancellation);
                 if ((attempt < MaxAttempts) && IsTransientStatus(response.StatusCode))
                 {
-                    response.Dispose();
                     await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                     await _delayAsync(GetDelay(attempt), cancellationToken);
                     continue;
                 }
 
-                return response;
+                return await processResponseAsync(response, effectiveCancellation);
             }
             catch (HttpRequestException) when (attempt < MaxAttempts)
             {
@@ -224,12 +230,12 @@ internal sealed class UploadApiClient(HttpClient httpClient, Func<TimeSpan, Canc
             {
                 throw new UploadCommandException("Server connection failed.");
             }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < MaxAttempts)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && attempt < MaxAttempts)
             {
                 await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                 await _delayAsync(GetDelay(attempt), cancellationToken);
             }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 throw new UploadCommandException("Server connection failed.");
             }

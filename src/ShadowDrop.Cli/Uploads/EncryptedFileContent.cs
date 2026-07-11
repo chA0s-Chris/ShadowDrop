@@ -14,6 +14,7 @@ internal sealed class EncryptedFileContent : HttpContent
     private readonly FileEncryptionContext _encryptionContext;
     private readonly FileInfo _file;
     private readonly IProgress<Int64>? _progress;
+    private readonly Action? _reportActivity;
     private readonly ShareSecret _shareSecret;
 
     public EncryptedFileContent(FileInfo file,
@@ -22,7 +23,8 @@ internal sealed class EncryptedFileContent : HttpContent
                                 Int32 chunkSize,
                                 Int64 encryptedLength,
                                 IProgress<Int64>? progress,
-                                CancellationToken cancellationToken)
+                                CancellationToken cancellationToken,
+                                Action? reportActivity = null)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(shareSecret);
@@ -36,6 +38,7 @@ internal sealed class EncryptedFileContent : HttpContent
         _chunkSize = chunkSize;
         _encryptedLength = encryptedLength;
         _progress = progress;
+        _reportActivity = reportActivity;
         _cancellationToken = cancellationToken;
     }
 
@@ -79,6 +82,7 @@ internal sealed class EncryptedFileContent : HttpContent
                                                                              bytesRead,
                                                                              chunkIndex == chunkCount - 1));
                 await stream.WriteAsync(encryptedChunk.CiphertextMemory, effectiveCancellationToken);
+                _reportActivity?.Invoke();
                 encryptedBytesWritten += encryptedChunk.CiphertextMemory.Length;
                 _progress?.Report(encryptedBytesWritten);
                 chunkIndex++;
