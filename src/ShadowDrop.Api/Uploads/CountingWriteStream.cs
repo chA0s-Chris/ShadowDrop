@@ -2,6 +2,8 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Uploads;
 
+// Deliberately never disposes the inner stream: the caller owns its commit/abort lifecycle
+// (disposing a GridFSUploadStream commits the upload, which must not happen on exception unwind).
 internal sealed class CountingWriteStream(Stream inner) : Stream
 {
     public Int64 BytesWritten { get; private set; }
