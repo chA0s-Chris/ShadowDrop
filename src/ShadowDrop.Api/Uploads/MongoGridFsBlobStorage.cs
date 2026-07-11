@@ -82,9 +82,8 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
                 if (upload is not null)
                 {
                     await upload.AbortAsync(CancellationToken.None);
+                    _ = await DeleteIfExistsAsync(blobKey, CancellationToken.None);
                 }
-
-                _ = await DeleteIfExistsAsync(blobKey, CancellationToken.None);
             }
             catch (Exception cleanupException)
             {
