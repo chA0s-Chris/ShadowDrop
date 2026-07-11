@@ -15,8 +15,7 @@ internal sealed class DownloadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     TextWriter standardError,
-    IDownloadProgressReporter progressReporter,
-    CliBannerWriter bannerWriter)
+    IDownloadProgressReporter progressReporter)
 {
     private const Int32 ResumeMarkerVersion = 1;
     private const String SecretFreeQueueKeyMissingMessage =
@@ -65,9 +64,6 @@ internal sealed class DownloadCommandHandler(
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
                 var outputPath = DownloadDestinationResolver.Resolve(options.Out, file);
 
-                // The progress reporter writes to stdout, so the banner stays on stderr alongside errors and
-                // diagnostics, keeping a redirected stdout free of decoration.
-                await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
                 var succeeded = await progressReporter.RunSingleAsync(
                     Path.GetFileName(outputPath),
                     file.Length,
@@ -745,9 +741,6 @@ internal sealed class DownloadCommandHandler(
 
             var totalBytes = SumQueueBytes(queue.Files!);
 
-            // Queue downloads write decrypted files to disk, not stdout, but the banner still goes to stderr
-            // alongside the progress reporter's own output for consistency with the direct-download path.
-            await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
             var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
             return summary.Failed == 0 ? 0 : 1;
         }

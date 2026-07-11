@@ -19,8 +19,7 @@ public sealed class ShareRevokeCommandHandlerTests
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
                                                     httpClient,
                                                     standardOut,
-                                                    standardError,
-                                                    CliBannerWriterFactory.Suppressed);
+                                                    standardError);
 
         var exitCode = await handler.ExecuteAsync(new("not-a-guid", null, null), CancellationToken.None);
 
@@ -38,8 +37,7 @@ public sealed class ShareRevokeCommandHandlerTests
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "secret-upload-token"),
                                                     httpClient,
                                                     standardOut,
-                                                    standardError,
-                                                    CliBannerWriterFactory.Suppressed);
+                                                    standardError);
 
         var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
 
@@ -58,8 +56,7 @@ public sealed class ShareRevokeCommandHandlerTests
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "secret-upload-token"),
                                                     httpClient,
                                                     standardOut,
-                                                    standardError,
-                                                    CliBannerWriterFactory.Suppressed);
+                                                    standardError);
 
         var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
 
@@ -79,8 +76,7 @@ public sealed class ShareRevokeCommandHandlerTests
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
                                                     httpClient,
                                                     standardOut,
-                                                    standardError,
-                                                    CliBannerWriterFactory.Suppressed);
+                                                    standardError);
 
         var exitCode = await handler.ExecuteAsync(new(shareId.ToString(), null, null), CancellationToken.None);
 

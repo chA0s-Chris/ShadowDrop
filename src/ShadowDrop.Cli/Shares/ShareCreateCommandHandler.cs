@@ -19,8 +19,7 @@ internal sealed class ShareCreateCommandHandler(
     HttpClient httpClient,
     TextWriter standardOut,
     TextWriter standardError,
-    TimeProvider timeProvider,
-    CliBannerWriter bannerWriter)
+    TimeProvider timeProvider)
 {
     public async Task<Int32> ExecuteAsync(ShareCreateCommandOptions options, CancellationToken cancellationToken)
     {
@@ -164,10 +163,6 @@ internal sealed class ShareCreateCommandHandler(
     private async Task EmitSuccessAsync(ShareCreateCommandOptions options, IReadOnlyList<String> fileIds, CreateShareCliResult shareResult, String shareUrl,
                                         CancellationToken cancellationToken)
     {
-        // The success output (JSON or share-url:/secrets-file:/download-bearer-token: lines) is a parseable,
-        // script-consumed stdout contract; the banner goes to stderr so it never corrupts it.
-        await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
-
         if (options.Json)
         {
             UploadCredentials? credentials = null;

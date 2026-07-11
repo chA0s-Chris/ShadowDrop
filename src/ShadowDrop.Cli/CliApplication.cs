@@ -407,6 +407,14 @@ internal static class CliApplication
             return 1;
         }
 
+        // The startup banner goes to standard error so every standard-output contract stays free of decoration.
+        if (!parseResult.GetValue(commandModel.NoBannerOption))
+        {
+            await CliBanner.WriteAsync(services.StandardError,
+                                       services.TerminalCapabilityProvider.DetectForStandardError(),
+                                       cancellationToken);
+        }
+
         var tlsOptions = services.ConfigurationResolver.ResolveTls(parseResult.GetValue(commandModel.CaCertOption),
                                                                    parseResult.GetValue(commandModel.InsecureOption));
 
@@ -433,10 +441,6 @@ internal static class CliApplication
             return 1;
         }
 
-        var bannerWriter = new CliBannerWriter(parseResult.GetValue(commandModel.NoBannerOption),
-                                               services.TerminalCapabilityProvider.DetectForStandardOutput(),
-                                               services.TerminalCapabilityProvider.DetectForStandardError());
-
         if (parseResult.CommandResult.Command == commandModel.QueueCreateCommand)
         {
             var queueOptions = new QueueCreateCommandOptions(parseResult.GetValue(commandModel.QueueTokenArgument),
@@ -451,8 +455,7 @@ internal static class CliApplication
             return await new QueueCreateCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
                                                        services.StandardOut,
-                                                       services.StandardError,
-                                                       bannerWriter).ExecuteAsync(queueOptions, cancellationToken);
+                                                       services.StandardError).ExecuteAsync(queueOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.UploadRawCommand)
@@ -468,8 +471,7 @@ internal static class CliApplication
                                                      httpClient,
                                                      services.StandardOut,
                                                      services.StandardError,
-                                                     services.UploadProgressReporterFactory,
-                                                     bannerWriter).ExecuteAsync(rawOptions, cancellationToken);
+                                                     services.UploadProgressReporterFactory).ExecuteAsync(rawOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareCreateCommand)
@@ -489,8 +491,7 @@ internal static class CliApplication
                                                        httpClient,
                                                        services.StandardOut,
                                                        services.StandardError,
-                                                       services.TimeProvider,
-                                                       bannerWriter).ExecuteAsync(shareOptions, cancellationToken);
+                                                       services.TimeProvider).ExecuteAsync(shareOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareRevokeCommand)
@@ -502,8 +503,7 @@ internal static class CliApplication
             return await new ShareRevokeCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
                                                        services.StandardOut,
-                                                       services.StandardError,
-                                                       bannerWriter).ExecuteAsync(revokeOptions, cancellationToken);
+                                                       services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareCleanupCommand)
@@ -514,8 +514,7 @@ internal static class CliApplication
             return await new ShareCleanupCommandHandler(services.ConfigurationResolver,
                                                         httpClient,
                                                         services.StandardOut,
-                                                        services.StandardError,
-                                                        bannerWriter).ExecuteAsync(cleanupOptions, cancellationToken);
+                                                        services.StandardError).ExecuteAsync(cleanupOptions, cancellationToken);
         }
 
         var commandName = parseResult.CommandResult.Command.Name;
@@ -561,15 +560,13 @@ internal static class CliApplication
                 return await new InteractiveDownloadCommandHandler(services.ConfigurationResolver,
                                                                    httpClient,
                                                                    services.InteractiveSession,
-                                                                   services.StandardError,
-                                                                   bannerWriter).ExecuteAsync(options, cancellationToken);
+                                                                   services.StandardError).ExecuteAsync(options, cancellationToken);
             }
 
             var downloadHandler = new DownloadCommandHandler(services.ConfigurationResolver,
                                                              httpClient,
                                                              services.StandardError,
-                                                             services.DownloadProgressReporterFactory.Create(),
-                                                             bannerWriter);
+                                                             services.DownloadProgressReporterFactory.Create());
             return await downloadHandler.ExecuteAsync(options, cancellationToken);
         }
 
@@ -601,8 +598,7 @@ internal static class CliApplication
                                                              services.StandardOut,
                                                              services.StandardError,
                                                              services.TimeProvider,
-                                                             services.UploadProgressReporterFactory,
-                                                             bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
+                                                             services.UploadProgressReporterFactory).ExecuteAsync(uploadOptions, cancellationToken);
         }
 
         if (uploadOptions.Files.Length == 0)
@@ -616,8 +612,7 @@ internal static class CliApplication
                                               services.StandardOut,
                                               services.StandardError,
                                               services.TimeProvider,
-                                              services.UploadProgressReporterFactory,
-                                              bannerWriter).ExecuteAsync(uploadOptions, cancellationToken);
+                                              services.UploadProgressReporterFactory).ExecuteAsync(uploadOptions, cancellationToken);
     }
 
     private static async Task<Int32> InvokeHelpAsync(ParseResult parseResult, CliApplicationServices services, CancellationToken cancellationToken)

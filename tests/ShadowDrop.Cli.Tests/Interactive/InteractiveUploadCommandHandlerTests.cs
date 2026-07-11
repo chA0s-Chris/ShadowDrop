@@ -123,8 +123,7 @@ public sealed class InteractiveUploadCommandHandlerTests
                    new StringWriter(),
                    errorWriter,
                    TimeProvider.System,
-                   new PlainUploadProgressReporterFactory(errorWriter, TimeProvider.System),
-                   CliBannerWriterFactory.Suppressed);
+                   new PlainUploadProgressReporterFactory(errorWriter, TimeProvider.System));
     }
 
     private static String MissingFilePath() => Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");

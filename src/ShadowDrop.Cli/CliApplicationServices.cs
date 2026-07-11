@@ -99,7 +99,7 @@ internal sealed record CliApplicationServices(
 
     public static CliApplicationServices CreateDefault()
     {
-        // A single provider is shared so banner rendering and download progress selection use the same
+        // A single provider is shared so startup-banner rendering and download progress selection use the same
         // detection implementation rather than two independently constructed providers. The provider re-reads
         // the environment on each call, so this is a single source of truth, not caching.
         var terminalCapabilityProvider = new TerminalCapabilityProvider();

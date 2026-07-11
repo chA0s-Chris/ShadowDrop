@@ -7,6 +7,7 @@ using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads.Progress;
+using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
 
@@ -41,8 +42,9 @@ public sealed class CliApplicationTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Trim().Should()
-                     .Be("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments.");
+        standardError.ToString().Should().StartWith(".--// ShadowDrop v")
+                     .And.EndWith("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments."
+                                  + Environment.NewLine);
     }
 
     [Test]
@@ -60,8 +62,9 @@ public sealed class CliApplicationTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Trim().Should()
-                     .Be("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments.");
+        standardError.ToString().Should().StartWith(".--// ShadowDrop v")
+                     .And.EndWith("Interactive mode requires a terminal. Use non-interactive commands with explicit flags for scripted or piped environments."
+                                  + Environment.NewLine);
     }
 
     [Test]
@@ -130,7 +133,7 @@ public sealed class CliApplicationTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("-?");
+        standardError.ToString().Should().Contain("-?").And.NotContain(".--//");
     }
 
     [Test]
@@ -141,6 +144,7 @@ public sealed class CliApplicationTests
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
         {
+            AssertExactlyOneBanner(standardError.ToString());
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
@@ -222,9 +226,80 @@ public sealed class CliApplicationTests
         standardError.ToString().Should().BeEmpty();
     }
 
+    [TestCase(new[] { "upload" }, "Required argument missing for command: 'upload'.")]
+    [TestCase(new[]
+    {
+        "download",
+        "--output-root",
+        "."
+    }, "The --output-root option requires --queue.")]
+    [TestCase(new[]
+    {
+        "queue",
+        "create"
+    }, "Specify the queue output path with --out.")]
+    [TestCase(new[]
+    {
+        "share",
+        "create",
+        "file-id"
+    }, "File id invalid or missing.")]
+    [TestCase(new[]
+    {
+        "share",
+        "revoke",
+        "not-a-guid"
+    }, "Share id invalid or missing.")]
+    [TestCase(new[]
+    {
+        "upload",
+        "raw",
+        "payload.bin"
+    }, "Server URL invalid or missing.")]
+    [TestCase(new[]
+    {
+        "share",
+        "cleanup"
+    }, "Server URL invalid or missing.")]
+    public async Task InvokeAsync_ShouldWriteExactlyOneStartupBanner_BeforeCommandValidation(String[] args, String expectedError)
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(args, CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        var errorText = standardError.ToString();
+        errorText.Should().StartWith(".--// ShadowDrop v").And.EndWith(expectedError + Environment.NewLine);
+        errorText.Split(".--// ShadowDrop v", StringSplitOptions.None).Should().HaveCount(2);
+    }
+
+    [TestCase("upload")]
+    [TestCase("download")]
+    public async Task InvokeAsync_ShouldWriteExactlyOneStartupBanner_BeforeFirstInteractivePrompt(String command)
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var interactiveSession = new BoundaryInteractiveSession(() => AssertExactlyOneBanner(standardError.ToString()));
+
+        var action = async () => await CliApplication.InvokeAsync([command, "--interactive"],
+                                                                  CreateServices(standardOut, standardError, interactiveSession),
+                                                                  CancellationToken.None);
+
+        await action.Should().ThrowAsync<BoundaryObservedException>();
+        interactiveSession.PromptCount.Should().Be(1);
+    }
+
+    private static void AssertExactlyOneBanner(String output)
+    {
+        output.Should().StartWith(".--// ShadowDrop v");
+        output.Split(".--// ShadowDrop v", StringSplitOptions.None).Should().HaveCount(2);
+    }
+
     private static CliApplicationServices CreateServices(StringWriter standardOut,
                                                          StringWriter standardError,
-                                                         FakeInteractiveSession? interactiveSession = null) =>
+                                                         ICliInteractiveSession? interactiveSession = null) =>
         new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
             _ => new(new NeverCalledHandler()),
             standardOut,
@@ -233,6 +308,39 @@ public sealed class CliApplicationTests
             TimeProvider.System,
             new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
             FixedTerminalCapabilityProvider.Plain);
+
+    private sealed class BoundaryInteractiveSession(Action assertBoundary) : ICliInteractiveSession
+    {
+        public Int32 PromptCount { get; private set; }
+        public Boolean IsInteractiveSupported => true;
+
+        private T ObserveBoundary<T>()
+        {
+            PromptCount++;
+            assertBoundary();
+            throw new BoundaryObservedException();
+        }
+
+        public Boolean PromptConfirmation(String prompt, Boolean defaultValue = false) => ObserveBoundary<Boolean>();
+
+        public IReadOnlyList<T> PromptMultiSelection<T>(String title, IReadOnlyList<T> choices, Func<T, String> displaySelector) where T : notnull =>
+            ObserveBoundary<IReadOnlyList<T>>();
+
+        public T PromptSelection<T>(String title, IReadOnlyList<T> choices, Func<T, String> displaySelector) where T : notnull =>
+            ObserveBoundary<T>();
+
+        public String PromptText(String prompt, String? defaultValue = null, Boolean secret = false, Func<String, String?>? validate = null) =>
+            ObserveBoundary<String>();
+
+        public void ShowError(String message) => throw new AssertionException("A prompt should be the first interactive output.");
+
+        public void ShowMessage(String message) => throw new AssertionException("A prompt should be the first interactive output.");
+
+        public void ShowSummary(String title, IReadOnlyList<(String Label, String Value)> rows) =>
+            throw new AssertionException("A prompt should be the first interactive output.");
+    }
+
+    private sealed class BoundaryObservedException : Exception;
 
     private sealed class NeverCalledHandler : HttpMessageHandler
     {

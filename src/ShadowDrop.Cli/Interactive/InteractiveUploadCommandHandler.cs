@@ -19,8 +19,7 @@ internal sealed class InteractiveUploadCommandHandler(
     TextWriter standardOut,
     TextWriter standardError,
     TimeProvider timeProvider,
-    IUploadProgressReporterFactory uploadProgressReporterFactory,
-    CliBannerWriter bannerWriter)
+    IUploadProgressReporterFactory uploadProgressReporterFactory)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -80,8 +79,7 @@ internal sealed class InteractiveUploadCommandHandler(
                                               standardOut,
                                               standardError,
                                               timeProvider,
-                                              uploadProgressReporterFactory,
-                                              bannerWriter)
+                                              uploadProgressReporterFactory)
             .ExecuteAsync(uploadOptions, cancellationToken);
     }
 

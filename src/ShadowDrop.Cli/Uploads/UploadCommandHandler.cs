@@ -22,8 +22,7 @@ internal sealed class UploadCommandHandler(
     TextWriter standardOut,
     TextWriter standardError,
     TimeProvider timeProvider,
-    IUploadProgressReporterFactory uploadProgressReporterFactory,
-    CliBannerWriter bannerWriter)
+    IUploadProgressReporterFactory uploadProgressReporterFactory)
 {
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -204,9 +203,6 @@ internal sealed class UploadCommandHandler(
             }
         }
 
-        // The success output (JSON or share-url:/share-key:/queue-file:/... lines) is a parseable, script-consumed
-        // stdout contract; the banner goes to stderr so it never corrupts it. Failure paths above never call it.
-        await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
         await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath,
                               displayNameOverrides);
         return 0;
