@@ -8,6 +8,7 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/chA0s-Chris/ShadowDrop?style=for-the-badge" /></a>
   <a href="https://github.com/chA0s-Chris/ShadowDrop/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/chA0s-Chris/ShadowDrop?style=for-the-badge" /></a>
+  <a href="https://github.com/chA0s-Chris/ShadowDrop/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/chA0s-Chris/ShadowDrop/total?style=for-the-badge&label=Downloads&color=blue"></a>
   <a href="https://hub.docker.com/r/chaos/shadowdrop"><img alt="Docker pulls" src="https://img.shields.io/docker/pulls/chaos/shadowdrop?style=for-the-badge" /></a>
 </p>
 
