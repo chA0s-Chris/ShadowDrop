@@ -18,8 +18,7 @@ internal sealed class UploadRawCommandHandler(
     HttpClient httpClient,
     TextWriter standardOut,
     TextWriter standardError,
-    IUploadProgressReporterFactory uploadProgressReporterFactory,
-    CliBannerWriter bannerWriter)
+    IUploadProgressReporterFactory uploadProgressReporterFactory)
 {
     public async Task<Int32> ExecuteAsync(UploadRawCommandOptions options, CancellationToken cancellationToken)
     {
@@ -120,10 +119,6 @@ internal sealed class UploadRawCommandHandler(
     private async Task EmitSuccessAsync(UploadRawCommandOptions options, IReadOnlyList<String> uploadedFileIds, String shareKey,
                                         CancellationToken cancellationToken)
     {
-        // The success output (JSON or file-id:/share-key: lines) is a parseable, script-consumed stdout
-        // contract; the banner goes to stderr so it never corrupts it.
-        await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
-
         if (options.Json)
         {
             var credentials = options.SecretsOut is null ? new UploadCredentials(shareKey, null) : null;

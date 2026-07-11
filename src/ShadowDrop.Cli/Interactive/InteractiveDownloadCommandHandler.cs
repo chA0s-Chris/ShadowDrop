@@ -13,8 +13,7 @@ internal sealed class InteractiveDownloadCommandHandler(
     CliConfigurationResolver configurationResolver,
     HttpClient httpClient,
     ICliInteractiveSession interactiveSession,
-    TextWriter standardError,
-    CliBannerWriter bannerWriter)
+    TextWriter standardError)
 {
     public async Task<Int32> ExecuteAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -32,7 +31,7 @@ internal sealed class InteractiveDownloadCommandHandler(
             return 1;
         }
 
-        var handler = new DownloadCommandHandler(configurationResolver, httpClient, standardError, NullDownloadProgressReporter.Instance, bannerWriter);
+        var handler = new DownloadCommandHandler(configurationResolver, httpClient, standardError, NullDownloadProgressReporter.Instance);
         Byte[]? shareKeyBytes = null;
         try
         {
@@ -59,9 +58,6 @@ internal sealed class InteractiveDownloadCommandHandler(
                                                   cancellationToken);
             }
 
-            // The interactive summary is the first real output once every file has downloaded successfully;
-            // this handler has no standardOut writer of its own, so the banner goes to stderr like its errors.
-            await bannerWriter.WriteToStandardErrorAsync(standardError, cancellationToken);
             interactiveSession.ShowSummary("Download complete",
                                            selectedFiles.Select((file, index) => ($"{file.FileName}", outputPaths[index]))
                                                         .ToArray());

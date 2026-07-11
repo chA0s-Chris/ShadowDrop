@@ -6,9 +6,7 @@ using ShadowDrop.Cli.Terminals;
 using Spectre.Console;
 
 /// <summary>
-/// Renders the decorated two-line "ShadowDrop v&lt;version&gt;" banner shown at the start of help and command
-/// output. This is the single formatter shared by both surfaces so they cannot drift; callers decide the
-/// destination writer and whether a banner is wanted at all (see <see cref="CliBannerWriter"/>).
+/// Renders the decorated two-line "ShadowDrop v&lt;version&gt;" startup banner for executable commands.
 /// </summary>
 internal static class CliBanner
 {

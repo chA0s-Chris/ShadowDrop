@@ -110,7 +110,7 @@ public sealed class UploadCommandHandlerTests
                    .Should().HaveCount(2)
                    .And.OnlyContain(line => line.StartsWith("share-url:", StringComparison.Ordinal)
                                             || line.StartsWith("share-key:", StringComparison.Ordinal));
-        // The banner is written to stderr right before the success output, after the per-file progress lines.
+        // The startup banner is written before upload progress begins.
         var expectedBanner = new StringWriter();
         await CliBanner.WriteAsync(expectedBanner, FixedTerminalCapabilityProvider.Plain.DetectForStandardError(), CancellationToken.None);
         var standardErrorText = standardError.ToString();
@@ -123,9 +123,9 @@ public sealed class UploadCommandHandlerTests
                          .And.Contain("SUCCESS 3/3 third.bin (112 B/112 B (100.0%)")
                          .And.NotContain("PROGRESS")
                          .And.Contain(expectedBanner.ToString());
-        // The banner is emitted after the per-file progress lines, so it must appear after the final SUCCESS line.
+        // The startup banner is emitted before the first progress line.
         standardErrorText.IndexOf(expectedBanner.ToString(), StringComparison.Ordinal)
-                         .Should().BeGreaterThan(standardErrorText.IndexOf("SUCCESS 3/3 third.bin", StringComparison.Ordinal));
+                         .Should().BeLessThan(standardErrorText.IndexOf("START 1/3 first.bin", StringComparison.Ordinal));
         fixture.GetStoredUploads().Should().HaveCount(3);
     }
 
@@ -1051,7 +1051,7 @@ public sealed class UploadCommandHandlerTests
         failure.GetProperty("message").GetString().Should().Contain("maximum upload size");
         failure.GetProperty("uploadSizeBytes").GetInt64().Should().Be(144);
         failure.GetProperty("maxFilePayloadBytes").GetInt64().Should().Be(80);
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().StartWith(".--// ShadowDrop v");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -1869,7 +1869,7 @@ public sealed class UploadCommandHandlerTests
         failure.GetProperty("message").GetString().Should().Be("Upload failed; please verify file and try again.");
         failure.TryGetProperty("uploadSizeBytes", out _).Should().BeFalse();
         failure.TryGetProperty("maxFilePayloadBytes", out _).Should().BeFalse();
-        standardError.ToString().Should().BeEmpty();
+        standardError.ToString().Should().StartWith(".--// ShadowDrop v");
         handler.UploadRequests.Should().Be(2);
     }
 

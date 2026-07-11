@@ -238,10 +238,11 @@ download all of them to disk. If the share was created with
 
 ### Download output streams
 
-Download progress, `START`/`SUCCESS` lines, and the final `SUMMARY` are written
+The decorated startup banner is written once to **stderr** before executable command work begins; use
+`--no-banner` to suppress it. Download progress, `START`/`SUCCESS` lines, and the final `SUMMARY` are written
 to **stdout**, for both single-file and queue downloads and in both plain-text
 and rich terminal modes. Errors, per-item `FAILED` lines, interactive prompts,
-the guided download summary, and the banner go to **stderr**.
+and the guided download summary also go to **stderr**.
 
 > **Breaking change:** download progress and status output moved from stderr to
 > stdout. Scripts that captured stderr to read progress, or that relied on

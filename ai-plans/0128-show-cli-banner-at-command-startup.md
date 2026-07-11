@@ -8,13 +8,13 @@ The decorated ShadowDrop banner is intended to identify the CLI when a command s
 
 ## Acceptance Criteria
 
-- [ ] Every executable command renders the decorated banner before command-specific validation, prompts, network calls, progress reporting, and other command output.
-- [ ] The banner is emitted exactly once per invocation, including failure paths, once an executable command has parsed successfully; parse and usage errors are reported without the banner.
-- [ ] Machine-readable, JSON, byte-stream, and otherwise script-consumed standard output remains undecorated.
-- [ ] `--no-banner` suppresses the decorated banner for every command.
-- [ ] Help and `--version` retain their purpose-specific output.
-- [ ] Comments and documentation describe the decorated banner as startup output rather than a success preamble.
-- [ ] Automated tests cover startup ordering for uploads, downloads, queue operations, share operations, interactive flows, suppression, and failure paths.
+- [x] Every executable command renders the decorated banner before command-specific validation, prompts, network calls, progress reporting, and other command output.
+- [x] The banner is emitted exactly once per invocation, including failure paths, once an executable command has parsed successfully; parse and usage errors are reported without the banner.
+- [x] Machine-readable, JSON, byte-stream, and otherwise script-consumed standard output remains undecorated.
+- [x] `--no-banner` suppresses the decorated banner for every command.
+- [x] Help and `--version` retain their purpose-specific output.
+- [x] Comments and documentation describe the decorated banner as startup output rather than a success preamble.
+- [x] Automated tests cover startup ordering for uploads, downloads, queue operations, share operations, interactive flows, suppression, and failure paths.
 
 ## Technical Details
 
