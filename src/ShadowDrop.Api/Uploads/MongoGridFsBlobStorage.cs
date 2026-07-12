@@ -50,7 +50,7 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
         var fileId = ParseBlobKey(blobKey);
         try
         {
-            return await _bucket.OpenDownloadStreamAsync(fileId, new GridFSDownloadOptions
+            return await _bucket.OpenDownloadStreamAsync(fileId, new()
             {
                 Seekable = true
             }, cancellationToken);
@@ -77,19 +77,29 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
         }
         catch (Exception exception)
         {
-            try
+            if (upload is not null)
             {
-                if (upload is not null)
+                try
                 {
                     await upload.AbortAsync(CancellationToken.None);
+                }
+                catch (Exception abortException)
+                {
+                    _logger.LogError(abortException,
+                                     "GridFS upload abort failed; chunk documents may remain. BlobKey: {BlobKey}",
+                                     blobKey);
+                }
+
+                try
+                {
                     _ = await DeleteIfExistsAsync(blobKey, CancellationToken.None);
                 }
-            }
-            catch (Exception cleanupException)
-            {
-                _logger.LogError(cleanupException,
-                                 "GridFS upload cleanup failed; file or chunk documents may remain. BlobKey: {BlobKey}",
-                                 blobKey);
+                catch (Exception cleanupException)
+                {
+                    _logger.LogError(cleanupException,
+                                     "GridFS upload cleanup failed; file or chunk documents may remain. BlobKey: {BlobKey}",
+                                     blobKey);
+                }
             }
 
             _logger.Log(exception is OperationCanceledException ? LogLevel.Debug : LogLevel.Error,

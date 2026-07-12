@@ -38,6 +38,7 @@ public sealed class PersistenceProviderConfigurationTests
         values["ShadowDrop:Mongo:ConnectionString"] = String.Empty;
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ShadowDropOptionsBinding.BindAndValidate(configuration, root.Path);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*Mongo:ConnectionString*");
@@ -95,10 +96,12 @@ public sealed class PersistenceProviderConfigurationTests
             ContentRootPath = root.Path
         });
         builder.Configuration.AddInMemoryCollection(values);
-        using var logger = new LoggerConfiguration().CreateLogger();
+        await using var logger = new LoggerConfiguration().CreateLogger();
         await using var app = builder.ConfigureServices(logger).Build();
 
-        var act = async () => await app.PrepareStartupAsync(logger);
+        // ReSharper disable AccessToDisposedClosure
+        var act = async () => await app.PrepareStartupAsync(logger, CancellationToken.None);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<Exception>();
     }

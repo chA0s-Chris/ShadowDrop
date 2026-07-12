@@ -12,6 +12,9 @@ public sealed class ShadowDropOptions
 
     public MongoPersistenceOptions Mongo { get; set; } = new();
 
+    public Boolean RequiresMongo => Metadata.Provider == MetadataProvider.MongoDb
+                                    || Storage.Provider == BlobStorageProvider.MongoGridFs;
+
     public StorageOptions Storage { get; set; } = new();
 
     public UploadOptions Upload { get; set; } = new();

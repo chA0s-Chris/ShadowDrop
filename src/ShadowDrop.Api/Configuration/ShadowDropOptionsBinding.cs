@@ -24,8 +24,7 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:LocalRoot' is required.");
         }
 
-        var mongoRequired = options.Metadata.Provider == MetadataProvider.MongoDb
-                            || options.Storage.Provider == BlobStorageProvider.MongoGridFs;
+        var mongoRequired = options.RequiresMongo;
         if (mongoRequired && String.IsNullOrWhiteSpace(options.Mongo.ConnectionString))
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Mongo:ConnectionString' is required by the selected provider.");

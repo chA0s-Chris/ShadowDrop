@@ -25,8 +25,7 @@ public static class DependencyInjection
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
 
-        var mongoRequired = shadowDropOptions.Metadata.Provider == MetadataProvider.MongoDb
-                            || shadowDropOptions.Storage.Provider == BlobStorageProvider.MongoGridFs;
+        var mongoRequired = shadowDropOptions.RequiresMongo;
         if (mongoRequired)
         {
             MongoSerialization.EnsureConfigured();
