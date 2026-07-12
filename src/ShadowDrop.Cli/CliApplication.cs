@@ -7,6 +7,7 @@ using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Tls;
+using ShadowDrop.Cli.Updates;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
 using System.CommandLine.Help;
@@ -325,11 +326,14 @@ internal static class CliApplication
         shareCommand.Subcommands.Add(shareRevokeCommand);
         shareCommand.Subcommands.Add(shareCleanupCommand);
 
+        var updateCommand = new Command("update", "Check whether a newer ShadowDrop release is available and show how to install it.");
+
         var rootCommand = new RootCommand("ShadowDrop CLI");
         rootCommand.Subcommands.Add(downloadCommand);
         rootCommand.Subcommands.Add(uploadCommand);
         rootCommand.Subcommands.Add(queueCommand);
         rootCommand.Subcommands.Add(shareCommand);
+        rootCommand.Subcommands.Add(updateCommand);
 
         // The System.CommandLine defaults advertise -?/help and a bare, unlabeled --version; replace both so
         // -? is no longer accepted and --version reports "ShadowDrop v<version>" instead of a bare version string.
@@ -391,7 +395,8 @@ internal static class CliApplication
                    shareFileIdsArgument,
                    shareRevokeCommand,
                    shareIdArgument,
-                   shareCleanupCommand);
+                   shareCleanupCommand,
+                   updateCommand);
     }
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
@@ -415,6 +420,37 @@ internal static class CliApplication
                                        cancellationToken);
         }
 
+        // The update command talks to the release source only, so it is dispatched before any ShadowDrop
+        // server TLS/HTTP setup and never triggers the automatic post-command check on top of itself.
+        if (parseResult.CommandResult.Command == commandModel.UpdateCommand)
+        {
+            return await new UpdateCommandHandler(services.UpdateServices,
+                                                  services.StandardOut,
+                                                  services.StandardError,
+                                                  services.TimeProvider,
+                                                  CliVersion.Current).ExecuteAsync(cancellationToken);
+        }
+
+        var exitCode = await ExecuteCommandAsync(parseResult, services, commandModel, cancellationToken);
+
+        // Only successfully parsed ordinary commands reach this point: help, --version, and parse failures
+        // returned earlier, the update command is dispatched above, and --json contracts are excluded here.
+        if (!IsJsonRequested(parseResult, commandModel))
+        {
+            await AutomaticUpdateCheck.RunAsync(services.UpdateServices,
+                                                services.TerminalCapabilityProvider,
+                                                services.StandardError,
+                                                services.TimeProvider,
+                                                CliVersion.Current,
+                                                cancellationToken);
+        }
+
+        return exitCode;
+    }
+
+    private static async Task<Int32> ExecuteCommandAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
+                                                         CancellationToken cancellationToken)
+    {
         var tlsOptions = services.ConfigurationResolver.ResolveTls(parseResult.GetValue(commandModel.CaCertOption),
                                                                    parseResult.GetValue(commandModel.InsecureOption));
 
@@ -627,6 +663,10 @@ internal static class CliApplication
         }, cancellationToken);
     }
 
+    private static Boolean IsJsonRequested(ParseResult parseResult, CliCommandModel commandModel) =>
+        parseResult.CommandResult.Command.Options.Contains(commandModel.JsonOption)
+        && parseResult.GetValue(commandModel.JsonOption);
+
     private sealed record CliCommandModel(
         RootCommand RootCommand,
         Option<Boolean> NoBannerOption,
@@ -665,7 +705,8 @@ internal static class CliApplication
         Argument<String[]> ShareFileIdsArgument,
         Command ShareRevokeCommand,
         Argument<String?> ShareIdArgument,
-        Command ShareCleanupCommand);
+        Command ShareCleanupCommand,
+        Command UpdateCommand);
 
     private sealed class CliVersionAction : SynchronousCommandLineAction
     {

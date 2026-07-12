@@ -8,19 +8,19 @@ Give ShadowDrop CLI users a lightweight way to discover newer stable releases wi
 
 ## Acceptance Criteria
 
-- [ ] The CLI can query the official ShadowDrop release source and compare the latest stable, non-draft release with its installed semantic version.
-- [ ] An explicit `update` command reports whether the installed version is current and exits zero after a successful check, whether current or update-available; a timeout, malformed release response, or release-service failure writes an actionable diagnostic to stderr and exits nonzero.
-- [ ] When an update is available, the `update` command displays the installed and latest versions and prints the official Windows or Linux/macOS installation command as appropriate.
-- [ ] Update guidance reuses the existing `install.ps1` and `install.sh` installation paths and never automatically downloads, executes, or replaces the running CLI binary.
-- [ ] After an eligible ordinary command completes, when the cached check indicates a newer stable release, the CLI writes a one-line notification to interactive stderr directing the user to `shadowdrop update`.
-- [ ] Automatic checks are cached and contact the release source no more than once per 24 hours.
-- [ ] Automatic checks use a short timeout, remain silent on network or release-service failure, and never change the success or failure result of the invoked command.
-- [ ] Automatic checks and notifications are suppressed for CI and any non-interactive standard stream, unless the update command is explicitly invoked.
-- [ ] Automatic checks and notifications are not triggered for help, `--version`, parse failures, the `update` command itself, or invocations that request `--json`; successfully parsed ordinary commands are eligible.
-- [ ] Users can disable automatic checks with a documented `SHADOWDROP_NO_UPDATE_CHECK=1` environment variable.
-- [ ] The CLI never advertises prerelease releases; a prerelease installation is notified only when a stable release with a higher version exists, and semantic-version comparison orders prerelease versions per SemVer 2.0.0.
-- [ ] Automated tests cover version comparison, release responses, cache freshness and expiry, opt-out and CI behavior, failure isolation, and platform-specific installation guidance.
-- [ ] The CLI guide documents the update command, automatic-check behavior, network/privacy implications, cache interval, and opt-out environment variable.
+- [x] The CLI can query the official ShadowDrop release source and compare the latest stable, non-draft release with its installed semantic version.
+- [x] An explicit `update` command reports whether the installed version is current and exits zero after a successful check, whether current or update-available; a timeout, malformed release response, or release-service failure writes an actionable diagnostic to stderr and exits nonzero.
+- [x] When an update is available, the `update` command displays the installed and latest versions and prints the official Windows or Linux/macOS installation command as appropriate.
+- [x] Update guidance reuses the existing `install.ps1` and `install.sh` installation paths and never automatically downloads, executes, or replaces the running CLI binary.
+- [x] After an eligible ordinary command completes, when the cached check indicates a newer stable release, the CLI writes a one-line notification to interactive stderr directing the user to `shadowdrop update`.
+- [x] Automatic checks are cached and contact the release source no more than once per 24 hours.
+- [x] Automatic checks use a short timeout, remain silent on network or release-service failure, and never change the success or failure result of the invoked command.
+- [x] Automatic checks and notifications are suppressed for CI and any non-interactive standard stream, unless the update command is explicitly invoked.
+- [x] Automatic checks and notifications are not triggered for help, `--version`, parse failures, the `update` command itself, or invocations that request `--json`; successfully parsed ordinary commands are eligible.
+- [x] Users can disable automatic checks with a documented `SHADOWDROP_NO_UPDATE_CHECK=1` environment variable.
+- [x] The CLI never advertises prerelease releases; a prerelease installation is notified only when a stable release with a higher version exists, and semantic-version comparison orders prerelease versions per SemVer 2.0.0.
+- [x] Automated tests cover version comparison, release responses, cache freshness and expiry, opt-out and CI behavior, failure isolation, and platform-specific installation guidance.
+- [x] The CLI guide documents the update command, automatic-check behavior, network/privacy implications, cache interval, and opt-out environment variable.
 
 ## Technical Details
 

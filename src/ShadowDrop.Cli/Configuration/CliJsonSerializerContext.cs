@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Results;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Updates;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Contracts;
 using System.Text.Json.Serialization;
@@ -23,4 +24,6 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(DirectHttpDownload))]
 [JsonSerializable(typeof(CredentialDocument))]
 [JsonSerializable(typeof(DownloadResumeMarker))]
+[JsonSerializable(typeof(GitHubReleaseContract))]
+[JsonSerializable(typeof(UpdateCheckRecord))]
 internal sealed partial class CliJsonSerializerContext : JsonSerializerContext;

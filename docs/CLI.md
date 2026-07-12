@@ -64,6 +64,51 @@ On macOS, use the matching `osx-*` asset and replace `sha256sum` with
 (Get-FileHash "shadowdrop-<version>-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
 ```
 
+## Updating the CLI
+
+`shadowdrop update` queries the official
+[GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases) for the
+latest stable release (drafts and prereleases are never advertised), compares
+it with the installed version, and exits zero after a successful check:
+
+```bash
+shadowdrop update
+# installed-version:1.4.0
+# latest-version:1.5.0
+# update-status:update-available
+# update-command:curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir '/home/alice/.local/bin'
+```
+
+When a newer release exists, the output includes the official installer
+invocation for the current platform (`install.ps1` on Windows, `install.sh`
+on Linux/macOS — the same scripts as in [Installation](#installation)). The
+printed command pins the installer's `--install-dir`/`-InstallDir` to the
+directory of the currently running binary, so installations that chose a
+custom install directory are updated in place rather than gaining a second
+copy in the default location. The CLI never downloads, executes, or replaces
+its own binary; run the printed command yourself to update. If the release
+lookup times out, fails, or returns malformed data, a diagnostic is written
+to stderr and the command exits nonzero.
+
+### Automatic update notifications
+
+After an ordinary command completes in an interactive terminal, the CLI may
+print a one-line notice on stderr pointing to `shadowdrop update` when a newer
+stable release is known. This is designed to stay out of the way:
+
+- The release source (`api.github.com`) is contacted at most **once per 24
+  hours**; results — including failed attempts — are cached in
+  `$XDG_CACHE_HOME/shadowdrop` (fallback `~/.cache/shadowdrop`) on Linux/macOS
+  and `%LOCALAPPDATA%\ShadowDrop\Cache` on Windows. No data beyond the
+  standard HTTP request metadata is sent.
+- Checks use a short timeout, are silent on any network or release-service
+  failure, and never change the invoked command's exit code.
+- Checks are suppressed when stdout or stderr is redirected, in CI
+  environments (`CI`, `GITHUB_ACTIONS`), for `--json` invocations, for
+  `--help`/`--version`, and for the `update` command itself.
+- Set `SHADOWDROP_NO_UPDATE_CHECK=1` to disable automatic checks entirely;
+  an explicit `shadowdrop update` still works.
+
 ## Commands
 
 | Command                        | Purpose                                                        |
@@ -75,6 +120,7 @@ On macOS, use the matching `osx-*` asset and replace `sha256sum` with
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
 | `queue create [share-token]`   | Write a download queue file for an existing share.             |
 | `download [share-token]`       | Download and decrypt a shared file to disk (or `--queue <file>`). |
+| `update`                       | Check whether a newer stable release is available; see [Updating the CLI](#updating-the-cli). |
 
 ## Configuration
 

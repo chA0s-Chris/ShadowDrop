@@ -7,6 +7,7 @@ using ShadowDrop.Cli.Downloads.Progress;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Terminals;
 using ShadowDrop.Cli.Tls;
+using ShadowDrop.Cli.Updates;
 using ShadowDrop.Cli.Uploads.Progress;
 
 internal sealed record CliApplicationServices(
@@ -96,6 +97,13 @@ internal sealed record CliApplicationServices(
                downloadProgressReporterFactory,
                new UploadProgressReporterFactory(standardError, timeProvider, terminalCapabilityProvider),
                terminalCapabilityProvider) { }
+
+    /// <summary>
+    /// The update feature's replaceable collaborators. An init property rather than a positional parameter
+    /// so the many existing constructor chains stay untouched; tests set it via an object initializer to
+    /// guarantee no live release requests.
+    /// </summary>
+    public CliUpdateServices UpdateServices { get; init; } = CliUpdateServices.CreateDefault();
 
     public static CliApplicationServices CreateDefault()
     {

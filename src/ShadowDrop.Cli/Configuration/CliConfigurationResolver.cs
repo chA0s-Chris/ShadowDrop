@@ -40,18 +40,10 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
     public CliTlsOptions ResolveTls(String? caCertOverride, Boolean insecureFlag)
     {
         var caCertPath = FirstNonEmpty(caCertOverride, environmentReader.GetEnvironmentVariable("SHADOWDROP_CACERT"))?.Trim();
-        var insecure = insecureFlag || IsTruthy(environmentReader.GetEnvironmentVariable("SHADOWDROP_INSECURE"));
+        var insecure = insecureFlag || EnvironmentValue.IsTruthy(environmentReader.GetEnvironmentVariable("SHADOWDROP_INSECURE"));
 
         return new(caCertPath, insecure);
     }
 
     private static String? FirstNonEmpty(params String?[] values) => values.FirstOrDefault(static value => !String.IsNullOrWhiteSpace(value));
-
-    private static Boolean IsTruthy(String? value)
-    {
-        var trimmed = value?.Trim();
-        return String.Equals(trimmed, "1", StringComparison.Ordinal)
-               || String.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase)
-               || String.Equals(trimmed, "yes", StringComparison.OrdinalIgnoreCase);
-    }
 }
