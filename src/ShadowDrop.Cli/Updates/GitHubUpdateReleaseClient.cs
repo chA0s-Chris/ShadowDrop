@@ -74,7 +74,7 @@ internal sealed class GitHubUpdateReleaseClient : IUpdateReleaseClient
         catch (HttpRequestException exception)
         {
             throw new UpdateCheckException(
-                $"The update check could not reach the release service: {exception.Message} Check your network connection or visit {ReleasesPageUrl} manually.",
+                $"The update check could not reach the release service: {exception.Message.TrimEnd('.')}. Check your network connection or visit {ReleasesPageUrl} manually.",
                 exception);
         }
         catch (JsonException exception)
