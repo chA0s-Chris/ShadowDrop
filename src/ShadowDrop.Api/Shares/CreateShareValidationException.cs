@@ -5,4 +5,6 @@ namespace ShadowDrop.Api.Shares;
 public sealed class CreateShareValidationException : Exception
 {
     public CreateShareValidationException(String message) : base(message) { }
+
+    public CreateShareValidationException(String message, Exception innerException) : base(message, innerException) { }
 }

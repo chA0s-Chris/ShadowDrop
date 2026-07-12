@@ -14,14 +14,31 @@ public static class ShadowDropOptionsBinding
         var options = shadowDropSection.Get<ShadowDropOptions>()
                       ?? throw new InvalidOperationException("The 'ShadowDrop' configuration section is required.");
 
-        if (String.IsNullOrWhiteSpace(options.Metadata.LiteDbPath))
+        if (options.Metadata.Provider == MetadataProvider.LiteDb && String.IsNullOrWhiteSpace(options.Metadata.LiteDbPath))
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Metadata:LiteDbPath' is required.");
         }
 
-        if (String.IsNullOrWhiteSpace(options.Storage.LocalRoot))
+        if (options.Storage.Provider == BlobStorageProvider.FileSystem && String.IsNullOrWhiteSpace(options.Storage.LocalRoot))
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:LocalRoot' is required.");
+        }
+
+        var mongoRequired = options.RequiresMongo;
+        if (mongoRequired && String.IsNullOrWhiteSpace(options.Mongo.ConnectionString))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Mongo:ConnectionString' is required by the selected provider.");
+        }
+
+        if (mongoRequired && String.IsNullOrWhiteSpace(options.Mongo.DatabaseName))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Mongo:DatabaseName' is required by the selected provider.");
+        }
+
+        if (options.Storage.Provider == BlobStorageProvider.MongoGridFs
+            && String.IsNullOrWhiteSpace(options.Storage.GridFsBucketName))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:GridFsBucketName' is required by the selected provider.");
         }
 
         if (String.IsNullOrWhiteSpace(options.Cleanup.CronExpression))
@@ -52,13 +69,19 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' must produce at least one future occurrence.");
         }
 
-        options.Metadata.LiteDbPath = ResolvePath(options.Metadata.LiteDbPath, contentRootPath);
-        options.Storage.LocalRoot = ResolvePath(options.Storage.LocalRoot, contentRootPath);
+        if (options.Metadata.Provider == MetadataProvider.LiteDb)
+        {
+            options.Metadata.LiteDbPath = ResolvePath(options.Metadata.LiteDbPath, contentRootPath);
+            var metadataDirectory = Path.GetDirectoryName(options.Metadata.LiteDbPath)
+                                    ?? throw new InvalidOperationException("The metadata database path must include a directory.");
+            FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(metadataDirectory);
+        }
 
-        var metadataDirectory = Path.GetDirectoryName(options.Metadata.LiteDbPath)
-                                ?? throw new InvalidOperationException("The metadata database path must include a directory.");
-        FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(metadataDirectory);
-        FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(options.Storage.LocalRoot);
+        if (options.Storage.Provider == BlobStorageProvider.FileSystem)
+        {
+            options.Storage.LocalRoot = ResolvePath(options.Storage.LocalRoot, contentRootPath);
+            FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(options.Storage.LocalRoot);
+        }
 
         return options;
     }

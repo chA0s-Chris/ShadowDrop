@@ -2,9 +2,11 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.CompositionRoot;
 
+using Chaos.Mongo;
 using Serilog;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Downloads;
+using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
@@ -23,6 +25,23 @@ public static class DependencyInjection
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
 
+        var mongoRequired = shadowDropOptions.RequiresMongo;
+        if (mongoRequired)
+        {
+            MongoSerialization.EnsureConfigured();
+            builder.Services.AddMongo(shadowDropOptions.Mongo.ConnectionString,
+                                      shadowDropOptions.Mongo.DatabaseName,
+                                      options =>
+                                      {
+                                          options.UseDefaultCollectionNames = false;
+                                          options.RunConfiguratorsOnStartup = false;
+                                          options.AddMapping<MongoUploadedFileDocument>("uploaded_files");
+                                          options.AddMapping<MongoShareDocument>("shares");
+                                          options.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
+                                      })
+                   .WithConfigurator<ShadowDropMongoConfigurator>();
+        }
+
         // Keep Kestrel's body-size ceiling above the configured upload limit so the reader's friendly UploadPayloadTooLargeException
         // stays authoritative instead of Kestrel aborting the request first.
         var maxRequestBodySize = ResolveMaxRequestBodySize(shadowDropOptions.Upload.MaxBytes);
@@ -30,16 +49,51 @@ public static class DependencyInjection
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.EnablePublicDownloads)
         {
-            builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
-            builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
-            builder.Services.AddSingleton<IShareMetadataRepository, LiteDbShareMetadataRepository>();
+            if (shadowDropOptions.Storage.Provider == BlobStorageProvider.FileSystem)
+            {
+                builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IBlobStorage, MongoGridFsBlobStorage>();
+            }
+
+            if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
+            {
+                builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
+                builder.Services.AddSingleton<IShareMetadataRepository, LiteDbShareMetadataRepository>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IUploadedFileMetadataRepository, MongoUploadedFileMetadataRepository>();
+                builder.Services.AddSingleton<IShareMetadataRepository, MongoShareMetadataRepository>();
+            }
+
             builder.Services.AddSingleton<ShareCleanupService>();
+            if (mongoRequired)
+            {
+                builder.Services.AddSingleton<IShareCleanupCoordinator, MongoShareCleanupCoordinator>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IShareCleanupCoordinator, InProcessShareCleanupCoordinator>();
+            }
+
             builder.Services.AddSingleton<ShareCleanupRunner>();
             builder.Services.AddHostedService<ShareCleanupHostedService>();
         }
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)
         {
+            if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
+            {
+                builder.Services.AddSingleton<IAdminTokenCredentialRepository, LiteDbAdminTokenCredentialRepository>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IAdminTokenCredentialRepository, MongoAdminTokenCredentialRepository>();
+            }
+
             builder.Services.AddSingleton<AdminTokenService>();
             builder.Services.AddSingleton<CreateShareService>();
             builder.Services.AddSingleton<ShareRevocationService>();

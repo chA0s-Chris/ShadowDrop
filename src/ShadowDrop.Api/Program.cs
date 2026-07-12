@@ -19,7 +19,24 @@ public class Program
                                   .Build()
                                   .ConfigureMiddleware(Log.Logger);
 
-            await app.PrepareStartupAsync(Log.Logger);
+            // The host's console lifetime only takes over Ctrl-C handling once RunAsync starts, so wire the
+            // startup phase to its own cancellation source to keep a slow MongoDB connect interruptible.
+            using var startupCancellation = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelStartup = (_, eventArgs) =>
+            {
+                eventArgs.Cancel = true;
+                // ReSharper disable once AccessToDisposedClosure
+                startupCancellation.Cancel();
+            };
+            Console.CancelKeyPress += cancelStartup;
+            try
+            {
+                await app.PrepareStartupAsync(Log.Logger, startupCancellation.Token);
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelStartup;
+            }
 
             await app.RunAsync();
             return 0;

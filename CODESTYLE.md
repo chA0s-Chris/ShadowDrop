@@ -22,7 +22,8 @@ The code style rules are described in the `.editorconfig` file.
 - Always use parentheses for clarity in expressions
 
 ### Documentation
-- Add XML documentation for all public APIs, including:
+- Add XML documentation for public APIs in reusable library projects. Application and executable projects do not require XML documentation merely because a type is public; document externally consumed contracts and non-obvious behavior where useful.
+- When XML documentation is required, include:
   - Summary of what the member does
   - Parameters with `<param>` tags
   - Return values with `<returns>`
