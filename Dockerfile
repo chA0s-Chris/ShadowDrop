@@ -7,6 +7,7 @@ ENV ASPNETCORE_HTTP_PORTS=19423 \
 EXPOSE 19423
 
 COPY --chown=$APP_UID:$APP_UID artifacts/publish/api/ /app/
+COPY --chown=$APP_UID:$APP_UID artifacts/publish/health-probe/ /app/
 COPY --chown=$APP_UID:$APP_UID --chmod=700 docker/app-data/ /app/data/
 
 VOLUME ["/app/data"]

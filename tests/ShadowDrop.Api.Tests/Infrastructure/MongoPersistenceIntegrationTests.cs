@@ -122,7 +122,7 @@ public abstract class MongoPersistenceIntegrationTests
                     _container.GetConnectionString(), _mongo.Database.DatabaseNamespace.DatabaseName);
                 using var client = factory.CreateClient();
 
-                var response = await client.GetAsync("/health");
+                var response = await client.GetAsync("/health/ready");
 
                 response.StatusCode.Should().Be(
                     HttpStatusCode.OK,

@@ -262,8 +262,10 @@ internal partial class BuildPipeline
     private static Boolean IsWindowsRuntime(String runtimeIdentifier) =>
         runtimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
 
-    private static ProcessResult RunDocker(IReadOnlyCollection<String> arguments, Boolean ignoreExitCode = false) =>
-        RunProcess("docker", arguments, RootDirectory, ignoreExitCode);
+    private static ProcessResult RunDocker(IReadOnlyCollection<String> arguments,
+                                           Boolean ignoreExitCode = false,
+                                           Boolean logProcessOutput = true) =>
+        RunProcess("docker", arguments, RootDirectory, ignoreExitCode, logProcessOutput);
 
     private static void RunDockerBestEffort(IReadOnlyCollection<String> arguments)
     {
@@ -280,7 +282,8 @@ internal partial class BuildPipeline
     private static ProcessResult RunProcess(String fileName,
                                             IReadOnlyCollection<String> arguments,
                                             AbsolutePath workingDirectory,
-                                            Boolean ignoreExitCode = false)
+                                            Boolean ignoreExitCode = false,
+                                            Boolean logProcessOutput = true)
     {
         var standardOutput = new StringBuilder();
         var standardError = new StringBuilder();
@@ -304,7 +307,8 @@ internal partial class BuildPipeline
                 return;
 
             standardOutput.AppendLine(e.Data);
-            Log.Information("{ProcessOutput}", e.Data);
+            if (logProcessOutput)
+                Log.Information("{ProcessOutput}", e.Data);
         };
 
         process.ErrorDataReceived += (_, e) =>
@@ -313,7 +317,8 @@ internal partial class BuildPipeline
                 return;
 
             standardError.AppendLine(e.Data);
-            Log.Information("{ProcessOutput}", e.Data);
+            if (logProcessOutput)
+                Log.Information("{ProcessOutput}", e.Data);
         };
 
         var command = $"{fileName} {String.Join(" ", arguments)}";
@@ -435,7 +440,8 @@ internal partial class BuildPipeline
     private String GetDockerImageTag() => $"{DockerImageRepository}:{SemanticVersion}";
 
     private Boolean HasPublishApiArtifacts() =>
-        PublishApiDirectory.DirectoryExists() && Directory.EnumerateFileSystemEntries(PublishApiDirectory).Any();
+        (PublishApiDirectory / "ShadowDrop.Api.dll").FileExists() &&
+        (PublishHealthProbeDirectory / "ShadowDrop.HealthProbe.dll").FileExists();
 
     private void PublishApiArtifacts(Boolean noRestore)
     {
@@ -446,6 +452,20 @@ internal partial class BuildPipeline
             s = s.SetProject(ProjectFileApi)
                  .SetConfiguration(TargetBuildConfiguration)
                  .SetOutput(PublishApiDirectory)
+                 .EnableContinuousIntegrationBuild();
+
+            if (noRestore)
+                s = s.EnableNoRestore();
+
+            return s;
+        });
+
+        Log.Information("Publishing API health probe...");
+        DotNetPublish(s =>
+        {
+            s = s.SetProject(ProjectFileHealthProbe)
+                 .SetConfiguration(TargetBuildConfiguration)
+                 .SetOutput(PublishHealthProbeDirectory)
                  .EnableContinuousIntegrationBuild();
 
             if (noRestore)
@@ -539,7 +559,7 @@ internal partial class BuildPipeline
             RunDocker(runArguments);
 
             var hostPort = GetContainerHostPort(containerName);
-            WaitForHealthyContainer(containerName, new($"http://127.0.0.1:{hostPort}/health"));
+            WaitForHealthyContainer(containerName, new($"http://127.0.0.1:{hostPort}/health/ready"));
             AssertContainerLogsDoNotContainStartupErrors(containerName);
         }
         finally

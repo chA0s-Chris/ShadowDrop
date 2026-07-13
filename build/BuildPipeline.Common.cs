@@ -48,11 +48,15 @@ internal partial class BuildPipeline
 
     private AbsolutePath ProjectFileCli => SourceDirectory / "ShadowDrop.Cli/ShadowDrop.Cli.csproj";
 
+    private AbsolutePath ProjectFileHealthProbe => SourceDirectory / "ShadowDrop.HealthProbe/ShadowDrop.HealthProbe.csproj";
+
     private AbsolutePath PublishApiDirectory => PublishDirectory / "api";
 
     private AbsolutePath PublishCliDirectory => PublishDirectory / "cli";
 
     private AbsolutePath PublishDirectory => ArtifactsDirectory / "publish";
+
+    private AbsolutePath PublishHealthProbeDirectory => PublishDirectory / "health-probe";
 
     private String ReleaseNotes { get; set; } = String.Empty;
 

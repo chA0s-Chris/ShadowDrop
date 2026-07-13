@@ -39,6 +39,16 @@ jobs:
       - name: Validate GitHub Actions workflows
         uses: raven-actions/actionlint@v2
 
+      - name: Validate Docker Compose deployments
+        env:
+          SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN: compose-config-test-only
+          MONGO_INITDB_ROOT_USERNAME: compose-config-test-only
+          MONGO_INITDB_ROOT_PASSWORD: compose-config-test-only
+          SHADOWDROP_MONGO_CONNECTION_STRING: mongodb://compose-config-test-only:compose-config-test-only@mongodb:27017/?authSource=admin
+        run: |
+          docker compose -f docker/compose.local.yaml config --quiet
+          docker compose -f docker/compose.mongodb.yaml config --quiet
+
       - name: Run NUKE pipeline
         run: bash build.sh Test TestEndToEnd
 

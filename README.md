@@ -33,6 +33,23 @@ ShadowDrop ships through two channels:
 
 ## Quick start: run the server
 
+Clone the repository, create the credential file, and start the default LiteDB
+metadata + filesystem blob deployment:
+
+```bash
+cp docker/.env.example docker/.env
+# Set a long, random SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN in docker/.env.
+docker compose --env-file docker/.env -f docker/compose.local.yaml up -d
+```
+
+The alternative `docker/compose.mongodb.yaml` runs ShadowDrop with MongoDB metadata
+and GridFS blobs. It requires the additional MongoDB values documented in the
+[deployment guide](docs/DEPLOYMENT.md#docker-compose-deployments). Both Compose
+files bind the API to `127.0.0.1:19423` by default and persist their state in
+named volumes.
+
+Running the published image directly remains supported:
+
 ```bash
 docker run -d --name shadowdrop \
   -p 19423:19423 \
@@ -46,7 +63,8 @@ terminated by a reverse proxy in front of it. All state (metadata database and
 encrypted blobs) lives under `/app/data` — keep it on a persistent volume.
 `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` is required on the first start and becomes
 the admin bearer token; see the [deployment guide](docs/DEPLOYMENT.md) for
-details, the Docker Hub tagging scheme, and reverse-proxy guidance.
+details, both Compose options, the Docker Hub tagging scheme, backup/restore,
+and reverse-proxy guidance.
 
 Do not expose `/api/admin/*` to the public Internet without an upstream
 control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before going live.

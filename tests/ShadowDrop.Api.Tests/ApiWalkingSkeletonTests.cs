@@ -38,7 +38,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health/live");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -95,7 +95,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
 
-        _ = await client.GetAsync("/health");
+        _ = await client.GetAsync("/health/live");
 
         Directory.Exists(Path.GetDirectoryName(fixture.MetadataDatabasePath)!).Should().BeTrue();
         Directory.Exists(fixture.LocalStorageRoot).Should().BeTrue();
@@ -931,8 +931,8 @@ public sealed class ApiWalkingSkeletonTests
         try
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-            CultureInfo.CurrentCulture = new CultureInfo("ar-SA");
-            CultureInfo.CurrentUICulture = new CultureInfo("ar-SA");
+            CultureInfo.CurrentCulture = new("ar-SA");
+            CultureInfo.CurrentUICulture = new("ar-SA");
 
             using (var requestContent = CreateValidUploadContent(uploadMetadata, ciphertext))
             {
@@ -1538,7 +1538,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory(useRelativePaths: true);
         using var client = fixture.CreateClient();
 
-        _ = await client.GetAsync("/health");
+        _ = await client.GetAsync("/health/live");
 
         var options = fixture.Services.GetRequiredService<ShadowDropOptions>();
         var contentRoot = fixture.Services.GetRequiredService<IWebHostEnvironment>().ContentRootPath;
@@ -1659,7 +1659,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory(false, withBootstrapToken: false);
         using var client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health/live");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK,
                                         "when admin operations are disabled, AdminTokenService is never initialized so no bootstrap token is required");
@@ -1680,7 +1680,7 @@ public sealed class ApiWalkingSkeletonTests
 
         await using var healthyFixture = new TestApiFactory();
         using var client = healthyFixture.CreateClient();
-        var response = await client.GetAsync("/health");
+        var response = await client.GetAsync("/health/live");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK,
                                         "disposal of a failed factory must restore environment variables so subsequent factories can start");
@@ -2055,7 +2055,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                          metadata.ChunkSize,
                                                                          chunkIndex,
                                                                          plaintextChunkLength,
-                                                                         chunkIndex == ((metadata.TotalPlaintextSize - 1) / metadata.ChunkSize)));
+                                                                         chunkIndex == (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize));
             var chunkPlaintextStart = chunkIndex * metadata.ChunkSize;
             var sliceStart = (Int32)Math.Max(responsePlaintextRange.Start, chunkPlaintextStart) - (Int32)chunkPlaintextStart;
             var sliceEndExclusive = (Int32)Math.Min(responsePlaintextRange.End, chunkPlaintextStart + plaintextChunkLength) - (Int32)chunkPlaintextStart;

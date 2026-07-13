@@ -1,0 +1,21 @@
+name: shadowdrop
+
+services:
+  shadowdrop:
+    image: chaos/shadowdrop:latest
+    restart: unless-stopped
+    environment:
+      SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN: ${SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN:?Set SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN in .env}
+    ports:
+      - "${SHADOWDROP_BIND_ADDRESS:-127.0.0.1}:19423:19423"
+    volumes:
+      - shadowdrop-data:/app/data
+    healthcheck:
+      test: ["CMD", "dotnet", "/app/ShadowDrop.HealthProbe.dll", "http://127.0.0.1:19423/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  shadowdrop-data:

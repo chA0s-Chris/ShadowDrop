@@ -8,33 +8,33 @@ Provide reproducible, single-host Docker Compose deployments for ShadowDrop's tw
 
 ## Acceptance Criteria
 
-- [ ] Add a separate Compose file for the default LiteDB metadata and filesystem blob configuration.
-- [ ] Persist all LiteDB and filesystem state in a named volume mounted at `/app/data`.
-- [ ] Add a separate Compose file for ShadowDrop with one MongoDB service.
-- [ ] Configure the MongoDB variant to use `MongoDb` metadata and `MongoGridFs` blob storage.
-- [ ] Persist MongoDB data in its own named volume.
-- [ ] Replace `GET /health` with distinct `GET /health/live` and `GET /health/ready` endpoints; liveness reports process availability, while readiness performs a bounded MongoDB check whenever a MongoDB provider is active and returns HTTP 503 when that dependency is unavailable.
-- [ ] Add a shell-free API health-probe executable to the container image and use it to probe API readiness from both Compose files.
-- [ ] Add a credential-aware MongoDB health check and gate API startup on MongoDB health in the MongoDB variant.
-- [ ] Pin MongoDB to the `mongo:8.3` image tag (latest 8.3.x patch release) instead of `latest`.
-- [ ] Commit a `.env.example` that names every required setting and secret without providing real or usable default credentials, accept the MongoDB connection string as a complete operator-supplied value, and ignore the credential-bearing `.env` file while retaining `.env.example` in version control.
-- [ ] Bind the API to `127.0.0.1:19423` by default and document the explicit change required for LAN access.
-- [ ] Document startup commands for both Compose variants while retaining the existing `docker run` guidance.
-- [ ] Document reverse-proxy TLS termination and require upstream protection when exposing `/api/admin/*`.
-- [ ] Describe the MongoDB and GridFS variant as a convenient single-host deployment rather than a highly available MongoDB topology.
-- [ ] Document coordinated backup and restore considerations for `/app/data`, MongoDB metadata, both GridFS collections, and the distributed-lock collection.
-- [ ] Update the README quick start and deployment guide to reference both Compose options and remove the obsolete statement that the Docker Hub image has not yet been published.
-- [ ] Validate both Compose files with `docker compose config` using documented non-secret test configuration.
-- [ ] Smoke-test both variants and confirm that each API reaches its expected healthy state.
-- [ ] Confirm that the MongoDB variant does not start the API until MongoDB is healthy.
-- [ ] Add an opt-in `SmokeTestDockerCompose` target that uses each variant to create representative metadata and encrypted blob data, recreates services without deleting volumes, and verifies that the original admin credential and persisted data remain usable.
-- [ ] Keep the full behavioral Compose persistence target outside normal pull-request CI while running `docker compose config` for both files in regular CI.
-- [ ] Add focused automated tests for liveness, local readiness, MongoDB-backed readiness success and failure through controllable test doubles, and health-probe success, unhealthy-response, connection-failure, timeout, and exit-code behavior.
-- [ ] Add one MongoDB readiness happy-path assertion to the existing MongoDB integration fixture without introducing another MongoDB container lifecycle.
+- [x] Add a separate Compose file for the default LiteDB metadata and filesystem blob configuration.
+- [x] Persist all LiteDB and filesystem state in a named volume mounted at `/app/data`.
+- [x] Add a separate Compose file for ShadowDrop with one MongoDB service.
+- [x] Configure the MongoDB variant to use `MongoDb` metadata and `MongoGridFs` blob storage.
+- [x] Persist MongoDB data in its own named volume.
+- [x] Replace `GET /health` with distinct `GET /health/live` and `GET /health/ready` endpoints; liveness reports process availability, while readiness performs a bounded MongoDB check whenever a MongoDB provider is active and returns HTTP 503 when that dependency is unavailable.
+- [x] Add a shell-free API health-probe executable to the container image and use it to probe API readiness from both Compose files.
+- [x] Add a credential-aware MongoDB health check and gate API startup on MongoDB health in the MongoDB variant.
+- [x] Pin MongoDB to the `mongo:8.3` image tag (latest 8.3.x patch release) instead of `latest`.
+- [x] Commit a `.env.example` that names every required setting and secret without providing real or usable default credentials, accept the MongoDB connection string as a complete operator-supplied value, and ignore the credential-bearing `.env` file while retaining `.env.example` in version control.
+- [x] Bind the API to `127.0.0.1:19423` by default and document the explicit change required for LAN access.
+- [x] Document startup commands for both Compose variants while retaining the existing `docker run` guidance.
+- [x] Document reverse-proxy TLS termination and require upstream protection when exposing `/api/admin/*`.
+- [x] Describe the MongoDB and GridFS variant as a convenient single-host deployment rather than a highly available MongoDB topology.
+- [x] Document coordinated backup and restore considerations for `/app/data`, MongoDB metadata, both GridFS collections, and the distributed-lock collection.
+- [x] Update the README quick start and deployment guide to reference both Compose options and remove the obsolete statement that the Docker Hub image has not yet been published.
+- [x] Validate both Compose files with `docker compose config` using documented non-secret test configuration.
+- [x] Smoke-test both variants and confirm that each API reaches its expected healthy state.
+- [x] Confirm that the MongoDB variant does not start the API until MongoDB is healthy.
+- [x] Add an opt-in `SmokeTestDockerCompose` target that uses each variant to create representative metadata and encrypted blob data, recreates services without deleting volumes, and verifies that the original admin credential and persisted data remain usable.
+- [x] Keep the full behavioral Compose persistence target outside normal pull-request CI while running `docker compose config` for both files in regular CI.
+- [x] Add focused automated tests for liveness, local readiness, MongoDB-backed readiness success and failure through controllable test doubles, and health-probe success, unhealthy-response, connection-failure, timeout, and exit-code behavior.
+- [x] Add one MongoDB readiness happy-path assertion to the existing MongoDB integration fixture without introducing another MongoDB container lifecycle.
 
 ## Technical Details
 
-Add two clearly named Compose files at the repository root rather than combining the persistence choices behind profiles. Both should run `chaos/shadowdrop:latest`, consume operator-supplied values from the committed `.env.example` contract, publish container port `19423` only on loopback by default, and use an exec-form, shell-free probe command against API readiness. The local variant should rely on the image's LiteDB and filesystem defaults and attach a named volume at `/app/data`, matching the paths already established by the `Dockerfile`.
+Add two clearly named Compose files under `docker/` rather than combining the persistence choices behind profiles. Both should run `chaos/shadowdrop:latest`, consume operator-supplied values from the committed `docker/.env.example` contract, publish container port `19423` only on loopback by default, and use an exec-form, shell-free probe command against API readiness. The local variant should rely on the image's LiteDB and filesystem defaults and attach a named volume at `/app/data`, matching the paths already established by the `Dockerfile`.
 
 The MongoDB variant should add one MongoDB service pinned to the `mongo:8.3` tag so it tracks the latest 8.3.x patch release, persist `/data/db` in a dedicated named volume, and configure authentication without embedding credentials in version-controlled files. Pass `ShadowDrop__Metadata__Provider=MongoDb`, `ShadowDrop__Storage__Provider=MongoGridFs`, and the existing `ShadowDrop__Mongo__*` settings to the API. The environment contract should name `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`, `MONGO_INITDB_ROOT_USERNAME`, `MONGO_INITDB_ROOT_PASSWORD`, and `SHADOWDROP_MONGO_CONNECTION_STRING`; Compose should map the complete operator-supplied connection string to `ShadowDrop__Mongo__ConnectionString` rather than reconstructing a URI from credential fragments. Add `.env` to `.gitignore` while keeping `.env.example` committed. Give MongoDB a credential-aware health check and use Compose's health-based dependency condition so ShadowDrop starts only after MongoDB is ready. Keep both service
 definitions compatible with the

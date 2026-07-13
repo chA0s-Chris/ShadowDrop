@@ -80,6 +80,11 @@ Adjust the trusted source ranges and limits to match the deployment, but keep
 both properties: untrusted clients should not reach `/api/admin/*`, and allowed
 clients should still be throttled before requests are forwarded to Kestrel.
 
+Do not forward `/health/live` or `/health/ready` through the reverse proxy.
+They are unauthenticated, intended for host-local and orchestrator probes only,
+and each readiness request triggers a MongoDB round-trip when a MongoDB
+provider is active.
+
 ## Direct-HTTP download URL sensitivity
 
 Direct-HTTP `download-url` values are as sensitive as the file contents because

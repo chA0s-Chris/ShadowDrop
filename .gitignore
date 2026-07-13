@@ -64,3 +64,7 @@ nunit-*.xml
 /tmp/
 
 /src/ShadowDrop.Api/data/
+
+# Local deployment credentials
+.env
+!.env.example

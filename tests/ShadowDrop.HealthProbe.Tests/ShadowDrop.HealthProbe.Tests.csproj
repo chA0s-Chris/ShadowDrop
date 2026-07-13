@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ShadowDrop.HealthProbe\ShadowDrop.HealthProbe.csproj" />
+  </ItemGroup>
+</Project>
