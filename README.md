@@ -56,13 +56,13 @@ control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before goi
 On Linux and macOS, install the latest stable CLI to `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh
+curl -fsSL https://get.shadowdrop.net/install.sh | sh
 ```
 
 On Windows, install it to `$env:LOCALAPPDATA\ShadowDrop\bin`:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1 | iex
+iwr -useb https://get.shadowdrop.net/install.ps1 | iex
 ```
 
 Both installers detect the platform, verify the selected binary against the
@@ -70,11 +70,11 @@ release's `CHECKSUMS.sha256`, replace an existing installation, and warn when
 the target directory is not on `PATH`. Override the install directory with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir "$HOME/bin"
+curl -fsSL https://get.shadowdrop.net/install.sh | sh -s -- --install-dir "$HOME/bin"
 ```
 
 ```powershell
-& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
+& ([scriptblock]::Create((iwr -useb https://get.shadowdrop.net/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
 ```
 
 See the [CLI installation guide](docs/CLI.md#installation) for supported

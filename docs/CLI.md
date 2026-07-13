@@ -15,27 +15,27 @@ and replace an existing user-scoped installation.
 On Linux and macOS, install the latest stable release to `~/.local/bin`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh
+curl -fsSL https://get.shadowdrop.net/install.sh | sh
 ```
 
 Pass options after `sh -s --` to override the install directory:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir "$HOME/bin"
+curl -fsSL https://get.shadowdrop.net/install.sh | sh -s -- --install-dir "$HOME/bin"
 ```
 
 On Windows PowerShell 5.1 or PowerShell 7, install the latest stable release to
 `$env:LOCALAPPDATA\ShadowDrop\bin`:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1 | iex
+iwr -useb https://get.shadowdrop.net/install.ps1 | iex
 ```
 
 Plain `iwr ... | iex` cannot pass parameters. Use scriptblock invocation for a
 custom install directory:
 
 ```powershell
-& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
+& ([scriptblock]::Create((iwr -useb https://get.shadowdrop.net/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
 ```
 
 The installers warn if the destination is absent from the current `PATH`. Add
@@ -76,7 +76,7 @@ shadowdrop update
 # installed-version:1.4.0
 # latest-version:1.5.0
 # update-status:update-available
-# update-command:curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh -s -- --install-dir '/home/alice/.local/bin'
+# update-command:curl -fsSL https://get.shadowdrop.net/install.sh | sh -s -- --install-dir '/home/alice/.local/bin'
 ```
 
 When a newer release exists, the output includes the official installer

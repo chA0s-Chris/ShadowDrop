@@ -8,12 +8,12 @@ Replace the implementation-facing raw GitHub installer URLs with stable, project
 
 ## Acceptance Criteria
 
-- [ ] Unix install examples and CLI update guidance use `https://get.shadowdrop.net/install.sh`.
-- [ ] PowerShell install examples and CLI update guidance use `https://get.shadowdrop.net/install.ps1`.
-- [ ] The default-directory and custom-directory command forms remain unchanged apart from their installer URLs.
-- [ ] `README.md` and `docs/CLI.md` consistently present the branded installer URLs.
-- [ ] Automated tests assert the branded URLs for direct installation guidance, update-command output, and the CLI update flow, and all affected tests pass.
-- [ ] No previous raw GitHub installer URL remains in production code, user-facing documentation, or active test expectations; any retained occurrence is intentional historical context and is documented as such.
+- [x] Unix install examples and CLI update guidance use `https://get.shadowdrop.net/install.sh`.
+- [x] PowerShell install examples and CLI update guidance use `https://get.shadowdrop.net/install.ps1`.
+- [x] The default-directory and custom-directory command forms remain unchanged apart from their installer URLs.
+- [x] `README.md` and `docs/CLI.md` consistently present the branded installer URLs.
+- [x] Automated tests assert the branded URLs for direct installation guidance, update-command output, and the CLI update flow, and all affected tests pass.
+- [x] No previous raw GitHub installer URL remains in production code, user-facing documentation, or active test expectations; any retained occurrence is intentional historical context and is documented as such.
 
 ## Technical Details
 

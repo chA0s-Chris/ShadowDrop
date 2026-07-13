@@ -15,15 +15,15 @@ namespace ShadowDrop.Cli.Updates;
 /// </remarks>
 internal sealed class InstallationGuidanceProvider(Boolean isWindows, String? executableDirectory) : IInstallationGuidanceProvider
 {
-    private const String RepositoryMain = "https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main";
+    private const String InstallerBaseUrl = "https://get.shadowdrop.net";
 
     private const String UnixDefaultInstallCommand = $"curl -fsSL {UnixInstallScriptUrl} | sh";
 
-    private const String UnixInstallScriptUrl = $"{RepositoryMain}/install.sh";
+    private const String UnixInstallScriptUrl = $"{InstallerBaseUrl}/install.sh";
 
     private const String WindowsDefaultInstallCommand = $"iwr -useb {WindowsInstallScriptUrl} | iex";
 
-    private const String WindowsInstallScriptUrl = $"{RepositoryMain}/install.ps1";
+    private const String WindowsInstallScriptUrl = $"{InstallerBaseUrl}/install.ps1";
 
     public InstallationGuidanceProvider()
         : this(OperatingSystem.IsWindows(), Path.GetDirectoryName(Environment.ProcessPath)) { }

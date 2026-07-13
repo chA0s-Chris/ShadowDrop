@@ -34,7 +34,7 @@ public sealed class InstallationGuidanceProviderTests
         var provider = new InstallationGuidanceProvider(false, executableDirectory);
 
         provider.GetInstallCommand().Should()
-                .Be("curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh");
+                .Be("curl -fsSL https://get.shadowdrop.net/install.sh | sh");
     }
 
     [TestCase(null)]
@@ -45,7 +45,7 @@ public sealed class InstallationGuidanceProviderTests
         var provider = new InstallationGuidanceProvider(true, executableDirectory);
 
         provider.GetInstallCommand().Should()
-                .Be("iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1 | iex");
+                .Be("iwr -useb https://get.shadowdrop.net/install.ps1 | iex");
     }
 
     [Test]
@@ -54,7 +54,7 @@ public sealed class InstallationGuidanceProviderTests
         var provider = new InstallationGuidanceProvider(false, "/home/alice/bin");
 
         provider.GetInstallCommand().Should()
-                .Be("curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh"
+                .Be("curl -fsSL https://get.shadowdrop.net/install.sh"
                     + " | sh -s -- --install-dir '/home/alice/bin'");
     }
 
@@ -65,7 +65,7 @@ public sealed class InstallationGuidanceProviderTests
 
         // Plain "iwr | iex" cannot pass parameters, so the directory-pinned form uses the scriptblock invocation.
         provider.GetInstallCommand().Should()
-                .Be("& ([scriptblock]::Create((iwr -useb https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1)))"
+                .Be("& ([scriptblock]::Create((iwr -useb https://get.shadowdrop.net/install.ps1)))"
                     + " -InstallDir 'C:\\Users\\alice\\Tools\\ShadowDrop'");
     }
 
