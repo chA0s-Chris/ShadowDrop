@@ -76,8 +76,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/publish/api
+          mkdir -p artifacts/publish/api artifacts/publish/health-probe
           cp -R artifacts/release/api/. artifacts/publish/api/
+          cp -R artifacts/release/health-probe/. artifacts/publish/health-probe/
 
       # GitHub-hosted runners default to the legacy image store, which cannot build or load
       # multi-platform images. Enable the containerd image store and set up QEMU/binfmt so the
