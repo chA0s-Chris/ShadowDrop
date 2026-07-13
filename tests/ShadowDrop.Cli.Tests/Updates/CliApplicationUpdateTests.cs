@@ -84,7 +84,7 @@ public sealed class CliApplicationUpdateTests
             $"installed-version:{CliVersion.Current}",
             "latest-version:99.0.0",
             "update-status:update-available",
-            "update-command:curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh | sh");
+            "update-command:curl -fsSL https://get.shadowdrop.net/install.sh | sh");
     }
 
     [Test]

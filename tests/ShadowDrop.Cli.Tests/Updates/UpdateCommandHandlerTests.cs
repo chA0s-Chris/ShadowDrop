@@ -28,7 +28,7 @@ public sealed class UpdateCommandHandlerTests
             "installed-version:1.4.0",
             "latest-version:1.5.0",
             "update-status:update-available",
-            "update-command:curl -fsSL https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.sh"
+            "update-command:curl -fsSL https://get.shadowdrop.net/install.sh"
             + " | sh -s -- --install-dir '/home/alice/bin'");
     }
 
@@ -44,7 +44,7 @@ public sealed class UpdateCommandHandlerTests
         exitCode.Should().Be(0);
         standardOut.ToString().Should()
                    .Contain("update-command:& ([scriptblock]::Create((iwr -useb"
-                            + " https://raw.githubusercontent.com/chA0s-Chris/ShadowDrop/refs/heads/main/install.ps1)))"
+                            + " https://get.shadowdrop.net/install.ps1)))"
                             + " -InstallDir 'C:\\Users\\alice\\Tools\\ShadowDrop'");
     }
 
