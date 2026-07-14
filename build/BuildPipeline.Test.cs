@@ -80,6 +80,11 @@ internal partial class BuildPipeline
                                       static (settings, path) => settings.SetProjectFile(path)));
               });
 
+    private static String FormatRate(String? rate) =>
+        Double.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+            ? (value * 100).ToString("N2")
+            : "n/a";
+
     private void ReportTestCountAndCoverage()
     {
         var totalTestCount = 0;
@@ -118,11 +123,35 @@ internal partial class BuildPipeline
             throw new InvalidDataException($"Malformed test coverage result file: {MergedCoverageResultsFile}");
         }
 
+        // Cobertura emits one <package> per assembly, each carrying its own rates. The merged root only
+        // exposes the overall line rate, which hides an assembly regressing behind the solution average.
+        var assemblies = new List<(String Name, String LineRate, String BranchRate)>();
+        while (coverageReader.Read())
+        {
+            if (coverageReader is not { NodeType: XmlNodeType.Element, Name: "package" })
+                continue;
+
+            assemblies.Add((coverageReader.GetAttribute("name") ?? "<unknown>",
+                            FormatRate(coverageReader.GetAttribute("line-rate")),
+                            FormatRate(coverageReader.GetAttribute("branch-rate"))));
+        }
+
         var coverage = (lineRate * 100).ToString("N2");
         Console.WriteLine($"CODE_COVERAGE={coverage}");
 
-        ReportSummary(c => c.AddPair("Total", totalTestCount)
-                            .AddPair("Failed", totalFailureCount)
-                            .AddPair("Coverage", $"{coverage}%"));
+        foreach (var assembly in assemblies.OrderBy(static assembly => assembly.Name, StringComparer.Ordinal))
+            Console.WriteLine($"CODE_COVERAGE[{assembly.Name}]={assembly.LineRate}");
+
+        ReportSummary(c =>
+        {
+            c.AddPair("Total", totalTestCount)
+             .AddPair("Failed", totalFailureCount)
+             .AddPair("Coverage", $"{coverage}%");
+
+            foreach (var assembly in assemblies.OrderBy(static assembly => assembly.Name, StringComparer.Ordinal))
+                c.AddPair(assembly.Name, $"{assembly.LineRate}% line / {assembly.BranchRate}% branch");
+
+            return c;
+        });
     }
 }
