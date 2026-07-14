@@ -28,7 +28,13 @@ internal partial class BuildPipeline
                                       .GetProperty("depends_on")
                                       .GetProperty("mongodb");
         (dependency.GetProperty("condition").GetString() ?? String.Empty).ShouldBe("service_healthy");
-        dependency.GetProperty("required").GetBoolean().ShouldBeTrue();
+
+        // Compose only started emitting 'required' in v2.20; guard against a 'required: false' that would
+        // stop the health gate from blocking startup, without depending on the field being rendered.
+        if (dependency.TryGetProperty("required", out var required))
+        {
+            required.GetBoolean().ShouldBeTrue();
+        }
     }
 
     private static void AssertMongoIsHealthy(String containerName)
