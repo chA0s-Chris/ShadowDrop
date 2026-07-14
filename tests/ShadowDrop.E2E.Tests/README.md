@@ -13,7 +13,7 @@ project reference exists, so the only coupling is through built executables, std
 and the file system). Each scenario then:
 
 - starts `ShadowDrop.Api` on a dynamically allocated loopback port with temporary metadata and storage paths,
-  waits for `GET /health`, captures the API's stdout/stderr, and reliably terminates it afterwards;
+  waits for `GET /health/ready`, captures the API's stdout/stderr, and reliably terminates it afterwards;
 - runs the real CLI as a child process;
 - byte-compares every downloaded file against the original input.
 

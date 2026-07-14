@@ -6,6 +6,7 @@ using Chaos.Mongo;
 using Serilog;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Downloads;
+using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
@@ -40,6 +41,11 @@ public static class DependencyInjection
                                           options.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
                                       })
                    .WithConfigurator<ShadowDropMongoConfigurator>();
+            builder.Services.AddSingleton<IReadinessCheck, MongoReadinessCheck>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<IReadinessCheck, LocalReadinessCheck>();
         }
 
         // Keep Kestrel's body-size ceiling above the configured upload limit so the reader's friendly UploadPayloadTooLargeException

@@ -22,12 +22,72 @@ Tags follow the usual semantic-versioning convenience scheme:
 Pre-releases (e.g. `1.2.3-rc.1`) only ever get their exact-version tag; they
 never move `latest` or the floating major/minor tags.
 
-> **Note:** Release publishing is not wired up yet (see the MVP limitations in
-> the [README](../README.md)). Until the first release is pushed, build the
-> image locally with `bash build.sh BuildDockerImage`, which produces
-> `shadowdrop:<version>`.
+## Docker Compose deployments
 
-## Running the container
+ShadowDrop provides two explicit single-host Compose options:
+
+| File                          | Metadata | Encrypted blobs | Persistent volume                        |
+|-------------------------------|----------|-----------------|------------------------------------------|
+| `docker/compose.local.yaml`   | LiteDB   | Filesystem      | One volume mounted at `/app/data`        |
+| `docker/compose.mongodb.yaml` | MongoDB  | GridFS          | One MongoDB volume mounted at `/data/db` |
+
+The MongoDB + GridFS option is a convenient single-host deployment. Its one
+MongoDB service is not a replica set and provides no highly available MongoDB
+topology. Use an independently managed MongoDB deployment when availability
+requirements exceed a single host.
+
+Both files share the Compose project name `shadowdrop` and publish the same
+host port, so run only one variant per host. To switch variants, stop the
+running one first with
+`docker compose --env-file docker/.env -f docker/compose.<variant>.yaml down`;
+named volumes are preserved.
+
+Copy the environment contract and fill in the values required by the variant:
+
+```bash
+cp docker/.env.example docker/.env
+chmod 600 docker/.env
+```
+
+For the local variant, set `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN`. Then start it:
+
+```bash
+docker compose --env-file docker/.env -f docker/compose.local.yaml up -d
+```
+
+For MongoDB + GridFS, also set `MONGO_INITDB_ROOT_USERNAME`,
+`MONGO_INITDB_ROOT_PASSWORD`, and the complete
+`SHADOWDROP_MONGO_CONNECTION_STRING`. The connection string must address the
+Compose service name `mongodb` and authenticate against `admin`, for example
+`mongodb://<user>:<password>@mongodb:27017/?authSource=admin`. Compose passes
+that complete operator-supplied value to ShadowDrop without reconstructing it.
+
+```bash
+docker compose --env-file docker/.env -f docker/compose.mongodb.yaml up -d
+```
+
+Both files bind `127.0.0.1:19423` by default. This is appropriate for a reverse
+proxy on the same host. For intentional LAN access, set
+`SHADOWDROP_BIND_ADDRESS=0.0.0.0` in `.env`, apply host-firewall restrictions,
+and recreate the service. Do not make that change for direct Internet exposure.
+
+To render and validate the files without printing substituted values, use
+non-secret test-only configuration:
+
+```bash
+SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN=config-test \
+  docker compose -f docker/compose.local.yaml config --quiet
+
+SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN=config-test \
+MONGO_INITDB_ROOT_USERNAME=config-test \
+MONGO_INITDB_ROOT_PASSWORD=config-test \
+SHADOWDROP_MONGO_CONNECTION_STRING='mongodb://config-test:config-test@mongodb:27017/?authSource=admin' \
+  docker compose -f docker/compose.mongodb.yaml config --quiet
+```
+
+## Running the container without Compose
+
+The existing `docker run` deployment remains supported:
 
 ```bash
 docker run -d --name shadowdrop \
@@ -42,6 +102,8 @@ docker run -d --name shadowdrop \
 The image serves plain HTTP on port `19423` (`ASPNETCORE_HTTP_PORTS=19423` is
 baked into the image, and the port is `EXPOSE`d). The container does not
 terminate TLS itself — see [TLS and reverse proxies](#tls-and-reverse-proxies).
+The `docker run` example publishes on all host interfaces; use
+`-p 127.0.0.1:19423:19423` when only a host-local reverse proxy should connect.
 
 ### `/app/data` persistence
 
@@ -157,10 +219,19 @@ separate migration facility is implemented. Plan and validate any provider
 change as an explicit data migration.
 
 Back up and restore the active metadata store and blob store as one consistent
-set. For GridFS, include both `<bucket>.files` and `<bucket>.chunks` alongside
-the metadata collections and the Chaos.Mongo lock collection. A mixed
-LiteDB/GridFS or MongoDB/filesystem deployment therefore requires coordinated
-backups across both systems. Test restoration before relying on a backup.
+set while writes are quiesced or by using a storage-level consistent snapshot.
+For `docker/compose.local.yaml`, capture the entire `/app/data` volume as one unit; it
+contains the LiteDB metadata, hashed admin credential, and encrypted filesystem
+blobs.
+
+For `docker/compose.mongodb.yaml`, use MongoDB-supported backup tooling and include the
+ShadowDrop metadata collections (`uploaded_files`, `shares`, and `admin_tokens`),
+both GridFS collections (`shadowdrop_blobs.files` and
+`shadowdrop_blobs.chunks`), and the Chaos.Mongo distributed-lock collection
+from the same consistent backup point. Restore the complete set together before
+starting ShadowDrop. A mixed LiteDB/GridFS or MongoDB/filesystem deployment
+likewise requires coordinated backups across both systems. Always rehearse a
+restore before relying on a backup.
 
 ## TLS and reverse proxies
 
@@ -237,4 +308,31 @@ using Nginx Proxy Manager's supported custom-location form.
 
 ## Health check
 
-The server exposes `GET /health` for liveness probes.
+The server exposes two unauthenticated health endpoints:
+
+- `GET /health/live` reports that the API process is serving requests.
+- `GET /health/ready` reports whether the API can serve its configured workload.
+  Local persistence is ready after normal startup. When either MongoDB provider
+  is active, readiness performs a short, bounded MongoDB ping and returns HTTP
+  503 if MongoDB is unavailable.
+
+Both Compose API services run the shell-free probe included in the image
+against `/health/ready`. The MongoDB variant additionally uses an authenticated
+MongoDB health check and does not start the API until MongoDB is healthy.
+
+## Compose persistence smoke test
+
+`./build.sh SmokeTestDockerCompose` is an opt-in pre-release check. It builds
+the current branch image, exercises both committed Compose files through a
+temporary image override, persists representative metadata and encrypted blob
+data, recreates the services without deleting volumes, and verifies that the
+original admin credential and data remain usable. The target owns uniquely
+named Compose resources and removes its override, containers, network, and
+volumes even after failure. It is intentionally outside the normal `Test` and
+`TestEndToEnd` targets.
+
+On Linux kernel 6.19+ hosts affected by MongoDB `SERVER-121912`, the target's
+temporary MongoDB override also sets `GLIBC_TUNABLES=glibc.pthread.rseq=1` so
+the test container can run. The committed operator-facing Compose file does not
+carry this test-only workaround; MongoDB's production notes still classify
+kernel 6.19 as incompatible pending their TCMalloc update.

@@ -1,0 +1,52 @@
+name: shadowdrop
+
+services:
+  mongodb:
+    image: mongo:8.3
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MONGO_INITDB_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD in .env}
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      # $$-escaping defers expansion to the container at probe time, so the credentials are not
+      # duplicated into the rendered healthcheck command. They remain visible in the service
+      # environment via docker inspect.
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet
+          --username "$$MONGO_INITDB_ROOT_USERNAME"
+          --password "$$MONGO_INITDB_ROOT_PASSWORD"
+          --authenticationDatabase admin
+          --eval "db.adminCommand('ping').ok"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  shadowdrop:
+    image: chaos/shadowdrop:latest
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN: ${SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN:?Set SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN in .env}
+      ShadowDrop__Metadata__Provider: MongoDb
+      ShadowDrop__Storage__Provider: MongoGridFs
+      ShadowDrop__Storage__GridFsBucketName: shadowdrop_blobs
+      ShadowDrop__Mongo__ConnectionString: ${SHADOWDROP_MONGO_CONNECTION_STRING:?Set SHADOWDROP_MONGO_CONNECTION_STRING in .env}
+      ShadowDrop__Mongo__DatabaseName: shadowdrop
+    ports:
+      - "${SHADOWDROP_BIND_ADDRESS:-127.0.0.1}:19423:19423"
+    healthcheck:
+      test: ["CMD", "dotnet", "/app/ShadowDrop.HealthProbe.dll", "http://127.0.0.1:19423/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongodb-data:

@@ -7,7 +7,7 @@ using System.Text;
 
 /// <summary>
 /// Starts <c>ShadowDrop.Api</c> as a separate process bound to an isolated loopback port with temporary
-/// metadata and storage paths, waits for the <c>/health</c> endpoint, and reliably terminates the process
+/// metadata and storage paths, waits for the <c>/health/ready</c> endpoint, and reliably terminates the process
 /// (and captures its output for diagnostics) on disposal.
 /// </summary>
 internal sealed class ApiServerProcess : IAsyncDisposable
@@ -134,12 +134,10 @@ internal sealed class ApiServerProcess : IAsyncDisposable
 
     private async Task WaitForHealthyAsync(CancellationToken cancellationToken)
     {
-        using var client = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(2)
-        };
+        using var client = new HttpClient();
+        client.Timeout = TimeSpan.FromSeconds(2);
 
-        var healthUri = new Uri(BaseAddress, "health");
+        var healthUri = new Uri(BaseAddress, "health/ready");
         var deadline = DateTime.UtcNow + HealthTimeout;
 
         while (DateTime.UtcNow < deadline)

@@ -38,6 +38,16 @@ jobs:
           path: artifacts/publish/api/
           if-no-files-found: error
 
+      # The Dockerfile copies the health probe alongside the API, so it has to travel with the API in
+      # the release bundle. Without it, the Docker release job would fail the EnsurePublishApiArtifacts
+      # check and silently republish both projects instead of reusing these stamped artifacts.
+      - name: Upload health probe artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: shadowdrop-health-probe
+          path: artifacts/publish/health-probe/
+          if-no-files-found: error
+
   publish-cli-linux:
     runs-on: ubuntu-latest
     steps:
@@ -132,8 +142,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p artifacts/release/api artifacts/release/cli
+          mkdir -p artifacts/release/api artifacts/release/cli artifacts/release/health-probe
           cp -R artifacts/downloaded/shadowdrop-api/. artifacts/release/api/
+          cp -R artifacts/downloaded/shadowdrop-health-probe/. artifacts/release/health-probe/
           find artifacts/downloaded -type f -name 'shadowdrop-*' -exec cp {} artifacts/release/cli/ \;
 
           expected_count=6

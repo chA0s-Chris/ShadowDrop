@@ -6,12 +6,23 @@ public static class HealthEndpoints
 {
     public static WebApplication MapHealthEndpoints(this WebApplication app)
     {
-        app.MapGet("/health", () => Results.Ok(new
+        app.MapGet("/health/live", () => Results.Ok(new
            {
                Status = "ok"
            }))
-           .WithName("Health");
+           .WithName("Liveness");
+
+        app.MapGet("/health/ready", CheckReadinessAsync)
+           .WithName("Readiness");
 
         return app;
     }
+
+    private static async Task<IResult> CheckReadinessAsync(IReadinessCheck readinessCheck, CancellationToken cancellationToken) =>
+        await readinessCheck.IsReadyAsync(cancellationToken)
+            ? Results.Ok(new
+            {
+                Status = "ok"
+            })
+            : Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
 }
