@@ -96,29 +96,30 @@ internal partial class BuildPipeline
         };
 
         workspace.CreateOrCleanDirectory();
-        var overrideContents = $"services:{Environment.NewLine}" +
-                               $"  shadowdrop:{Environment.NewLine}" +
-                               $"    image: {GetDockerImageTag()}{Environment.NewLine}";
-        if (mongoVariant)
-        {
-            // The current image disables glibc rseq registration, which MongoDB 8.3 needs on Linux kernel 6.19+.
-            // Keep this host-specific test workaround out of the committed operator-facing Compose file.
-            overrideContents += $"  mongodb:{Environment.NewLine}" +
-                                $"    environment:{Environment.NewLine}" +
-                                $"      GLIBC_TUNABLES: glibc.pthread.rseq=1{Environment.NewLine}";
-        }
-
-        File.WriteAllText(overrideFile, overrideContents);
-        File.WriteAllText(environmentFile,
-                          $"SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN={adminToken}{Environment.NewLine}" +
-                          $"MONGO_INITDB_ROOT_USERNAME={mongoUser}{Environment.NewLine}" +
-                          $"MONGO_INITDB_ROOT_PASSWORD={mongoPassword}{Environment.NewLine}" +
-                          $"SHADOWDROP_MONGO_CONNECTION_STRING=mongodb://{mongoUser}:{mongoPassword}@mongodb:27017/?authSource=admin{Environment.NewLine}" +
-                          $"SHADOWDROP_BIND_ADDRESS=127.0.0.1{Environment.NewLine}");
-        File.WriteAllBytes(inputFile, Encoding.UTF8.GetBytes($"ShadowDrop Compose persistence smoke test: {suffix}"));
 
         try
         {
+            var overrideContents = $"services:{Environment.NewLine}" +
+                                   $"  shadowdrop:{Environment.NewLine}" +
+                                   $"    image: {GetDockerImageTag()}{Environment.NewLine}";
+            if (mongoVariant)
+            {
+                // The current image disables glibc rseq registration, which MongoDB 8.3 needs on Linux kernel 6.19+.
+                // Keep this host-specific test workaround out of the committed operator-facing Compose file.
+                overrideContents += $"  mongodb:{Environment.NewLine}" +
+                                    $"    environment:{Environment.NewLine}" +
+                                    $"      GLIBC_TUNABLES: glibc.pthread.rseq=1{Environment.NewLine}";
+            }
+
+            File.WriteAllText(overrideFile, overrideContents);
+            File.WriteAllText(environmentFile,
+                              $"SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN={adminToken}{Environment.NewLine}" +
+                              $"MONGO_INITDB_ROOT_USERNAME={mongoUser}{Environment.NewLine}" +
+                              $"MONGO_INITDB_ROOT_PASSWORD={mongoPassword}{Environment.NewLine}" +
+                              $"SHADOWDROP_MONGO_CONNECTION_STRING=mongodb://{mongoUser}:{mongoPassword}@mongodb:27017/?authSource=admin{Environment.NewLine}" +
+                              $"SHADOWDROP_BIND_ADDRESS=127.0.0.1{Environment.NewLine}");
+            File.WriteAllBytes(inputFile, Encoding.UTF8.GetBytes($"ShadowDrop Compose persistence smoke test: {suffix}"));
+
             if (mongoVariant)
             {
                 var configArguments = new List<String>(composePrefix);

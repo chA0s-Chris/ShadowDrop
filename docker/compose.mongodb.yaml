@@ -10,8 +10,9 @@ services:
     volumes:
       - mongodb-data:/data/db
     healthcheck:
-      # CMD-SHELL with $$-escaped variables resolves the credentials inside the container at probe
-      # time instead of baking them into the rendered service definition (docker inspect).
+      # $$-escaping defers expansion to the container at probe time, so the credentials are not
+      # duplicated into the rendered healthcheck command. They remain visible in the service
+      # environment via docker inspect.
       test:
         - CMD-SHELL
         - >-
