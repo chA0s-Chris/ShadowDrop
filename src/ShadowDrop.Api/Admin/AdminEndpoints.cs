@@ -33,6 +33,8 @@ public static class AdminEndpoints
             uploadRoutes.MapPost("/", UploadAsync)
                         .DisableAntiforgery();
             uploadRoutes.MapGet("/{fileId:guid}", GetUploadedFileMetadataAsync);
+
+            adminRoutes.MapUploadCredentialEndpoints();
         }
 
         return app;

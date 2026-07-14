@@ -8,15 +8,15 @@ Separate routine encrypted uploads and share creation from server administration
 
 ## Acceptance Criteria
 
-- [ ] Add a distinct upload-credential model with one fixed `upload-and-share` capability; do not reuse the bootstrap admin credential or introduce independently assignable scopes in this version.
-- [ ] Generate upload tokens whose secret contains at least 256 bits of cryptographic randomness and whose selector contains at least 128 bits of cryptographic randomness.
-- [ ] Store the token secret only as a versioned slow salted hash and compare it in fixed time.
-- [ ] Use a separate non-exposed lookup digest for efficient authentication.
-- [ ] Never persist or log plaintext tokens.
-- [ ] Return a new plaintext upload token exactly once from its authenticated administrative creation operation and make it unrecoverable afterward.
-- [ ] Support a human-readable name of 1 to 100 characters, optional expiration, optional maximum encrypted file bytes, and optional maximum aggregate encrypted share bytes; defer request-count and byte-budget usage quotas to future work.
-- [ ] Add admin-authorized API and CLI operations to create, list, inspect, and revoke upload credentials, including `shadowdrop token create`, `shadowdrop token list`, `shadowdrop token inspect <credential-id>`, and `shadowdrop token revoke <credential-id>`.
-- [ ] Make credential list and inspection bounded and scriptable, expose only the management ID, name, creation time, optional expiration, revocation time, last-used time, fixed capability, and configured constraints, and never expose plaintext tokens, hashes, salts, lookup digests, or the bootstrap admin credential.
+- [x] Add a distinct upload-credential model with one fixed `upload-and-share` capability; do not reuse the bootstrap admin credential or introduce independently assignable scopes in this version.
+- [x] Generate upload tokens whose secret contains at least 256 bits of cryptographic randomness and whose selector contains at least 128 bits of cryptographic randomness.
+- [x] Store the token secret only as a versioned slow salted hash and compare it in fixed time.
+- [x] Use a separate non-exposed lookup digest for efficient authentication.
+- [x] Never persist or log plaintext tokens.
+- [x] Return a new plaintext upload token exactly once from its authenticated administrative creation operation and make it unrecoverable afterward.
+- [x] Support a human-readable name of 1 to 100 characters, optional expiration, optional maximum encrypted file bytes, and optional maximum aggregate encrypted share bytes; defer request-count and byte-budget usage quotas to future work.
+- [x] Add admin-authorized API and CLI operations to create, list, inspect, and revoke upload credentials, including `shadowdrop token create`, `shadowdrop token list`, `shadowdrop token inspect <credential-id>`, and `shadowdrop token revoke <credential-id>`.
+- [x] Make credential list and inspection bounded and scriptable, expose only the management ID, name, creation time, optional expiration, revocation time, last-used time, fixed capability, and configured constraints, and never expose plaintext tokens, hashes, salts, lookup digests, or the bootstrap admin credential.
 - [ ] Add scoped upload and share-creation endpoints that accept a valid upload credential, while ensuring that such credentials cannot call share revocation, cleanup, credential management, or any other admin-only endpoint.
 - [ ] Bind every upload reservation and completed uploaded-file record to the authenticating upload credential, and permit a scoped credential to upload, inspect, or create shares only with reservations and files owned by that same credential.
 - [ ] Preserve bootstrap-admin authority over upload/share creation and legacy ownerless records, but never let one scoped credential claim ownerless files or files owned by another credential.
@@ -24,15 +24,15 @@ Separate routine encrypted uploads and share creation from server administration
 - [ ] Enforce credential expiration and revocation on every authenticated request.
 - [ ] Apply the effective encrypted-file limit—the smaller of the server's derived maximum file payload and the credential-specific limit when configured—before accepting an oversized upload body, while separately enforcing the server's whole multipart-body limit.
 - [ ] Enforce a credential's configured aggregate encrypted-share limit from immutable encrypted file lengths before creating a share; treat an omitted limit as no aggregate-share cap and do not add a server-wide aggregate-share setting in this version.
-- [ ] Record `LastUsedAtUtc` monotonically after successful authentication without allowing concurrent requests to overwrite newer activity or alter revocation state.
-- [ ] Make credential creation, lookup, last-used updates, and revocation atomic and equivalent across LiteDB and MongoDB, with indexes that avoid scanning all credentials during authentication.
+- [x] Record `LastUsedAtUtc` monotonically after successful authentication without allowing concurrent requests to overwrite newer activity or alter revocation state.
+- [x] Make credential creation, lookup, last-used updates, and revocation atomic and equivalent across LiteDB and MongoDB, with indexes that avoid scanning all credentials during authentication.
 - [ ] Keep shares created by a credential available after that credential expires or is revoked; revocation prevents new authenticated operations and does not implicitly revoke existing shares or delete uploaded data.
 - [ ] Add a nullable upload-exposure setting whose effective value inherits the existing admin-exposure setting when omitted, allowing operators to expose scoped uploads separately without changing the exposure behavior of existing configurations.
 - [ ] Preserve existing `--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, and `uploadToken` resolution for routine uploads.
 - [ ] Add dedicated `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, and config-file `adminToken` configuration required by administrative CLI commands, with no fallback to the upload-token setting.
 - [ ] Remove the admin-protected upload/share routes without compatibility aliases and move all CLI upload and share creation to the scoped routes; the bootstrap admin token remains valid on the scoped routes, and documentation describes the route change as a pre-v1 breaking change.
 - [ ] Return the same generic `401` status and response contract for authentication failures without revealing selector, credential, expiration, or revocation matches in responses, errors, or logs; keep unmatched selectors cheap to reject, run the slow hash for every matched credential before evaluating its lifecycle state, and leave strict timing equalization out of scope.
-- [ ] Support `--json` for credential-management commands with exactly one documented JSON value on stdout; keep banners, warnings, diagnostics, and migration notices on stderr.
+- [x] Support `--json` for credential-management commands with exactly one documented JSON value on stdout; keep banners, warnings, diagnostics, and migration notices on stderr.
 - [ ] Add automated authentication, one-time token disclosure, authorization-boundary, ownership-isolation, expiration, revocation, constraint, concurrency, legacy ownerless-record compatibility, redaction, CLI JSON/stdout, and LiteDB/MongoDB parity tests.
 - [ ] Update `README.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, `docs/DEPLOYMENT_HARDENING.md`, and `docs/SECURITY_TRADEOFFS.md` with credential provisioning, exposure, migration, constraint, ownership, revocation, and secret-handling guidance.
 

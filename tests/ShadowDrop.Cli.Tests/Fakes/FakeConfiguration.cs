@@ -19,7 +19,8 @@ internal sealed class FakeEnvironmentReader(IReadOnlyDictionary<String, String?>
 
 internal static class FakeConfiguration
 {
-    public static CliConfigurationResolver Resolver(String? serverUrl = null, String? uploadToken = null, String? configFilePath = null)
+    public static CliConfigurationResolver Resolver(String? serverUrl = null, String? uploadToken = null, String? configFilePath = null,
+                                                    String? adminToken = null)
     {
         var values = new Dictionary<String, String?>();
         if (serverUrl is not null)
@@ -30,6 +31,11 @@ internal static class FakeConfiguration
         if (uploadToken is not null)
         {
             values["SHADOWDROP_UPLOAD_TOKEN"] = uploadToken;
+        }
+
+        if (adminToken is not null)
+        {
+            values["SHADOWDROP_ADMIN_TOKEN"] = adminToken;
         }
 
         return new(new FakeConfigPathResolver(configFilePath), new FakeEnvironmentReader(values));

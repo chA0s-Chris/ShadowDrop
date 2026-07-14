@@ -39,6 +39,7 @@ public static class DependencyInjection
                                           options.AddMapping<MongoUploadedFileDocument>("uploaded_files");
                                           options.AddMapping<MongoShareDocument>("shares");
                                           options.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
+                                          options.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                                       })
                    .WithConfigurator<ShadowDropMongoConfigurator>();
             builder.Services.AddSingleton<IReadinessCheck, MongoReadinessCheck>();
@@ -94,13 +95,16 @@ public static class DependencyInjection
             if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
             {
                 builder.Services.AddSingleton<IAdminTokenCredentialRepository, LiteDbAdminTokenCredentialRepository>();
+                builder.Services.AddSingleton<IUploadCredentialRepository, LiteDbUploadCredentialRepository>();
             }
             else
             {
                 builder.Services.AddSingleton<IAdminTokenCredentialRepository, MongoAdminTokenCredentialRepository>();
+                builder.Services.AddSingleton<IUploadCredentialRepository, MongoUploadCredentialRepository>();
             }
 
             builder.Services.AddSingleton<AdminTokenService>();
+            builder.Services.AddSingleton<UploadCredentialService>();
             builder.Services.AddSingleton<CreateShareService>();
             builder.Services.AddSingleton<ShareRevocationService>();
             builder.Services.AddSingleton<UploadPersistenceService>();

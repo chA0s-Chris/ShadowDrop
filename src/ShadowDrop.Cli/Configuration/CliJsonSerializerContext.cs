@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Results;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Updates;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Contracts;
@@ -19,6 +20,11 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(CreateShareCliRequest))]
 [JsonSerializable(typeof(CreateShareCliResult))]
 [JsonSerializable(typeof(ShareCleanupResultContract))]
+[JsonSerializable(typeof(CreateUploadCredentialCliRequest))]
+[JsonSerializable(typeof(CreateUploadCredentialCliResult))]
+[JsonSerializable(typeof(UploadCredentialCliProjection))]
+[JsonSerializable(typeof(UploadCredentialCliListResult))]
+[JsonSerializable(typeof(TokenRevokeCliResult))]
 [JsonSerializable(typeof(UploadCommandResult))]
 [JsonSerializable(typeof(UploadFailure))]
 [JsonSerializable(typeof(DirectHttpDownload))]

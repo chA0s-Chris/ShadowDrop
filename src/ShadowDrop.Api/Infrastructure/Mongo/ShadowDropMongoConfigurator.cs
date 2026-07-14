@@ -53,5 +53,22 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
 
         // MongoDB's built-in _id index provides the fixed-id admin credential bootstrap guarantee.
         _ = helper.GetCollection<MongoAdminTokenCredentialDocument>();
+
+        var uploadCredentials = helper.GetCollection<MongoUploadCredentialDocument>();
+        await uploadCredentials.Indexes.CreateManyAsync([
+            new(Builders<MongoUploadCredentialDocument>.IndexKeys.Ascending(x => x.SelectorDigestBase64),
+                new()
+                {
+                    Name = "selector_digest_unique",
+                    Unique = true
+                }),
+            new(Builders<MongoUploadCredentialDocument>.IndexKeys
+                                                       .Descending(x => x.CreatedAtUnixTimeMilliseconds)
+                                                       .Descending(x => x.CredentialId),
+                new()
+                {
+                    Name = "newest_first_listing"
+                })
+        ], cancellationToken);
     }
 }
