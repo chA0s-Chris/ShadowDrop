@@ -42,7 +42,7 @@ public static class Startup
         logger.Information(
             "Effective configuration: MetadataProvider: {MetadataProvider}; BlobProvider: {BlobProvider}; StorageRoot: {StorageRoot}; " +
             "MetadataDatabase: {MetadataDatabase}; MongoDatabase: {MongoDatabase}; UploadMaxBytes: {UploadMaxBytes}; " +
-            "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; EnableUploads: {EnableUploads}; " +
+            "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; UploadsEnabled: {UploadsEnabled}; " +
             "EnablePublicDownloads: {EnablePublicDownloads}; CleanupCronExpression: {CleanupCronExpression}",
             options.Metadata.Provider,
             options.Storage.Provider,

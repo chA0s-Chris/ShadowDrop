@@ -37,6 +37,8 @@ public static class UploadOrAdminBearerTokenEndpointFilterExtensions
             }
             else
             {
+                // AdminTokenService is registered only when admin operations are enabled; in an uploads-only
+                // exposure it resolves to null and these routes fail closed, accepting scoped credentials exclusively.
                 var adminTokenService = invocationContext.HttpContext.RequestServices.GetService<AdminTokenService>();
                 authorizationContext = adminTokenService?.IsValidToken(bearerToken) == true
                     ? UploadCredentialAuthorizationContext.BootstrapAdmin
