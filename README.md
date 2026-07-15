@@ -148,6 +148,8 @@ configuration sources, download queues, and credential-handling options.
 
 ## Documentation
 
+- [HTTP API](docs/API.md) — every endpoint with its route, method, purpose,
+  audience, and required authentication.
 - [Deployment guide](docs/DEPLOYMENT.md) — container deployment, `/app/data`
   persistence, Docker Hub tags, reverse-proxy TLS and public hostnames.
 - [CLI guide](docs/CLI.md) — installation, configuration precedence, and

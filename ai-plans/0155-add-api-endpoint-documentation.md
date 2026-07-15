@@ -8,12 +8,12 @@ ShadowDrop exposes roughly 15 HTTP endpoints across six endpoint groups, but whi
 
 ## Acceptance Criteria
 
-- [ ] `docs/API.md` exists and lists every HTTP endpoint of `ShadowDrop.Api` with route, HTTP method, a short purpose description, audience, and required authentication.
-- [ ] Endpoints are grouped by audience: health (ops/anyone), downloads (anonymous downloader, token-based), uploads and shares (uploader with upload credential), admin (management key).
-- [ ] Each group documents its authentication semantics: which header or credential is expected, and what a scoped upload credential can and cannot reach (owner-bound routes introduced with #154).
-- [ ] Request/response schemas are **not** duplicated in the document; it stays at the level of route, method, purpose, audience, and auth.
-- [ ] The documentation overview in `README.md` links to `docs/API.md`.
-- [ ] An automated drift-guard test asserts that every route pattern registered in the API appears in `docs/API.md`, so the document cannot silently go stale when endpoints are added. The guard checks route patterns only; HTTP methods are documented but verified by review.
+- [x] `docs/API.md` exists and lists every HTTP endpoint of `ShadowDrop.Api` with route, HTTP method, a short purpose description, audience, and required authentication.
+- [x] Endpoints are grouped by audience: health (ops/anyone), downloads (anonymous downloader, token-based), uploads and shares (uploader with upload credential), admin (management key).
+- [x] Each group documents its authentication semantics: which header or credential is expected, and what a scoped upload credential can and cannot reach (owner-bound routes introduced with #154).
+- [x] Request/response schemas are **not** duplicated in the document; it stays at the level of route, method, purpose, audience, and auth.
+- [x] The documentation overview in `README.md` links to `docs/API.md`.
+- [x] An automated drift-guard test asserts that every route pattern registered in the API appears in `docs/API.md`, so the document cannot silently go stale when endpoints are added. The guard checks route patterns only; HTTP methods are documented but verified by review.
 
 ## Technical Details
 
