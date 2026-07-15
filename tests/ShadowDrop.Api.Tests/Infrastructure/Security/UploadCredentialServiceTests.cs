@@ -86,6 +86,24 @@ public sealed class UploadCredentialServiceTests
     }
 
     [Test]
+    public async Task CreateAsync_ShouldNormalizeTimestampsToUtcUnixMilliseconds()
+    {
+        var (service, _, timeProvider) = CreateService();
+        var preciseNow = Now.AddTicks(1234);
+        var preciseExpiration = Now.AddHours(1).AddTicks(5678).ToOffset(TimeSpan.FromHours(-4));
+        timeProvider.UtcNow = preciseNow;
+
+        var created = await service.CreateAsync(new("name", preciseExpiration, null, null), CancellationToken.None);
+
+        var expectedNow = DateTimeOffset.FromUnixTimeMilliseconds(preciseNow.ToUnixTimeMilliseconds());
+        var expectedExpiration = DateTimeOffset.FromUnixTimeMilliseconds(preciseExpiration.ToUnixTimeMilliseconds());
+        created.Credential.CreatedAtUtc.Should().Be(expectedNow);
+        created.Credential.CreatedAtUtc.Offset.Should().Be(TimeSpan.Zero);
+        created.Credential.ExpiresAtUtc.Should().Be(expectedExpiration);
+        created.Credential.ExpiresAtUtc!.Value.Offset.Should().Be(TimeSpan.Zero);
+    }
+
+    [Test]
     public async Task CreateAsync_ShouldPersistOnlyDerivedTokenMaterial()
     {
         var (service, repository, _) = CreateService();
@@ -133,6 +151,19 @@ public sealed class UploadCredentialServiceTests
         var (service, repository, _) = CreateService();
 
         var create = async () => await service.CreateAsync(new(name, null, null, null), CancellationToken.None);
+
+        await create.Should().ThrowAsync<UploadCredentialValidationException>();
+        repository.Records.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task CreateAsync_ShouldRejectFutureExpirationWithinCurrentPersistenceMillisecond()
+    {
+        var (service, repository, timeProvider) = CreateService();
+        timeProvider.UtcNow = Now.AddTicks(TimeSpan.TicksPerMillisecond / 2);
+        var expiration = Now.AddTicks(TimeSpan.TicksPerMillisecond - 1);
+
+        var create = async () => await service.CreateAsync(new("name", expiration, null, null), CancellationToken.None);
 
         await create.Should().ThrowAsync<UploadCredentialValidationException>();
         repository.Records.Should().BeEmpty();

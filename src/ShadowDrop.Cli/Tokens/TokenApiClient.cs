@@ -23,6 +23,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
                          "/api/admin/upload-credentials/",
                          payload,
                          HttpStatusCode.Created,
+                         Operation.Create,
                          CliJsonSerializerContext.Default.CreateUploadCredentialCliResult,
                          cancellationToken);
     }
@@ -35,6 +36,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
                   $"/api/admin/upload-credentials/{credentialId}",
                   null,
                   HttpStatusCode.OK,
+                  Operation.Inspect,
                   CliJsonSerializerContext.Default.UploadCredentialCliProjection,
                   cancellationToken);
 
@@ -42,7 +44,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
                                                          CancellationToken cancellationToken)
     {
         var query = new StringBuilder();
-        if (!String.IsNullOrWhiteSpace(cursor))
+        if (cursor is not null)
         {
             query.Append("?cursor=").Append(Uri.EscapeDataString(cursor));
         }
@@ -58,6 +60,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
                          $"/api/admin/upload-credentials/{query}",
                          null,
                          HttpStatusCode.OK,
+                         Operation.List,
                          CliJsonSerializerContext.Default.UploadCredentialCliListResult,
                          cancellationToken);
     }
@@ -72,7 +75,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
             using var response = await httpClient.SendAsync(request, deadline.Token);
             if (response.StatusCode is not (HttpStatusCode.NoContent or HttpStatusCode.OK))
             {
-                throw MapError(response.StatusCode);
+                throw MapError(response.StatusCode, Operation.Revoke);
             }
         }
         catch (HttpRequestException exception)
@@ -101,16 +104,18 @@ internal sealed class TokenApiClient(HttpClient httpClient)
         return request;
     }
 
-    private static TokenCommandException MapError(HttpStatusCode statusCode) => statusCode switch
+    private static TokenCommandException MapError(HttpStatusCode statusCode, Operation operation) => statusCode switch
     {
         HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new("Admin token invalid or missing."),
-        HttpStatusCode.NotFound => new("Upload credential not found."),
+        HttpStatusCode.NotFound when operation is Operation.Inspect or Operation.Revoke => new("Upload credential not found."),
+        HttpStatusCode.NotFound => new("Upload credential management endpoint not found."),
         HttpStatusCode.BadRequest => new("Upload credential request invalid."),
         _ => new("Upload credential operation failed.")
     };
 
     private async Task<TResult> SendAsync<TResult>(Uri serverUrl, String adminToken, HttpMethod method, String relativeUrl,
                                                    String? requestPayload, HttpStatusCode expectedStatusCode,
+                                                   Operation operation,
                                                    JsonTypeInfo<TResult> resultTypeInfo,
                                                    CancellationToken cancellationToken)
         where TResult : class
@@ -122,7 +127,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
             using var response = await httpClient.SendAsync(request, deadline.Token);
             if (response.StatusCode != expectedStatusCode)
             {
-                throw MapError(response.StatusCode);
+                throw MapError(response.StatusCode, operation);
             }
 
             var content = await response.Content.ReadAsStringAsync(deadline.Token);
@@ -141,5 +146,13 @@ internal sealed class TokenApiClient(HttpClient httpClient)
         {
             throw new TokenCommandException("Server connection failed.", exception);
         }
+    }
+
+    private enum Operation
+    {
+        Create,
+        Inspect,
+        List,
+        Revoke
     }
 }

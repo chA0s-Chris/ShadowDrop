@@ -14,6 +14,23 @@ public sealed class TokenApiClientTests
     private static readonly Uri ServerUrl = new("https://shadowdrop.test");
 
     [Test]
+    public async Task CreateAndListAsync_ShouldReportMissingManagementEndpoint()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
+        var apiClient = new TokenApiClient(httpClient);
+
+        var create = async () =>
+            // ReSharper disable once AccessToDisposedClosure
+            await apiClient.CreateAsync(ServerUrl, "admin-token", new("automation", null, null, null), CancellationToken.None);
+        var list = async () =>
+            // ReSharper disable once AccessToDisposedClosure
+            await apiClient.ListAsync(ServerUrl, "admin-token", null, null, CancellationToken.None);
+
+        await create.Should().ThrowAsync<TokenCommandException>().WithMessage("Upload credential management endpoint not found.");
+        await list.Should().ThrowAsync<TokenCommandException>().WithMessage("Upload credential management endpoint not found.");
+    }
+
+    [Test]
     public async Task CreateAsync_ShouldPostRequest_AndParseResult()
     {
         HttpRequestMessage? capturedRequest = null;
@@ -45,15 +62,20 @@ public sealed class TokenApiClientTests
     }
 
     [Test]
-    public async Task InspectAsync_ShouldReportNotFound()
+    public async Task InspectAndRevokeAsync_ShouldReportCredentialNotFound()
     {
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
+        var apiClient = new TokenApiClient(httpClient);
 
         var inspect = async () =>
             // ReSharper disable once AccessToDisposedClosure
-            await new TokenApiClient(httpClient).InspectAsync(ServerUrl, "admin-token", Guid.NewGuid(), CancellationToken.None);
+            await apiClient.InspectAsync(ServerUrl, "admin-token", Guid.NewGuid(), CancellationToken.None);
+        var revoke = async () =>
+            // ReSharper disable once AccessToDisposedClosure
+            await apiClient.RevokeAsync(ServerUrl, "admin-token", Guid.NewGuid(), CancellationToken.None);
 
         await inspect.Should().ThrowAsync<TokenCommandException>().WithMessage("Upload credential not found.");
+        await revoke.Should().ThrowAsync<TokenCommandException>().WithMessage("Upload credential not found.");
     }
 
     [Test]
@@ -74,6 +96,25 @@ public sealed class TokenApiClientTests
         capturedRequest!.RequestUri!.PathAndQuery.Should().Be("/api/admin/upload-credentials/?cursor=cursor%2Bvalue&limit=25");
         result.Credentials.Should().HaveCount(1);
         result.NextCursor.Should().Be("abc");
+    }
+
+    [TestCase("")]
+    [TestCase(" ")]
+    public async Task ListAsync_ShouldForwardEveryNonNullCursor(String cursor)
+    {
+        HttpRequestMessage? capturedRequest = null;
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            capturedRequest = request;
+            return new(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"credentials":[],"nextCursor":null}""")
+            };
+        }));
+
+        _ = await new TokenApiClient(httpClient).ListAsync(ServerUrl, "admin-token", cursor, null, CancellationToken.None);
+
+        capturedRequest!.RequestUri!.Query.Should().Be($"?cursor={Uri.EscapeDataString(cursor)}");
     }
 
     [Test]

@@ -64,8 +64,9 @@ public sealed class UploadCredentialService(
             throw new UploadCredentialValidationException("The maximum aggregate encrypted share bytes must be positive.");
         }
 
-        var now = timeProvider.GetUtcNow();
-        if (request.ExpiresAtUtc is { } expiresAtUtc && expiresAtUtc <= now)
+        var now = NormalizeTimestamp(timeProvider.GetUtcNow());
+        var expiresAtUtc = request.ExpiresAtUtc is { } expiration ? NormalizeTimestamp(expiration) : (DateTimeOffset?)null;
+        if (expiresAtUtc is { } expirationTimestamp && expirationTimestamp <= now)
         {
             throw new UploadCredentialValidationException("The expiration must lie in the future.");
         }
@@ -78,7 +79,7 @@ public sealed class UploadCredentialService(
             var record = new UploadCredentialRecord(Guid.NewGuid(),
                                                     name,
                                                     now,
-                                                    request.ExpiresAtUtc,
+                                                    expiresAtUtc,
                                                     null,
                                                     null,
                                                     request.MaxEncryptedFileBytes,
@@ -97,4 +98,7 @@ public sealed class UploadCredentialService(
             }
         }
     }
+
+    private static DateTimeOffset NormalizeTimestamp(DateTimeOffset timestamp) =>
+        DateTimeOffset.FromUnixTimeMilliseconds(timestamp.ToUnixTimeMilliseconds());
 }
