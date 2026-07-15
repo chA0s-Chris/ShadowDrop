@@ -173,6 +173,36 @@ public sealed class CliApplicationTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRouteTokenRevokeCommand_WithDedicatedAdminToken()
+    {
+        var credentialId = Guid.NewGuid();
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Post);
+            request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/upload-credentials/{credentialId}/revoke"));
+            request.Headers.Authorization!.Parameter.Should().Be("admin-token", "token commands must use the dedicated admin token");
+            return new(HttpStatusCode.NoContent);
+        }));
+        var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
+                                                  // ReSharper disable once AccessToDisposedClosure
+                                                  _ => httpClient,
+                                                  standardOut,
+                                                  standardError,
+                                                  new FakeInteractiveSession(),
+                                                  TimeProvider.System,
+                                                  new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
+                                                  FixedTerminalCapabilityProvider.Plain);
+
+        var exitCode = await CliApplication.InvokeAsync(["--no-banner", "token", "revoke", credentialId.ToString()], services,
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardOut.ToString().Trim().Should().Be($"token-revoked:{credentialId}");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldShowHelp_WhenNoArgumentsAreProvided()
     {
         var standardOut = new StringWriter();

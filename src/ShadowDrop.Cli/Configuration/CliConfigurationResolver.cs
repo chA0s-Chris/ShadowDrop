@@ -9,14 +9,7 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
 {
     public CliResolvedConfiguration Resolve(String? serverUrlOverride, String? uploadTokenOverride)
     {
-        CliConfigFile? configFile = null;
-        var configFilePath = configPathResolver.GetConfigFilePath();
-        if (!String.IsNullOrWhiteSpace(configFilePath) && File.Exists(configFilePath))
-        {
-            using var stream = File.OpenRead(configFilePath);
-            configFile = JsonSerializer.Deserialize(stream, CliJsonSerializerContext.Default.CliConfigFile);
-        }
-
+        var configFile = ReadConfigFile();
         var serverUrl = FirstNonEmpty(serverUrlOverride,
                                       environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
                                       configFile?.ServerUrl);
@@ -25,6 +18,24 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
                                         configFile?.UploadToken)?.Trim();
 
         return new(serverUrl, uploadToken);
+    }
+
+    /// <summary>
+    /// Resolves the server URL together with the dedicated admin token (<c>--admin-token</c> →
+    /// <c>SHADOWDROP_ADMIN_TOKEN</c> → config-file <c>adminToken</c>). The admin token deliberately never
+    /// falls back to the upload-token setting.
+    /// </summary>
+    public CliResolvedAdminConfiguration ResolveAdmin(String? serverUrlOverride, String? adminTokenOverride)
+    {
+        var configFile = ReadConfigFile();
+        var serverUrl = FirstNonEmpty(serverUrlOverride,
+                                      environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
+                                      configFile?.ServerUrl);
+        var adminToken = FirstNonEmpty(adminTokenOverride,
+                                       environmentReader.GetEnvironmentVariable("SHADOWDROP_ADMIN_TOKEN"),
+                                       configFile?.AdminToken)?.Trim();
+
+        return new(serverUrl, adminToken);
     }
 
     /// <summary>
@@ -46,4 +57,16 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
     }
 
     private static String? FirstNonEmpty(params String?[] values) => values.FirstOrDefault(static value => !String.IsNullOrWhiteSpace(value));
+
+    private CliConfigFile? ReadConfigFile()
+    {
+        var configFilePath = configPathResolver.GetConfigFilePath();
+        if (String.IsNullOrWhiteSpace(configFilePath) || !File.Exists(configFilePath))
+        {
+            return null;
+        }
+
+        using var stream = File.OpenRead(configFilePath);
+        return JsonSerializer.Deserialize(stream, CliJsonSerializerContext.Default.CliConfigFile);
+    }
 }

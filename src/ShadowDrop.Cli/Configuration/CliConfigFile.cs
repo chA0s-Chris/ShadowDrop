@@ -6,6 +6,9 @@ using System.Text.Json.Serialization;
 
 internal sealed record CliConfigFile
 {
+    [JsonPropertyName("adminToken")]
+    public String? AdminToken { get; init; }
+
     [JsonPropertyName("serverUrl")]
     public String? ServerUrl { get; init; }
 

@@ -7,6 +7,7 @@ using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Tls;
+using ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Updates;
 using ShadowDrop.Cli.Uploads;
 using System.CommandLine;
@@ -326,6 +327,91 @@ internal static class CliApplication
         shareCommand.Subcommands.Add(shareRevokeCommand);
         shareCommand.Subcommands.Add(shareCleanupCommand);
 
+        var adminTokenOption = new Option<String?>("--admin-token")
+        {
+            Description =
+                "Admin authorization token. Prefer SHADOWDROP_ADMIN_TOKEN or the adminToken config value for sensitive deployments "
+                + "because CLI flags may be visible to process inspection tools. There is no fallback to the upload-token setting."
+        };
+
+        var tokenNameOption = new Option<String?>("--name")
+        {
+            Description = "Human-readable credential name (1 to 100 characters)."
+        };
+
+        var tokenExpiresInOption = new Option<String?>("--expires-in")
+        {
+            Description = "Optional credential expiration as <amount><unit>, e.g. 90d, 12h, or 30m. Never expires when omitted."
+        };
+
+        var tokenMaxFileBytesOption = new Option<Int64?>("--max-file-bytes")
+        {
+            Description = "Optional maximum encrypted file size in bytes for uploads with this credential."
+        };
+
+        var tokenMaxShareBytesOption = new Option<Int64?>("--max-share-bytes")
+        {
+            Description = "Optional maximum aggregate encrypted share size in bytes for shares created with this credential."
+        };
+
+        var tokenCursorOption = new Option<String?>("--cursor")
+        {
+            Description = "Opaque continuation cursor from a previous token list page."
+        };
+
+        var tokenLimitOption = new Option<Int32?>("--limit")
+        {
+            Description = "Maximum number of credentials per page."
+        };
+
+        var credentialIdArgument = new Argument<String?>("credential-id")
+        {
+            Description = "Management id of the upload credential."
+        };
+        credentialIdArgument.Arity = ArgumentArity.ZeroOrOne;
+
+        var tokenCreateCommand = new Command("create", "Create a scoped upload credential; the token is displayed exactly once.");
+        tokenCreateCommand.Options.Add(serverOption);
+        tokenCreateCommand.Options.Add(caCertOption);
+        tokenCreateCommand.Options.Add(insecureOption);
+        tokenCreateCommand.Options.Add(adminTokenOption);
+        tokenCreateCommand.Options.Add(tokenNameOption);
+        tokenCreateCommand.Options.Add(tokenExpiresInOption);
+        tokenCreateCommand.Options.Add(tokenMaxFileBytesOption);
+        tokenCreateCommand.Options.Add(tokenMaxShareBytesOption);
+        tokenCreateCommand.Options.Add(jsonOption);
+
+        var tokenListCommand = new Command("list", "List upload credentials, newest first.");
+        tokenListCommand.Options.Add(serverOption);
+        tokenListCommand.Options.Add(caCertOption);
+        tokenListCommand.Options.Add(insecureOption);
+        tokenListCommand.Options.Add(adminTokenOption);
+        tokenListCommand.Options.Add(tokenCursorOption);
+        tokenListCommand.Options.Add(tokenLimitOption);
+        tokenListCommand.Options.Add(jsonOption);
+
+        var tokenInspectCommand = new Command("inspect", "Show the metadata of an upload credential.");
+        tokenInspectCommand.Arguments.Add(credentialIdArgument);
+        tokenInspectCommand.Options.Add(serverOption);
+        tokenInspectCommand.Options.Add(caCertOption);
+        tokenInspectCommand.Options.Add(insecureOption);
+        tokenInspectCommand.Options.Add(adminTokenOption);
+        tokenInspectCommand.Options.Add(jsonOption);
+
+        var tokenRevokeCommand = new Command("revoke", "Revoke an upload credential by management id.");
+        tokenRevokeCommand.Arguments.Add(credentialIdArgument);
+        tokenRevokeCommand.Options.Add(serverOption);
+        tokenRevokeCommand.Options.Add(caCertOption);
+        tokenRevokeCommand.Options.Add(insecureOption);
+        tokenRevokeCommand.Options.Add(adminTokenOption);
+        tokenRevokeCommand.Options.Add(jsonOption);
+
+        var tokenCommand = new Command("token", "Create and manage scoped upload credentials.");
+        tokenCommand.Subcommands.Add(tokenCreateCommand);
+        tokenCommand.Subcommands.Add(tokenListCommand);
+        tokenCommand.Subcommands.Add(tokenInspectCommand);
+        tokenCommand.Subcommands.Add(tokenRevokeCommand);
+
         var updateCommand = new Command("update", "Check whether a newer ShadowDrop release is available and show how to install it.");
 
         var rootCommand = new RootCommand("ShadowDrop CLI");
@@ -333,6 +419,7 @@ internal static class CliApplication
         rootCommand.Subcommands.Add(uploadCommand);
         rootCommand.Subcommands.Add(queueCommand);
         rootCommand.Subcommands.Add(shareCommand);
+        rootCommand.Subcommands.Add(tokenCommand);
         rootCommand.Subcommands.Add(updateCommand);
 
         // The System.CommandLine defaults advertise -?/help and a bare, unlabeled --version; replace both so
@@ -396,6 +483,18 @@ internal static class CliApplication
                    shareRevokeCommand,
                    shareIdArgument,
                    shareCleanupCommand,
+                   adminTokenOption,
+                   tokenNameOption,
+                   tokenExpiresInOption,
+                   tokenMaxFileBytesOption,
+                   tokenMaxShareBytesOption,
+                   tokenCursorOption,
+                   tokenLimitOption,
+                   credentialIdArgument,
+                   tokenCreateCommand,
+                   tokenListCommand,
+                   tokenInspectCommand,
+                   tokenRevokeCommand,
                    updateCommand);
     }
 
@@ -540,6 +639,63 @@ internal static class CliApplication
                                                        httpClient,
                                                        services.StandardOut,
                                                        services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.TokenCreateCommand)
+        {
+            var tokenCreateOptions = new TokenCreateCommandOptions(parseResult.GetValue(commandModel.TokenNameOption),
+                                                                   parseResult.GetValue(commandModel.TokenExpiresInOption),
+                                                                   parseResult.GetValue(commandModel.TokenMaxFileBytesOption),
+                                                                   parseResult.GetValue(commandModel.TokenMaxShareBytesOption),
+                                                                   parseResult.GetValue(commandModel.ServerOption),
+                                                                   parseResult.GetValue(commandModel.AdminTokenOption),
+                                                                   parseResult.GetValue(commandModel.JsonOption));
+
+            return await new TokenCreateCommandHandler(services.ConfigurationResolver,
+                                                       httpClient,
+                                                       services.StandardOut,
+                                                       services.StandardError,
+                                                       services.TimeProvider).ExecuteAsync(tokenCreateOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.TokenListCommand)
+        {
+            var tokenListOptions = new TokenListCommandOptions(parseResult.GetValue(commandModel.TokenCursorOption),
+                                                               parseResult.GetValue(commandModel.TokenLimitOption),
+                                                               parseResult.GetValue(commandModel.ServerOption),
+                                                               parseResult.GetValue(commandModel.AdminTokenOption),
+                                                               parseResult.GetValue(commandModel.JsonOption));
+
+            return await new TokenListCommandHandler(services.ConfigurationResolver,
+                                                     httpClient,
+                                                     services.StandardOut,
+                                                     services.StandardError).ExecuteAsync(tokenListOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.TokenInspectCommand)
+        {
+            var tokenInspectOptions = new TokenInspectCommandOptions(parseResult.GetValue(commandModel.CredentialIdArgument),
+                                                                     parseResult.GetValue(commandModel.ServerOption),
+                                                                     parseResult.GetValue(commandModel.AdminTokenOption),
+                                                                     parseResult.GetValue(commandModel.JsonOption));
+
+            return await new TokenInspectCommandHandler(services.ConfigurationResolver,
+                                                        httpClient,
+                                                        services.StandardOut,
+                                                        services.StandardError).ExecuteAsync(tokenInspectOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.TokenRevokeCommand)
+        {
+            var tokenRevokeOptions = new TokenRevokeCommandOptions(parseResult.GetValue(commandModel.CredentialIdArgument),
+                                                                   parseResult.GetValue(commandModel.ServerOption),
+                                                                   parseResult.GetValue(commandModel.AdminTokenOption),
+                                                                   parseResult.GetValue(commandModel.JsonOption));
+
+            return await new TokenRevokeCommandHandler(services.ConfigurationResolver,
+                                                       httpClient,
+                                                       services.StandardOut,
+                                                       services.StandardError).ExecuteAsync(tokenRevokeOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.ShareCleanupCommand)
@@ -706,6 +862,18 @@ internal static class CliApplication
         Command ShareRevokeCommand,
         Argument<String?> ShareIdArgument,
         Command ShareCleanupCommand,
+        Option<String?> AdminTokenOption,
+        Option<String?> TokenNameOption,
+        Option<String?> TokenExpiresInOption,
+        Option<Int64?> TokenMaxFileBytesOption,
+        Option<Int64?> TokenMaxShareBytesOption,
+        Option<String?> TokenCursorOption,
+        Option<Int32?> TokenLimitOption,
+        Argument<String?> CredentialIdArgument,
+        Command TokenCreateCommand,
+        Command TokenListCommand,
+        Command TokenInspectCommand,
+        Command TokenRevokeCommand,
         Command UpdateCommand);
 
     private sealed class CliVersionAction : SynchronousCommandLineAction

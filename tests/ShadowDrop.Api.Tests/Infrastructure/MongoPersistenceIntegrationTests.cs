@@ -17,6 +17,7 @@ using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Tests.Infrastructure.Security;
 using System.Net;
 using Testcontainers.MongoDb;
 
@@ -173,9 +174,13 @@ public abstract class MongoPersistenceIntegrationTests
             .ToListAsync();
         var shareIndexes = await (await _mongo.GetCollection<MongoShareDocument>().Indexes.ListAsync())
             .ToListAsync();
+        var uploadCredentialIndexes = await (await _mongo.GetCollection<MongoUploadCredentialDocument>().Indexes.ListAsync())
+            .ToListAsync();
         uploadIndexes.Select(x => x["name"].AsString).Should().Contain(["reservation_state", "storage_stats"]);
         shareIndexes.Select(x => x["name"].AsString).Should().Contain(
             ["share_token_unique", "file_single_use", "cleanup_candidates"]);
+        uploadCredentialIndexes.Select(x => x["name"].AsString).Should().Contain(
+            ["selector_digest_unique", "newest_first_listing"]);
     }
 
     [Test]
@@ -379,11 +384,13 @@ public abstract class MongoPersistenceIntegrationTests
                     mongoOptions.AddMapping<MongoUploadedFileDocument>("uploaded_files");
                     mongoOptions.AddMapping<MongoShareDocument>("shares");
                     mongoOptions.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
+                    mongoOptions.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                 })
                 .WithConfigurator<ShadowDropMongoConfigurator>();
         services.AddSingleton<MongoUploadedFileMetadataRepository>();
         services.AddSingleton<MongoShareMetadataRepository>();
         services.AddSingleton<MongoAdminTokenCredentialRepository>();
+        services.AddSingleton<MongoUploadCredentialRepository>();
         services.AddSingleton<MongoGridFsBlobStorage>();
         _services = services.BuildServiceProvider();
         _mongo = _services.GetRequiredService<IMongoHelper>();
@@ -404,6 +411,62 @@ public abstract class MongoPersistenceIntegrationTests
         {
             await _container.DisposeAsync();
         }
+    }
+
+    [Test]
+    public async Task UploadCredentialRepository_ShouldEnforceSelectorDigestUniquenessAcrossConcurrentCreators()
+    {
+        var repository = _services.GetRequiredService<MongoUploadCredentialRepository>();
+        var template = UploadCredentialRepositoryContract.CreateRecord(DateTimeOffset.UtcNow);
+        var attempts = await Task.WhenAll(
+            repository.TryCreateAsync(template, CancellationToken.None),
+            repository.TryCreateAsync(template with
+            {
+                CredentialId = Guid.NewGuid()
+            }, CancellationToken.None));
+
+        attempts.Count(x => x).Should().Be(1);
+    }
+
+    [Test]
+    public async Task UploadCredentialRepository_ShouldExposeRevocationToOtherInstancesImmediately()
+    {
+        var writer = _services.GetRequiredService<MongoUploadCredentialRepository>();
+        var otherInstance = new MongoUploadCredentialRepository(_mongo);
+        var record = UploadCredentialRepositoryContract.CreateRecord(DateTimeOffset.UtcNow);
+        (await writer.TryCreateAsync(record, CancellationToken.None)).Should().BeTrue();
+        var revokedAt = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        (await writer.RevokeAsync(record.CredentialId, revokedAt, CancellationToken.None)).Should().NotBeNull();
+
+        var observed = await otherInstance.FindBySelectorDigestAsync(record.SelectorDigestBase64, CancellationToken.None);
+        observed!.RevokedAtUtc.Should().Be(revokedAt, "revocation must be observed by every API instance sharing MongoDB");
+    }
+
+    [Test]
+    public async Task UploadCredentialRepository_ShouldKeepLastUsedMonotonicAcrossConcurrentUpdates()
+    {
+        var repository = _services.GetRequiredService<MongoUploadCredentialRepository>();
+        var record = UploadCredentialRepositoryContract.CreateRecord(DateTimeOffset.UtcNow);
+        (await repository.TryCreateAsync(record, CancellationToken.None)).Should().BeTrue();
+
+        var baseline = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        var timestamps = Enumerable.Range(0, 8).Select(offset => baseline.AddSeconds(offset)).ToArray();
+        Random.Shared.Shuffle(timestamps);
+        await Task.WhenAll(timestamps.Select(timestamp => repository.RecordUsageAsync(record.CredentialId, timestamp, CancellationToken.None)));
+
+        (await repository.GetAsync(record.CredentialId, CancellationToken.None))!.LastUsedAtUtc
+                                                                                 .Should().Be(baseline.AddSeconds(7),
+                                                                                              "concurrent updates must never overwrite newer activity");
+    }
+
+    [Test]
+    public async Task UploadCredentialRepository_ShouldPassSharedContracts()
+    {
+        var repository = _services.GetRequiredService<MongoUploadCredentialRepository>();
+
+        await UploadCredentialRepositoryContract.AssertContractAsync(repository);
+        await UploadCredentialRepositoryContract.AssertListPaginationContractAsync(repository);
     }
 
     [Test]
