@@ -1533,6 +1533,16 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
+    public void Startup_ShouldFail_WhenBootstrapAdminTokenUsesUploadCredentialNamespace()
+    {
+        using var fixture = new TestApiFactory(bootstrapToken: UploadCredentialToken.Create().Token);
+
+        Action act = () => fixture.CreateClient();
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Test]
     public async Task Config_RelativePaths_ShouldBeResolvedToAbsolutePathsUnderContentRoot()
     {
         await using var fixture = new TestApiFactory(useRelativePaths: true);
@@ -1896,10 +1906,11 @@ public sealed class ApiWalkingSkeletonTests
         private String? _resolvedRelativeRoot;
 
         public TestApiFactory(Boolean enableAdminOperations = true, Boolean enablePublicDownloads = true, Boolean withBootstrapToken = true,
-                              Boolean useRelativePaths = false, String? cleanupCronExpression = null, Int64? uploadMaxBytes = null)
+                              Boolean useRelativePaths = false, String? cleanupCronExpression = null, Int64? uploadMaxBytes = null,
+                              String? bootstrapToken = null)
         {
             _useRelativePaths = useRelativePaths;
-            BootstrapToken = "test-bootstrap-token";
+            BootstrapToken = bootstrapToken ?? "test-bootstrap-token";
             EnableAdminOperations = enableAdminOperations;
 
             if (useRelativePaths)

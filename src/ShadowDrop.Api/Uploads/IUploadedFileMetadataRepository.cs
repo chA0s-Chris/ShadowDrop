@@ -14,7 +14,13 @@ public interface IUploadedFileMetadataRepository
 
     Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken);
 
+    Task<Guid> ReserveFileIdAsync(Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Owner-bound upload reservations are not supported by this repository.");
+
     Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken);
+
+    Task<Boolean> TryClaimReservationAsync(Guid fileId, Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
 
     Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken);
 }

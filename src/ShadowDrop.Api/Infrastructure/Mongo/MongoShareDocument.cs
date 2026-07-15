@@ -23,6 +23,10 @@ internal sealed class MongoShareDocument
     public List<MongoShareFileEntryDocument> Files { get; set; } = [];
 
     [BsonIgnoreIfNull]
+    [BsonGuidRepresentation(GuidRepresentation.Standard)]
+    public Guid? OwnerCredentialId { get; set; }
+
+    [BsonIgnoreIfNull]
     public Int64? RevokedAtUnixTimeMilliseconds { get; set; }
 
     [BsonId]

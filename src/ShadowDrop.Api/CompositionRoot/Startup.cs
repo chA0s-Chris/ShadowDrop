@@ -42,7 +42,7 @@ public static class Startup
         logger.Information(
             "Effective configuration: MetadataProvider: {MetadataProvider}; BlobProvider: {BlobProvider}; StorageRoot: {StorageRoot}; " +
             "MetadataDatabase: {MetadataDatabase}; MongoDatabase: {MongoDatabase}; UploadMaxBytes: {UploadMaxBytes}; " +
-            "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; " +
+            "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; EnableUploads: {EnableUploads}; " +
             "EnablePublicDownloads: {EnablePublicDownloads}; CleanupCronExpression: {CleanupCronExpression}",
             options.Metadata.Provider,
             options.Storage.Provider,
@@ -52,6 +52,7 @@ public static class Startup
             options.Upload.MaxBytes,
             maxRequestBodySize,
             options.ApiExposure.EnableAdminOperations,
+            options.ApiExposure.UploadsEnabled,
             options.ApiExposure.EnablePublicDownloads,
             options.Cleanup.CronExpression);
     }
@@ -59,7 +60,9 @@ public static class Startup
     private static async Task LogStartupStateSummaryAsync(WebApplication app, ILogger logger, ShadowDropOptions options,
                                                           CancellationToken cancellationToken)
     {
-        if (options.ApiExposure is { EnableAdminOperations: false, EnablePublicDownloads: false })
+        if (!options.ApiExposure.EnableAdminOperations
+            && !options.ApiExposure.UploadsEnabled
+            && !options.ApiExposure.EnablePublicDownloads)
         {
             return;
         }

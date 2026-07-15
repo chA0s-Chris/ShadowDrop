@@ -61,7 +61,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             document.ChunkSize,
             document.ChunkCount,
             document.KdfSaltBase64,
-            document.PlaintextSha256);
+            document.PlaintextSha256,
+            document.OwnerCredentialId);
 
     private Boolean DeleteExpiredReservation(UploadedFileDocument? document, DateTimeOffset now)
     {
@@ -95,6 +96,65 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         {
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             _logger.LogInformation("Expired upload reservations pruned. Count: {Count}", deletedCount);
+        }
+    }
+
+    private Task<Guid> ReserveFileIdAsync(Guid? ownerCredentialId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_syncRoot)
+        {
+            DeleteExpiredReservations();
+
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var fileId = Guid.NewGuid();
+                if (_collection.Exists(document => document.FileId == fileId))
+                {
+                    continue;
+                }
+
+                _collection.Insert(new UploadedFileDocument
+                {
+                    FileId = fileId,
+                    IsReserved = true,
+                    IsClaimed = false,
+                    OwnerCredentialId = ownerCredentialId,
+                    ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+                _logger.LogInformation("Upload reservation created. FileId: {FileId}", fileId);
+                return Task.FromResult(fileId);
+            }
+        }
+    }
+
+    private Task<Boolean> TryClaimReservationAsync(Guid fileId, Guid? ownerCredentialId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var document = _collection.FindById(fileId);
+            if (!IsActiveReservation(document, now) || document!.OwnerCredentialId != ownerCredentialId)
+            {
+                if (!DeleteExpiredReservation(document, now))
+                {
+                    _logger.LogDebug(
+                        "Upload reservation claim rejected because the reservation was missing or already claimed. FileId: {FileId}",
+                        fileId);
+                }
+
+                return Task.FromResult(false);
+            }
+
+            document.IsClaimed = true;
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            _logger.LogInformation("Upload reservation claimed. FileId: {FileId}", fileId);
+            return Task.FromResult(true);
         }
     }
 
@@ -164,64 +224,18 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         }
     }
 
-    public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        lock (_syncRoot)
-        {
-            DeleteExpiredReservations();
+    public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) =>
+        ReserveFileIdAsync(null, cancellationToken);
 
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var fileId = Guid.NewGuid();
-                if (_collection.Exists(document => document.FileId == fileId))
-                {
-                    continue;
-                }
-
-                _collection.Insert(new UploadedFileDocument
-                {
-                    FileId = fileId,
-                    IsReserved = true,
-                    IsClaimed = false,
-                    ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                });
-                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-                _logger.LogInformation("Upload reservation created. FileId: {FileId}", fileId);
-                return Task.FromResult(fileId);
-            }
-        }
-    }
+    public Task<Guid> ReserveFileIdAsync(Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        ReserveFileIdAsync((Guid?)ownerCredentialId, cancellationToken);
 
 
-    public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
+    public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) =>
+        TryClaimReservationAsync(fileId, null, cancellationToken);
 
-        lock (_syncRoot)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var document = _collection.FindById(fileId);
-            if (!IsActiveReservation(document, now))
-            {
-                if (!DeleteExpiredReservation(document, now))
-                {
-                    _logger.LogDebug(
-                        "Upload reservation claim rejected because the reservation was missing or already claimed. FileId: {FileId}",
-                        fileId);
-                }
-
-                return Task.FromResult(false);
-            }
-
-            document!.IsClaimed = true;
-            _collection.Update(document);
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-            _logger.LogInformation("Upload reservation claimed. FileId: {FileId}", fileId);
-            return Task.FromResult(true);
-        }
-    }
+    public Task<Boolean> TryClaimReservationAsync(Guid fileId, Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        TryClaimReservationAsync(fileId, (Guid?)ownerCredentialId, cancellationToken);
 
     public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken)
     {
@@ -259,11 +273,20 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 return Task.FromResult(false);
             }
 
+            if (document.OwnerCredentialId != record.OwnerCredentialId)
+            {
+                _logger.LogWarning(
+                    "Upload reservation completion rejected because the owner did not match. FileId: {FileId}",
+                    record.FileId);
+                return Task.FromResult(false);
+            }
+
             _collection.Update(new UploadedFileDocument
             {
                 FileId = record.FileId,
                 BlobKey = record.BlobKey,
                 OriginalFileName = record.OriginalFileName,
+                OwnerCredentialId = document.OwnerCredentialId,
                 PlaintextLength = record.PlaintextLength,
                 EncryptedLength = record.EncryptedLength,
                 ContentType = record.ContentType,
@@ -310,6 +333,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         public String KdfSaltBase64 { get; set; } = String.Empty;
 
         public String OriginalFileName { get; set; } = String.Empty;
+
+        public Guid? OwnerCredentialId { get; set; }
 
         public Int64 PlaintextLength { get; set; }
 

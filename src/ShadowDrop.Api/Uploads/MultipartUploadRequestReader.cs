@@ -30,7 +30,8 @@ internal static partial class MultipartUploadRequestReader
     internal static async Task<(UploadPersistenceRequest Request, Stream EncryptedContent)> ReadAsync(HttpRequest httpRequest,
                                                                                                       CancellationToken cancellationToken,
                                                                                                       Int64 maxUploadBodyBytes,
-                                                                                                      Int32 maxMetadataBytes = DefaultMaxMetadataBytes)
+                                                                                                      Int32 maxMetadataBytes = DefaultMaxMetadataBytes,
+                                                                                                      Int64? maxEncryptedFileBytes = null)
     {
         ArgumentNullException.ThrowIfNull(httpRequest);
 
@@ -72,6 +73,12 @@ internal static partial class MultipartUploadRequestReader
         }
 
         var request = Validate(metadataRequest);
+        var effectiveMaxEncryptedFileBytes = maxEncryptedFileBytes
+                                             ?? maxUploadBodyBytes;
+        if (request.EncryptedLength > effectiveMaxEncryptedFileBytes)
+        {
+            throw new UploadPayloadTooLargeException();
+        }
 
         var contentSection = await reader.ReadNextSectionAsync(cancellationToken)
                              ?? throw new UploadValidationException("The encrypted content section is required.");

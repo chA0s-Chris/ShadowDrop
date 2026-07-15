@@ -62,7 +62,9 @@ public static class AdminEndpoints
 
         try
         {
-            var result = await createShareService.CreateAsync(request, cancellationToken);
+            var result = await createShareService.CreateAsync(request,
+                                                              UploadCredentialAuthorizationContext.BootstrapAdmin,
+                                                              cancellationToken);
             return Results.Created($"/api/admin/shares/{result.ShareId}", result);
         }
         catch (CreateShareValidationException exception)
@@ -91,7 +93,7 @@ public static class AdminEndpoints
         var record = await repository.GetAsync(fileId, cancellationToken);
         return record is null
             ? Results.NotFound()
-            : Results.Ok(record);
+            : Results.Ok(UploadedFileProjection.FromRecord(record));
     }
 
     private static async Task<IResult> ReserveUploadAsync(IUploadedFileMetadataRepository repository,
@@ -117,9 +119,16 @@ public static class AdminEndpoints
     {
         try
         {
-            var uploadRequest = await MultipartUploadRequestReader.ReadAsync(request, cancellationToken, options.Upload.MaxBytes);
+            var uploadRequest = await MultipartUploadRequestReader.ReadAsync(
+                request,
+                cancellationToken,
+                options.Upload.MaxBytes,
+                maxEncryptedFileBytes: UploadLimitCalculator.ResolveMaxFilePayloadBytes(options.Upload.MaxBytes));
             await using var encryptedContent = uploadRequest.EncryptedContent;
-            var result = await uploadPersistenceService.PersistAsync(uploadRequest.Request, encryptedContent, cancellationToken);
+            var result = await uploadPersistenceService.PersistAsync(uploadRequest.Request,
+                                                                     encryptedContent,
+                                                                     UploadCredentialAuthorizationContext.BootstrapAdmin,
+                                                                     cancellationToken);
 
             return Results.Created($"/api/admin/uploads/{result.FileId}", result);
         }

@@ -38,6 +38,17 @@ public sealed class UploadCredentialTokenTests
         tokens.Select(x => x.Secret).Distinct().Should().HaveCount(tokens.Count);
     }
 
+    [Test]
+    public void IsInReservedNamespace_ShouldRecognizeValidAndMalformedUploadTokens()
+    {
+        UploadCredentialToken.IsInReservedNamespace(UploadCredentialToken.Create().Token).Should().BeTrue();
+        UploadCredentialToken.IsInReservedNamespace("sdu1.malformed").Should().BeTrue();
+        UploadCredentialToken.TryParse("sdu1.malformed", out _, out _).Should().BeFalse();
+        UploadCredentialToken.IsInReservedNamespace("sdu1").Should().BeFalse();
+        UploadCredentialToken.IsInReservedNamespace("sdu2.malformed").Should().BeFalse();
+        UploadCredentialToken.IsInReservedNamespace(null).Should().BeFalse();
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("   ")]

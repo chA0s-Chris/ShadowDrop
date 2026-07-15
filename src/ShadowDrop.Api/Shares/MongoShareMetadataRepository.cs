@@ -20,6 +20,7 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         RevokedAtUnixTimeMilliseconds = record.RevokedAtUtc?.ToUnixTimeMilliseconds(),
         CleanupState = State(record.CleanupState),
         DirectHttpEnabled = record.DirectHttpEnabled,
+        OwnerCredentialId = record.OwnerCredentialId,
         DownloadBearerToken = record.DownloadBearerToken is null
             ? null
             : new()
@@ -50,7 +51,8 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
                 : new(
                     document.DownloadBearerToken.TokenHashBase64,
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
-            document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList());
+            document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList(),
+            document.OwnerCredentialId);
 
     private static String State(ShareCleanupState state) => state.ToString().ToUpperInvariant();
 
