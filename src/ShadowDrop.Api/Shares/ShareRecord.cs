@@ -11,8 +11,5 @@ public sealed record ShareRecord(
     ShareCleanupState CleanupState,
     Boolean DirectHttpEnabled,
     DownloadBearerTokenRecord? DownloadBearerToken,
-    IReadOnlyList<ShareFileEntryRecord> Files);
-
-public sealed record DownloadBearerTokenRecord(String TokenHashBase64, DateTimeOffset ExpiresAtUtc);
-
-public sealed record ShareFileEntryRecord(Guid FileId, String OriginalFileName, String? DisplayName);
+    IReadOnlyList<ShareFileEntryRecord> Files,
+    Guid? OwnerCredentialId = null);

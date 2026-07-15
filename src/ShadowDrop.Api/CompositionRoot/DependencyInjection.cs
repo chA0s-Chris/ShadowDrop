@@ -54,7 +54,9 @@ public static class DependencyInjection
         var maxRequestBodySize = ResolveMaxRequestBodySize(shadowDropOptions.Upload.MaxBytes);
         builder.WebHost.ConfigureKestrel(kestrelOptions => kestrelOptions.Limits.MaxRequestBodySize = maxRequestBodySize);
 
-        if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.EnablePublicDownloads)
+        if (shadowDropOptions.ApiExposure.EnableAdminOperations
+            || shadowDropOptions.ApiExposure.UploadsEnabled
+            || shadowDropOptions.ApiExposure.EnablePublicDownloads)
         {
             if (shadowDropOptions.Storage.Provider == BlobStorageProvider.FileSystem)
             {
@@ -90,24 +92,35 @@ public static class DependencyInjection
             builder.Services.AddHostedService<ShareCleanupHostedService>();
         }
 
+        if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.UploadsEnabled)
+        {
+            if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
+            {
+                builder.Services.AddSingleton<IUploadCredentialRepository, LiteDbUploadCredentialRepository>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IUploadCredentialRepository, MongoUploadCredentialRepository>();
+            }
+
+            builder.Services.AddSingleton<UploadCredentialService>();
+            builder.Services.AddSingleton<CreateShareService>();
+            builder.Services.AddSingleton<UploadPersistenceService>();
+        }
+
         if (shadowDropOptions.ApiExposure.EnableAdminOperations)
         {
             if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
             {
                 builder.Services.AddSingleton<IAdminTokenCredentialRepository, LiteDbAdminTokenCredentialRepository>();
-                builder.Services.AddSingleton<IUploadCredentialRepository, LiteDbUploadCredentialRepository>();
             }
             else
             {
                 builder.Services.AddSingleton<IAdminTokenCredentialRepository, MongoAdminTokenCredentialRepository>();
-                builder.Services.AddSingleton<IUploadCredentialRepository, MongoUploadCredentialRepository>();
             }
 
             builder.Services.AddSingleton<AdminTokenService>();
-            builder.Services.AddSingleton<UploadCredentialService>();
-            builder.Services.AddSingleton<CreateShareService>();
             builder.Services.AddSingleton<ShareRevocationService>();
-            builder.Services.AddSingleton<UploadPersistenceService>();
         }
 
         if (shadowDropOptions.ApiExposure.EnablePublicDownloads)

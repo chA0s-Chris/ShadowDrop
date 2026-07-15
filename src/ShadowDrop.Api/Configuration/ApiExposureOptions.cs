@@ -7,4 +7,8 @@ public sealed class ApiExposureOptions
     public Boolean EnableAdminOperations { get; set; } = true;
 
     public Boolean EnablePublicDownloads { get; set; } = true;
+
+    public Boolean? EnableUploads { get; set; }
+
+    public Boolean UploadsEnabled => EnableUploads ?? EnableAdminOperations;
 }

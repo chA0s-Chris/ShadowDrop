@@ -14,4 +14,5 @@ public sealed record UploadedFileRecord(
     Int32 ChunkSize,
     Int64 ChunkCount,
     String KdfSaltBase64,
-    String? PlaintextSha256);
+    String? PlaintextSha256,
+    Guid? OwnerCredentialId = null);

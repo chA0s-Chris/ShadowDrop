@@ -49,4 +49,7 @@ public static class UploadCredentialToken
         secret = parts[2];
         return true;
     }
+
+    internal static Boolean IsInReservedNamespace(String? token) =>
+        token?.StartsWith(Prefix + ".", StringComparison.Ordinal) == true;
 }

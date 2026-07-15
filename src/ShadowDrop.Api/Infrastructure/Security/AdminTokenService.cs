@@ -24,6 +24,13 @@ public sealed class AdminTokenService(IAdminTokenCredentialRepository repository
                     $"The environment variable '{BootstrapTokenEnvironmentVariable}' is required on first startup.");
             }
 
+            if (UploadCredentialToken.IsInReservedNamespace(bootstrapToken))
+            {
+                throw new InvalidOperationException(
+                    $"The environment variable '{BootstrapTokenEnvironmentVariable}' must not use the reserved " +
+                    $"'{UploadCredentialToken.Prefix}.' upload-credential prefix.");
+            }
+
             var salt = RandomNumberGenerator.GetBytes(SaltSize);
             var createdCredential = new AdminTokenCredential(
                 Convert.ToBase64String(HashToken(bootstrapToken, salt, TokenHashIterations)),

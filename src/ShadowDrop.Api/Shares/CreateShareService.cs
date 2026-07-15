@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Shares;
 
+using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 using System.Security.Cryptography;
@@ -26,8 +27,16 @@ public sealed class CreateShareService
     }
 
     public async Task<CreateShareResult> CreateAsync(CreateShareRequest request, CancellationToken cancellationToken)
+        => await CreateAsync(request,
+                             UploadCredentialAuthorizationContext.BootstrapAdmin,
+                             cancellationToken);
+
+    public async Task<CreateShareResult> CreateAsync(CreateShareRequest request,
+                                                     UploadCredentialAuthorizationContext authorizationContext,
+                                                     CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(authorizationContext);
 
         try
         {
@@ -35,6 +44,7 @@ public sealed class CreateShareService
 
             var distinctFileIds = new HashSet<Guid>();
             var files = new List<ShareFileEntryRecord>(request.Files!.Count);
+            var aggregateEncryptedBytes = 0L;
             foreach (var fileRequest in request.Files)
             {
                 if (!distinctFileIds.Add(fileRequest.FileId))
@@ -48,7 +58,28 @@ public sealed class CreateShareService
                     throw new CreateShareValidationException("All referenced files must exist.");
                 }
 
+                if (!authorizationContext.IsBootstrapAdmin
+                    && uploadedFile.OwnerCredentialId != authorizationContext.CredentialId)
+                {
+                    throw new CreateShareValidationException("All referenced files must exist.");
+                }
+
+                try
+                {
+                    aggregateEncryptedBytes = checked(aggregateEncryptedBytes + uploadedFile.EncryptedLength);
+                }
+                catch (OverflowException exception)
+                {
+                    throw new CreateShareValidationException("The aggregate encrypted share size is invalid.", exception);
+                }
+
                 files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
+            }
+
+            if (authorizationContext.MaxEncryptedShareBytes is { } maxEncryptedShareBytes
+                && aggregateEncryptedBytes > maxEncryptedShareBytes)
+            {
+                throw new CreateShareValidationException("The aggregate encrypted share size exceeds the credential limit.");
             }
 
             var shareId = Guid.NewGuid();
@@ -66,7 +97,8 @@ public sealed class CreateShareService
                                              ? null
                                              : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
                                                                              request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
-                                         files);
+                                         files,
+                                         authorizationContext.CredentialId);
 
             await _shareMetadataRepository.CreateAsync(record, cancellationToken);
 

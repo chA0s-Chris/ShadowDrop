@@ -38,6 +38,10 @@ internal sealed class MongoUploadedFileDocument
 
     public String OriginalFileName { get; set; } = String.Empty;
 
+    [BsonIgnoreIfNull]
+    [BsonGuidRepresentation(GuidRepresentation.Standard)]
+    public Guid? OwnerCredentialId { get; set; }
+
     [BsonIgnoreIfDefault]
     public Int64 PlaintextLength { get; set; }
 

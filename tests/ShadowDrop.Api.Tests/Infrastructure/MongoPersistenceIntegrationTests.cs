@@ -496,6 +496,33 @@ public abstract class MongoPersistenceIntegrationTests
     }
 
     [Test]
+    public async Task UploadedFileRepository_ShouldBindReservationAndCompletionToOwner()
+    {
+        var repository = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
+        var ownerCredentialId = Guid.NewGuid();
+        var foreignCredentialId = Guid.NewGuid();
+        var fileId = await repository.ReserveFileIdAsync(ownerCredentialId, CancellationToken.None);
+
+        (await repository.TryClaimReservationAsync(fileId, foreignCredentialId, CancellationToken.None)).Should().BeFalse();
+        (await repository.TryClaimReservationAsync(fileId, ownerCredentialId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryCompleteReservationAsync(
+            CreateUploadedFile(fileId, $"owned-{fileId:N}", 4) with
+            {
+                OwnerCredentialId = foreignCredentialId
+            },
+            CancellationToken.None)).Should().BeFalse();
+        (await repository.TryCompleteReservationAsync(
+            CreateUploadedFile(fileId, $"owned-{fileId:N}", 4) with
+            {
+                OwnerCredentialId = ownerCredentialId
+            },
+            CancellationToken.None)).Should().BeTrue();
+
+        var stored = await repository.GetAsync(fileId, CancellationToken.None);
+        stored!.OwnerCredentialId.Should().Be(ownerCredentialId);
+    }
+
+    [Test]
     public async Task UploadedFileRepository_ShouldEnforceAtomicReservationLifecycle()
     {
         var repository = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
@@ -554,9 +581,10 @@ public abstract class MongoPersistenceIntegrationTests
         var shareId = Guid.NewGuid();
         var token = $"contract-{Guid.NewGuid():N}";
         var fileId = Guid.NewGuid();
+        var ownerCredentialId = Guid.NewGuid();
         var record = new ShareRecord(
             shareId, token, now, now.AddMinutes(-1), null, ShareCleanupState.Pending, false, null,
-            [new(fileId, "file.bin", null)]);
+            [new(fileId, "file.bin", null)], ownerCredentialId);
 
         await repository.CreateAsync(record, CancellationToken.None);
         (await repository.GetAsync(shareId, CancellationToken.None)).Should().BeEquivalentTo(record);

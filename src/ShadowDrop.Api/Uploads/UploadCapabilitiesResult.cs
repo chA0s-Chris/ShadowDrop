@@ -5,4 +5,5 @@ namespace ShadowDrop.Api.Uploads;
 public sealed record UploadCapabilitiesResult(
     Int64 MaxUploadBodyBytes,
     Int64 MultipartEnvelopeAllowanceBytes,
-    Int64 MaxFilePayloadBytes);
+    Int64 MaxFilePayloadBytes,
+    Int64? MaxEncryptedShareBytes = null);

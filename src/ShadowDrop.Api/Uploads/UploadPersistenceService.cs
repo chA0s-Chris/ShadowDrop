@@ -2,6 +2,8 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Uploads;
 
+using ShadowDrop.Api.Infrastructure.Security;
+
 public sealed class UploadPersistenceService
 {
     private readonly IBlobStorage _blobStorage;
@@ -18,9 +20,19 @@ public sealed class UploadPersistenceService
     }
 
     public async Task<UploadResult> PersistAsync(UploadPersistenceRequest request, Stream encryptedContent, CancellationToken cancellationToken)
+        => await PersistAsync(request,
+                              encryptedContent,
+                              UploadCredentialAuthorizationContext.BootstrapAdmin,
+                              cancellationToken);
+
+    public async Task<UploadResult> PersistAsync(UploadPersistenceRequest request,
+                                                 Stream encryptedContent,
+                                                 UploadCredentialAuthorizationContext authorizationContext,
+                                                 CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(encryptedContent);
+        ArgumentNullException.ThrowIfNull(authorizationContext);
 
         UploadBlobDescriptor? blob = null;
         var reservationClaimed = false;
@@ -28,7 +40,9 @@ public sealed class UploadPersistenceService
 
         try
         {
-            reservationClaimed = await _metadataRepository.TryClaimReservationAsync(request.FileId, cancellationToken);
+            reservationClaimed = authorizationContext.CredentialId is { } ownerCredentialId
+                ? await _metadataRepository.TryClaimReservationAsync(request.FileId, ownerCredentialId, cancellationToken)
+                : await _metadataRepository.TryClaimReservationAsync(request.FileId, cancellationToken);
             if (!reservationClaimed)
             {
                 throw new UploadValidationException("The file id is invalid or no longer available.");
@@ -51,7 +65,8 @@ public sealed class UploadPersistenceService
                                                 request.ChunkSize,
                                                 request.ChunkCount,
                                                 request.KdfSaltBase64,
-                                                request.PlaintextSha256);
+                                                request.PlaintextSha256,
+                                                authorizationContext.CredentialId);
 
             reservationCompleted = await _metadataRepository.TryCompleteReservationAsync(record, cancellationToken);
             if (!reservationCompleted)

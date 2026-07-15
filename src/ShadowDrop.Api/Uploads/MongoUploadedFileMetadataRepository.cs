@@ -17,7 +17,43 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
     private static UploadedFileRecord Map(MongoUploadedFileDocument document) =>
         new(document.FileId, document.BlobKey, document.OriginalFileName, document.PlaintextLength,
             document.EncryptedLength, document.ContentType, document.EncryptionFormatVersion, document.AlgorithmId,
-            document.ChunkSize, document.ChunkCount, document.KdfSaltBase64, document.PlaintextSha256);
+            document.ChunkSize, document.ChunkCount, document.KdfSaltBase64, document.PlaintextSha256,
+            document.OwnerCredentialId);
+
+    private async Task<Guid> ReserveFileIdAsync(Guid? ownerCredentialId, CancellationToken cancellationToken)
+    {
+        _ = await Collection.DeleteManyAsync(
+            x => x.IsReserved && x.ReservedAtUnixTimeMilliseconds <= Cutoff, cancellationToken);
+        while (true)
+        {
+            var fileId = Guid.NewGuid();
+            try
+            {
+                await Collection.InsertOneAsync(new()
+                {
+                    FileId = fileId,
+                    IsReserved = true,
+                    OwnerCredentialId = ownerCredentialId,
+                    ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                }, cancellationToken: cancellationToken);
+                return fileId;
+            }
+            catch (MongoWriteException exception) when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+            {
+                logger.LogDebug("Generated upload reservation id collided. FileId: {FileId}", fileId);
+            }
+        }
+    }
+
+    private async Task<Boolean> TryClaimReservationAsync(Guid fileId, Guid? ownerCredentialId, CancellationToken cancellationToken)
+    {
+        var result = await Collection.UpdateOneAsync(
+            x => x.FileId == fileId && x.IsReserved && !x.IsClaimed && x.OwnerCredentialId == ownerCredentialId
+                 && x.ReservedAtUnixTimeMilliseconds > Cutoff,
+            Builders<MongoUploadedFileDocument>.Update.Set(x => x.IsClaimed, true),
+            cancellationToken: cancellationToken);
+        return result.ModifiedCount == 1;
+    }
 
     public async Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) =>
         checked((Int32)await Collection.CountDocumentsAsync(
@@ -54,38 +90,17 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
                                         cancellationToken: cancellationToken);
     }
 
-    public async Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken)
-    {
-        _ = await Collection.DeleteManyAsync(
-            x => x.IsReserved && x.ReservedAtUnixTimeMilliseconds <= Cutoff, cancellationToken);
-        while (true)
-        {
-            var fileId = Guid.NewGuid();
-            try
-            {
-                await Collection.InsertOneAsync(new()
-                {
-                    FileId = fileId,
-                    IsReserved = true,
-                    ReservedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                }, cancellationToken: cancellationToken);
-                return fileId;
-            }
-            catch (MongoWriteException exception) when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
-            {
-                logger.LogDebug("Generated upload reservation id collided. FileId: {FileId}", fileId);
-            }
-        }
-    }
+    public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) =>
+        ReserveFileIdAsync(null, cancellationToken);
 
-    public async Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
-    {
-        var result = await Collection.UpdateOneAsync(
-            x => x.FileId == fileId && x.IsReserved && !x.IsClaimed && x.ReservedAtUnixTimeMilliseconds > Cutoff,
-            Builders<MongoUploadedFileDocument>.Update.Set(x => x.IsClaimed, true),
-            cancellationToken: cancellationToken);
-        return result.ModifiedCount == 1;
-    }
+    public Task<Guid> ReserveFileIdAsync(Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        ReserveFileIdAsync((Guid?)ownerCredentialId, cancellationToken);
+
+    public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) =>
+        TryClaimReservationAsync(fileId, null, cancellationToken);
+
+    public Task<Boolean> TryClaimReservationAsync(Guid fileId, Guid ownerCredentialId, CancellationToken cancellationToken) =>
+        TryClaimReservationAsync(fileId, (Guid?)ownerCredentialId, cancellationToken);
 
     public async Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken)
     {
@@ -103,10 +118,13 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
             ChunkSize = record.ChunkSize,
             ChunkCount = record.ChunkCount,
             KdfSaltBase64 = record.KdfSaltBase64,
-            PlaintextSha256 = record.PlaintextSha256
+            PlaintextSha256 = record.PlaintextSha256,
+            OwnerCredentialId = record.OwnerCredentialId
         };
         var result = await Collection.ReplaceOneAsync(
-            x => x.FileId == record.FileId && x.IsReserved && x.IsClaimed && x.ReservedAtUnixTimeMilliseconds > Cutoff,
+            x => x.FileId == record.FileId && x.IsReserved && x.IsClaimed
+                 && x.OwnerCredentialId == record.OwnerCredentialId
+                 && x.ReservedAtUnixTimeMilliseconds > Cutoff,
             completed,
             cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;

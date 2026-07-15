@@ -16,6 +16,36 @@ using System.Net.Mime;
 public sealed class UploadPersistenceServiceTests
 {
     [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldBindReservationAndCompletionToOwner()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+        var ownerCredentialId = Guid.NewGuid();
+        var foreignCredentialId = Guid.NewGuid();
+
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var fileId = await repository.ReserveFileIdAsync(ownerCredentialId, CancellationToken.None);
+
+        (await repository.TryClaimReservationAsync(fileId, foreignCredentialId, CancellationToken.None)).Should().BeFalse();
+        (await repository.TryClaimReservationAsync(fileId, ownerCredentialId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryCompleteReservationAsync(
+            CreateRecord(fileId, "metadata/foreign.blob") with
+            {
+                OwnerCredentialId = foreignCredentialId
+            },
+            CancellationToken.None)).Should().BeFalse();
+        (await repository.TryCompleteReservationAsync(
+            CreateRecord(fileId, "metadata/owned.blob") with
+            {
+                OwnerCredentialId = ownerCredentialId
+            },
+            CancellationToken.None)).Should().BeTrue();
+
+        var stored = await repository.GetAsync(fileId, CancellationToken.None);
+        stored!.OwnerCredentialId.Should().Be(ownerCredentialId);
+    }
+
+    [Test]
     public async Task LiteDbUploadedFileMetadataRepository_ShouldInitializeAndPersist_WhenDatabaseFileDoesNotExist()
     {
         await using var fixture = new UploadPersistenceFixture();
@@ -47,6 +77,20 @@ public sealed class UploadPersistenceServiceTests
 
         using var verificationDatabase = new LiteDatabase(options.Metadata.LiteDbPath);
         ((Object?)verificationDatabase.GetCollection("uploaded_files").FindById(expiredReservationId)).Should().BeNull();
+    }
+
+    [Test]
+    public async Task LiteDbUploadedFileMetadataRepository_ShouldReadLegacyOwnerlessRecords()
+    {
+        await using var fixture = new UploadPersistenceFixture();
+        var options = fixture.CreateOptions();
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+        var record = await ReserveAndCompleteAsync(repository, CreateRecord(Guid.NewGuid(), "metadata/legacy.blob"));
+
+        var stored = await repository.GetAsync(record.FileId, CancellationToken.None);
+
+        stored.Should().NotBeNull();
+        stored!.OwnerCredentialId.Should().BeNull();
     }
 
     [Test]

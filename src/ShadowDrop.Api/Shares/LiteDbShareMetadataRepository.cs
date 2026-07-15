@@ -55,6 +55,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             RevokedAtUnixTimeMilliseconds = record.RevokedAtUtc?.ToUnixTimeMilliseconds(),
             CleanupState = record.CleanupState.ToString().ToUpperInvariant(),
             DirectHttpEnabled = record.DirectHttpEnabled,
+            OwnerCredentialId = record.OwnerCredentialId,
             DownloadBearerToken = record.DownloadBearerToken is null
                 ? null
                 : new DownloadBearerTokenDocument
@@ -83,7 +84,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                 : new DownloadBearerTokenRecord(
                     document.DownloadBearerToken.TokenHashBase64,
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
-            document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList());
+            document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList(),
+            document.OwnerCredentialId);
 
     private Boolean IsFileReferenced(Guid fileId) =>
         _collection.Exists(document => document.Files.Select(file => file.FileId).Any(value => value == fileId));
@@ -263,6 +265,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         public Int64 ExpiresAtUnixTimeMilliseconds { get; set; }
 
         public List<ShareFileEntryDocument> Files { get; set; } = [];
+
+        public Guid? OwnerCredentialId { get; set; }
 
         public Int64? RevokedAtUnixTimeMilliseconds { get; set; }
 
