@@ -2137,13 +2137,13 @@ public sealed class UploadCommandHandlerTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/api/admin/uploads/capabilities")
+            if (request.Method == HttpMethod.Get && path == "/api/uploads/capabilities")
             {
                 CapabilitiesRequests++;
                 return CreateJsonResponse(HttpStatusCode.OK, """{"maxFilePayloadBytes":4096}""");
             }
 
-            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads/reservations")
+            if (request.Method == HttpMethod.Post && path == "/api/uploads/reservations")
             {
                 ReservationRequests++;
                 var fileId = Guid.NewGuid();
@@ -2151,7 +2151,7 @@ public sealed class UploadCommandHandlerTests
                 return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{fileId}}"}""");
             }
 
-            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads")
+            if (request.Method == HttpMethod.Post && path == "/api/uploads")
             {
                 UploadRequests++;
                 if (UploadRequests == 1)
@@ -2192,19 +2192,19 @@ public sealed class UploadCommandHandlerTests
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath;
-            if (request.Method == HttpMethod.Get && path == "/api/admin/uploads/capabilities")
+            if (request.Method == HttpMethod.Get && path == "/api/uploads/capabilities")
             {
                 return CreateJsonResponse(HttpStatusCode.OK, """{"maxFilePayloadBytes":4096}""");
             }
 
-            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads/reservations")
+            if (request.Method == HttpMethod.Post && path == "/api/uploads/reservations")
             {
                 var fileId = Guid.NewGuid();
                 _reservedFileIds.Enqueue(fileId);
                 return CreateJsonResponse(HttpStatusCode.Created, $$"""{"fileId":"{{fileId}}"}""");
             }
 
-            if (request.Method == HttpMethod.Post && path == "/api/admin/uploads")
+            if (request.Method == HttpMethod.Post && path == "/api/uploads")
             {
                 UploadRequests++;
                 if (UploadRequests == 1)
@@ -2232,7 +2232,7 @@ public sealed class UploadCommandHandlerTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             request.Method.Should().Be(HttpMethod.Get);
-            request.RequestUri!.AbsolutePath.Should().Be("/api/admin/uploads/capabilities");
+            request.RequestUri!.AbsolutePath.Should().Be("/api/uploads/capabilities");
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         }
     }

@@ -10,13 +10,13 @@ using System.Text.Json;
 
 internal sealed class ShareCleanupApiClient(HttpClient httpClient)
 {
-    public async Task<ShareCleanupResultContract> CleanupAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
+    public async Task<ShareCleanupResultContract> CleanupAsync(Uri serverUrl, String adminToken, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
-        ArgumentException.ThrowIfNullOrWhiteSpace(uploadToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(adminToken);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(serverUrl, "/api/admin/shares/cleanup"));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", uploadToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
 
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try

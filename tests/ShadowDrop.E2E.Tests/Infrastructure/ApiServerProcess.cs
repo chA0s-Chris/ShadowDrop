@@ -28,8 +28,8 @@ internal sealed class ApiServerProcess : IAsyncDisposable
     }
 
     /// <summary>
-    /// The bootstrap admin token. The CLI upload endpoints are admin-guarded, so this same value is used as
-    /// the CLI upload token; otherwise uploads are rejected with 401.
+    /// The bootstrap admin token. It remains accepted on the scoped upload/share routes, so smoke tests may use
+    /// it as the CLI upload token unless the scenario provisions a scoped upload credential.
     /// </summary>
     public String AdminToken { get; }
 

@@ -118,14 +118,18 @@ stable release is known. This is designed to stay out of the way:
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
+| `token create`                 | Create a scoped upload credential and display its token once.  |
+| `token list`                   | List bounded upload-credential lifecycle metadata.             |
+| `token inspect <credential-id>` | Inspect one upload credential by management ID.               |
+| `token revoke <credential-id>` | Revoke one upload credential by management ID.                 |
 | `queue create [share-token]`   | Write a download queue file for an existing share.             |
 | `download [share-token]`       | Download and decrypt a shared file to disk (or `--queue <file>`). |
 | `update`                       | Check whether a newer stable release is available; see [Updating the CLI](#updating-the-cli). |
 
 ## Configuration
 
-The server URL and upload token are resolved from three sources, highest
-precedence first:
+The server URL and routine upload token are resolved from three sources,
+highest precedence first:
 
 1. Command-line flags: `--server-url`, `--upload-token`
 2. Environment variables: `SHADOWDROP_SERVER_URL`, `SHADOWDROP_UPLOAD_TOKEN`
@@ -134,20 +138,30 @@ precedence first:
 ```json
 {
   "serverUrl": "https://drop.example.com",
-  "uploadToken": "use-a-long-random-secret"
+  "uploadToken": "sdu1.…",
+  "adminToken": "use-a-different-long-random-secret"
 }
 ```
 
-The **upload token is the server's admin bearer token** (the
-`SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` from the
-[deployment guide](DEPLOYMENT.md#shadowdrop_bootstrap_admin_token)). The CLI
-sends it as `Authorization: Bearer …` to `/api/admin/uploads`; there is no
-separate upload-token provisioning in the MVP. The consequence: whoever can
-upload can administer the server, and the CLI must be able to reach the admin
-exposure boundary described in
-[Deployment Hardening](DEPLOYMENT_HARDENING.md). Prefer the environment
-variable or config file over `--upload-token` — command lines can be visible
-to process inspection tools.
+`uploadToken` should normally be the scoped token returned once by
+`shadowdrop token create`. It authorizes `upload`, `upload raw`, and
+`share create` through `/api/uploads/*` and `/api/shares`; it does not authorize
+administrative routes. The bootstrap admin token is also accepted on those
+scoped routes for migration and recovery.
+
+Administrative commands (`token create/list/inspect/revoke`, `share revoke`,
+and `share cleanup`) resolve a separate token with this precedence:
+
+1. Command-line flag: `--admin-token`
+2. Environment variable: `SHADOWDROP_ADMIN_TOKEN`
+3. Config-file value: `adminToken`
+
+There is deliberately no fallback from the admin-token setting to
+`--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, or `uploadToken`. Prefer protected
+environment variables, secret injection, or a mode-restricted config file over
+either token flag because command lines can be visible to process inspection
+tools. See [Deployment Hardening](DEPLOYMENT_HARDENING.md) before exposing the
+administrative boundary.
 
 TLS trust is configured separately and is deliberately **not** read from the
 config file:
@@ -171,8 +185,49 @@ The examples below assume:
 
 ```bash
 export SHADOWDROP_SERVER_URL="https://drop.example.com"
-export SHADOWDROP_UPLOAD_TOKEN="use-a-long-random-secret"
+export SHADOWDROP_UPLOAD_TOKEN="sdu1.…"
 ```
+
+## Provisioning upload credentials
+
+Set the dedicated admin token, then create a named credential. Names are 1 to
+100 characters and, together with credential IDs, are administrative metadata
+rather than secrets:
+
+```bash
+export SHADOWDROP_ADMIN_TOKEN="use-a-long-random-secret"
+shadowdrop token create --name "nightly-backup" \
+  --expires-in 90d --max-file-bytes 1073741824 --max-share-bytes 2147483648
+# credential-id:4bd9…
+# token:sdu1.…
+# stderr: Store the token now: it is displayed once and cannot be recovered.
+```
+
+The token is shown only by the successful creation response. ShadowDrop never
+stores plaintext upload tokens, and list/inspect cannot recover one. Move it
+directly into the uploader's secret store and avoid terminal capture, shell
+history, logs, support tickets, and shared configuration files.
+
+Credential inventory and lifecycle operations are bounded and scriptable:
+
+```bash
+shadowdrop token list --limit 50
+shadowdrop token list --cursor <next-cursor> --limit 50
+shadowdrop token inspect <credential-id>
+shadowdrop token revoke <credential-id>
+```
+
+List and inspect expose only management ID, name, timestamps, the fixed
+`upload-and-share` capability, and configured byte constraints. `--json` emits
+exactly one JSON value on stdout for every token command; the creation token is
+inside that value, while banners, warnings, and diagnostics remain on stderr.
+
+Revocation and expiration block every new authenticated upload/share operation
+but do not delete uploaded data or revoke shares that were already created.
+Each scoped credential can inspect, upload against, and share only its own
+reservations/files. The bootstrap admin can use scoped routes with both legacy
+ownerless and credential-owned records; a scoped credential can never claim an
+ownerless or foreign record.
 
 ## Uploading and sharing
 
@@ -230,17 +285,20 @@ shadowdrop share create <file-id-1> <file-id-2> --expires-in 3d
 
 ### Upload size limits and batch behavior
 
-Before any file content is sent, `upload` and `upload raw` fetch the server's
-effective upload size limit (derived from the server's `Upload:MaxBytes`
-setting) and validate the whole batch against it. If any selected file would
-exceed the limit, the command reports every oversized file with its computed
-upload size and the maximum, uploads nothing, and exits non-zero. Resolving
-the limit is mandatory: against a server that does not expose it — for
-example, an older ShadowDrop release — every upload fails before any transfer
-starts, so keep the server at least as new as the CLI. If an upload fails
-mid-batch (network, server, or storage errors), the remaining files are not
-attempted and the command exits non-zero; the server independently enforces
-the same limit regardless of the client.
+Before any file content is sent, `upload` and `upload raw` fetch the effective
+encrypted-file limit: the smaller of the server's limit derived from
+`Upload:MaxBytes` and the credential's optional `--max-file-bytes`. The client
+validates the whole batch, while the server separately enforces both that file
+limit and the whole multipart-body limit. A credential's optional
+`--max-share-bytes` caps the sum of immutable encrypted lengths in each share;
+omitting it means no aggregate-share cap. Request-count and consumable
+byte-budget quotas are not implemented.
+
+If any selected file would exceed the effective limit, the command reports
+every oversized file with its computed upload size and the maximum, uploads
+nothing, and exits non-zero. Resolving the limit is mandatory: against a server
+that does not expose it, every upload fails before transfer. If an upload fails
+mid-batch, remaining files are not attempted and the command exits non-zero.
 
 ## Downloading
 
@@ -328,10 +386,24 @@ shadowdrop download --queue queue.json --output-root incoming
 ## Share administration
 
 ```bash
-shadowdrop share revoke <share-id>   # revoke immediately (admin token required)
+shadowdrop share revoke <share-id>   # revoke immediately
 shadowdrop share cleanup             # delete blobs of expired/revoked shares
 ```
+
+Both commands require the dedicated admin-token configuration described above;
+they never use the upload token.
 
 The internal share ID is reported as `shareId` in the `--json` output of
 `upload` and `share create` — capture it at creation time if you may need to
 revoke the share later.
+
+## Pre-v1 route migration
+
+Scoped uploads are a deliberate pre-v1 breaking change. Routine clients now
+use `GET /api/uploads/capabilities`, `POST /api/uploads/reservations`,
+`POST /api/uploads`, `GET /api/uploads/{fileId}`, and `POST /api/shares`.
+The former upload/share-creation operations under `/api/admin/uploads` and
+`POST /api/admin/shares` were removed without compatibility aliases. Update
+direct API scripts to the scoped routes, provision an upload credential, keep
+the existing `--upload-token`/`SHADOWDROP_UPLOAD_TOKEN`/`uploadToken` setting
+for it, and move administrative scripts to the new admin-token setting.

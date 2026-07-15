@@ -8,17 +8,17 @@ using System.Net.Http.Headers;
 
 internal sealed class RevokeShareApiClient(HttpClient httpClient)
 {
-    public async Task RevokeAsync(Uri serverUrl, String uploadToken, Guid shareId, CancellationToken cancellationToken)
+    public async Task RevokeAsync(Uri serverUrl, String adminToken, Guid shareId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
-        ArgumentException.ThrowIfNullOrWhiteSpace(uploadToken);
+        ArgumentException.ThrowIfNullOrWhiteSpace(adminToken);
         if (shareId == Guid.Empty)
         {
             throw new ArgumentException("Share id must not be empty.", nameof(shareId));
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(serverUrl, $"/api/admin/shares/{shareId}/revoke"));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", uploadToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
 
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try

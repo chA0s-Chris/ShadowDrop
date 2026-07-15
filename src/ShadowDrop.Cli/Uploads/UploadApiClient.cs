@@ -21,7 +21,7 @@ internal sealed class UploadApiClient(
 
     public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/admin/uploads/capabilities"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/uploads/capabilities"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -56,7 +56,7 @@ internal sealed class UploadApiClient(
 
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads/reservations"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads/reservations"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -98,7 +98,7 @@ internal sealed class UploadApiClient(
         => await SendWithRetryAsync(
             (requestCancellation, reportActivity) =>
             {
-                var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/admin/uploads"), uploadToken);
+                var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads"), uploadToken);
                 request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, requestCancellation, reportActivity);
                 return request;
             },

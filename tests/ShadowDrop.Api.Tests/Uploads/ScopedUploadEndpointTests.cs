@@ -137,11 +137,11 @@ public sealed class ScopedUploadEndpointTests
         var stored = await fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>()
                                   .GetAsync(ownerReservation, CancellationToken.None);
         stored.Should().NotBeNull();
-        stored!.OwnerCredentialId.Should().Be(owner.CredentialId);
+        stored.OwnerCredentialId.Should().Be(owner.CredentialId);
 
         var missingResponse = await otherClient.GetAsync($"/api/uploads/{Guid.NewGuid()}");
         var foreignResponse = await otherClient.GetAsync($"/api/uploads/{ownerReservation}");
-        var ownerlessFileId = await UploadLegacyAdminFileAsync(adminClient);
+        var ownerlessFileId = await UploadOwnerlessAdminFileAsync(adminClient);
         var ownerlessResponse = await otherClient.GetAsync($"/api/uploads/{ownerlessFileId}");
         missingResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         foreignResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -253,12 +253,12 @@ public sealed class ScopedUploadEndpointTests
         (await client.PostAsync("/api/uploads", content)).StatusCode.Should().Be(HttpStatusCode.Created);
     }
 
-    private static async Task<Guid> UploadLegacyAdminFileAsync(HttpClient adminClient)
+    private static async Task<Guid> UploadOwnerlessAdminFileAsync(HttpClient adminClient)
     {
-        var reservationResponse = await adminClient.PostAsync("/api/admin/uploads/reservations", null);
+        var reservationResponse = await adminClient.PostAsync("/api/uploads/reservations", null);
         var reservation = await reservationResponse.Content.ReadFromJsonAsync<UploadReservationResult>(JsonOptions);
         using var content = CreateUploadContent(reservation!.FileId);
-        (await adminClient.PostAsync("/api/admin/uploads", content)).StatusCode.Should().Be(HttpStatusCode.Created);
+        (await adminClient.PostAsync("/api/uploads", content)).StatusCode.Should().Be(HttpStatusCode.Created);
         return reservation.FileId;
     }
 

@@ -20,7 +20,7 @@ internal sealed class CreateShareApiClient(HttpClient httpClient)
         ArgumentException.ThrowIfNullOrWhiteSpace(uploadToken);
         ArgumentNullException.ThrowIfNull(request);
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, new Uri(serverUrl, "/api/admin/shares"))
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, new Uri(serverUrl, "/api/shares"))
         {
             Content = JsonContent.Create(request, CliJsonSerializerContext.Default.CreateShareCliRequest)
         };

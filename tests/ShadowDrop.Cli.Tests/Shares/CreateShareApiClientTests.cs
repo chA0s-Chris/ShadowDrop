@@ -23,7 +23,12 @@ public sealed class CreateShareApiClientTests
     public async Task CreateAsync_ShouldReturnResult_WhenServerReturnsCreated()
     {
         const String body = """{"shareToken":"abc","downloadBearerToken":"tok"}""";
-        var client = CreateClient(JsonResponse(HttpStatusCode.Created, body));
+        var client = new CreateShareApiClient(new(new StubHttpMessageHandler(request =>
+        {
+            request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/shares"));
+            request.Headers.Authorization!.Parameter.Should().Be("upload-token");
+            return JsonResponse(HttpStatusCode.Created, body);
+        })));
 
         var result = await client.CreateAsync(ServerUrl, "upload-token", Request, CancellationToken.None);
 

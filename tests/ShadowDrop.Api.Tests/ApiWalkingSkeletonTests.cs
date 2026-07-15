@@ -65,7 +65,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
 
-        var response = await client.GetAsync("/api/admin/uploads/capabilities");
+        var response = await client.GetAsync("/api/uploads/capabilities");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -81,9 +81,9 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
 
-        var noAuthResponse = await client.GetAsync("/api/admin/uploads/capabilities");
+        var noAuthResponse = await client.GetAsync("/api/uploads/capabilities");
         client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
-        var wrongTokenResponse = await client.GetAsync("/api/admin/uploads/capabilities");
+        var wrongTokenResponse = await client.GetAsync("/api/uploads/capabilities");
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -146,7 +146,26 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task ShareRoute_ShouldRequireValidAdminBearerToken()
+    public async Task LegacyAdminUploadAndShareCreationRoutes_ShouldNotBeMapped()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var responses = new[]
+        {
+            await client.GetAsync("/api/admin/uploads/capabilities"),
+            await client.PostAsync("/api/admin/uploads/reservations", null),
+            await client.PostAsync("/api/admin/uploads", null),
+            await client.GetAsync($"/api/admin/uploads/{Guid.NewGuid()}"),
+            await client.PostAsync("/api/admin/shares", null)
+        };
+
+        responses.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task ShareRoute_ShouldRequireValidUploadOrAdminBearerToken()
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
@@ -154,11 +173,11 @@ public sealed class ApiWalkingSkeletonTests
         var request = CreateValidShareRequest(fileId, false);
         client.DefaultRequestHeaders.Authorization = null;
 
-        var noAuthResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+        var noAuthResponse = await client.PostAsJsonAsync("/api/shares", request);
         client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
-        var wrongTokenResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+        var wrongTokenResponse = await client.PostAsJsonAsync("/api/shares", request);
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        var validTokenResponse = await client.PostAsJsonAsync("/api/admin/shares", request);
+        var validTokenResponse = await client.PostAsJsonAsync("/api/shares", request);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -174,13 +193,13 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         var request = CreateValidShareRequest(fileId, true);
 
-        var response = await client.PostAsJsonAsync("/api/admin/shares", request);
+        var response = await client.PostAsJsonAsync("/api/shares", request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var responsePayload = await response.Content.ReadAsStringAsync();
         var createShareResult = JsonSerializer.Deserialize<CreateShareResult>(responsePayload, JsonOptions);
         createShareResult.Should().NotBeNull();
-        createShareResult!.ShareToken.Should().NotBeNullOrWhiteSpace();
+        createShareResult.ShareToken.Should().NotBeNullOrWhiteSpace();
         createShareResult.DownloadBearerToken.Should().NotBeNullOrWhiteSpace();
 
         using var responseDocument = JsonDocument.Parse(responsePayload);
@@ -190,7 +209,7 @@ public sealed class ApiWalkingSkeletonTests
         var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
         var storedShare = await repository.GetAsync(createShareResult.ShareId, CancellationToken.None);
         storedShare.Should().NotBeNull();
-        storedShare!.ShareTokenHashBase64.Should().NotBe(createShareResult.ShareToken);
+        storedShare.ShareTokenHashBase64.Should().NotBe(createShareResult.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
         storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(createShareResult.DownloadBearerToken);
         storedShare.ExpiresAtUtc.Should().BeCloseTo(request.ExpiresAtUtc, TimeSpan.FromSeconds(1));
@@ -210,17 +229,17 @@ public sealed class ApiWalkingSkeletonTests
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
 
-        var duplicateFileResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                     [new(fileId), new(fileId)],
-                                                                     GenerateDownloadBearerToken: false));
+        var duplicateFileResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                                                                       [new(fileId), new(fileId)],
+                                                                                                       GenerateDownloadBearerToken: false));
         var missingFileResponse =
-            await client.PostAsJsonAsync("/api/admin/shares", CreateValidShareRequest(Guid.NewGuid(), false));
-        var invalidModeResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                   [new(fileId)],
-                                                                   true,
-                                                                   true,
-                                                                   DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
-        var missingTokenSetupResponse = await client.PostAsJsonAsync("/api/admin/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+            await client.PostAsJsonAsync("/api/shares", CreateValidShareRequest(Guid.NewGuid(), false));
+        var invalidModeResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
+                                                                                                     [new(fileId)],
+                                                                                                     true,
+                                                                                                     true,
+                                                                                                     DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
+        var missingTokenSetupResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                                                          [new(fileId)]));
 
         duplicateFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -267,7 +286,7 @@ public sealed class ApiWalkingSkeletonTests
         var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
         var storedShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
         storedShare.Should().NotBeNull();
-        storedShare!.RevokedAtUtc.Should().NotBeNull();
+        storedShare.RevokedAtUtc.Should().NotBeNull();
         storedShare.ShareTokenHashBase64.Should().NotBe(share.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
         storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(share.DownloadBearerToken);
@@ -302,8 +321,8 @@ public sealed class ApiWalkingSkeletonTests
         secondResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
         firstStoredShare.Should().NotBeNull();
         secondStoredShare.Should().NotBeNull();
-        firstStoredShare!.RevokedAtUtc.Should().NotBeNull();
-        secondStoredShare!.RevokedAtUtc.Should().Be(firstStoredShare.RevokedAtUtc);
+        firstStoredShare.RevokedAtUtc.Should().NotBeNull();
+        secondStoredShare.RevokedAtUtc.Should().Be(firstStoredShare.RevokedAtUtc);
     }
 
     [Test]
@@ -384,7 +403,7 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task UploadRoute_ShouldRequireValidAdminBearerToken()
+    public async Task UploadRoute_ShouldRequireValidUploadOrAdminBearerToken()
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
@@ -392,12 +411,12 @@ public sealed class ApiWalkingSkeletonTests
         using var validRequestContent = CreateValidUploadContent(CreateValidMetadataPayload(validFileId));
 
         var noAuthFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
-        var noAuthResponse = await client.PostAsync("/api/admin/uploads", CreateValidUploadContent(CreateValidMetadataPayload(noAuthFileId)));
+        var noAuthResponse = await client.PostAsync("/api/uploads", CreateValidUploadContent(CreateValidMetadataPayload(noAuthFileId)));
         client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
         var wrongTokenFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
-        var wrongTokenResponse = await client.PostAsync("/api/admin/uploads", CreateValidUploadContent(CreateValidMetadataPayload(wrongTokenFileId)));
+        var wrongTokenResponse = await client.PostAsync("/api/uploads", CreateValidUploadContent(CreateValidMetadataPayload(wrongTokenFileId)));
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        var validTokenResponse = await client.PostAsync("/api/admin/uploads", validRequestContent);
+        var validTokenResponse = await client.PostAsync("/api/uploads", validRequestContent);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -405,16 +424,16 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     [Test]
-    public async Task UploadReservationRoute_ShouldRequireValidAdminBearerToken_AndReturnServerIssuedFileId()
+    public async Task UploadReservationRoute_ShouldRequireValidUploadOrAdminBearerToken_AndReturnServerIssuedFileId()
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
 
-        var noAuthResponse = await client.PostAsync("/api/admin/uploads/reservations", null);
+        var noAuthResponse = await client.PostAsync("/api/uploads/reservations", null);
         client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
-        var wrongTokenResponse = await client.PostAsync("/api/admin/uploads/reservations", null);
+        var wrongTokenResponse = await client.PostAsync("/api/uploads/reservations", null);
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-        var validTokenResponse = await client.PostAsync("/api/admin/uploads/reservations", null);
+        var validTokenResponse = await client.PostAsync("/api/uploads/reservations", null);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         wrongTokenResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -422,7 +441,7 @@ public sealed class ApiWalkingSkeletonTests
 
         var reservation = JsonSerializer.Deserialize<UploadReservationResult>(await validTokenResponse.Content.ReadAsStringAsync(), JsonOptions);
         reservation.Should().NotBeNull();
-        reservation!.FileId.Should().NotBe(Guid.Empty);
+        reservation.FileId.Should().NotBe(Guid.Empty);
     }
 
     [Test]
@@ -434,13 +453,13 @@ public sealed class ApiWalkingSkeletonTests
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var responsePayload = await response.Content.ReadAsStringAsync();
         var uploadResult = JsonSerializer.Deserialize<UploadResult>(responsePayload, JsonOptions);
         uploadResult.Should().NotBeNull();
-        uploadResult!.FileId.Should().Be(reservedFileId);
+        uploadResult.FileId.Should().Be(reservedFileId);
         using var uploadResponseDocument = JsonDocument.Parse(responsePayload);
         uploadResponseDocument.RootElement.TryGetProperty("kdfSaltBase64", out _).Should().BeFalse();
         uploadResponseDocument.RootElement.TryGetProperty("plaintextSha256", out _).Should().BeFalse();
@@ -451,7 +470,7 @@ public sealed class ApiWalkingSkeletonTests
         var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
         var storedRecord = await repository.GetAsync(uploadResult.FileId, CancellationToken.None);
         storedRecord.Should().NotBeNull();
-        storedRecord!.FileId.Should().Be(reservedFileId);
+        storedRecord.FileId.Should().Be(reservedFileId);
         storedRecord.OriginalFileName.Should().Be("cipher.bin");
         storedRecord.ContentType.Should().Be("application/octet-stream");
 
@@ -460,7 +479,7 @@ public sealed class ApiWalkingSkeletonTests
         var blobContent = await File.ReadAllBytesAsync(blobPath);
         blobContent.Should().Equal(CreateCiphertext());
 
-        var metadataResponse = await client.GetAsync($"/api/admin/uploads/{uploadResult.FileId}");
+        var metadataResponse = await client.GetAsync($"/api/uploads/{uploadResult.FileId}");
         metadataResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         if (!OperatingSystem.IsWindows())
@@ -478,7 +497,7 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(encryptedLength: CreateCiphertext().LongLength + 1));
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid upload request.");
@@ -496,7 +515,7 @@ public sealed class ApiWalkingSkeletonTests
         var oversizedCiphertext = new Byte[uploadMaxBytes + 1024];
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId), oversizedCiphertext);
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.RequestEntityTooLarge);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Upload payload too large."}""");
@@ -514,7 +533,7 @@ public sealed class ApiWalkingSkeletonTests
             anything = "nope"
         });
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -528,7 +547,7 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(metadataContentType: "text/plain");
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -545,7 +564,7 @@ public sealed class ApiWalkingSkeletonTests
             ChunkCount = 3
         });
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -560,7 +579,7 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(Guid.NewGuid()));
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -577,7 +596,7 @@ public sealed class ApiWalkingSkeletonTests
         ExpireReservation(fixture.MetadataDatabasePath, reservedFileId);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -595,29 +614,28 @@ public sealed class ApiWalkingSkeletonTests
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         using var initialRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
 
-        var initialResponse = await client.PostAsync("/api/admin/uploads", initialRequest);
+        var initialResponse = await client.PostAsync("/api/uploads", initialRequest);
         initialResponse.StatusCode.Should().Be(HttpStatusCode.Created);
 
         var repository = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
         var storedRecord = await repository.GetAsync(reservedFileId, CancellationToken.None);
         storedRecord.Should().NotBeNull();
-        var blobPath = Path.Combine(fixture.LocalStorageRoot, storedRecord!.BlobKey);
+        var blobPath = Path.Combine(fixture.LocalStorageRoot, storedRecord.BlobKey);
         var originalBlob = await File.ReadAllBytesAsync(blobPath);
 
         using var duplicateRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId),
-                                                              new Byte[]
-                                                              {
-                                                                  1,
-                                                                  2,
-                                                                  3,
-                                                                  4,
-                                                                  5,
-                                                                  6,
-                                                                  7,
-                                                                  8
-                                                              });
+        [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8
+        ]);
 
-        var duplicateResponse = await client.PostAsync("/api/admin/uploads", duplicateRequest);
+        var duplicateResponse = await client.PostAsync("/api/uploads", duplicateRequest);
 
         duplicateResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await duplicateResponse.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -632,7 +650,7 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(includeUnexpectedSection: true);
 
-        var response = await client.PostAsync("/api/admin/uploads", requestContent);
+        var response = await client.PostAsync("/api/uploads", requestContent);
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Be("""{"error":"Invalid upload request."}""");
@@ -650,7 +668,7 @@ public sealed class ApiWalkingSkeletonTests
         {
             var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
             using var request = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
-            var response = await client.PostAsync("/api/admin/uploads", request);
+            var response = await client.PostAsync("/api/uploads", request);
 
             response.StatusCode.Should().Be(HttpStatusCode.Created);
         }
@@ -696,7 +714,7 @@ public sealed class ApiWalkingSkeletonTests
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
         var manifest = await response.Content.ReadFromJsonAsync<ShareManifestContract>(JsonOptions);
         manifest.Should().NotBeNull();
-        manifest!.Files.Should().ContainSingle();
+        manifest.Files.Should().ContainSingle();
         var manifestFile = manifest.Files!.Single();
         manifestFile.FileId.Should().Be(fileId.ToString());
         manifestFile.FileName.Should().Be("renamed.bin");
@@ -936,7 +954,7 @@ public sealed class ApiWalkingSkeletonTests
 
             using (var requestContent = CreateValidUploadContent(uploadMetadata, ciphertext))
             {
-                var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+                var uploadResponse = await client.PostAsync("/api/uploads", requestContent);
                 uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
             }
 
@@ -1335,7 +1353,7 @@ public sealed class ApiWalkingSkeletonTests
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
-        var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+        var uploadResponse = await client.PostAsync("/api/uploads", requestContent);
         client.DefaultRequestHeaders.Authorization = previousAuthorization;
         uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var share = await CreateShareAsync(client,
@@ -1377,7 +1395,7 @@ public sealed class ApiWalkingSkeletonTests
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
         client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
-        var uploadResponse = await client.PostAsync("/api/admin/uploads", requestContent);
+        var uploadResponse = await client.PostAsync("/api/uploads", requestContent);
         client.DefaultRequestHeaders.Authorization = previousAuthorization;
         uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         OverwriteStoredUploadContentType(fixture.MetadataDatabasePath,
@@ -1714,7 +1732,7 @@ public sealed class ApiWalkingSkeletonTests
         try
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
-            var response = await client.PostAsJsonAsync("/api/admin/shares", request);
+            var response = await client.PostAsJsonAsync("/api/shares", request);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
         }
@@ -1748,7 +1766,7 @@ public sealed class ApiWalkingSkeletonTests
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
-            var response = await client.PostAsync("/api/admin/uploads", requestContent);
+            var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             var payload = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<UploadResult>(payload, JsonOptions)!.FileId;
@@ -1777,11 +1795,11 @@ public sealed class ApiWalkingSkeletonTests
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
-            var response = await client.PostAsync("/api/admin/uploads", requestContent);
+            var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             var uploadResult = JsonSerializer.Deserialize<UploadResult>(await response.Content.ReadAsStringAsync(), JsonOptions);
             uploadResult.Should().NotBeNull();
-            uploadResult!.FileId.Should().Be(reservedFileId);
+            uploadResult.FileId.Should().Be(reservedFileId);
         }
         finally
         {
@@ -1809,7 +1827,7 @@ public sealed class ApiWalkingSkeletonTests
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
-            var response = await client.PostAsync("/api/admin/uploads", requestContent);
+            var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
         }
         finally
@@ -1827,11 +1845,11 @@ public sealed class ApiWalkingSkeletonTests
         try
         {
             client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
-            var response = await client.PostAsync("/api/admin/uploads/reservations", null);
+            var response = await client.PostAsync("/api/uploads/reservations", null);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             var reservation = JsonSerializer.Deserialize<UploadReservationResult>(await response.Content.ReadAsStringAsync(), JsonOptions);
             reservation.Should().NotBeNull();
-            reservation!.FileId.Should().NotBe(Guid.Empty);
+            reservation.FileId.Should().NotBe(Guid.Empty);
             return reservation.FileId;
         }
         finally
@@ -1846,7 +1864,7 @@ public sealed class ApiWalkingSkeletonTests
         var uploadedFile = repository.GetAsync(fileId, CancellationToken.None).GetAwaiter().GetResult();
         uploadedFile.Should().NotBeNull();
 
-        var blobPath = Path.Combine(fixture.LocalStorageRoot, uploadedFile!.BlobKey);
+        var blobPath = Path.Combine(fixture.LocalStorageRoot, uploadedFile.BlobKey);
         File.Exists(blobPath).Should().BeTrue();
         File.Delete(blobPath);
         File.Exists(blobPath).Should().BeFalse();
@@ -1858,7 +1876,7 @@ public sealed class ApiWalkingSkeletonTests
         var collection = database.GetCollection("uploaded_files");
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
-        document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        document["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
         collection.Update(document);
     }
 

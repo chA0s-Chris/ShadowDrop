@@ -148,7 +148,7 @@ public sealed class CliApplicationTests
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
-            request.Headers.Authorization!.Parameter.Should().Be("upload-token");
+            request.Headers.Authorization!.Parameter.Should().Be("admin-token");
             return new(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
@@ -161,7 +161,9 @@ public sealed class CliApplicationTests
                                                   new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
                                                   FixedTerminalCapabilityProvider.Plain);
 
-        var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString()], services, CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(["share", "revoke", shareId.ToString(), "--admin-token", "admin-token"],
+                                                        services,
+                                                        CancellationToken.None);
 
         exitCode.Should().Be(0);
         standardOut.ToString().Trim().Should().Be($"share-revoked:{shareId}");
@@ -239,7 +241,7 @@ public sealed class CliApplicationTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
-        var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+        var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
                                                   // ReSharper disable once AccessToDisposedClosure
                                                   _ => httpClient,
                                                   standardOut,

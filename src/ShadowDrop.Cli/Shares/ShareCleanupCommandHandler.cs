@@ -3,7 +3,7 @@
 namespace ShadowDrop.Cli.Shares;
 
 using ShadowDrop.Cli.Configuration;
-using ShadowDrop.Cli.Uploads;
+using ShadowDrop.Cli.Tokens;
 
 internal sealed class ShareCleanupCommandHandler(
     CliConfigurationResolver configurationResolver,
@@ -15,7 +15,7 @@ internal sealed class ShareCleanupCommandHandler(
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
             is not { } configuration)
         {
             return 1;
@@ -25,7 +25,7 @@ internal sealed class ShareCleanupCommandHandler(
         try
         {
             result = await new ShareCleanupApiClient(httpClient).CleanupAsync(configuration.ServerUrl,
-                                                                              configuration.UploadToken,
+                                                                              configuration.AdminToken,
                                                                               cancellationToken);
         }
         catch (ShareCleanupCommandException exception)

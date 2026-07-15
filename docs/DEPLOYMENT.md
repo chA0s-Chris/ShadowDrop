@@ -111,7 +111,7 @@ All server state lives under `/app/data`, which the image declares as a
 volume:
 
 - `/app/data/metadata/shadowdrop.db` — the LiteDB metadata database (shares,
-  file metadata, the hashed admin credential).
+  file metadata, hashed upload credentials, and the hashed admin credential).
 - `/app/data/storage/` — the encrypted blobs.
 
 Mount a named volume or host directory there; losing `/app/data` loses all
@@ -127,9 +127,40 @@ database; the plaintext is never stored.
 
 On subsequent starts the stored credential is used and the environment
 variable is ignored — changing it later does **not** rotate the admin token.
-The token authenticates all `/api/admin/*` operations, including CLI uploads
-(see [Security Trade-offs](SECURITY_TRADEOFFS.md)). Use a long random secret
-and treat it like a root credential.
+The token authenticates all `/api/admin/*` operations and is also accepted on
+the scoped `/api/uploads/*` and `/api/shares` routes for migration and
+recovery. Use a long random secret, treat it like a root credential, and
+provision narrower upload credentials for routine users and automation:
+
+```bash
+export SHADOWDROP_SERVER_URL="https://drop.example.com"
+export SHADOWDROP_ADMIN_TOKEN="use-a-long-random-secret"
+shadowdrop token create --name "automation" --expires-in 90d \
+  --max-file-bytes 1073741824 --max-share-bytes 2147483648
+```
+
+The plaintext token is returned only by this creation operation and cannot be
+recovered. Store it immediately in the uploader's secret store. Credential
+revocation stops new operations but deliberately leaves existing shares and
+uploaded data available. See [Security Trade-offs](SECURITY_TRADEOFFS.md).
+
+### API exposure settings
+
+`ShadowDrop:ApiExposure:EnableAdminOperations` controls `/api/admin/*`.
+`ShadowDrop:ApiExposure:EnableUploads` is nullable and controls the scoped
+`/api/uploads/*` and `/api/shares` routes. When `EnableUploads` is omitted or
+`null`, it inherits `EnableAdminOperations`, preserving existing deployment
+behavior. Set it explicitly when the two surfaces need different exposure:
+
+```text
+ShadowDrop__ApiExposure__EnableAdminOperations=false
+ShadowDrop__ApiExposure__EnableUploads=true
+```
+
+That shape lets existing scoped credentials upload without exposing admin
+operations, but cannot provision or revoke credentials until administration
+is enabled on a trusted boundary. Conversely, setting `EnableUploads=false`
+keeps routine uploads disabled even when admin operations remain enabled.
 
 ### Download-only deployments
 
@@ -145,7 +176,8 @@ docker run -d --name shadowdrop \
 ```
 
 With admin operations disabled, `/api/admin/*` is not mapped and the bootstrap
-token is not required. See
+token is not required. Because `EnableUploads` is omitted, it inherits `false`
+and the scoped upload/share routes are also not mapped. See
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#recommended-mitigations) for
 when to choose this shape.
 
@@ -225,7 +257,8 @@ contains the LiteDB metadata, hashed admin credential, and encrypted filesystem
 blobs.
 
 For `docker/compose.mongodb.yaml`, use MongoDB-supported backup tooling and include the
-ShadowDrop metadata collections (`uploaded_files`, `shares`, and `admin_tokens`),
+ShadowDrop metadata collections (`uploaded_files`, `shares`, `admin_tokens`,
+and `upload_credentials`),
 both GridFS collections (`shadowdrop_blobs.files` and
 `shadowdrop_blobs.chunks`), and the Chaos.Mongo distributed-lock collection
 from the same consistent backup point. Restore the complete set together before
@@ -240,10 +273,11 @@ of the container and terminate TLS there; forward traffic to the container's
 port `19423` over the internal network. Never expose plain HTTP publicly —
 share URLs and download credentials travel in requests and responses.
 
-The reverse proxy must also enforce the admin-route restrictions described in
-[Deployment Hardening](DEPLOYMENT_HARDENING.md#reverse-proxy-controls):
-untrusted clients should not reach `/api/admin/*` at all, and allowed clients
-should be rate-limited.
+The reverse proxy must enforce the route restrictions described in
+[Deployment Hardening](DEPLOYMENT_HARDENING.md#reverse-proxy-controls).
+Untrusted uploaders may be allowed to reach `/api/uploads/*` and `/api/shares`
+without being allowed to reach `/api/admin/*`; administrative clients should
+remain on a trusted, rate-limited boundary.
 
 ### Public hostname and generated URLs
 
@@ -269,7 +303,7 @@ boundaries and metadata. Adjust the size and timeout values to match your
 ShadowDrop configuration and operating policy:
 
 ```nginx
-location /api/admin/uploads {
+location /api/uploads {
     client_max_body_size 5g;
     client_body_timeout 10m;
 
@@ -305,6 +339,17 @@ Host's **Advanced** custom nginx configuration. Align the example body size and
 timeouts with the limits configured for that ShadowDrop deployment; depending
 on the generated configuration, a dedicated location may need to be expressed
 using Nginx Proxy Manager's supported custom-location form.
+
+### Pre-v1 scoped-route migration
+
+The scoped credential release removes the previous upload and share-creation
+operations under `/api/admin/uploads` and `POST /api/admin/shares` without
+compatibility aliases. This is an intentional pre-v1 breaking change. Update
+direct API clients to `/api/uploads/*` and `POST /api/shares`; existing
+bootstrap admin tokens remain valid there. CLI upload configuration keeps the
+existing `--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, and `uploadToken` names,
+while administrative CLI commands now require `--admin-token`,
+`SHADOWDROP_ADMIN_TOKEN`, or `adminToken` with no upload-token fallback.
 
 ## Health check
 
