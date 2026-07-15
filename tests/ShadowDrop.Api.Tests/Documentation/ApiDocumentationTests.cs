@@ -10,6 +10,7 @@ using NUnit.Framework;
 using ShadowDrop.Api;
 using System.Text.RegularExpressions;
 
+[NonParallelizable]
 public sealed partial class ApiDocumentationTests
 {
     [Test]
