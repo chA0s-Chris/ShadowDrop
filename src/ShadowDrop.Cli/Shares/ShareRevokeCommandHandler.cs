@@ -3,7 +3,7 @@
 namespace ShadowDrop.Cli.Shares;
 
 using ShadowDrop.Cli.Configuration;
-using ShadowDrop.Cli.Uploads;
+using ShadowDrop.Cli.Tokens;
 
 internal sealed class ShareRevokeCommandHandler(
     CliConfigurationResolver configurationResolver,
@@ -21,7 +21,7 @@ internal sealed class ShareRevokeCommandHandler(
             return 1;
         }
 
-        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
             is not { } configuration)
         {
             return 1;
@@ -29,7 +29,7 @@ internal sealed class ShareRevokeCommandHandler(
 
         try
         {
-            await new RevokeShareApiClient(httpClient).RevokeAsync(configuration.ServerUrl, configuration.UploadToken, shareId, cancellationToken);
+            await new RevokeShareApiClient(httpClient).RevokeAsync(configuration.ServerUrl, configuration.AdminToken, shareId, cancellationToken);
         }
         catch (RevokeShareCommandException exception)
         {

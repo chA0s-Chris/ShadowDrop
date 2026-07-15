@@ -5,6 +5,7 @@ namespace ShadowDrop.Tests.Shares;
 using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Tokens;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
 
@@ -34,7 +35,8 @@ public sealed class ShareRevokeCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized)));
-        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "secret-upload-token"),
+        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
+                                                                               adminToken: "secret-admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);
@@ -44,7 +46,25 @@ public sealed class ShareRevokeCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Trim().Should().Be("Authentication token invalid or missing.");
-        standardError.ToString().Should().NotContain("secret-upload-token");
+        standardError.ToString().Should().NotContain("secret-admin-token");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ShouldNotFallBackToUploadToken_WhenAdminTokenIsMissing()
+    {
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        using var httpClient = new HttpClient(new NeverCalledHandler());
+        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+                                                    httpClient,
+                                                    standardOut,
+                                                    standardError);
+
+        var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Trim().Should().Be(AdminConfiguration.MissingAdminTokenError);
     }
 
     [Test]
@@ -53,7 +73,8 @@ public sealed class ShareRevokeCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
-        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "secret-upload-token"),
+        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
+                                                                               adminToken: "secret-admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);
@@ -63,7 +84,7 @@ public sealed class ShareRevokeCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Trim().Should().Be("Share not found.");
-        standardError.ToString().Should().NotContain("secret-upload-token");
+        standardError.ToString().Should().NotContain("secret-admin-token");
     }
 
     [Test]
@@ -73,7 +94,8 @@ public sealed class ShareRevokeCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
-        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+        var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
+                                                                               adminToken: "admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);

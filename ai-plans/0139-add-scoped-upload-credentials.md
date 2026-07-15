@@ -28,13 +28,13 @@ Separate routine encrypted uploads and share creation from server administration
 - [x] Make credential creation, lookup, last-used updates, and revocation atomic and equivalent across LiteDB and MongoDB, with indexes that avoid scanning all credentials during authentication.
 - [x] Keep shares created by a credential available after that credential expires or is revoked; revocation prevents new authenticated operations and does not implicitly revoke existing shares or delete uploaded data.
 - [x] Add a nullable upload-exposure setting whose effective value inherits the existing admin-exposure setting when omitted, allowing operators to expose scoped uploads separately without changing the exposure behavior of existing configurations.
-- [ ] Preserve existing `--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, and `uploadToken` resolution for routine uploads.
-- [ ] Add dedicated `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, and config-file `adminToken` configuration required by administrative CLI commands, with no fallback to the upload-token setting.
-- [ ] Remove the admin-protected upload/share routes without compatibility aliases and move all CLI upload and share creation to the scoped routes; the bootstrap admin token remains valid on the scoped routes, and documentation describes the route change as a pre-v1 breaking change.
+- [x] Preserve existing `--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, and `uploadToken` resolution for routine uploads.
+- [x] Add dedicated `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, and config-file `adminToken` configuration required by administrative CLI commands, with no fallback to the upload-token setting.
+- [x] Remove the admin-protected upload/share routes without compatibility aliases and move all CLI upload and share creation to the scoped routes; the bootstrap admin token remains valid on the scoped routes, and documentation describes the route change as a pre-v1 breaking change.
 - [x] Return the same generic `401` status and response contract for authentication failures without revealing selector, credential, expiration, or revocation matches in responses, errors, or logs; keep unmatched selectors cheap to reject, run the slow hash for every matched credential before evaluating its lifecycle state, and leave strict timing equalization out of scope.
 - [x] Support `--json` for credential-management commands with exactly one documented JSON value on stdout; keep banners, warnings, diagnostics, and migration notices on stderr.
-- [ ] Add automated authentication, one-time token disclosure, authorization-boundary, ownership-isolation, expiration, revocation, constraint, concurrency, legacy ownerless-record compatibility, redaction, CLI JSON/stdout, and LiteDB/MongoDB parity tests.
-- [ ] Update `README.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, `docs/DEPLOYMENT_HARDENING.md`, and `docs/SECURITY_TRADEOFFS.md` with credential provisioning, exposure, migration, constraint, ownership, revocation, and secret-handling guidance.
+- [x] Add automated authentication, one-time token disclosure, authorization-boundary, ownership-isolation, expiration, revocation, constraint, concurrency, legacy ownerless-record compatibility, redaction, CLI JSON/stdout, and LiteDB/MongoDB parity tests.
+- [x] Update `README.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, `docs/DEPLOYMENT_HARDENING.md`, and `docs/SECURITY_TRADEOFFS.md` with credential provisioning, exposure, migration, constraint, ownership, revocation, and secret-handling guidance.
 
 ## Technical Details
 

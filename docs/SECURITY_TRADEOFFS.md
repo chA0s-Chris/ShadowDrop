@@ -66,20 +66,45 @@ download bearer token. Downloads then require both the share key **and**
 credential. The download CLI accepts the token only as a command-line
 argument.
 
-### The upload token is the admin token
+### Scoped upload credentials
 
-The CLI's upload token (`--upload-token`, `SHADOWDROP_UPLOAD_TOKEN`, or the
-config file) is the server's **admin bearer token** — uploads are admin
-operations against `/api/admin/uploads`. There is no lesser upload-only
-credential in the MVP. Consequences:
+The CLI's routine upload token (`--upload-token`,
+`SHADOWDROP_UPLOAD_TOKEN`, or config-file `uploadToken`) should be a scoped
+credential created by an administrator. It has one fixed `upload-and-share`
+capability and can call only `/api/uploads/*` and `POST /api/shares`; it cannot
+revoke arbitrary shares, run cleanup, manage credentials, or call other admin
+operations.
 
-- Anyone who can upload can also create, revoke, and clean up shares.
-- The CLI must reach the admin exposure boundary; per
-  [Deployment Hardening](DEPLOYMENT_HARDENING.md#admin-endpoint-exposure),
-  that boundary should not be the public Internet.
-- Guard the token accordingly: prefer the environment variable or the
-  config file over the flag (process listings can expose flags), and never
-  bake it into scripts you distribute.
+Each credential owns its reservations and completed files. One credential
+cannot inspect, upload against, or share another credential's records, and it
+cannot claim legacy ownerless records. The bootstrap admin token is accepted on
+the scoped routes for migration/recovery and can use both ownerless and owned
+records, so it remains a root credential and should not be distributed to
+routine uploaders.
+
+Credentials may expire and may cap encrypted bytes per file and per share.
+The share cap is calculated from immutable encrypted file lengths. This release
+does not implement request-count quotas or consumable byte budgets; use upstream
+rate/traffic controls when those limits matter.
+
+`shadowdrop token create` displays the plaintext token exactly once. The server
+persists only non-reversible secret material and list/inspect never reveal the
+token, hash, salt, or lookup digest. Put the token directly into a secret
+manager or protected client configuration and keep it out of logs and shell
+history. Credential names and management IDs are administrative metadata, not
+authentication secrets, but should not be published unnecessarily.
+
+Expiration or revocation blocks new authenticated operations. It does not
+delete uploaded data or revoke shares already created with the credential;
+revoke those shares separately when required.
+
+### Admin credentials
+
+Credential management, share revocation, and cleanup use the bootstrap admin
+token through `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, or config-file
+`adminToken`. Administrative commands deliberately never fall back to the
+upload-token setting. Keep this token on the management boundary described in
+[Deployment Hardening](DEPLOYMENT_HARDENING.md#admin-endpoint-exposure).
 
 ## `--insecure` versus `--cacert`
 
@@ -90,9 +115,9 @@ private CA):
   additional trust anchor. The presented chain is **still validated** — this
   is the safe option and should be your default for lab or internal setups.
 - `-k`/`--insecure` (or `SHADOWDROP_INSECURE=1|true|yes`) disables certificate
-  validation entirely. A man-in-the-middle can then read the upload token,
-  bearer tokens, and any direct-HTTP key material in transit. Use it only for
-  throwaway local testing, never with a real admin token.
+  validation entirely. A man-in-the-middle can then read upload/admin tokens,
+  download bearer tokens, and any direct-HTTP key material in transit. Use it
+  only for throwaway local testing, never with real credentials.
 
 Once `SHADOWDROP_INSECURE` is set to a truthy value there is no flag to force
 validation back on for a single invocation — unset the variable instead.

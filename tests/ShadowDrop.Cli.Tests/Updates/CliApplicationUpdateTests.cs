@@ -111,7 +111,7 @@ public sealed class CliApplicationUpdateTests
                                                          Func<HttpClient>? httpClientFactory = null)
     {
         var timeProvider = new ManualTimeProvider(Now);
-        return new(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
+        return new(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
                    _ => httpClientFactory is null ? throw new AssertionException("HTTP client should not have been created.") : httpClientFactory(),
                    standardOut,
                    standardError,

@@ -7,6 +7,7 @@ using NUnit.Framework;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Crypto;
+using ShadowDrop.Tests.Fakes;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -16,6 +17,29 @@ using System.Text.Json;
 public sealed class UploadApiClientTests
 {
     private static readonly Uri ServerUrl = new("https://shadowdrop.test/");
+
+    [Test]
+    public async Task GetCapabilitiesAsync_ShouldUseScopedUploadRouteAndBearerToken()
+    {
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Get);
+            request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/uploads/capabilities"));
+            request.Headers.Authorization!.Parameter.Should().Be("upload-token");
+            return new(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new
+                {
+                    maxFilePayloadBytes = 4096
+                })
+            };
+        }));
+        var sut = new UploadApiClient(httpClient);
+
+        var result = await sut.GetCapabilitiesAsync(ServerUrl, "upload-token", CancellationToken.None);
+
+        result.MaxFilePayloadBytes.Should().Be(4096);
+    }
 
     [Test]
     public async Task ReserveFileIdAsync_ShouldRetryTransientStatus_AndSucceed()

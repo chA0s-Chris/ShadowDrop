@@ -94,6 +94,13 @@ internal static class CliApplication
                 "Upload authorization token. Prefer environment variables or config files for sensitive deployments because CLI flags may be visible to process inspection tools."
         };
 
+        var adminTokenOption = new Option<String?>("--admin-token")
+        {
+            Description =
+                "Admin authorization token. Prefer SHADOWDROP_ADMIN_TOKEN or the adminToken config value for sensitive deployments "
+                + "because CLI flags may be visible to process inspection tools. There is no fallback to the upload-token setting."
+        };
+
         var expiresInOption = new Option<String?>("--expires-in")
         {
             Description = "Share expiration as <amount><unit>, e.g. 7d, 12h, or 30m. Defaults to 7d."
@@ -314,25 +321,18 @@ internal static class CliApplication
         shareRevokeCommand.Options.Add(serverOption);
         shareRevokeCommand.Options.Add(caCertOption);
         shareRevokeCommand.Options.Add(insecureOption);
-        shareRevokeCommand.Options.Add(uploadTokenOption);
+        shareRevokeCommand.Options.Add(adminTokenOption);
 
         var shareCleanupCommand = new Command("cleanup", "Delete server blobs for expired and revoked shares.");
         shareCleanupCommand.Options.Add(serverOption);
         shareCleanupCommand.Options.Add(caCertOption);
         shareCleanupCommand.Options.Add(insecureOption);
-        shareCleanupCommand.Options.Add(uploadTokenOption);
+        shareCleanupCommand.Options.Add(adminTokenOption);
 
         var shareCommand = new Command("share", "Create and manage shares.");
         shareCommand.Subcommands.Add(shareCreateCommand);
         shareCommand.Subcommands.Add(shareRevokeCommand);
         shareCommand.Subcommands.Add(shareCleanupCommand);
-
-        var adminTokenOption = new Option<String?>("--admin-token")
-        {
-            Description =
-                "Admin authorization token. Prefer SHADOWDROP_ADMIN_TOKEN or the adminToken config value for sensitive deployments "
-                + "because CLI flags may be visible to process inspection tools. There is no fallback to the upload-token setting."
-        };
 
         var tokenNameOption = new Option<String?>("--name")
         {
@@ -633,7 +633,7 @@ internal static class CliApplication
         {
             var revokeOptions = new ShareRevokeCommandOptions(parseResult.GetValue(commandModel.ShareIdArgument),
                                                               parseResult.GetValue(commandModel.ServerOption),
-                                                              parseResult.GetValue(commandModel.UploadTokenOption));
+                                                              parseResult.GetValue(commandModel.AdminTokenOption));
 
             return await new ShareRevokeCommandHandler(services.ConfigurationResolver,
                                                        httpClient,
@@ -701,7 +701,7 @@ internal static class CliApplication
         if (parseResult.CommandResult.Command == commandModel.ShareCleanupCommand)
         {
             var cleanupOptions = new ShareCleanupCommandOptions(parseResult.GetValue(commandModel.ServerOption),
-                                                                parseResult.GetValue(commandModel.UploadTokenOption));
+                                                                parseResult.GetValue(commandModel.AdminTokenOption));
 
             return await new ShareCleanupCommandHandler(services.ConfigurationResolver,
                                                         httpClient,

@@ -98,15 +98,26 @@ curl -fsSL https://get.shadowdrop.net/install.sh | sh -s -- --install-dir "$HOME
 See the [CLI installation guide](docs/CLI.md#installation) for supported
 platforms, manual checksum verification, and `PATH` guidance.
 
-Point the CLI at your server. The upload token **is** the admin bearer token
-(the bootstrap admin token from above) — uploads go through the admin API, so
-anyone who can upload can also administer the server (see
-[security trade-offs](docs/SECURITY_TRADEOFFS.md)):
+Point the CLI at your server and use the bootstrap admin token once to create a
+scoped upload credential. Its plaintext is displayed only by `token create` and
+cannot be recovered later, so capture it immediately:
 
 ```bash
 export SHADOWDROP_SERVER_URL="https://drop.example.com"
-export SHADOWDROP_UPLOAD_TOKEN="use-a-long-random-secret"
+export SHADOWDROP_ADMIN_TOKEN="use-a-long-random-secret"
+shadowdrop token create --name "alice-laptop"
+# credential-id:…
+# token:sdu1.…
+
+export SHADOWDROP_UPLOAD_TOKEN="sdu1.…"
+unset SHADOWDROP_ADMIN_TOKEN
 ```
+
+The upload credential can upload encrypted files and create shares, but cannot
+revoke other shares, run cleanup, or manage credentials. The bootstrap admin
+token remains valid on the scoped upload routes for migration and recovery;
+routine clients should use scoped credentials instead. See
+[security trade-offs](docs/SECURITY_TRADEOFFS.md) for the trust boundaries.
 
 Upload a file — the CLI encrypts it locally and prints a share URL plus the
 decryption key:
@@ -148,8 +159,9 @@ configuration sources, download queues, and credential-handling options.
 
 ## Current MVP limitations
 
-- There is no separate upload-token provisioning: uploading requires the admin
-  bearer token and therefore access to the admin exposure boundary.
+- Every scoped upload credential has one fixed `upload-and-share` capability;
+  independently assignable permissions and request-count or byte-budget usage
+  quotas are not part of this release.
 - There is no web UI; shares are consumed via the CLI or direct HTTP.
 
 ## License

@@ -5,4 +5,4 @@ namespace ShadowDrop.Cli.Shares;
 internal sealed record ShareRevokeCommandOptions(
     String? ShareId,
     String? ServerUrlOverride,
-    String? UploadTokenOverride);
+    String? AdminTokenOverride);
