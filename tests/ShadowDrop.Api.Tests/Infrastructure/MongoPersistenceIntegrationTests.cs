@@ -51,7 +51,8 @@ public abstract class MongoPersistenceIntegrationTests
         var loggerFactory = _services.GetRequiredService<ILoggerFactory>();
         foreach (var metadataProvider in Enum.GetValues<MetadataProvider>())
         {
-            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>())
+            // S3 needs a live object-store container; RustFsS3IntegrationTests covers that combination.
+            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>().Except([BlobStorageProvider.S3]))
             {
                 var root = Path.Combine(Path.GetTempPath(), $"shadowdrop-matrix-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(root);
@@ -117,7 +118,8 @@ public abstract class MongoPersistenceIntegrationTests
     {
         foreach (var metadataProvider in Enum.GetValues<MetadataProvider>())
         {
-            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>())
+            // S3 needs a live object-store container; RustFsS3IntegrationTests covers that combination.
+            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>().Except([BlobStorageProvider.S3]))
             {
                 await using var factory = new ProviderMatrixApiFactory(
                     metadataProvider, blobProvider,

@@ -27,7 +27,7 @@ public sealed class HealthEndpointTests
     [Test]
     public async Task Readiness_ShouldReturnOk_ForLocalPersistence()
     {
-        await using var app = await CreateApplicationAsync(new LocalReadinessCheck());
+        await using var app = await CreateApplicationAsync(new ManualReadinessCheck(true));
         using var client = app.GetTestClient();
 
         var response = await client.GetAsync("/health/ready");
@@ -52,7 +52,7 @@ public sealed class HealthEndpointTests
     [Test]
     public async Task LegacyHealthEndpoint_ShouldNotBeMapped()
     {
-        await using var app = await CreateApplicationAsync(new LocalReadinessCheck());
+        await using var app = await CreateApplicationAsync(new ManualReadinessCheck(true));
         using var client = app.GetTestClient();
 
         var response = await client.GetAsync("/health");

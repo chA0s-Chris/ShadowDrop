@@ -25,6 +25,7 @@ public static class DependencyInjection
 
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<IReadinessCheck, CompositeReadinessCheck>();
 
         var mongoRequired = shadowDropOptions.RequiresMongo;
         if (mongoRequired)
@@ -42,11 +43,13 @@ public static class DependencyInjection
                                           options.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                                       })
                    .WithConfigurator<ShadowDropMongoConfigurator>();
-            builder.Services.AddSingleton<IReadinessCheck, MongoReadinessCheck>();
+            builder.Services.AddSingleton<IReadinessDependencyCheck, MongoReadinessCheck>();
         }
-        else
+
+        if (shadowDropOptions.Storage.Provider == BlobStorageProvider.S3)
         {
-            builder.Services.AddSingleton<IReadinessCheck, LocalReadinessCheck>();
+            builder.Services.AddSingleton<IS3Client, AwsS3Client>();
+            builder.Services.AddSingleton<IReadinessDependencyCheck, S3ReadinessCheck>();
         }
 
         // Keep Kestrel's body-size ceiling above the configured upload limit so the reader's friendly UploadPayloadTooLargeException
@@ -58,13 +61,22 @@ public static class DependencyInjection
             || shadowDropOptions.ApiExposure.UploadsEnabled
             || shadowDropOptions.ApiExposure.EnablePublicDownloads)
         {
-            if (shadowDropOptions.Storage.Provider == BlobStorageProvider.FileSystem)
+            switch (shadowDropOptions.Storage.Provider)
             {
-                builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
-            }
-            else
-            {
-                builder.Services.AddSingleton<IBlobStorage, MongoGridFsBlobStorage>();
+                case BlobStorageProvider.FileSystem:
+                    builder.Services.AddSingleton<IBlobStorage, LocalBlobStorage>();
+                    break;
+                case BlobStorageProvider.MongoGridFs:
+                    builder.Services.AddSingleton<IBlobStorage, MongoGridFsBlobStorage>();
+                    break;
+                case BlobStorageProvider.S3:
+                    builder.Services.AddSingleton<IBlobStorage>(services =>
+                                                                    new S3BlobStorage(shadowDropOptions,
+                                                                                      services.GetRequiredService<IS3Client>(),
+                                                                                      services.GetRequiredService<ILogger<S3BlobStorage>>()));
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unsupported blob storage provider: {shadowDropOptions.Storage.Provider}.");
             }
 
             if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)

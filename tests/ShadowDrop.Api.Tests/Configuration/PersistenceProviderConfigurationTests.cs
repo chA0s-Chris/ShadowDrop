@@ -10,6 +10,7 @@ using NUnit.Framework;
 using Serilog;
 using ShadowDrop.Api.CompositionRoot;
 using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 
@@ -52,6 +53,10 @@ public sealed class PersistenceProviderConfigurationTests
               typeof(LiteDbUploadedFileMetadataRepository), typeof(MongoGridFsBlobStorage), true)]
     [TestCase(MetadataProvider.MongoDb, BlobStorageProvider.MongoGridFs,
               typeof(MongoUploadedFileMetadataRepository), typeof(MongoGridFsBlobStorage), true)]
+    [TestCase(MetadataProvider.LiteDb, BlobStorageProvider.S3,
+              typeof(LiteDbUploadedFileMetadataRepository), typeof(S3BlobStorage), false)]
+    [TestCase(MetadataProvider.MongoDb, BlobStorageProvider.S3,
+              typeof(MongoUploadedFileMetadataRepository), typeof(S3BlobStorage), true)]
     public void ConfigureServices_ShouldRegisterProvidersIndependently(MetadataProvider metadataProvider,
                                                                        BlobStorageProvider blobProvider,
                                                                        Type metadataImplementation,
@@ -70,9 +75,19 @@ public sealed class PersistenceProviderConfigurationTests
 
         builder.Services.Last(x => x.ServiceType == typeof(IUploadedFileMetadataRepository)).ImplementationType
                .Should().Be(metadataImplementation);
-        builder.Services.Last(x => x.ServiceType == typeof(IBlobStorage)).ImplementationType
-               .Should().Be(blobImplementation);
+        var blobRegistration = builder.Services.Last(x => x.ServiceType == typeof(IBlobStorage));
+        if (blobProvider == BlobStorageProvider.S3)
+        {
+            blobRegistration.ImplementationFactory.Should().NotBeNull();
+        }
+        else
+        {
+            blobRegistration.ImplementationType.Should().Be(blobImplementation);
+        }
+
         builder.Services.Any(x => x.ServiceType == typeof(IMongoHelper)).Should().Be(expectsMongo);
+        builder.Services.Count(x => x.ServiceType == typeof(IReadinessDependencyCheck))
+               .Should().Be((expectsMongo ? 1 : 0) + (blobProvider == BlobStorageProvider.S3 ? 1 : 0));
         builder.Services.Last(x => x.ServiceType == typeof(IShareMetadataRepository)).ImplementationType
                .Should().Be(metadataProvider == MetadataProvider.LiteDb
                                 ? typeof(LiteDbShareMetadataRepository)
@@ -137,6 +152,8 @@ public sealed class PersistenceProviderConfigurationTests
             ["ShadowDrop:Storage:Provider"] = blobProvider.ToString(),
             ["ShadowDrop:Storage:LocalRoot"] = Path.Combine(root, "blobs"),
             ["ShadowDrop:Storage:GridFsBucketName"] = "shadowdrop_blobs",
+            ["ShadowDrop:Storage:S3:BucketName"] = "shadowdrop-test",
+            ["ShadowDrop:Storage:S3:Region"] = "us-east-1",
             ["ShadowDrop:Mongo:ConnectionString"] = "mongodb://localhost:27017",
             ["ShadowDrop:Mongo:DatabaseName"] = "shadowdrop",
             ["ShadowDrop:ApiExposure:EnablePublicDownloads"] = "true",

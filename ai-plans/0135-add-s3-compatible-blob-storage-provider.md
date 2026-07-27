@@ -8,33 +8,49 @@ Allow ShadowDrop deployments to store encrypted blobs in AWS S3 or compatible ob
 
 ## Acceptance Criteria
 
-- [ ] An `S3` blob provider implements `IBlobStorage` save, open, and idempotent deletion semantics without buffering an entire large object in memory or on local disk.
-- [ ] Blob storage remains independently selectable from LiteDB or MongoDB metadata, and the existing filesystem and GridFS combinations continue to work without configuration changes.
-- [ ] S3 configuration supports a bucket name, region, optional service endpoint, optional opaque key prefix, optional static credentials, and path-style addressing for compatible services.
-- [ ] When static credentials are omitted, the provider uses the standard AWS credential chain so workload, container, instance, profile, and environment credentials remain available.
-- [ ] S3 settings are validated only when the S3 provider is selected: the bucket name and region must be nonblank, `AccessKeyId` and `SecretAccessKey` must either both be supplied or both be omitted, and `ServiceEndpoint`, when supplied, must be an absolute HTTP or HTTPS URI; invalid configuration fails clearly.
-- [ ] The region is required even when a service endpoint is configured, because it supplies the SigV4 signing region rather than only selecting an AWS endpoint.
-- [ ] Startup diagnostics and effective-configuration logging never include access keys, secret keys, or session tokens.
-- [ ] When the S3 provider is selected, the effective-configuration log line identifies the bucket, service endpoint, path-style setting, and key prefix in use, and reports whether credentials came from static configuration or the AWS credential chain.
-- [ ] Object keys are deterministic from the ShadowDrop file ID and disclose no original filename, share token, credential, or other sensitive metadata.
-- [ ] The S3 provider persists `BlobKey` as the file ID's bare `N` representation, matching GridFS, while the filesystem provider retains its existing sharded `<first-two-characters>/<file-id>.blob` format.
-- [ ] The configured key prefix is applied only when composing S3 object keys and never when persisting `BlobKey`, and the documentation states that changing the key prefix strands existing blobs in the same way changing the provider does.
-- [ ] Missing S3 objects surface through the existing provider-neutral `FileNotFoundException` behavior.
-- [ ] `DeleteIfExistsAsync` returns `true` only when the object existed and `false` when it did not, so share cleanup's deleted and already-missing counters stay accurate, and repeated deletion remains safe.
-- [ ] Uploads read the request stream once and forward-only without requiring a seekable request stream; payload buffering uses one fixed 8 MiB part buffer per upload, plus completion metadata bounded by S3's 10,000-part limit and ordinary AWS SDK overhead.
-- [ ] Content that reaches the end of the stream before the first part buffer fills is stored with a single non-multipart request; larger content uses multipart transfer.
-- [ ] When S3 is selected, configuration fails clearly if `Upload:MaxBytes` exceeds the maximum object size supported by the fixed 8 MiB part size and S3's 10,000-part limit.
-- [ ] Zero-length and sub-part-size objects round-trip correctly through save, open, and delete.
-- [ ] Uploads propagate cancellation and make a best-effort attempt to abort incomplete multipart uploads after failure or cancellation.
-- [ ] `OpenReadAsync` returns a seekable provider stream that translates reads after a seek into S3 byte-range requests instead of downloading or discarding bytes from the beginning of the object.
-- [ ] ShadowDrop does not create or mutate the configured bucket at application startup.
-- [ ] When the S3 provider is selected, the readiness endpoint reports unready while the configured bucket is unreachable, misconfigured, or inaccessible; the check is read-only, does not create or mutate the bucket, and requires no permissions beyond the documented least-privilege policy.
-- [ ] Deployment documentation covers AWS S3 and RustFS provider configuration, TLS, service endpoints, and path-style addressing, and extends the persistence-provider combination table with the `LiteDb`/`S3` and `MongoDb`/`S3` rows and their required configuration values.
-- [ ] Deployment documentation includes a least-privilege AWS policy covering `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:AbortMultipartUpload`, and any other permissions required by the chosen upload operations, and explains that `s3:ListBucket` is required for reliable missing-object detection.
-- [ ] Deployment documentation covers the multipart part size and its per-upload memory cost, lifecycle cleanup for abandoned multipart uploads, coordinated backup/restore, and the absence of automatic blob migration.
-- [ ] Automated unit, provider-contract, and integration tests cover configuration, opaque key generation, streaming save/open, ranged seeking, deletion, missing objects, cancellation, multipart cleanup, and representative LiteDB/S3 and MongoDB/S3 combinations.
-- [ ] S3 integration tests use a version-pinned RustFS container image rather than MinIO or LocalStack, declared alongside the existing pinned test images; Renovate configuration validation and a dry run confirm that the custom manager detects the committed pin and excludes preview and glibc tag families, and update selection is verified with a temporary known-older plain-beta fixture when the committed pin is already current.
-- [ ] S3 integration tests provision their own test bucket outside application startup and do not require live AWS credentials.
+- [x] An `S3` blob provider implements `IBlobStorage` save, open, and idempotent deletion semantics without buffering an entire large object in memory or on local disk.
+- [x] Blob storage remains independently selectable from LiteDB or MongoDB metadata, and the existing filesystem and GridFS combinations continue to work without configuration changes.
+- [x] S3 configuration supports a bucket name, region, optional service endpoint, optional opaque key prefix, optional static credentials, and path-style addressing for compatible services.
+- [x] When static credentials are omitted, the provider uses the standard AWS credential chain so workload, container, instance, profile, and environment credentials remain available.
+- [x] S3 settings are validated only when the S3 provider is selected: the bucket name and region must be nonblank, `AccessKeyId` and `SecretAccessKey` must either both be supplied or both be omitted, and `ServiceEndpoint`, when supplied, must be an absolute HTTP or HTTPS URI; invalid configuration fails clearly.
+- [x] The region is required even when a service endpoint is configured, because it supplies the SigV4 signing region rather than only selecting an AWS endpoint.
+- [x] Startup diagnostics and effective-configuration logging never include access keys, secret keys, or session tokens.
+- [x] When the S3 provider is selected, the effective-configuration log line identifies the bucket, service endpoint, path-style setting, and key prefix in use, and reports whether credentials came from static configuration or the AWS credential chain.
+- [x] Object keys are deterministic from the ShadowDrop file ID and disclose no original filename, share token, credential, or other sensitive metadata.
+- [x] The S3 provider persists `BlobKey` as the file ID's bare `N` representation, matching GridFS, while the filesystem provider retains its existing sharded `<first-two-characters>/<file-id>.blob` format.
+- [x] The configured key prefix is applied only when composing S3 object keys and never when persisting `BlobKey`, and the documentation states that changing the key prefix strands existing blobs in the same way changing the provider does.
+- [x] Missing S3 objects surface through the existing provider-neutral `FileNotFoundException` behavior.
+- [x] `DeleteIfExistsAsync` returns `true` only when the object existed and `false` when it did not, so share cleanup's deleted and already-missing counters stay accurate, and repeated deletion remains safe.
+- [x] Uploads read the request stream once and forward-only without requiring a seekable request stream; payload buffering uses one fixed 8 MiB part buffer per upload, plus completion metadata bounded by S3's 10,000-part limit and ordinary AWS SDK overhead.
+- [x] Content that reaches the end of the stream before the first part buffer fills is stored with a single non-multipart request; larger content uses multipart transfer.
+- [x] When S3 is selected, configuration fails clearly if `Upload:MaxBytes` exceeds the maximum object size supported by the fixed 8 MiB part size and S3's 10,000-part limit.
+- [x] Zero-length and sub-part-size objects round-trip correctly through save, open, and delete.
+- [x] Uploads propagate cancellation and make a best-effort attempt to abort incomplete multipart uploads after failure or cancellation.
+- [x] `OpenReadAsync` returns a seekable provider stream that translates reads after a seek into S3 byte-range requests instead of downloading or discarding bytes from the beginning of the object.
+- [x] ShadowDrop does not create or mutate the configured bucket at application startup.
+- [x] When the S3 provider is selected, the readiness endpoint reports unready while the configured bucket is unreachable, misconfigured, or inaccessible; the check is read-only, does not create or mutate the bucket, and requires no permissions beyond the documented least-privilege policy.
+- [x] Deployment documentation covers AWS S3 and RustFS provider configuration, TLS, service endpoints, and path-style addressing, and extends the persistence-provider combination table with the `LiteDb`/`S3` and `MongoDb`/`S3` rows and their required configuration values.
+- [x] Deployment documentation includes a least-privilege AWS policy covering `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:AbortMultipartUpload`, and any other permissions required by the chosen upload operations, and explains that `s3:ListBucket` is required for reliable missing-object detection.
+- [x] Deployment documentation covers the multipart part size and its per-upload memory cost, lifecycle cleanup for abandoned multipart uploads, coordinated backup/restore, and the absence of automatic blob migration.
+- [x] Automated unit, provider-contract, and integration tests cover configuration, opaque key generation, streaming save/open, ranged seeking, deletion, missing objects, cancellation, multipart cleanup, and representative LiteDB/S3 and MongoDB/S3 combinations.
+- [x] S3 integration tests use a version-pinned RustFS container image rather than MinIO or LocalStack, declared alongside the existing pinned test images; Renovate configuration validation and a dry run confirm that the custom manager detects the committed pin and excludes preview and glibc tag families, and update selection is verified with a temporary known-older plain-beta fixture when the committed pin is already current.
+- [x] S3 integration tests provision their own test bucket outside application startup and do not require live AWS credentials.
+
+## Renovate Verification
+
+Renovate 43.285.1 was verified with these exact successful commands:
+
+```bash
+rtk npx --yes --package renovate renovate-config-validator renovate.json
+rtk env LOG_LEVEL=debug RENOVATE_CONFIG='{"enabledManagers":["custom.regex"]}' node ~/.npm/_npx/05eeecd92f4e18e0/node_modules/renovate/dist/renovate.js --platform=local --dry-run=extract
+rtk env LOG_LEVEL=debug RENOVATE_CONFIG='{"enabledManagers":["custom.regex"]}' node ~/.npm/_npx/05eeecd92f4e18e0/node_modules/renovate/dist/renovate.js --platform=local --dry-run=full
+```
+
+The extraction run detected the RustFS image through the generalized regex manager. Because the committed
+`1.0.0-beta.11` pin was current, the full dry run used a temporary tracked `1.0.0-beta.9` fixture with the same
+`rustfs/rustfs` package name and `semver` versioning. Renovate proposed exactly one RustFS update, to
+`1.0.0-beta.11`. The `allowedVersions` rule restricts candidates to `1.0.0-beta.N`, excluding preview and glibc tag
+families. The temporary fixture was removed after the successful dry run.
 
 ## Technical Details
 

@@ -2,7 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Health;
 
-internal sealed class LocalReadinessCheck : IReadinessCheck
+internal interface IReadinessDependencyCheck
 {
-    public Task<Boolean> IsReadyAsync(CancellationToken cancellationToken) => Task.FromResult(true);
+    Task<Boolean> IsReadyAsync(CancellationToken cancellationToken);
 }

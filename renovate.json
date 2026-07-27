@@ -12,7 +12,7 @@
   "description": [
     "ignorePaths mirrors the config:recommended defaults but drops **/tests/**.",
     "Custom managers cannot see files under tests/ while that entry is active,",
-    "which would silently disable the MongoDbTestImages.cs manager below.",
+    "which would silently disable the pinned test-image manager below.",
     "Re-check this list when config:recommended changes its own defaults."
   ],
   "ignorePaths": [
@@ -28,10 +28,10 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/MongoDbTestImages\\.cs$/"
+        "/(?:MongoDb|RustFs)TestImages\\.cs$/"
       ],
       "matchStrings": [
-        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) packageName=(?<packageName>\\S+)\\s+public const String \\w+ = \"mongo:(?<currentValue>[^\"]+)\";"
+        "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+public const String \\w+ = \"(?<packageName>[^\"]+):(?<currentValue>[^\"]+)\";"
       ]
     }
   ],
@@ -56,6 +56,13 @@
         "mongo-5"
       ],
       "allowedVersions": "/^5\\.0\\./"
+    },
+    {
+      "description": "Keep RustFS integration tests on plain beta releases",
+      "matchDepNames": [
+        "rustfs"
+      ],
+      "allowedVersions": "/^1\\.0\\.0-beta\\.\\d+$/"
     },
     {
       "groupName": "Test SDK/MTP",

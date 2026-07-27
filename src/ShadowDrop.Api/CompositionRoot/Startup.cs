@@ -41,7 +41,8 @@ public static class Startup
         var maxRequestBodySize = DependencyInjection.ResolveMaxRequestBodySize(options.Upload.MaxBytes);
         logger.Information(
             "Effective configuration: MetadataProvider: {MetadataProvider}; BlobProvider: {BlobProvider}; StorageRoot: {StorageRoot}; " +
-            "MetadataDatabase: {MetadataDatabase}; MongoDatabase: {MongoDatabase}; UploadMaxBytes: {UploadMaxBytes}; " +
+            "MetadataDatabase: {MetadataDatabase}; MongoDatabase: {MongoDatabase}; S3Bucket: {S3Bucket}; S3ServiceEndpoint: {S3ServiceEndpoint}; " +
+            "S3UsePathStyle: {S3UsePathStyle}; S3KeyPrefix: {S3KeyPrefix}; S3CredentialSource: {S3CredentialSource}; UploadMaxBytes: {UploadMaxBytes}; " +
             "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; UploadsEnabled: {UploadsEnabled}; " +
             "EnablePublicDownloads: {EnablePublicDownloads}; CleanupCronExpression: {CleanupCronExpression}",
             options.Metadata.Provider,
@@ -49,6 +50,17 @@ public static class Startup
             options.Storage.Provider == BlobStorageProvider.FileSystem ? options.Storage.LocalRoot : "(not used)",
             options.Metadata.Provider == MetadataProvider.LiteDb ? options.Metadata.LiteDbPath : "(not used)",
             options.RequiresMongo ? options.Mongo.DatabaseName : "(not used)",
+            options.Storage.Provider == BlobStorageProvider.S3 ? options.Storage.S3.BucketName : "(not used)",
+            options.Storage.Provider == BlobStorageProvider.S3 && !String.IsNullOrEmpty(options.Storage.S3.ServiceEndpoint)
+                ? options.Storage.S3.ServiceEndpoint
+                : "(not used)",
+            options.Storage is { Provider: BlobStorageProvider.S3, S3.UsePathStyle: true },
+            options.Storage.Provider == BlobStorageProvider.S3 && !String.IsNullOrEmpty(options.Storage.S3.KeyPrefix)
+                ? options.Storage.S3.KeyPrefix
+                : "(none)",
+            options.Storage.Provider == BlobStorageProvider.S3
+                ? String.IsNullOrEmpty(options.Storage.S3.AccessKeyId) ? "AWS credential chain" : "static configuration"
+                : "(not used)",
             options.Upload.MaxBytes,
             maxRequestBodySize,
             options.ApiExposure.EnableAdminOperations,
@@ -60,9 +72,7 @@ public static class Startup
     private static async Task LogStartupStateSummaryAsync(WebApplication app, ILogger logger, ShadowDropOptions options,
                                                           CancellationToken cancellationToken)
     {
-        if (!options.ApiExposure.EnableAdminOperations
-            && !options.ApiExposure.UploadsEnabled
-            && !options.ApiExposure.EnablePublicDownloads)
+        if (options.ApiExposure is { EnableAdminOperations: false, UploadsEnabled: false, EnablePublicDownloads: false })
         {
             return;
         }

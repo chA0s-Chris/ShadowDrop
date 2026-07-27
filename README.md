@@ -48,6 +48,12 @@ and GridFS blobs. It requires the additional MongoDB values documented in the
 files bind the API to `127.0.0.1:19423` by default and persist their state in
 named volumes.
 
+Encrypted blobs can also be stored in AWS S3 or an S3-compatible service such
+as RustFS, independently of whether metadata uses LiteDB or MongoDB. See
+[AWS S3 and compatible object storage](docs/DEPLOYMENT.md#aws-s3-and-compatible-object-storage)
+for configuration, credentials, least-privilege permissions, and migration
+caveats.
+
 Running the published image directly remains supported:
 
 ```bash
