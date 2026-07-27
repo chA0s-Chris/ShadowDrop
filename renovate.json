@@ -9,6 +9,21 @@
   "major": {
     "dependencyDashboardApproval": true
   },
+  "description": [
+    "ignorePaths mirrors the config:recommended defaults but drops **/tests/**.",
+    "Custom managers cannot see files under tests/ while that entry is active,",
+    "which would silently disable the MongoDbTestImages.cs manager below.",
+    "Re-check this list when config:recommended changes its own defaults."
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/__fixtures__/**"
+  ],
   "customManagers": [
     {
       "customType": "regex",
