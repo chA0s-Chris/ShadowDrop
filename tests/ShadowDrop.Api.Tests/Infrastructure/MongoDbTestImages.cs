@@ -8,5 +8,5 @@ internal static class MongoDbTestImages
     public const String LatestStable = "mongo:8.3.7";
 
     // renovate: datasource=docker depName=mongo-5 packageName=mongo
-    public const String MinimumSupported = "mongo:5.0.31";
+    public const String MinimumSupported = "mongo:5.0.33";
 }
