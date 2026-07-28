@@ -2,7 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Uploads;
 
-internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, String objectKey, Int64 length) : Stream
+internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, String objectKey, String blobKey, Int64 length) : Stream
 {
     private S3ReadResponse? _activeResponse;
     private Boolean _disposed;
@@ -127,7 +127,7 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
             }
             catch (S3ObjectNotFoundException exception)
             {
-                throw new FileNotFoundException("The requested blob does not exist.", objectKey, exception);
+                throw new FileNotFoundException("The requested blob does not exist.", blobKey, exception);
             }
         }
     }

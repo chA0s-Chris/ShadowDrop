@@ -119,7 +119,7 @@ public sealed class S3BlobStorage : IBlobStorage
         try
         {
             var length = await _client.GetObjectLengthAsync(_bucketName, objectKey, cancellationToken);
-            return new S3SeekableReadStream(_client, _bucketName, objectKey, length);
+            return new S3SeekableReadStream(_client, _bucketName, objectKey, blobKey, length);
         }
         catch (S3ObjectNotFoundException exception)
         {
