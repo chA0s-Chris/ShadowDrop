@@ -41,6 +41,11 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:GridFsBucketName' is required by the selected provider.");
         }
 
+        if (options.Storage.Provider == BlobStorageProvider.S3)
+        {
+            ValidateS3(options);
+        }
+
         if (String.IsNullOrWhiteSpace(options.Cleanup.CronExpression))
         {
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
@@ -90,4 +95,45 @@ public static class ShadowDropOptionsBinding
         Path.IsPathRooted(configuredPath)
             ? configuredPath
             : Path.GetFullPath(Path.Combine(contentRootPath, configuredPath));
+
+    private static void ValidateS3(ShadowDropOptions options)
+    {
+        var s3 = options.Storage.S3;
+        if (String.IsNullOrWhiteSpace(s3.BucketName))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:S3:BucketName' is required by the selected provider.");
+        }
+
+        if (String.IsNullOrWhiteSpace(s3.Region))
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Storage:S3:Region' is required by the selected provider.");
+        }
+
+        var hasAccessKey = !String.IsNullOrWhiteSpace(s3.AccessKeyId);
+        var hasSecretKey = !String.IsNullOrWhiteSpace(s3.SecretAccessKey);
+        if (hasAccessKey != hasSecretKey)
+        {
+            throw new InvalidOperationException(
+                "The configuration values 'ShadowDrop:Storage:S3:AccessKeyId' and 'ShadowDrop:Storage:S3:SecretAccessKey' must either both be supplied or both be omitted.");
+        }
+
+        if (!String.IsNullOrWhiteSpace(s3.ServiceEndpoint)
+            && (!Uri.TryCreate(s3.ServiceEndpoint, UriKind.Absolute, out var endpoint)
+                || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps)))
+        {
+            throw new InvalidOperationException(
+                "The configuration value 'ShadowDrop:Storage:S3:ServiceEndpoint' must be an absolute HTTP or HTTPS URI.");
+        }
+
+        if (options.Upload.MaxBytes > S3BlobStorage.MaximumObjectSize)
+        {
+            throw new InvalidOperationException(
+                $"The configuration value 'ShadowDrop:Upload:MaxBytes' cannot exceed {S3BlobStorage.MaximumObjectSize} when S3 storage is selected.");
+        }
+
+        s3.BucketName = s3.BucketName.Trim();
+        s3.Region = s3.Region.Trim();
+        s3.ServiceEndpoint = s3.ServiceEndpoint?.Trim() ?? String.Empty;
+        s3.KeyPrefix = S3ObjectKey.NormalizePrefix(s3.KeyPrefix);
+    }
 }

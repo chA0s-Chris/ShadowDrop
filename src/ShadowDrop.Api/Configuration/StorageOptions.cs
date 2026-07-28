@@ -9,4 +9,6 @@ public sealed class StorageOptions
     public String LocalRoot { get; set; } = String.Empty;
 
     public BlobStorageProvider Provider { get; set; } = BlobStorageProvider.FileSystem;
+
+    public S3StorageOptions S3 { get; set; } = new();
 }

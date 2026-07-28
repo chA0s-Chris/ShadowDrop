@@ -5,5 +5,6 @@ namespace ShadowDrop.Api.Configuration;
 public enum BlobStorageProvider
 {
     FileSystem,
-    MongoGridFs
+    MongoGridFs,
+    S3
 }

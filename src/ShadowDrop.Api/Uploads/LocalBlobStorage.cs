@@ -75,7 +75,7 @@ public sealed class LocalBlobStorage : IBlobStorage
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
             _logger.LogDebug("Blob open failed because the file was missing. BlobKey: {BlobKey}", blobKey);
-            throw;
+            throw new FileNotFoundException("The requested blob does not exist.", blobKey, exception);
         }
     }
 

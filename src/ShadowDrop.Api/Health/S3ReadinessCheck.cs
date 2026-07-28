@@ -2,10 +2,10 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Health;
 
-using Chaos.Mongo;
-using MongoDB.Bson;
+using ShadowDrop.Api.Configuration;
+using ShadowDrop.Api.Uploads;
 
-internal sealed class MongoReadinessCheck(IMongoHelper mongo) : IReadinessDependencyCheck
+internal sealed class S3ReadinessCheck(IS3Client client, ShadowDropOptions options) : IReadinessDependencyCheck
 {
     internal static readonly TimeSpan DefaultCheckTimeout = TimeSpan.FromSeconds(3);
 
@@ -18,7 +18,7 @@ internal sealed class MongoReadinessCheck(IMongoHelper mongo) : IReadinessDepend
 
         try
         {
-            await mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: timeout.Token);
+            await client.CheckBucketAsync(options.Storage.S3.BucketName, timeout.Token);
             return true;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

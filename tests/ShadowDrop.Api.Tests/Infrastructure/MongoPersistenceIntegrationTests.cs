@@ -18,6 +18,7 @@ using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Tests.Infrastructure.Security;
+using ShadowDrop.Tests.Uploads;
 using System.Net;
 using Testcontainers.MongoDb;
 
@@ -50,7 +51,8 @@ public abstract class MongoPersistenceIntegrationTests
         var loggerFactory = _services.GetRequiredService<ILoggerFactory>();
         foreach (var metadataProvider in Enum.GetValues<MetadataProvider>())
         {
-            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>())
+            // S3 needs a live object-store container; RustFsS3IntegrationTests covers that combination.
+            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>().Except([BlobStorageProvider.S3]))
             {
                 var root = Path.Combine(Path.GetTempPath(), $"shadowdrop-matrix-{Guid.NewGuid():N}");
                 Directory.CreateDirectory(root);
@@ -116,7 +118,8 @@ public abstract class MongoPersistenceIntegrationTests
     {
         foreach (var metadataProvider in Enum.GetValues<MetadataProvider>())
         {
-            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>())
+            // S3 needs a live object-store container; RustFsS3IntegrationTests covers that combination.
+            foreach (var blobProvider in Enum.GetValues<BlobStorageProvider>().Except([BlobStorageProvider.S3]))
             {
                 await using var factory = new ProviderMatrixApiFactory(
                     metadataProvider, blobProvider,
@@ -147,9 +150,9 @@ public abstract class MongoPersistenceIntegrationTests
                 }
             };
             var loggerFactory = _services.GetRequiredService<ILoggerFactory>();
-            await AssertBlobStorageContractAsync(
+            await BlobStorageContract.AssertAsync(
                 new LocalBlobStorage(options, loggerFactory.CreateLogger<LocalBlobStorage>()));
-            await AssertBlobStorageContractAsync(_services.GetRequiredService<MongoGridFsBlobStorage>());
+            await BlobStorageContract.AssertAsync(_services.GetRequiredService<MongoGridFsBlobStorage>());
         }
         finally
         {
@@ -552,26 +555,6 @@ public abstract class MongoPersistenceIntegrationTests
         await repository.ReleaseClaimAsync(fileId, CancellationToken.None);
         (await repository.GetActivePendingReservationCountAsync(CancellationToken.None)).Should().Be(baseline + 1);
         (await repository.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
-    }
-
-    private static async Task AssertBlobStorageContractAsync(IBlobStorage storage)
-    {
-        var fileId = Guid.NewGuid();
-        Byte[] content = [1, 2, 3, 4, 5];
-        var descriptor = await storage.SaveAsync(fileId, new MemoryStream(content), CancellationToken.None);
-        descriptor.WrittenLength.Should().Be(content.Length);
-
-        await using (var stream = await storage.OpenReadAsync(descriptor.BlobKey, CancellationToken.None))
-        {
-            using var copy = new MemoryStream();
-            await stream.CopyToAsync(copy);
-            copy.ToArray().Should().Equal(content);
-        }
-
-        (await storage.DeleteIfExistsAsync(descriptor.BlobKey, CancellationToken.None)).Should().BeTrue();
-        (await storage.DeleteIfExistsAsync(descriptor.BlobKey, CancellationToken.None)).Should().BeFalse();
-        var openMissing = async () => await storage.OpenReadAsync(descriptor.BlobKey, CancellationToken.None);
-        await openMissing.Should().ThrowAsync<IOException>();
     }
 
     private static async Task AssertShareMetadataContractAsync(IShareMetadataRepository repository)

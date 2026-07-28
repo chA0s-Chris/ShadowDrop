@@ -193,6 +193,8 @@ configuration change.
 | `MongoDb` | `FileSystem` | MongoDB settings, `Storage:LocalRoot` |
 | `LiteDb` | `MongoGridFs` | `Metadata:LiteDbPath`, MongoDB settings, optional GridFS bucket name |
 | `MongoDb` | `MongoGridFs` | MongoDB settings and optional GridFS bucket name |
+| `LiteDb` | `S3` | `Metadata:LiteDbPath`, S3 bucket name and signing region |
+| `MongoDb` | `S3` | MongoDB settings, S3 bucket name and signing region |
 
 For example, a fully MongoDB-backed container can be configured as follows:
 
@@ -214,6 +216,107 @@ connection string in an image, compose file committed to source control, or
 command history. ShadowDrop does not log the MongoDB connection string. It does
 log the selected provider names and database name during startup.
 
+### AWS S3 and compatible object storage
+
+Select `S3` independently of the metadata provider. A minimal AWS deployment
+sets the provider, bucket, and region; omit ShadowDrop's static credential
+settings to use the standard AWS SDK credential chain:
+
+```text
+ShadowDrop__Storage__Provider=S3
+ShadowDrop__Storage__S3__BucketName=shadowdrop-production
+ShadowDrop__Storage__S3__Region=eu-central-1
+```
+
+The standard chain supports workload/container and instance credentials,
+environment credentials (including session tokens), and local AWS profiles.
+This is preferred to long-lived keys. When static credentials are unavoidable,
+inject both `ShadowDrop__Storage__S3__AccessKeyId` and
+`ShadowDrop__Storage__S3__SecretAccessKey` through an orchestrator secret or a
+mode-`0600` environment file. Never put them in an image, committed Compose
+file, command line, or shell history. ShadowDrop logs only whether static
+configuration or the AWS credential chain is in use; it never logs access
+keys, secret keys, or session tokens.
+
+For RustFS and similar S3-compatible services, also set an absolute service
+endpoint and usually enable path-style addressing. `us-east-1` is the
+conventional signing-region placeholder when the service does not otherwise
+use AWS regions:
+
+```text
+ShadowDrop__Storage__Provider=S3
+ShadowDrop__Storage__S3__BucketName=shadowdrop
+ShadowDrop__Storage__S3__Region=us-east-1
+ShadowDrop__Storage__S3__ServiceEndpoint=https://rustfs.example.internal:9000
+ShadowDrop__Storage__S3__UsePathStyle=true
+ShadowDrop__Storage__S3__KeyPrefix=production/shadowdrop
+```
+
+The region remains required with a custom endpoint because it supplies the
+SigV4 signing region. AWS endpoints use HTTPS automatically. Give compatible
+services a certificate trusted by the ShadowDrop container and use HTTPS in
+production; reserve plain HTTP endpoints for isolated development networks.
+`UsePathStyle` is normally `false` for AWS and `true` for a single RustFS
+endpoint. ShadowDrop does not create or alter the bucket at startup, so create
+it with deployment or test administration tooling before starting the API.
+
+The optional `KeyPrefix` is normalized only by trimming surrounding whitespace
+and leading/trailing slashes; internal characters and repeated separators are
+preserved. It is applied to S3 object requests but is not stored in metadata.
+Changing `Storage:Provider` or `Storage:S3:KeyPrefix` redirects future lookups
+and writes and immediately strands existing blobs under the previous backend
+or prefix. ShadowDrop performs no automatic copy, reconciliation, or migration.
+
+The application identity needs the following baseline AWS policy. It matches the
+minimal AWS example above, which configures no `KeyPrefix` and therefore writes
+objects at the bucket root. Replace the bucket name with your own.
+`s3:ListBucket` is deliberately required because S3 otherwise returns `403`
+rather than a reliable `404` for a missing object, and the same read-only grant
+supports readiness checks.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "InspectShadowDropBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::shadowdrop-production"
+    },
+    {
+      "Sid": "ManageShadowDropObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::shadowdrop-production/*"
+    }
+  ]
+}
+```
+
+When a `KeyPrefix` is configured, narrow the object resource to that prefix. A
+deployment using `ShadowDrop__Storage__S3__KeyPrefix=production/shadowdrop`
+scopes `ManageShadowDropObjects` to
+`arn:aws:s3:::shadowdrop-production/production/shadowdrop/*`. The
+`s3:ListBucket` resource stays the bare bucket ARN either way, because the
+readiness check lists the bucket rather than the prefix.
+
+Uploads use one reusable 8 MiB payload buffer per active upload. Total payload
+buffer memory is therefore approximately `8 MiB × concurrent uploads`, plus
+AWS SDK overhead and part-number/ETag metadata bounded by S3's 10,000-part
+limit. ShadowDrop rejects an S3 deployment whose `Upload:MaxBytes` exceeds
+80,000 MiB (about 78.1 GiB), the capacity of 10,000 fixed-size parts. Objects
+smaller than one part use a single `PutObject`; larger objects use multipart
+upload. Failures and cancellations trigger a best-effort abort, but a process
+or host failure can interrupt cleanup. Configure an S3 lifecycle rule to abort
+incomplete multipart uploads after an operationally appropriate interval so
+abandoned parts cannot accumulate indefinitely.
+
 MongoDB 5.0 is the initial minimum supported server version. Both standalone
 servers and replica sets are supported; the implementation does not depend on
 transactions. Sharded clusters have not been validated and are not supported
@@ -228,10 +331,12 @@ settings.
 
 ### Scaling constraints
 
-All four combinations support a single application instance. For multiple
+All six combinations support a single application instance. For multiple
 instances:
 
 - MongoDB metadata with GridFS is the standard horizontally scaled setup.
+- MongoDB metadata with S3 is also suitable for horizontally scaled instances;
+  every instance must use the same bucket, prefix, and credentials policy.
 - MongoDB metadata with filesystem blobs is suitable only when `LocalRoot` is
   a shared filesystem mounted consistently on every instance.
 - LiteDB metadata combinations remain single-instance configurations unless a
@@ -262,9 +367,13 @@ and `upload_credentials`),
 both GridFS collections (`shadowdrop_blobs.files` and
 `shadowdrop_blobs.chunks`), and the Chaos.Mongo distributed-lock collection
 from the same consistent backup point. Restore the complete set together before
-starting ShadowDrop. A mixed LiteDB/GridFS or MongoDB/filesystem deployment
-likewise requires coordinated backups across both systems. Always rehearse a
-restore before relying on a backup.
+starting ShadowDrop. A mixed LiteDB/GridFS, MongoDB/filesystem, or metadata/S3
+deployment likewise requires coordinated backups across both systems. For S3,
+preserve the bucket's objects and versions together with the matching metadata
+snapshot; bucket versioning or replication does not make an independently timed
+metadata backup consistent. Restore metadata and objects to the same provider
+and `KeyPrefix` before starting ShadowDrop. Always rehearse a restore before
+relying on a backup.
 
 ## TLS and reverse proxies
 
@@ -358,8 +467,10 @@ The server exposes two unauthenticated health endpoints:
 - `GET /health/live` reports that the API process is serving requests.
 - `GET /health/ready` reports whether the API can serve its configured workload.
   Local persistence is ready after normal startup. When either MongoDB provider
-  is active, readiness performs a short, bounded MongoDB ping and returns HTTP
-  503 if MongoDB is unavailable.
+  is active, readiness performs a short, bounded MongoDB ping. When S3 is the
+  blob provider, readiness also performs a bounded, read-only bucket listing
+  with a zero-key limit. Checks are composed, so a MongoDB/S3 deployment returns
+  HTTP 503 if either dependency is unreachable, misconfigured, or inaccessible.
 
 Both Compose API services run the shell-free probe included in the image
 against `/health/ready`. The MongoDB variant additionally uses an authenticated
