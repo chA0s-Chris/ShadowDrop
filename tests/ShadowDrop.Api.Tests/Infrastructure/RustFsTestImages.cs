@@ -5,5 +5,5 @@ namespace ShadowDrop.Tests.Infrastructure;
 internal static class RustFsTestImages
 {
     // renovate: datasource=docker depName=rustfs versioning=semver
-    public const String LatestBeta = "rustfs/rustfs:1.0.0-beta.11";
+    public const String LatestBeta = "rustfs/rustfs:1.0.0-beta.12";
 }
