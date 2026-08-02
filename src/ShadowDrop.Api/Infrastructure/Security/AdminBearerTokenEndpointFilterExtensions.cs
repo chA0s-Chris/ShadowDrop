@@ -8,22 +8,7 @@ public static class AdminBearerTokenEndpointFilterExtensions
     {
         ArgumentNullException.ThrowIfNull(routeGroupBuilder);
 
-        routeGroupBuilder.AddEndpointFilter(async (invocationContext, next) =>
-        {
-            var authorizationHeader = invocationContext.HttpContext.Request.Headers.Authorization;
-            if (!BearerTokenHeader.TryRead(authorizationHeader, out var bearerToken))
-            {
-                return Results.Unauthorized();
-            }
-
-            var adminTokenService = invocationContext.HttpContext.RequestServices.GetRequiredService<AdminTokenService>();
-            if (!adminTokenService.IsValidToken(bearerToken))
-            {
-                return Results.Unauthorized();
-            }
-
-            return await next(invocationContext);
-        });
+        routeGroupBuilder.AddEndpointFilter<AdminBearerTokenEndpointFilter>();
 
         return routeGroupBuilder;
     }

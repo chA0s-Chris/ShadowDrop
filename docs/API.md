@@ -24,7 +24,7 @@ ShadowDrop distinguishes three callers, each with its own credential:
   `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` environment variable), sent as `Authorization: Bearer`.
   The management key is also accepted on all uploader routes.
 
-Health probes are unauthenticated and aimed at operators and orchestration platforms.
+Health probes and the coarse public status projection are unauthenticated and aimed at operators and orchestration platforms.
 
 ### What a scoped upload credential can reach
 
@@ -46,10 +46,10 @@ on a deployment with a group disabled, its routes return `404`:
 | Option                  | Routes                            | Default                         |
 |-------------------------|-----------------------------------|---------------------------------|
 | `EnablePublicDownloads` | `/d/...`                          | enabled                         |
-| `EnableUploads`         | `/api/uploads/...`, `/api/shares` | follows `EnableAdminOperations` |
-| `EnableAdminOperations` | `/api/admin/...`                  | enabled                         |
+| `EnableUploads`         | `/api/uploads/...`, `/api/shares`, `/api/status/upload` | follows `EnableAdminOperations` |
+| `EnableAdminOperations` | `/api/admin/...`                                     | enabled                         |
 
-The `/health` routes are always registered.
+The `/health` routes and public `/api/status` route are always registered.
 
 ## Health
 
@@ -58,7 +58,33 @@ The `/health` routes are always registered.
 | Method | Route           | Purpose                                                                           |
 |--------|-----------------|-----------------------------------------------------------------------------------|
 | `GET`  | `/health/live`  | Liveness probe — `200` whenever the process is serving requests.                  |
-| `GET`  | `/health/ready` | Readiness probe — verifies the metadata store is reachable; `503` when it is not. |
+| `GET`  | `/health/ready` | Minimal readiness probe — verifies every configured metadata and blob-storage dependency; `503` when any is unavailable. |
+
+## Operational status
+
+Status protocol version `1` gives scripts a bounded preflight without exposing arbitrary health-check details. Every response includes
+`protocolVersion`, `live`, `ready`, a stable `reason`, and capability flags. Ready responses use `200`; dependency degradation uses `503`
+with the same selected projection. Reasons are limited to `none`, `dependency-timeout`, `dependency-unavailable`, and
+`capability-disabled` where applicable. Independent probes and administrative statistics share a five-second server collection budget.
+
+| Method | Route                | Audience / authentication | Projection |
+|--------|----------------------|---------------------------|------------|
+| `GET`  | `/api/status`        | anyone; no credential     | Coarse liveness, readiness, reason, and capability availability. |
+| `GET`  | `/api/status/upload` | scoped uploader only; bootstrap admin is rejected | Public fields plus effective file/share byte limits and nullable credential expiry. |
+| `GET`  | `/api/admin/status`  | admin only                | Build/uptime, allow-listed components and providers, retained storage, share counts, cleanup state, resumable-session availability, and warnings. |
+
+Invalid, expired, or revoked upload credentials return `401`. If the credential metadata provider is unavailable, upload-status
+authentication returns a bodyless `503` rather than disclosing limits or returning an internal exception. Disabled upload/admin status
+routes are not registered and return `404`.
+
+Administrative storage totals count blobs whose persisted retention state is `retained`; successful or already-missing cleanup changes it
+to `deleted`. Records written before retention accounting are `unknown`, so both totals are `null` and
+`configurationWarnings` contains `storage-accounting-incomplete` until exact accounting is possible. Share lifecycle counts and cleanup
+counts are independent predicates and may overlap. Cleanup history is process-local: restart resets it to `not-run`.
+
+Status responses never contain credentials, hashes, credential IDs, connection strings, hosts, paths, object keys, raw configuration, or
+exception text. Exact build and provider names are admin-only. Successful and failed admin status attempts emit an `admin-status-view`
+audit event containing only operation, outcome, HTTP status, and elapsed time.
 
 ## Downloads
 

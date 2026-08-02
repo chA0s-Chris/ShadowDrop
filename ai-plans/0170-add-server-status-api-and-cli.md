@@ -8,29 +8,29 @@ Give operators a fast, scriptable preflight for server reachability, liveness, r
 
 ## Acceptance Criteria
 
-- [ ] Add operational protocol version `1` with a CLI-supported inclusive range of `[1, 1]` and shared source-generated contracts in `ShadowDrop.Shared`.
-- [ ] Add explicit public `GET /api/status`, scoped-upload-authorized `GET /api/status/upload`, and admin-authorized `GET /api/admin/status` projections.
-- [ ] Preserve `/health/live` and `/health/ready` as minimal orchestrator probes with their existing route purpose and response surface.
-- [ ] Add `shadowdrop server status` with public default, mutually exclusive `--upload-authorized` and `--verbose` tiers, and a `--json` rendering mode that never changes authorization or endpoint selection.
-- [ ] Do not let credentials found only in environment or configuration silently elevate the selected status tier.
-- [ ] Distinguish unreachable, live-but-not-ready, ready, unauthorized, capability-disabled, and protocol-incompatible CLI outcomes.
-- [ ] Use exit code `0` for healthy/compatible, `2` for unhealthy/not-ready, `3` for connectivity or TLS failure, `4` for authorization failure, `5` for protocol incompatibility, and `1` for usage, capability-disabled, or unexpected failures.
-- [ ] Reuse the existing admin-token configuration path and extend successful scoped-upload authentication with nullable credential expiry; protocol version `1` has no usage-count field.
-- [ ] Probe every configured physical metadata/blob dependency once per status request through bounded, cancellable operational probes with a five-second default timeout.
-- [ ] Run operational probes and statistics reads under one five-second default status-collection deadline, returning null statistics with stable degraded reasons or warnings rather than `500` for expected provider failures or timeouts.
-- [ ] Expose only allow-listed component names and stable reasons: `none`, `dependency-unavailable`, `dependency-timeout`, and `capability-disabled` where applicable.
-- [ ] Keep the public status endpoint operational when every API capability is disabled by registering status probes independently and using capability-gated optional statistics collaborators.
-- [ ] Return `401` for invalid, expired, or revoked scoped-upload credentials, but return a public-safe `503` without an upload projection when credential lookup or usage recording cannot complete because the metadata provider is unavailable or times out.
-- [ ] Report current retained-blob totals from persisted accounting state rather than all completed upload metadata or filesystem, GridFS, or S3 inventory scans.
-- [ ] Persist `retained` for newly completed uploads, transition successful or already-missing cleanup results to `deleted`, and treat legacy records without state as `unknown`.
-- [ ] Return null storage totals with the stable `storage-accounting-incomplete` warning whenever unknown records prevent an exact result.
-- [ ] Track cleanup-run status process-locally with `not-run`, `success`, `partial-failure`, `failure`, and `skipped`; reset it at startup and preserve the previous completed outcome on caller cancellation.
-- [ ] Emit concise deterministic human output and exactly one documented JSON result on stdout whenever `server status` and `--json` are recognized, including parsing, option-validation, configuration, and TLS-setup failures, while keeping banners and diagnostics off stdout.
-- [ ] Emit safe `admin-status-view` audit events containing only operation, outcome, HTTP status, and elapsed time.
-- [ ] Never expose credentials, token material or hashes, credential identifiers, connection details, database hosts, storage paths or keys, raw configuration values, or internal exception text.
-- [ ] Provide equivalent response, probe, retained-accounting, timeout, and degraded-dependency behavior for LiteDB/filesystem and MongoDB/GridFS deployments, including S3 when configured.
-- [ ] Add automated authorization, contract, redaction, stdout/stderr, exit-code, timeout, cancellation, degraded-dependency, retained-accounting, audit, Native AOT serialization, and provider-parity tests.
-- [ ] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` with routes, modes, fields, reason values, exit codes, credential requirements, examples, and sensitivity guidance.
+- [x] Add operational protocol version `1` with a CLI-supported inclusive range of `[1, 1]` and shared source-generated contracts in `ShadowDrop.Shared`.
+- [x] Add explicit public `GET /api/status`, scoped-upload-authorized `GET /api/status/upload`, and admin-authorized `GET /api/admin/status` projections.
+- [x] Preserve `/health/live` and `/health/ready` as minimal orchestrator probes with their existing route purpose and response surface.
+- [x] Add `shadowdrop server status` with public default, mutually exclusive `--upload-authorized` and `--verbose` tiers, and a `--json` rendering mode that never changes authorization or endpoint selection.
+- [x] Do not let credentials found only in environment or configuration silently elevate the selected status tier.
+- [x] Distinguish unreachable, live-but-not-ready, ready, unauthorized, capability-disabled, and protocol-incompatible CLI outcomes.
+- [x] Use exit code `0` for healthy/compatible, `2` for unhealthy/not-ready, `3` for connectivity or TLS failure, `4` for authorization failure, `5` for protocol incompatibility, and `1` for usage, capability-disabled, or unexpected failures.
+- [x] Reuse the existing admin-token configuration path and extend successful scoped-upload authentication with nullable credential expiry; protocol version `1` has no usage-count field.
+- [x] Probe every configured physical metadata/blob dependency once per status request through bounded, cancellable operational probes with a five-second default timeout.
+- [x] Run operational probes and statistics reads under one five-second default status-collection deadline, returning null statistics with stable degraded reasons or warnings rather than `500` for expected provider failures or timeouts.
+- [x] Expose only allow-listed component names and stable reasons: `none`, `dependency-unavailable`, `dependency-timeout`, and `capability-disabled` where applicable.
+- [x] Keep the public status endpoint operational when every API capability is disabled by registering status probes independently and using capability-gated optional statistics collaborators.
+- [x] Return `401` for invalid, expired, or revoked scoped-upload credentials, but return a public-safe `503` without an upload projection when credential lookup or usage recording cannot complete because the metadata provider is unavailable or times out.
+- [x] Report current retained-blob totals from persisted accounting state rather than all completed upload metadata or filesystem, GridFS, or S3 inventory scans.
+- [x] Persist `retained` for newly completed uploads, transition successful or already-missing cleanup results to `deleted`, and treat legacy records without state as `unknown`.
+- [x] Return null storage totals with the stable `storage-accounting-incomplete` warning whenever unknown records prevent an exact result.
+- [x] Track cleanup-run status process-locally with `not-run`, `success`, `partial-failure`, `failure`, and `skipped`; reset it at startup and preserve the previous completed outcome on caller cancellation.
+- [x] Emit concise deterministic human output and exactly one documented JSON result on stdout whenever `server status` and `--json` are recognized, including parsing, option-validation, configuration, and TLS-setup failures, while keeping banners and diagnostics off stdout.
+- [x] Emit safe `admin-status-view` audit events containing only operation, outcome, HTTP status, and elapsed time.
+- [x] Never expose credentials, token material or hashes, credential identifiers, connection details, database hosts, storage paths or keys, raw configuration values, or internal exception text.
+- [x] Provide equivalent response, probe, retained-accounting, timeout, and degraded-dependency behavior for LiteDB/filesystem and MongoDB/GridFS deployments, including S3 when configured.
+- [x] Add automated authorization, contract, redaction, stdout/stderr, exit-code, timeout, cancellation, degraded-dependency, retained-accounting, audit, Native AOT serialization, and provider-parity tests.
+- [x] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` with routes, modes, fields, reason values, exit codes, credential requirements, examples, and sensitivity guidance.
 
 ## Technical Details
 

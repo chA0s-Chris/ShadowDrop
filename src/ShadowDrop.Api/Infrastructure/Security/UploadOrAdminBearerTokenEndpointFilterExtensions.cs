@@ -50,10 +50,18 @@ public static class UploadOrAdminBearerTokenEndpointFilterExtensions
                 return Results.Unauthorized();
             }
 
-            invocationContext.HttpContext.Items[AuthorizationContextKey] = authorizationContext;
+            invocationContext.HttpContext.SetUploadAuthorizationContext(authorizationContext);
             return await next(invocationContext);
         });
 
         return routeGroupBuilder;
+    }
+
+    internal static void SetUploadAuthorizationContext(this HttpContext httpContext,
+                                                       UploadCredentialAuthorizationContext authorizationContext)
+    {
+        ArgumentNullException.ThrowIfNull(httpContext);
+        ArgumentNullException.ThrowIfNull(authorizationContext);
+        httpContext.Items[AuthorizationContextKey] = authorizationContext;
     }
 }

@@ -162,6 +162,18 @@ operations, but cannot provision or revoke credentials until administration
 is enabled on a trusted boundary. Conversely, setting `EnableUploads=false`
 keeps routine uploads disabled even when admin operations remain enabled.
 
+### Operational status and monitoring
+
+Use `/health/live` and `/health/ready` for minimal orchestrator probes. Use public `GET /api/status` or `shadowdrop server status` for a
+scriptable protocol-versioned preflight; the route remains available even when every download, upload, and admin capability is disabled.
+Scoped `GET /api/status/upload` is mapped only with uploads enabled, and administrative `GET /api/admin/status` only with admin operations
+enabled. Status dependency collection has a five-second server budget; configure the CLI or reverse proxy with a deadline longer than that.
+
+Administrative storage totals come from persisted retained-blob accounting, never filesystem, GridFS, or S3 inventory scans. After an
+upgrade, legacy completed records have unknown retention state and totals remain unavailable with `storage-accounting-incomplete` rather
+than presenting an unsafe estimate. Normal successful cleanup reconciles those records to `deleted`. Cleanup-run status is process-local
+and resets to `not-run` on restart; it is operational context, not durable history or a metrics system.
+
 ### Download-only deployments
 
 A server that only needs to serve downloads can disable the admin surface

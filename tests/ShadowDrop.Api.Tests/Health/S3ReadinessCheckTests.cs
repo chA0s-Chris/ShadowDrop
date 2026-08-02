@@ -60,18 +60,20 @@ public sealed class S3ReadinessCheckTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
-    private static S3ReadinessCheck CreateCheck(RecordingS3Client client, TimeSpan? timeout = null) =>
-        new(client, new()
-        {
-            Storage = new()
+    private static CompositeReadinessCheck CreateCheck(RecordingS3Client client, TimeSpan? timeout = null) =>
+        new([
+            new S3OperationalDependencyProbe(client, new()
             {
-                S3 = new()
+                Storage = new()
                 {
-                    BucketName = "bucket"
+                    S3 = new()
+                    {
+                        BucketName = "bucket"
+                    }
                 }
-            }
-        })
+            })
+        ])
         {
-            CheckTimeout = timeout ?? S3ReadinessCheck.DefaultCheckTimeout
+            Timeout = timeout ?? CompositeReadinessCheck.DefaultTimeout
         };
 }

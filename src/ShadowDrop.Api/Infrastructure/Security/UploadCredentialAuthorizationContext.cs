@@ -6,9 +6,10 @@ namespace ShadowDrop.Api.Infrastructure.Security;
 public sealed record UploadCredentialAuthorizationContext(
     Guid? CredentialId,
     Int64? MaxEncryptedFileBytes,
-    Int64? MaxEncryptedShareBytes)
+    Int64? MaxEncryptedShareBytes,
+    DateTimeOffset? ExpiresAtUtc = null)
 {
-    public static UploadCredentialAuthorizationContext BootstrapAdmin { get; } = new(null, null, null);
+    public static UploadCredentialAuthorizationContext BootstrapAdmin { get; } = new(null, null, null, null);
 
     public Boolean IsBootstrapAdmin => CredentialId is null;
 }

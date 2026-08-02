@@ -40,14 +40,55 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         var options = fixture.CreateOptions();
         using var repository = new LiteDbUploadedFileMetadataRepository(options, new FakeLogger<LiteDbUploadedFileMetadataRepository>(new FakeLogCollector()));
 
-        await CompleteUploadAsync(repository, 100);
-        await CompleteUploadAsync(repository, 250);
+        _ = await CompleteUploadAsync(repository, 100);
+        _ = await CompleteUploadAsync(repository, 250);
         _ = await repository.ReserveFileIdAsync(CancellationToken.None);
 
         var stats = await repository.GetStorageStatsAsync(CancellationToken.None);
 
         stats.CompletedFileCount.Should().Be(2);
         stats.TotalEncryptedBytes.Should().Be(350);
+        stats.IsExact.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task GetStorageStatsAsync_ShouldObserveCancellationDuringScan()
+    {
+        await using var fixture = new StatsFixture();
+        var options = fixture.CreateOptions();
+        using var cancellation = new CancellationTokenSource();
+        using var repository = new LiteDbUploadedFileMetadataRepository(
+            options,
+            new FakeLogger<LiteDbUploadedFileMetadataRepository>(new FakeLogCollector()),
+            cancellation.Cancel);
+        _ = await CompleteUploadAsync(repository, 100);
+
+        var act = () => repository.GetStorageStatsAsync(cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task GetStorageStatsAsync_ShouldReturnUnavailable_WhenLegacyCompletedRecordHasNoRetentionState()
+    {
+        await using var fixture = new StatsFixture();
+        var options = fixture.CreateOptions();
+        Guid fileId;
+        using (var repository = new LiteDbUploadedFileMetadataRepository(options,
+                                                                         new FakeLogger<LiteDbUploadedFileMetadataRepository>(new FakeLogCollector())))
+        {
+            fileId = await CompleteUploadAsync(repository, 100);
+        }
+
+        RemoveRetentionState(options.Metadata.LiteDbPath, fileId);
+        using var reopened = new LiteDbUploadedFileMetadataRepository(options,
+                                                                      new FakeLogger<LiteDbUploadedFileMetadataRepository>(new FakeLogCollector()));
+
+        var stored = await reopened.GetAsync(fileId, CancellationToken.None);
+        var stats = await reopened.GetStorageStatsAsync(CancellationToken.None);
+
+        stored!.RetentionState.Should().Be(BlobRetentionState.Unknown);
+        stats.Should().Be(new UploadedFileStorageStats(null, null, false));
     }
 
     [Test]
@@ -93,7 +134,25 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         }
     }
 
-    private static async Task CompleteUploadAsync(IUploadedFileMetadataRepository repository, Int64 encryptedLength)
+    [Test]
+    public async Task RetentionAccounting_ShouldExcludeDeletedBlobs_AndMakeTransitionsIdempotent()
+    {
+        await using var fixture = new StatsFixture();
+        var options = fixture.CreateOptions();
+        using var repository = new LiteDbUploadedFileMetadataRepository(options, new FakeLogger<LiteDbUploadedFileMetadataRepository>(new FakeLogCollector()));
+        var retainedFileId = await CompleteUploadAsync(repository, 100);
+        var deletedFileId = await CompleteUploadAsync(repository, 250);
+
+        (await repository.TryMarkBlobDeletedAsync(deletedFileId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryMarkBlobDeletedAsync(deletedFileId, CancellationToken.None)).Should().BeTrue();
+        var stats = await repository.GetStorageStatsAsync(CancellationToken.None);
+
+        stats.Should().Be(new UploadedFileStorageStats(1, 100, true));
+        (await repository.GetAsync(retainedFileId, CancellationToken.None))!.RetentionState.Should().Be(BlobRetentionState.Retained);
+        (await repository.GetAsync(deletedFileId, CancellationToken.None))!.RetentionState.Should().Be(BlobRetentionState.Deleted);
+    }
+
+    private static async Task<Guid> CompleteUploadAsync(IUploadedFileMetadataRepository repository, Int64 encryptedLength)
     {
         var fileId = await repository.ReserveFileIdAsync(CancellationToken.None);
         (await repository.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
@@ -110,6 +169,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
                                             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
                                             new('a', 64));
         (await repository.TryCompleteReservationAsync(record, CancellationToken.None)).Should().BeTrue();
+        return fileId;
     }
 
     private static void ExpireReservation(String databasePath, Guid fileId)
@@ -119,6 +179,15 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
         document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        collection.Update(document);
+    }
+
+    private static void RemoveRetentionState(String databasePath, Guid fileId)
+    {
+        using var database = new LiteDatabase(databasePath);
+        var collection = database.GetCollection("uploaded_files");
+        var document = collection.FindById(fileId);
+        document.Remove("RetentionState");
         collection.Update(document);
     }
 

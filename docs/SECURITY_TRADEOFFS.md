@@ -106,6 +106,18 @@ token through `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, or config-file
 upload-token setting. Keep this token on the management boundary described in
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#admin-endpoint-exposure).
 
+### Status projection sensitivity
+
+`GET /api/status` is intentionally public and coarse: it exposes only protocol version, liveness/readiness, a stable allow-listed reason,
+and capability booleans. `GET /api/status/upload` accepts only a scoped upload credential—not the bootstrap admin token—and adds only that
+credential's effective limits and expiry. Exact build/provider data, retained-storage totals, share counts, and cleanup state require the
+admin credential at `GET /api/admin/status`.
+
+No status tier returns credentials, token material or hashes, credential identifiers, connection details, database hosts, storage paths or
+keys, raw configuration, or internal exception text. The CLI does not let credentials found only in environment or configuration silently
+elevate the public status tier. A failed credential-provider lookup yields a public-safe bodyless `503`, and admin status audit records are
+restricted to operation, outcome, HTTP status, and elapsed time.
+
 ## `--insecure` versus `--cacert`
 
 When the server presents a certificate the CLI does not trust (self-signed,

@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Admin;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
+using ShadowDrop.Api.Status;
 
 public static class AdminEndpoints
 {
@@ -12,6 +13,12 @@ public static class AdminEndpoints
     {
         if (options.ApiExposure.EnableAdminOperations)
         {
+            app.MapGet("/api/admin/status", GetStatusAsync)
+               .WithName("AdminServerStatus")
+               .WithMetadata(new OperationalAuditMetadata("admin-status-view"))
+               .AddEndpointFilter<AdminStatusAuditEndpointFilter>()
+               .AddEndpointFilter<AdminBearerTokenEndpointFilter>();
+
             var adminRoutes = app.MapGroup("/api/admin")
                                  .RequireAdminBearerToken();
 
@@ -37,6 +44,9 @@ public static class AdminEndpoints
         var result = await cleanupRunner.RunIfIdleAsync(cancellationToken);
         return Results.Ok(result);
     }
+
+    private static async Task<IResult> GetStatusAsync(OperationalStatusService service, CancellationToken cancellationToken) =>
+        StatusEndpoints.ToResult(await service.GetAdminAsync(cancellationToken));
 
     private static async Task<IResult> RevokeShareAsync(Guid shareId,
                                                         ShareRevocationService shareRevocationService,

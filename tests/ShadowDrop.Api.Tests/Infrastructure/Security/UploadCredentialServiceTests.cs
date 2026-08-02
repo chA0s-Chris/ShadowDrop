@@ -11,6 +11,27 @@ public sealed class UploadCredentialServiceTests
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-07-14T12:00:00Z");
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AuthenticateAsync_ShouldClassifyCredentialProviderFailures(Boolean failLookup)
+    {
+        var (service, repository, _) = CreateService();
+        var created = await service.CreateAsync(new("automation", null, null, null), CancellationToken.None);
+        if (failLookup)
+        {
+            repository.LookupFailure = new IOException("connection detail");
+        }
+        else
+        {
+            repository.UsageFailure = new TimeoutException("timeout detail");
+        }
+
+        var act = async () => await service.AuthenticateAsync(created.Token, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<UploadCredentialProviderUnavailableException>()).Which.Message.Should()
+                                                                                       .NotContainAny("connection detail", "timeout detail");
+    }
+
     [Test]
     public async Task AuthenticateAsync_ShouldRejectExpiredCredential_AndSkipUsageRecording()
     {
@@ -81,7 +102,10 @@ public sealed class UploadCredentialServiceTests
 
         var context = await service.AuthenticateAsync(created.Token, CancellationToken.None);
 
-        context.Should().Be(new UploadCredentialAuthorizationContext(created.Credential.CredentialId, 1024, 4096));
+        context.Should().Be(new UploadCredentialAuthorizationContext(created.Credential.CredentialId,
+                                                                     1024,
+                                                                     4096,
+                                                                     created.Credential.ExpiresAtUtc));
         repository.UsageRecordings.Should().Equal((created.Credential.CredentialId, Now.AddMinutes(1)));
     }
 
@@ -234,16 +258,25 @@ public sealed class UploadCredentialServiceTests
 
         public Int32 CreateAttempts { get; private set; }
 
+        public Exception? LookupFailure { get; set; }
+
         public IReadOnlyList<UploadCredentialRecord> Records => _records;
 
         public Int32 RejectNextCreates { get; set; }
 
         public Int32 SelectorLookups { get; private set; }
 
+        public Exception? UsageFailure { get; set; }
+
         public List<(Guid CredentialId, DateTimeOffset LastUsedAtUtc)> UsageRecordings { get; } = [];
 
         public Task<UploadCredentialRecord?> FindBySelectorDigestAsync(String selectorDigestBase64, CancellationToken cancellationToken)
         {
+            if (LookupFailure is not null)
+            {
+                throw LookupFailure;
+            }
+
             SelectorLookups++;
             return Task.FromResult(_records.FirstOrDefault(x => x.SelectorDigestBase64 == selectorDigestBase64));
         }
@@ -257,6 +290,11 @@ public sealed class UploadCredentialServiceTests
 
         public Task RecordUsageAsync(Guid credentialId, DateTimeOffset lastUsedAtUtc, CancellationToken cancellationToken)
         {
+            if (UsageFailure is not null)
+            {
+                throw UsageFailure;
+            }
+
             UsageRecordings.Add((credentialId, lastUsedAtUtc));
             return Task.CompletedTask;
         }

@@ -3,6 +3,7 @@
 namespace ShadowDrop.Api.Uploads;
 
 using Chaos.Mongo;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 
@@ -18,7 +19,7 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
         new(document.FileId, document.BlobKey, document.OriginalFileName, document.PlaintextLength,
             document.EncryptedLength, document.ContentType, document.EncryptionFormatVersion, document.AlgorithmId,
             document.ChunkSize, document.ChunkCount, document.KdfSaltBase64, document.PlaintextSha256,
-            document.OwnerCredentialId);
+            document.OwnerCredentialId, document.RetentionState);
 
     private async Task<Guid> ReserveFileIdAsync(Guid? ownerCredentialId, CancellationToken cancellationToken)
     {
@@ -68,15 +69,31 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
 
     public async Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken)
     {
-        var stats = await Collection.Aggregate()
-                                    .Match(x => !x.IsReserved)
-                                    .Group(_ => 1, group => new
-                                    {
-                                        Count = group.Count(),
-                                        Total = group.Sum(x => x.EncryptedLength)
-                                    })
-                                    .FirstOrDefaultAsync(cancellationToken);
-        return new(stats?.Count ?? 0, stats?.Total ?? 0);
+        var match = new BsonDocument("$match", new BsonDocument("IsReserved", false));
+        var group = new BsonDocument("$group", new BsonDocument
+        {
+            ["_id"] = new BsonDocument("$ifNull", new BsonArray
+            {
+                "$RetentionState",
+                (Int32)BlobRetentionState.Unknown
+            }),
+            ["count"] = new BsonDocument("$sum", 1),
+            ["total"] = new BsonDocument("$sum", "$EncryptedLength")
+        });
+        PipelineDefinition<MongoUploadedFileDocument, BsonDocument> pipeline = new[]
+        {
+            match,
+            group
+        };
+        using var cursor = await Collection.AggregateAsync(pipeline, cancellationToken: cancellationToken);
+        var groups = await cursor.ToListAsync(cancellationToken);
+        if (groups.Any(document => document["_id"].ToInt32() == (Int32)BlobRetentionState.Unknown))
+        {
+            return new(null, null, false);
+        }
+
+        var retained = groups.FirstOrDefault(document => document["_id"].ToInt32() == (Int32)BlobRetentionState.Retained);
+        return new(retained?["count"].ToInt64() ?? 0, retained?["total"].ToInt64() ?? 0, true);
     }
 
     public async Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
@@ -119,7 +136,8 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
             ChunkCount = record.ChunkCount,
             KdfSaltBase64 = record.KdfSaltBase64,
             PlaintextSha256 = record.PlaintextSha256,
-            OwnerCredentialId = record.OwnerCredentialId
+            OwnerCredentialId = record.OwnerCredentialId,
+            RetentionState = BlobRetentionState.Retained
         };
         var result = await Collection.ReplaceOneAsync(
             x => x.FileId == record.FileId && x.IsReserved && x.IsClaimed
@@ -128,5 +146,20 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
             completed,
             cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
+    }
+
+    public async Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var result = await Collection.UpdateOneAsync(
+            x => x.FileId == fileId && !x.IsReserved && x.RetentionState != BlobRetentionState.Deleted,
+            Builders<MongoUploadedFileDocument>.Update.Set(x => x.RetentionState, BlobRetentionState.Deleted),
+            cancellationToken: cancellationToken);
+        if (result.ModifiedCount == 1)
+        {
+            return true;
+        }
+
+        return await Collection.Find(x => x.FileId == fileId && !x.IsReserved && x.RetentionState == BlobRetentionState.Deleted)
+                               .AnyAsync(cancellationToken);
     }
 }

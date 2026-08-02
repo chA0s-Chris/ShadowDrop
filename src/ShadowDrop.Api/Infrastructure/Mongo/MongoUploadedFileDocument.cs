@@ -4,6 +4,7 @@ namespace ShadowDrop.Api.Infrastructure.Mongo;
 
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
+using ShadowDrop.Api.Uploads;
 
 [BsonIgnoreExtraElements]
 internal sealed class MongoUploadedFileDocument
@@ -50,4 +51,6 @@ internal sealed class MongoUploadedFileDocument
 
     [BsonIgnoreIfNull]
     public Int64? ReservedAtUnixTimeMilliseconds { get; set; }
+
+    public BlobRetentionState RetentionState { get; set; }
 }

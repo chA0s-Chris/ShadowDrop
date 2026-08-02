@@ -17,9 +17,11 @@ using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Contracts;
 using ShadowDrop.Tests.Infrastructure.Security;
 using ShadowDrop.Tests.Uploads;
 using System.Net;
+using System.Text.Json;
 using Testcontainers.MongoDb;
 
 [Category("MongoIntegration")]
@@ -126,11 +128,18 @@ public abstract class MongoPersistenceIntegrationTests
                     _container.GetConnectionString(), _mongo.Database.DatabaseNamespace.DatabaseName);
                 using var client = factory.CreateClient();
 
-                var response = await client.GetAsync("/health/ready");
+                using var response = await client.GetAsync("/health/ready");
+                using var statusResponse = await client.GetAsync("/api/status");
 
                 response.StatusCode.Should().Be(
                     HttpStatusCode.OK,
                     $"the application must start and serve requests with {metadataProvider} metadata and {blobProvider} blobs");
+                statusResponse.StatusCode.Should().Be(
+                    HttpStatusCode.OK,
+                    $"the status projection must be ready with {metadataProvider} metadata and {blobProvider} blobs");
+                using var status = JsonDocument.Parse(await statusResponse.Content.ReadAsStringAsync());
+                status.RootElement.GetProperty("ready").GetBoolean().Should().BeTrue();
+                status.RootElement.GetProperty("reason").GetString().Should().Be(OperationalStatusReasons.None);
             }
         }
     }
@@ -290,9 +299,10 @@ public abstract class MongoPersistenceIntegrationTests
         (await repository.TryUpdateCleanupStateAsync(failedId, ShareCleanupState.Failed, CancellationToken.None)).Should().BeTrue();
 
         var counts = await repository.GetStatusCountsAsync(now, CancellationToken.None);
-        counts.Active.Should().Be(baseline.Active + 1);
-        counts.Expired.Should().Be(baseline.Expired + 1);
+        counts.Active.Should().Be(baseline.Active + 2);
+        counts.Expired.Should().Be(baseline.Expired + 2);
         counts.Revoked.Should().Be(baseline.Revoked + 1);
+        counts.CleanupPending.Should().Be(baseline.CleanupPending + 3);
         counts.CleanupCompleted.Should().Be(baseline.CleanupCompleted + 1);
         counts.CleanupFailed.Should().Be(baseline.CleanupFailed + 1);
 
@@ -557,6 +567,26 @@ public abstract class MongoPersistenceIntegrationTests
         (await repository.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
     }
 
+    [Test]
+    public async Task UploadedFileRepository_ShouldTreatMissingRetentionStateAsUnknown_AndReconcileItAtomically()
+    {
+        var repository = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
+        var fileId = await repository.ReserveFileIdAsync(CancellationToken.None);
+        (await repository.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryCompleteReservationAsync(CreateUploadedFile(fileId, fileId.ToString("N"), 37), CancellationToken.None)).Should().BeTrue();
+        var collection = _services.GetRequiredService<IMongoHelper>().GetCollection<MongoUploadedFileDocument>();
+        _ = await collection.UpdateOneAsync(document => document.FileId == fileId,
+                                            Builders<MongoUploadedFileDocument>.Update.Unset(document => document.RetentionState));
+
+        var unknownStats = await repository.GetStorageStatsAsync(CancellationToken.None);
+
+        unknownStats.Should().Be(new UploadedFileStorageStats(null, null, false));
+        (await repository.GetAsync(fileId, CancellationToken.None))!.RetentionState.Should().Be(BlobRetentionState.Unknown);
+        (await repository.TryMarkBlobDeletedAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryMarkBlobDeletedAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        (await repository.GetAsync(fileId, CancellationToken.None))!.RetentionState.Should().Be(BlobRetentionState.Deleted);
+    }
+
     private static async Task AssertShareMetadataContractAsync(IShareMetadataRepository repository)
     {
         var now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -587,6 +617,7 @@ public abstract class MongoPersistenceIntegrationTests
     {
         var baselinePending = await repository.GetActivePendingReservationCountAsync(CancellationToken.None);
         var baselineStats = await repository.GetStorageStatsAsync(CancellationToken.None);
+        baselineStats.IsExact.Should().BeTrue();
         var fileId = await repository.ReserveFileIdAsync(CancellationToken.None);
         (await repository.GetActivePendingReservationCountAsync(CancellationToken.None)).Should().Be(baselinePending + 1);
         (await repository.GetAsync(fileId, CancellationToken.None)).Should().BeNull();
@@ -602,6 +633,11 @@ public abstract class MongoPersistenceIntegrationTests
         var stats = await repository.GetStorageStatsAsync(CancellationToken.None);
         stats.CompletedFileCount.Should().Be(baselineStats.CompletedFileCount + 1);
         stats.TotalEncryptedBytes.Should().Be(baselineStats.TotalEncryptedBytes + 37);
+        (await repository.TryMarkBlobDeletedAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryMarkBlobDeletedAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        var afterDelete = await repository.GetStorageStatsAsync(CancellationToken.None);
+        afterDelete.CompletedFileCount.Should().Be(baselineStats.CompletedFileCount);
+        afterDelete.TotalEncryptedBytes.Should().Be(baselineStats.TotalEncryptedBytes);
     }
 
     private static ShareRecord CreateShare(Guid shareId, String token, Guid fileId, DateTimeOffset? expiresAtUtc = null) =>

@@ -10,6 +10,7 @@ using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
+using ShadowDrop.Api.Status;
 using ShadowDrop.Api.Uploads;
 
 public static class DependencyInjection
@@ -26,6 +27,9 @@ public static class DependencyInjection
         builder.Services.AddSingleton(shadowDropOptions);
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddSingleton<IReadinessCheck, CompositeReadinessCheck>();
+        builder.Services.AddSingleton<CleanupRunStatus>();
+        builder.Services.AddSingleton<OperationalStatusService>();
+        builder.Services.AddSingleton(ScopedUploadStatusAuthorizationOptions.Default);
 
         var mongoRequired = shadowDropOptions.RequiresMongo;
         if (mongoRequired)
@@ -43,13 +47,23 @@ public static class DependencyInjection
                                           options.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                                       })
                    .WithConfigurator<ShadowDropMongoConfigurator>();
-            builder.Services.AddSingleton<IReadinessDependencyCheck, MongoReadinessCheck>();
+            builder.Services.AddSingleton<IOperationalDependencyProbe, MongoOperationalDependencyProbe>();
         }
 
         if (shadowDropOptions.Storage.Provider == BlobStorageProvider.S3)
         {
             builder.Services.AddSingleton<IS3Client, AwsS3Client>();
-            builder.Services.AddSingleton<IReadinessDependencyCheck, S3ReadinessCheck>();
+            builder.Services.AddSingleton<IOperationalDependencyProbe, S3OperationalDependencyProbe>();
+        }
+
+        if (shadowDropOptions.Metadata.Provider == MetadataProvider.LiteDb)
+        {
+            builder.Services.AddSingleton<IOperationalDependencyProbe, LiteDbOperationalDependencyProbe>();
+        }
+
+        if (shadowDropOptions.Storage.Provider == BlobStorageProvider.FileSystem)
+        {
+            builder.Services.AddSingleton<IOperationalDependencyProbe, FileSystemOperationalDependencyProbe>();
         }
 
         // Keep Kestrel's body-size ceiling above the configured upload limit so the reader's friendly UploadPayloadTooLargeException
@@ -102,6 +116,7 @@ public static class DependencyInjection
 
             builder.Services.AddSingleton<ShareCleanupRunner>();
             builder.Services.AddHostedService<ShareCleanupHostedService>();
+            builder.Services.AddSingleton<IOperationalStatisticsProvider, OperationalStatisticsProvider>();
         }
 
         if (shadowDropOptions.ApiExposure.EnableAdminOperations || shadowDropOptions.ApiExposure.UploadsEnabled)

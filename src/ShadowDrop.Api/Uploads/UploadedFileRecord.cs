@@ -15,4 +15,5 @@ public sealed record UploadedFileRecord(
     Int64 ChunkCount,
     String KdfSaltBase64,
     String? PlaintextSha256,
-    Guid? OwnerCredentialId = null);
+    Guid? OwnerCredentialId = null,
+    BlobRetentionState RetentionState = BlobRetentionState.Retained);

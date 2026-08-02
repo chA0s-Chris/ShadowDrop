@@ -8,6 +8,7 @@ using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Downloads;
 using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Shares;
+using ShadowDrop.Api.Status;
 using ShadowDrop.Api.Uploads;
 
 public static class Middleware
@@ -23,7 +24,8 @@ public static class Middleware
         app.UseDevelopmentDownloadThrottle(logger);
 #endif
 
-        app.MapHealthEndpoints()
+        app.MapStatusEndpoints(options)
+           .MapHealthEndpoints()
            .MapAdminEndpoints(options)
            .MapUploadEndpoints(options)
            .MapShareEndpoints(options)

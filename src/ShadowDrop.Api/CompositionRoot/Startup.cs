@@ -86,15 +86,17 @@ public static class Startup
         var shareStatusCounts = await shareRepository.GetStatusCountsAsync(timeProvider.GetUtcNow(), cancellationToken);
 
         logger.Information(
-            "Startup state summary: CompletedFiles: {CompletedFiles}; StoredBlobBytes: {StoredBlobBytes}; PendingReservations: {PendingReservations}; " +
-            "ActiveShares: {ActiveShares}; ExpiredShares: {ExpiredShares}; RevokedShares: {RevokedShares}; CleanupCompletedShares: {CleanupCompletedShares}; " +
-            "CleanupFailedShares: {CleanupFailedShares}",
-            storageStats.CompletedFileCount,
-            storageStats.TotalEncryptedBytes,
+            "Startup state summary: CompletedFiles: {CompletedFiles}; StoredBlobBytes: {StoredBlobBytes}; StorageAccountingExact: {StorageAccountingExact}; " +
+            "PendingReservations: {PendingReservations}; ActiveShares: {ActiveShares}; ExpiredShares: {ExpiredShares}; RevokedShares: {RevokedShares}; " +
+            "CleanupPendingShares: {CleanupPendingShares}; CleanupCompletedShares: {CleanupCompletedShares}; CleanupFailedShares: {CleanupFailedShares}",
+            storageStats.CompletedFileCount?.ToString() ?? "unavailable",
+            storageStats.TotalEncryptedBytes?.ToString() ?? "unavailable",
+            storageStats.IsExact,
             pendingReservationCount,
             shareStatusCounts.Active,
             shareStatusCounts.Expired,
             shareStatusCounts.Revoked,
+            shareStatusCounts.CleanupPending,
             shareStatusCounts.CleanupCompleted,
             shareStatusCounts.CleanupFailed);
     }

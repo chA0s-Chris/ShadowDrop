@@ -2,21 +2,66 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Shares;
 
-public sealed class ShareCleanupRunner(
-    ShareCleanupService cleanupService,
-    IShareCleanupCoordinator coordinator,
-    ILogger<ShareCleanupRunner> logger)
+public sealed class ShareCleanupRunner
 {
+    private readonly CleanupRunStatus _cleanupRunStatus;
+    private readonly ShareCleanupService _cleanupService;
+    private readonly IShareCleanupCoordinator _coordinator;
+    private readonly ILogger<ShareCleanupRunner> _logger;
+    private readonly TimeProvider _timeProvider;
+
+    public ShareCleanupRunner(ShareCleanupService cleanupService,
+                              IShareCleanupCoordinator coordinator,
+                              ILogger<ShareCleanupRunner> logger)
+        : this(cleanupService, coordinator, TimeProvider.System, new(), logger) { }
+
+    public ShareCleanupRunner(ShareCleanupService cleanupService,
+                              IShareCleanupCoordinator coordinator,
+                              TimeProvider timeProvider,
+                              CleanupRunStatus cleanupRunStatus,
+                              ILogger<ShareCleanupRunner> logger)
+    {
+        _cleanupService = cleanupService;
+        _coordinator = coordinator;
+        _timeProvider = timeProvider;
+        _cleanupRunStatus = cleanupRunStatus;
+        _logger = logger;
+    }
+
     public async Task<ShareCleanupResult> RunIfIdleAsync(CancellationToken cancellationToken)
     {
-        await using var lease = await coordinator.TryAcquireAsync(cancellationToken);
-        if (lease is null)
+        try
         {
-            logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress");
-            return new(0, 0, 0, 0, 0, Skipped: true);
-        }
+            var lease = await _coordinator.TryAcquireAsync(cancellationToken);
+            if (lease is null)
+            {
+                _logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress");
+                _cleanupRunStatus.Record(_timeProvider.GetUtcNow(), CleanupRunStatus.Skipped);
+                return new(0, 0, 0, 0, 0, Skipped: true);
+            }
 
-        logger.LogInformation("Share cleanup started");
-        return await cleanupService.RunAsync(cancellationToken);
+            _logger.LogInformation("Share cleanup started");
+            var result = await RunWithLeaseAsync(lease, cancellationToken);
+            _cleanupRunStatus.Record(_timeProvider.GetUtcNow(),
+                                     result.Failures == 0 ? CleanupRunStatus.Success : CleanupRunStatus.PartialFailure);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            _cleanupRunStatus.Record(_timeProvider.GetUtcNow(), CleanupRunStatus.Failure);
+            throw;
+        }
+    }
+
+    private async Task<ShareCleanupResult> RunWithLeaseAsync(IAsyncDisposable lease, CancellationToken cancellationToken)
+    {
+        await using (lease)
+        {
+            return await _cleanupService.RunAsync(cancellationToken);
+        }
     }
 }

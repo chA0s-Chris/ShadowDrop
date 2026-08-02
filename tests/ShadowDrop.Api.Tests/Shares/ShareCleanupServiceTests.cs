@@ -172,8 +172,8 @@ public sealed class ShareCleanupServiceTests
                                     DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                     null,
                                     ShareCleanupState.Pending,
-                                    DirectHttpEnabled: false,
-                                    new DownloadBearerTokenRecord(secretMaterial, DateTimeOffset.Parse("2026-06-01T00:00:00Z")),
+                                    false,
+                                    new(secretMaterial, DateTimeOffset.Parse("2026-06-01T00:00:00Z")),
                                     [new(uploadedFile.FileId, "cipher.bin", null)]);
         await shareRepository.CreateAsync(share, CancellationToken.None);
         var logger = new CapturingLogger<ShareCleanupService>();
@@ -188,6 +188,30 @@ public sealed class ShareCleanupServiceTests
         result.Should().Be(new ShareCleanupResult(1, 1, 1, 0, 0));
         logger.Messages.Should().NotBeEmpty();
         logger.Messages.Should().NotContain(message => message.Contains(secretMaterial));
+    }
+
+    [Test]
+    public async Task RunAsync_ShouldRetryAfterRetainedAccountingTransitionFailure()
+    {
+        var now = DateTimeOffset.Parse("2026-06-02T00:00:00Z");
+        var fileId = Guid.NewGuid();
+        var share = CreateShareRecord(fileId, now.AddDays(-1));
+        var shareRepository = new InMemoryShareRepository(share);
+        var uploadRepository = new FlakyAccountingUploadedFileRepository(CreateUploadedFileRecord(fileId));
+        var blobStorage = new SequenceDeleteBlobStorage();
+        var service = new ShareCleanupService(shareRepository,
+                                              uploadRepository,
+                                              blobStorage,
+                                              new FrozenTimeProvider(now),
+                                              NullLogger<ShareCleanupService>.Instance);
+
+        var first = await service.RunAsync(CancellationToken.None);
+        var second = await service.RunAsync(CancellationToken.None);
+
+        first.Failures.Should().Be(1);
+        second.Should().Be(new ShareCleanupResult(1, 1, 0, 1, 0));
+        uploadRepository.TransitionCalls.Should().Be(2);
+        (await shareRepository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
     }
 
     [Test]
@@ -273,6 +297,103 @@ public sealed class ShareCleanupServiceTests
                   .Which.Level.Should().Be(LogLevel.Information);
     }
 
+    [Test]
+    public async Task RunIfIdleAsync_ShouldTrackFailure_WhenLeaseAcquisitionFails()
+    {
+        var now = DateTimeOffset.Parse("2026-06-02T00:00:00Z");
+        var timeProvider = new FrozenTimeProvider(now);
+        var status = new CleanupRunStatus();
+        var runner = new ShareCleanupRunner(CreateEmptyCleanupService(timeProvider),
+                                            new ThrowingAcquireCoordinator(),
+                                            timeProvider,
+                                            status,
+                                            NullLogger<ShareCleanupRunner>.Instance);
+
+        var act = async () => await runner.RunIfIdleAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        status.Snapshot.Should().Be(new CleanupRunStatusSnapshot(now, CleanupRunStatus.Failure));
+    }
+
+    [Test]
+    public async Task RunIfIdleAsync_ShouldTrackFailure_WhenLeaseDisposalFails()
+    {
+        var now = DateTimeOffset.Parse("2026-06-02T00:00:00Z");
+        var timeProvider = new FrozenTimeProvider(now);
+        var status = new CleanupRunStatus();
+        var runner = new ShareCleanupRunner(CreateEmptyCleanupService(timeProvider),
+                                            new ThrowingDisposeCoordinator(),
+                                            timeProvider,
+                                            status,
+                                            NullLogger<ShareCleanupRunner>.Instance);
+
+        var act = async () => await runner.RunIfIdleAsync(CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        status.Snapshot.Should().Be(new CleanupRunStatusSnapshot(now, CleanupRunStatus.Failure));
+    }
+
+    [Test]
+    public async Task RunIfIdleAsync_ShouldTrackSuccessSkippedAndPreserveOutcomeOnCancellation()
+    {
+        var now = DateTimeOffset.Parse("2026-06-02T00:00:00Z");
+        var timeProvider = new FrozenTimeProvider(now);
+        var fileId = Guid.NewGuid();
+        var shareRepository = new InMemoryShareRepository(CreateShareRecord(fileId, now.AddDays(-1)));
+        var uploadRepository = new InMemoryUploadedFileRepository(CreateUploadedFileRecord(fileId));
+        var completedStorage = new BlockingBlobStorage();
+        completedStorage.AllowDeleteToFinish.SetResult();
+        var cleanupService = new ShareCleanupService(shareRepository,
+                                                     uploadRepository,
+                                                     completedStorage,
+                                                     timeProvider,
+                                                     NullLogger<ShareCleanupService>.Instance);
+        var status = new CleanupRunStatus();
+        using var coordinator = new InProcessShareCleanupCoordinator();
+        var runner = new ShareCleanupRunner(cleanupService,
+                                            coordinator,
+                                            timeProvider,
+                                            status,
+                                            NullLogger<ShareCleanupRunner>.Instance);
+
+        _ = await runner.RunIfIdleAsync(CancellationToken.None);
+
+        status.Snapshot.Should().Be(new CleanupRunStatusSnapshot(now, CleanupRunStatus.Success));
+
+        var skippedStatus = new CleanupRunStatus();
+        var skippedRunner = new ShareCleanupRunner(cleanupService,
+                                                   new NeverAcquireCoordinator(),
+                                                   timeProvider,
+                                                   skippedStatus,
+                                                   NullLogger<ShareCleanupRunner>.Instance);
+        (await skippedRunner.RunIfIdleAsync(CancellationToken.None)).Skipped.Should().BeTrue();
+        skippedStatus.Snapshot.Should().Be(new CleanupRunStatusSnapshot(now, CleanupRunStatus.Skipped));
+
+        var cancellationStatus = new CleanupRunStatus();
+        cancellationStatus.Record(now.AddMinutes(-1), CleanupRunStatus.Success);
+        var blockingStorage = new BlockingBlobStorage();
+        var cancellationService = new ShareCleanupService(
+            new InMemoryShareRepository(CreateShareRecord(fileId, now.AddDays(-1))),
+            uploadRepository,
+            blockingStorage,
+            timeProvider,
+            NullLogger<ShareCleanupService>.Instance);
+        using var cancellationCoordinator = new InProcessShareCleanupCoordinator();
+        var cancellationRunner = new ShareCleanupRunner(cancellationService,
+                                                        cancellationCoordinator,
+                                                        timeProvider,
+                                                        cancellationStatus,
+                                                        NullLogger<ShareCleanupRunner>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        var run = cancellationRunner.RunIfIdleAsync(cancellation.Token);
+        await blockingStorage.DeleteStarted.Task;
+        await cancellation.CancelAsync();
+
+        var act = async () => await run;
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        cancellationStatus.Snapshot.Should().Be(new CleanupRunStatusSnapshot(now.AddMinutes(-1), CleanupRunStatus.Success));
+    }
+
     private static async Task<UploadedFileRecord> CompleteUploadAsync(IUploadedFileMetadataRepository repository, IBlobStorage blobStorage)
     {
         var fileId = await repository.ReserveFileIdAsync(CancellationToken.None);
@@ -294,6 +415,13 @@ public sealed class ShareCleanupServiceTests
         return record;
     }
 
+    private static ShareCleanupService CreateEmptyCleanupService(TimeProvider timeProvider) =>
+        new(new SignalingShareRepository(),
+            new InMemoryUploadedFileRepository(CreateUploadedFileRecord(Guid.NewGuid())),
+            new BlockingBlobStorage(),
+            timeProvider,
+            NullLogger<ShareCleanupService>.Instance);
+
     private static ShareCleanupService CreateService(IShareMetadataRepository shareRepository,
                                                      IUploadedFileMetadataRepository uploadedFileRepository,
                                                      IBlobStorage blobStorage,
@@ -312,8 +440,8 @@ public sealed class ShareCleanupServiceTests
             expiresAtUtc,
             null,
             ShareCleanupState.Pending,
-            DirectHttpEnabled: false,
-            DownloadBearerToken: null,
+            false,
+            null,
             [new(fileId, "cipher.bin", null)]);
 
     private static UploadedFileRecord CreateUploadedFileRecord(Guid fileId) =>
@@ -383,6 +511,33 @@ public sealed class ShareCleanupServiceTests
         }
     }
 
+    private sealed class FlakyAccountingUploadedFileRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository
+    {
+        public Int32 TransitionCalls { get; private set; }
+
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
+            Task.FromResult<UploadedFileRecord?>(fileId == record.FileId ? record : null);
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord uploadedFile, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken)
+        {
+            TransitionCalls++;
+            return Task.FromResult(TransitionCalls > 1);
+        }
+    }
+
     private sealed class FrozenTimeProvider(DateTimeOffset nowUtc) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => nowUtc;
@@ -441,6 +596,9 @@ public sealed class ShareCleanupServiceTests
 
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
+            Task.FromResult(record.FileId == fileId);
     }
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
@@ -527,6 +685,25 @@ public sealed class ShareCleanupServiceTests
         }
     }
 
+    private sealed class NeverAcquireCoordinator : IShareCleanupCoordinator
+    {
+        public Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IAsyncDisposable?>(null);
+    }
+
+    private sealed class SequenceDeleteBlobStorage : IBlobStorage
+    {
+        private Int32 _calls;
+
+        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) =>
+            Task.FromResult(Interlocked.Increment(ref _calls) == 1);
+
+        public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class ShareCleanupFixture : IAsyncDisposable
     {
         private readonly String _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
@@ -588,5 +765,22 @@ public sealed class ShareCleanupServiceTests
 
         public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+    }
+
+    private sealed class ThrowingAcquireCoordinator : IShareCleanupCoordinator
+    {
+        public Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken) =>
+            Task.FromException<IAsyncDisposable?>(new InvalidOperationException("lease acquisition failed"));
+    }
+
+    private sealed class ThrowingDisposeCoordinator : IShareCleanupCoordinator
+    {
+        public Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IAsyncDisposable?>(new ThrowingLease());
+
+        private sealed class ThrowingLease : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync() => ValueTask.FromException(new InvalidOperationException("lease disposal failed"));
+        }
     }
 }

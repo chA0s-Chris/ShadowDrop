@@ -23,4 +23,7 @@ public interface IUploadedFileMetadataRepository
         throw new NotSupportedException("Owner-bound reservation claims are not supported by this repository.");
 
     Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken);
+
+    Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Retained-blob accounting transitions are not supported by this repository.");
 }
