@@ -65,7 +65,9 @@ The `/health` routes and public `/api/status` route are always registered.
 Status protocol version `1` gives scripts a bounded preflight without exposing arbitrary health-check details. Every response includes
 `protocolVersion`, `live`, `ready`, a stable `reason`, and capability flags. Ready responses use `200`; dependency degradation uses `503`
 with the same selected projection. Reasons are limited to `none`, `dependency-timeout`, `dependency-unavailable`, and
-`capability-disabled` where applicable. Independent probes and administrative statistics share a five-second server collection budget.
+`capability-disabled` where applicable; `configuration-invalid` is reserved by protocol version `1` and is never emitted while startup
+configuration validation remains fail-fast, so clients must accept it without treating it as a protocol violation. Independent probes and
+administrative statistics share a five-second server collection budget.
 
 | Method | Route                | Audience / authentication | Projection |
 |--------|----------------------|---------------------------|------------|

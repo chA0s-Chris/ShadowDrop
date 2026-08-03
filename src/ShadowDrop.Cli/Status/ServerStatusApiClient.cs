@@ -94,7 +94,8 @@ internal sealed class ServerStatusApiClient(HttpClient httpClient, TimeProvider 
     private static Boolean IsKnownReason(String reason) => reason is OperationalStatusReasons.None
                                                                      or OperationalStatusReasons.DependencyTimeout
                                                                      or OperationalStatusReasons.DependencyUnavailable
-                                                                     or OperationalStatusReasons.CapabilityDisabled;
+                                                                     or OperationalStatusReasons.CapabilityDisabled
+                                                                     or OperationalStatusReasons.ConfigurationInvalid;
 
     private static Int32 ReadProtocolVersion(ReadOnlyMemory<Byte> content)
     {

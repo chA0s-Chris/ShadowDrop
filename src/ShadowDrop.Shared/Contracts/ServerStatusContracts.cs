@@ -17,6 +17,9 @@ public static class OperationalStatusReasons
 {
     public const String CapabilityDisabled = "capability-disabled";
 
+    /// <summary>Reserved by protocol version 1; never emitted while startup configuration validation is fail-fast.</summary>
+    public const String ConfigurationInvalid = "configuration-invalid";
+
     public const String DependencyTimeout = "dependency-timeout";
 
     public const String DependencyUnavailable = "dependency-unavailable";
