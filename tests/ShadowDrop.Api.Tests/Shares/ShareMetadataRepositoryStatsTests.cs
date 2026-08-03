@@ -10,7 +10,7 @@ using ShadowDrop.Api.Shares;
 public sealed class ShareMetadataRepositoryStatsTests
 {
     [Test]
-    public async Task GetStatusCountsAsync_ShouldClassifySharesByCleanupStateThenRevocationThenExpiration()
+    public async Task GetStatusCountsAsync_ShouldCountLifecycleAndCleanupPredicatesIndependently()
     {
         await using var fixture = new StatsFixture();
         var options = fixture.CreateOptions();
@@ -31,7 +31,27 @@ public sealed class ShareMetadataRepositoryStatsTests
 
         var counts = await repository.GetStatusCountsAsync(now, CancellationToken.None);
 
-        counts.Should().Be(new ShareStatusCounts(Active: 1, Expired: 1, Revoked: 1, CleanupCompleted: 1, CleanupFailed: 1));
+        counts.Should().Be(new ShareStatusCounts(Active: 1,
+                                                 Expired: 3,
+                                                 Revoked: 1,
+                                                 CleanupPending: 3,
+                                                 CleanupFailed: 1,
+                                                 CleanupCompleted: 1));
+    }
+
+    [Test]
+    public async Task GetStatusCountsAsync_ShouldObserveCancellationDuringScan()
+    {
+        await using var fixture = new StatsFixture();
+        var options = fixture.CreateOptions();
+        using var cancellation = new CancellationTokenSource();
+        using var repository = new LiteDbShareMetadataRepository(options, null, cancellation.Cancel);
+        var now = DateTimeOffset.Parse("2026-06-01T00:00:00Z");
+        await repository.CreateAsync(CreateShare(now.AddDays(1)), CancellationToken.None);
+
+        var act = () => repository.GetStatusCountsAsync(now, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
     private static ShareRecord CreateShare(DateTimeOffset expiresAtUtc) =>

@@ -7,6 +7,7 @@ using FluentAssertions;
 using MongoDB.Bson;
 using MongoDB.Driver;
 using NUnit.Framework;
+using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Health;
 
 [TestFixture]
@@ -63,10 +64,18 @@ public sealed class MongoReadinessCheckTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
-    private static MongoReadinessCheck CreateCheck(Func<CancellationToken, Task<BsonDocument>> ping, TimeSpan? checkTimeout = null) =>
-        new(new StubMongoHelper(new StubMongoDatabase(ping)))
+    private static CompositeReadinessCheck CreateCheck(Func<CancellationToken, Task<BsonDocument>> ping, TimeSpan? checkTimeout = null) =>
+        new([
+            new MongoOperationalDependencyProbe(new StubMongoHelper(new StubMongoDatabase(ping)), new()
+            {
+                Metadata = new()
+                {
+                    Provider = MetadataProvider.MongoDb
+                }
+            })
+        ])
         {
-            CheckTimeout = checkTimeout ?? MongoReadinessCheck.DefaultCheckTimeout
+            Timeout = checkTimeout ?? CompositeReadinessCheck.DefaultTimeout
         };
 
     private sealed class StubMongoHelper(IMongoDatabase database) : IMongoHelper
@@ -84,7 +93,7 @@ public sealed class MongoReadinessCheckTests
     /// <summary>
     /// Manual test double for the wide MongoDB driver interface: only the parameterless-session
     /// <see cref="RunCommandAsync{TResult}(Command{TResult}, ReadPreference?, CancellationToken)"/> overload used by
-    /// <see cref="MongoReadinessCheck"/> is functional; every other member throws.
+    /// <see cref="MongoOperationalDependencyProbe"/> is functional; every other member throws.
     /// </summary>
     private sealed class StubMongoDatabase(Func<CancellationToken, Task<BsonDocument>> ping) : IMongoDatabase
     {

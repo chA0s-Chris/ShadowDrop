@@ -13,11 +13,19 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
     private readonly ILogger<LiteDbUploadedFileMetadataRepository> _logger;
+    private readonly Action? _storageStatsIterationTestHook;
     private readonly Lock _syncRoot = new();
 
     public LiteDbUploadedFileMetadataRepository(ShadowDropOptions options, ILogger<LiteDbUploadedFileMetadataRepository> logger)
+        : this(options, logger, null) { }
+
+    internal LiteDbUploadedFileMetadataRepository(
+        ShadowDropOptions options,
+        ILogger<LiteDbUploadedFileMetadataRepository> logger,
+        Action? storageStatsIterationTestHook)
     {
         _logger = logger;
+        _storageStatsIterationTestHook = storageStatsIterationTestHook;
         _databasePath = options.Metadata.LiteDbPath;
         var databaseDirectory = Path.GetDirectoryName(_databasePath)
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
@@ -62,7 +70,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             document.ChunkCount,
             document.KdfSaltBase64,
             document.PlaintextSha256,
-            document.OwnerCredentialId);
+            document.OwnerCredentialId,
+            document.RetentionState);
 
     private Boolean DeleteExpiredReservation(UploadedFileDocument? document, DateTimeOffset now)
     {
@@ -185,15 +194,25 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var completedFileCount = 0;
+        var completedFileCount = 0L;
         var totalEncryptedBytes = 0L;
         foreach (var document in _collection.Find(document => !document.IsReserved))
         {
-            completedFileCount++;
-            totalEncryptedBytes += document.EncryptedLength;
+            _storageStatsIterationTestHook?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (document.RetentionState == BlobRetentionState.Unknown)
+            {
+                return Task.FromResult(new UploadedFileStorageStats(null, null, false));
+            }
+
+            if (document.RetentionState == BlobRetentionState.Retained)
+            {
+                completedFileCount++;
+                totalEncryptedBytes += document.EncryptedLength;
+            }
         }
 
-        return Task.FromResult(new UploadedFileStorageStats(completedFileCount, totalEncryptedBytes));
+        return Task.FromResult(new UploadedFileStorageStats(completedFileCount, totalEncryptedBytes, true));
     }
 
     public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
@@ -298,11 +317,35 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 ChunkSize = record.ChunkSize,
                 ChunkCount = record.ChunkCount,
                 KdfSaltBase64 = record.KdfSaltBase64,
-                PlaintextSha256 = record.PlaintextSha256
+                PlaintextSha256 = record.PlaintextSha256,
+                RetentionState = BlobRetentionState.Retained
             });
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             // UploadPersistenceService logs the operator-facing "Upload completed" event with a superset of these fields.
             _logger.LogDebug("Upload reservation completed. FileId: {FileId}; BlobKey: {BlobKey}", record.FileId, record.BlobKey);
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(fileId);
+            if (document is null || document.IsReserved)
+            {
+                return Task.FromResult(false);
+            }
+
+            if (document.RetentionState != BlobRetentionState.Deleted)
+            {
+                document.RetentionState = BlobRetentionState.Deleted;
+                _collection.Update(document);
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            }
+
             return Task.FromResult(true);
         }
     }
@@ -341,5 +384,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         public String? PlaintextSha256 { get; set; }
 
         public Int64? ReservedAtUnixTimeMilliseconds { get; set; }
+
+        public BlobRetentionState RetentionState { get; set; }
     }
 }

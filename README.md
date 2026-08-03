@@ -119,6 +119,14 @@ export SHADOWDROP_UPLOAD_TOKEN="sdu1.…"
 unset SHADOWDROP_ADMIN_TOKEN
 ```
 
+Check the server before an automated transfer. The public mode does not send configured credentials; add `--upload-authorized` or
+`--verbose` only when the corresponding scoped or admin projection is needed:
+
+```bash
+shadowdrop server status
+shadowdrop server status --json
+```
+
 The upload credential can upload encrypted files and create shares, but cannot
 revoke other shares, run cleanup, or manage credentials. The bootstrap admin
 token remains valid on the scoped upload routes for migration and recovery;

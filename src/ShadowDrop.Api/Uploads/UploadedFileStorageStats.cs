@@ -2,4 +2,4 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Uploads;
 
-public sealed record UploadedFileStorageStats(Int32 CompletedFileCount, Int64 TotalEncryptedBytes);
+public sealed record UploadedFileStorageStats(Int64? CompletedFileCount, Int64? TotalEncryptedBytes, Boolean IsExact = true);

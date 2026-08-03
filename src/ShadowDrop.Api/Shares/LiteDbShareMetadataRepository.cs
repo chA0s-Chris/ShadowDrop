@@ -12,13 +12,20 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     private readonly ILiteCollection<ShareDocument> _collection;
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
+    private readonly Action? _statusStatsIterationTestHook;
     private readonly Lock _syncRoot = new();
 
-    public LiteDbShareMetadataRepository(ShadowDropOptions options) : this(options, null) { }
+    public LiteDbShareMetadataRepository(ShadowDropOptions options) : this(options, null, null) { }
 
-    internal LiteDbShareMetadataRepository(ShadowDropOptions options, Action? afterInsertTestHook)
+    internal LiteDbShareMetadataRepository(ShadowDropOptions options, Action? afterInsertTestHook) : this(options, afterInsertTestHook, null) { }
+
+    internal LiteDbShareMetadataRepository(
+        ShadowDropOptions options,
+        Action? afterInsertTestHook,
+        Action? statusStatsIterationTestHook)
     {
         _afterInsertTestHook = afterInsertTestHook;
+        _statusStatsIterationTestHook = statusStatsIterationTestHook;
         _databasePath = options.Metadata.LiteDbPath;
         var databaseDirectory = Path.GetDirectoryName(_databasePath)
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
@@ -63,12 +70,15 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                     TokenHashBase64 = record.DownloadBearerToken.TokenHashBase64,
                     ExpiresAtUnixTimeMilliseconds = record.DownloadBearerToken.ExpiresAtUtc.ToUnixTimeMilliseconds()
                 },
-            Files = record.Files.Select(file => new ShareFileEntryDocument
-            {
-                FileId = file.FileId,
-                OriginalFileName = file.OriginalFileName,
-                DisplayName = file.DisplayName
-            }).ToList()
+            Files =
+            [
+                .. record.Files.Select(file => new ShareFileEntryDocument
+                {
+                    FileId = file.FileId,
+                    OriginalFileName = file.OriginalFileName,
+                    DisplayName = file.DisplayName
+                })
+            ]
         };
 
     private static ShareRecord Map(ShareDocument document) =>
@@ -144,7 +154,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        var completedState = ShareCleanupState.Completed.ToString().ToUpperInvariant();
+        var completedState = nameof(ShareCleanupState.Completed).ToUpperInvariant();
         IReadOnlyList<ShareRecord> candidates = _collection
                                                 .Find(document => document.CleanupState != completedState
                                                                   && (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds
@@ -159,17 +169,36 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        var completedState = ShareCleanupState.Completed.ToString().ToUpperInvariant();
-        var failedState = ShareCleanupState.Failed.ToString().ToUpperInvariant();
+        var completedState = nameof(ShareCleanupState.Completed).ToUpperInvariant();
+        var failedState = nameof(ShareCleanupState.Failed).ToUpperInvariant();
 
-        var active = 0;
-        var expired = 0;
-        var revoked = 0;
-        var cleanupCompleted = 0;
-        var cleanupFailed = 0;
+        var active = 0L;
+        var expired = 0L;
+        var revoked = 0L;
+        var cleanupPending = 0L;
+        var cleanupCompleted = 0L;
+        var cleanupFailed = 0L;
 
         foreach (var document in _collection.FindAll())
         {
+            _statusStatsIterationTestHook?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (document.RevokedAtUnixTimeMilliseconds is null
+                && document.ExpiresAtUnixTimeMilliseconds > nowUnixTimeMilliseconds)
+            {
+                active++;
+            }
+
+            if (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds)
+            {
+                expired++;
+            }
+
+            if (document.RevokedAtUnixTimeMilliseconds is not null)
+            {
+                revoked++;
+            }
+
             if (String.Equals(document.CleanupState, completedState, StringComparison.Ordinal))
             {
                 cleanupCompleted++;
@@ -178,21 +207,13 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             {
                 cleanupFailed++;
             }
-            else if (document.RevokedAtUnixTimeMilliseconds is not null)
-            {
-                revoked++;
-            }
-            else if (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds)
-            {
-                expired++;
-            }
             else
             {
-                active++;
+                cleanupPending++;
             }
         }
 
-        return Task.FromResult(new ShareStatusCounts(active, expired, revoked, cleanupCompleted, cleanupFailed));
+        return Task.FromResult(new ShareStatusCounts(active, expired, revoked, cleanupPending, cleanupFailed, cleanupCompleted));
     }
 
     public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)

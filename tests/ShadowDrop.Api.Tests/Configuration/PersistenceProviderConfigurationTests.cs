@@ -86,8 +86,11 @@ public sealed class PersistenceProviderConfigurationTests
         }
 
         builder.Services.Any(x => x.ServiceType == typeof(IMongoHelper)).Should().Be(expectsMongo);
-        builder.Services.Count(x => x.ServiceType == typeof(IReadinessDependencyCheck))
-               .Should().Be((expectsMongo ? 1 : 0) + (blobProvider == BlobStorageProvider.S3 ? 1 : 0));
+        var expectedProbeCount = (expectsMongo ? 1 : 0)
+                                 + (metadataProvider == MetadataProvider.LiteDb ? 1 : 0)
+                                 + (blobProvider is BlobStorageProvider.FileSystem or BlobStorageProvider.S3 ? 1 : 0);
+        builder.Services.Count(x => x.ServiceType == typeof(IOperationalDependencyProbe))
+               .Should().Be(expectedProbeCount);
         builder.Services.Last(x => x.ServiceType == typeof(IShareMetadataRepository)).ImplementationType
                .Should().Be(metadataProvider == MetadataProvider.LiteDb
                                 ? typeof(LiteDbShareMetadataRepository)

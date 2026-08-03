@@ -168,6 +168,70 @@ public sealed class ScopedUploadEndpointTests
             "encryptionFormatVersion", "algorithmId", "chunkSize", "chunkCount", "kdfSaltBase64", "plaintextSha256");
     }
 
+    [Test]
+    public async Task StatusEndpointMapping_ShouldKeepPublicStatus_WhenEveryCapabilityIsDisabled()
+    {
+        await using var fixture = new ScopedApiFactory(false,
+                                                       false,
+                                                       false);
+        using var client = fixture.CreateClient();
+
+        var publicResponse = await client.GetAsync("/api/status");
+
+        publicResponse.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.ServiceUnavailable);
+        (await client.GetAsync("/api/status/upload")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.GetAsync("/api/admin/status")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var status = JsonDocument.Parse(await publicResponse.Content.ReadAsStringAsync());
+        var capabilities = status.RootElement.GetProperty("capabilities");
+        capabilities.GetProperty("publicDownloads").GetBoolean().Should().BeFalse();
+        capabilities.GetProperty("adminOperations").GetBoolean().Should().BeFalse();
+        capabilities.GetProperty("scopedUploads").GetBoolean().Should().BeFalse();
+    }
+
+    [Test]
+    public async Task StatusEndpoints_ShouldExposeOnlyTheExplicitlyAuthorizedProjection()
+    {
+        await using var fixture = new ScopedApiFactory();
+        using var publicClient = fixture.CreateClient();
+        using var adminClient = fixture.CreateClientWithToken(fixture.BootstrapToken);
+        var expiresAtUtc = DateTimeOffset.UtcNow.AddDays(10);
+        var credentialResponse = await adminClient.PostAsJsonAsync("/api/admin/upload-credentials/", new
+        {
+            Name = "status",
+            ExpiresAtUtc = expiresAtUtc,
+            MaxEncryptedFileBytes = 1234,
+            MaxEncryptedShareBytes = 5678
+        });
+        using var credentialDocument = JsonDocument.Parse(await credentialResponse.Content.ReadAsStringAsync());
+        var uploadToken = credentialDocument.RootElement.GetProperty("token").GetString()!;
+        using var uploadClient = fixture.CreateClientWithToken(uploadToken);
+
+        var publicResponse = await publicClient.GetAsync("/api/status");
+        var uploadResponse = await uploadClient.GetAsync("/api/status/upload");
+        var adminResponse = await adminClient.GetAsync("/api/admin/status");
+
+        publicResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        uploadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var publicStatus = JsonDocument.Parse(await publicResponse.Content.ReadAsStringAsync());
+        publicStatus.RootElement.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
+            "protocolVersion", "live", "ready", "reason", "capabilities");
+        using var uploadStatus = JsonDocument.Parse(await uploadResponse.Content.ReadAsStringAsync());
+        uploadStatus.RootElement.GetProperty("effectiveLimits").GetProperty("maxFileBytes").GetInt64().Should().Be(1234);
+        uploadStatus.RootElement.GetProperty("effectiveLimits").GetProperty("maxShareBytes").GetInt64().Should().Be(5678);
+        uploadStatus.RootElement.GetProperty("effectiveLimits").GetProperty("expiresAtUtc").GetDateTimeOffset()
+                    .Should().BeCloseTo(expiresAtUtc, TimeSpan.FromSeconds(1));
+        using var adminStatus = JsonDocument.Parse(await adminResponse.Content.ReadAsStringAsync());
+        adminStatus.RootElement.GetProperty("providers").GetProperty("metadata").GetString().Should().Be("litedb");
+        adminStatus.RootElement.GetProperty("providers").GetProperty("storage").GetString().Should().Be("filesystem");
+        var combinedJson = String.Join('\n', await publicResponse.Content.ReadAsStringAsync(),
+                                       await uploadResponse.Content.ReadAsStringAsync(), await adminResponse.Content.ReadAsStringAsync());
+        combinedJson.Should().NotContainAny(fixture.BootstrapToken, uploadToken, fixture.MetadataDatabasePath, fixture.LocalStorageRoot);
+
+        (await adminClient.GetAsync("/api/status/upload")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await uploadClient.GetAsync("/api/admin/status")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     [TestCase(false, null, false)]
     [TestCase(false, true, true)]
     [TestCase(true, false, false)]
@@ -269,7 +333,9 @@ public sealed class ScopedUploadEndpointTests
         private readonly Dictionary<String, String?> _previousValues = [];
         private readonly String _rootDirectory;
 
-        public ScopedApiFactory(Boolean enableAdminOperations = true, Boolean? enableUploads = null)
+        public ScopedApiFactory(Boolean enableAdminOperations = true,
+                                Boolean? enableUploads = null,
+                                Boolean enablePublicDownloads = true)
         {
             _rootDirectory = Path.Combine(AppContext.BaseDirectory, "artifacts", $"scoped-upload-{Guid.NewGuid():N}");
             Directory.CreateDirectory(_rootDirectory);
@@ -280,7 +346,7 @@ public sealed class ScopedUploadEndpointTests
             SetEnvironmentVariable("ShadowDrop__Storage__LocalRoot", LocalStorageRoot);
             SetEnvironmentVariable("ShadowDrop__ApiExposure__EnableAdminOperations", enableAdminOperations ? "true" : "false");
             SetEnvironmentVariable("ShadowDrop__ApiExposure__EnableUploads", enableUploads?.ToString());
-            SetEnvironmentVariable("ShadowDrop__ApiExposure__EnablePublicDownloads", "true");
+            SetEnvironmentVariable("ShadowDrop__ApiExposure__EnablePublicDownloads", enablePublicDownloads ? "true" : "false");
         }
 
         public String BootstrapToken => "scoped-test-bootstrap-token";

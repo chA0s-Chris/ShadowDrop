@@ -46,6 +46,15 @@ public sealed class ShareCleanupService(
                     {
                         blobsAlreadyMissing++;
                     }
+
+                    if (!await uploadedFileMetadataRepository.TryMarkBlobDeletedAsync(file.FileId, cancellationToken))
+                    {
+                        logger.LogWarning(
+                            "Share cleanup failed because retained-blob accounting could not be updated. ShareId: {ShareId}; FileId: {FileId}",
+                            share.ShareId,
+                            file.FileId);
+                        shareFailed = true;
+                    }
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {

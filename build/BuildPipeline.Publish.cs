@@ -8,7 +8,10 @@ using Nuke.Common.Tools.DotNet;
 using Serilog;
 using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 internal partial class BuildPipeline
@@ -246,6 +249,24 @@ internal partial class BuildPipeline
             $"Docker did not report a host port mapping for container '{containerName}' port {DockerContainerPort}/tcp.");
     }
 
+    private static String? GetCurrentRuntimeIdentifier()
+    {
+        var platform = OperatingSystem.IsLinux()
+            ? "linux"
+            : OperatingSystem.IsMacOS()
+                ? "osx"
+                : OperatingSystem.IsWindows()
+                    ? "win"
+                    : null;
+        var architecture = RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.X64 => "x64",
+            Architecture.Arm64 => "arm64",
+            _ => null
+        };
+        return platform is null || architecture is null ? null : $"{platform}-{architecture}";
+    }
+
     // buildx reports one of these signatures when asked to build/load a multi-platform image on the legacy
     // `docker` driver (image store) instead of the containerd image store.
     private static Boolean IndicatesMissingContainerdImageStore(String output) =>
@@ -337,6 +358,58 @@ internal partial class BuildPipeline
         }
 
         return result;
+    }
+
+    private static void SmokeTestPublishedCliStatus(AbsolutePath executable)
+    {
+        const String responseBody =
+            "{\"protocolVersion\":1,\"live\":true,\"ready\":true,\"reason\":\"none\",\"capabilities\":{\"publicDownloads\":true,\"adminOperations\":true,\"resumableDownloads\":true,\"scopedUploads\":true}}";
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        listener.Start();
+        var endpoint = (IPEndPoint)listener.LocalEndpoint;
+        var responseTask = Task.Run(async () =>
+        {
+            using var connection = await listener.AcceptTcpClientAsync(timeout.Token);
+            await using var stream = connection.GetStream();
+            using var reader = new StreamReader(stream, Encoding.ASCII, false, leaveOpen: true);
+            while (!String.IsNullOrEmpty(await reader.ReadLineAsync(timeout.Token))) { }
+
+            var body = Encoding.UTF8.GetBytes(responseBody);
+            var headers = Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(headers, timeout.Token);
+            await stream.WriteAsync(body, timeout.Token);
+        }, timeout.Token);
+
+        ProcessResult result;
+        try
+        {
+            result = RunProcess(executable.ToString(),
+                                ["server", "status", "--server-url", $"http://127.0.0.1:{endpoint.Port}", "--json", "--no-banner"],
+                                RootDirectory,
+                                true,
+                                false);
+            responseTask.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            timeout.Cancel();
+            listener.Stop();
+        }
+
+        Assert.True(result.ExitCode == 0,
+                    $"Published CLI status smoke test failed:{Environment.NewLine}{result.StandardError}");
+        Assert.True(String.IsNullOrWhiteSpace(result.StandardError),
+                    $"Published CLI status smoke test wrote to stderr:{Environment.NewLine}{result.StandardError}");
+        var outputLines = result.StandardOutput.Split(Environment.NewLine,
+                                                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.True(outputLines.Length == 1, "Published CLI status smoke test must emit exactly one JSON result.");
+        using var document = JsonDocument.Parse(outputLines[0]);
+        Assert.True(String.Equals("healthy", document.RootElement.GetProperty("outcome").GetString(), StringComparison.Ordinal),
+                    "Published CLI status smoke test must report a healthy outcome.");
+        Assert.True(document.RootElement.GetProperty("serverStatus").GetProperty("protocolVersion").GetInt32() == 1,
+                    "Published CLI status smoke test must deserialize protocol version 1.");
     }
 
     private static void WaitForHealthyContainer(String containerName, Uri healthEndpoint)
@@ -517,6 +590,10 @@ internal partial class BuildPipeline
             var artifact = releaseDirectory / GetCliArtifactName(runtimeIdentifier);
             File.Copy(publishedExecutable, artifact, true);
             EnsureExecutableMode(artifact, runtimeIdentifier);
+            if (String.Equals(runtimeIdentifier, GetCurrentRuntimeIdentifier(), StringComparison.Ordinal))
+            {
+                SmokeTestPublishedCliStatus(artifact);
+            }
         }
 
         intermediateDirectory.DeleteDirectory();

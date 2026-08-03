@@ -56,6 +56,14 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
 
     private static String State(ShareCleanupState state) => state.ToString().ToUpperInvariant();
 
+    private static BsonDocument SumWhen(BsonValue condition) =>
+        new("$sum", new BsonDocument("$cond", new BsonArray
+        {
+            condition,
+            1,
+            0
+        }));
+
     public async Task CreateAsync(ShareRecord record, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(record);
@@ -102,61 +110,85 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
     {
         var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
 
-        // Classify every share into exactly one bucket server-side so the counts come from a single,
-        // internally consistent read instead of five queries that concurrent writes could skew.
-        var groupByBucket = new BsonDocument("$group", new BsonDocument
+        var pending = State(ShareCleanupState.Pending);
+        var failed = State(ShareCleanupState.Failed);
+        var completed = State(ShareCleanupState.Completed);
+        var group = new BsonDocument("$group", new BsonDocument
         {
-            ["_id"] = new BsonDocument("$switch", new BsonDocument
+            ["_id"] = BsonNull.Value,
+            ["active"] = SumWhen(new BsonDocument("$and", new BsonArray
             {
-                ["branches"] = new BsonArray
+                new BsonDocument("$eq", new BsonArray
                 {
-                    new BsonDocument
+                    new BsonDocument("$ifNull", new BsonArray
                     {
-                        ["case"] = new BsonDocument("$eq", new BsonArray
-                        {
-                            "$CleanupState",
-                            State(ShareCleanupState.Completed)
-                        }),
-                        ["then"] = "completed"
-                    },
-                    new BsonDocument
+                        "$RevokedAtUnixTimeMilliseconds",
+                        BsonNull.Value
+                    }),
+                    BsonNull.Value
+                }),
+                new BsonDocument("$gt", new BsonArray
+                {
+                    "$ExpiresAtUnixTimeMilliseconds",
+                    now
+                })
+            })),
+            ["expired"] = SumWhen(new BsonDocument("$lte", new BsonArray
+            {
+                "$ExpiresAtUnixTimeMilliseconds",
+                now
+            })),
+            ["revoked"] = SumWhen(new BsonDocument("$ne", new BsonArray
+            {
+                new BsonDocument("$ifNull", new BsonArray
+                {
+                    "$RevokedAtUnixTimeMilliseconds",
+                    BsonNull.Value
+                }),
+                BsonNull.Value
+            })),
+            ["cleanupPending"] = SumWhen(new BsonDocument("$or", new BsonArray
+            {
+                new BsonDocument("$eq", new BsonArray
+                {
+                    "$CleanupState",
+                    pending
+                }),
+                new BsonDocument("$not", new BsonArray
+                {
+                    new BsonDocument("$in", new BsonArray
                     {
-                        ["case"] = new BsonDocument("$eq", new BsonArray
+                        "$CleanupState",
+                        new BsonArray
                         {
-                            "$CleanupState",
-                            State(ShareCleanupState.Failed)
-                        }),
-                        ["then"] = "failed"
-                    },
-                    new BsonDocument
-                    {
-                        ["case"] = new BsonDocument("$gt", new BsonArray
-                        {
-                            "$RevokedAtUnixTimeMilliseconds",
-                            BsonNull.Value
-                        }),
-                        ["then"] = "revoked"
-                    },
-                    new BsonDocument
-                    {
-                        ["case"] = new BsonDocument("$lte", new BsonArray
-                        {
-                            "$ExpiresAtUnixTimeMilliseconds",
-                            now
-                        }),
-                        ["then"] = "expired"
-                    }
-                },
-                ["default"] = "active"
-            }),
-            ["count"] = new BsonDocument("$sum", 1)
+                            failed,
+                            completed
+                        }
+                    })
+                })
+            })),
+            ["cleanupFailed"] = SumWhen(new BsonDocument("$eq", new BsonArray
+            {
+                "$CleanupState",
+                failed
+            })),
+            ["cleanupCompleted"] = SumWhen(new BsonDocument("$eq", new BsonArray
+            {
+                "$CleanupState",
+                completed
+            }))
         });
-        PipelineDefinition<MongoShareDocument, BsonDocument> pipeline = new[] { groupByBucket };
+        PipelineDefinition<MongoShareDocument, BsonDocument> pipeline = new[] { group };
         using var cursor = await Collection.AggregateAsync(pipeline, cancellationToken: cancellationToken);
-        var counts = (await cursor.ToListAsync(cancellationToken))
-            .ToDictionary(bucket => bucket["_id"].AsString, bucket => bucket["count"].ToInt32());
-        return new(counts.GetValueOrDefault("active"), counts.GetValueOrDefault("expired"), counts.GetValueOrDefault("revoked"),
-                   counts.GetValueOrDefault("completed"), counts.GetValueOrDefault("failed"));
+        var counts = await cursor.FirstOrDefaultAsync(cancellationToken);
+        return counts is null
+            ? new(0, 0, 0, 0, 0, 0)
+            : new(counts["active"].ToInt64(),
+                  counts["expired"].ToInt64(),
+                  counts["revoked"].ToInt64(),
+                  counts["cleanupPending"].ToInt64(),
+                  counts["cleanupFailed"].ToInt64(),
+                  counts["cleanupCompleted"].ToInt64());
     }
 
     public async Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)

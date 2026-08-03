@@ -24,6 +24,13 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 new()
                 {
                     Name = "storage_stats"
+                }),
+            new(Builders<MongoUploadedFileDocument>.IndexKeys
+                                                   .Ascending(x => x.IsReserved)
+                                                   .Ascending(x => x.RetentionState),
+                new()
+                {
+                    Name = "retention_stats"
                 })
         ], cancellationToken);
 

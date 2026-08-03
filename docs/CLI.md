@@ -124,6 +124,7 @@ stable release is known. This is designed to stay out of the way:
 | `token revoke <credential-id>` | Revoke one upload credential by management ID.                 |
 | `queue create [share-token]`   | Write a download queue file for an existing share.             |
 | `download [share-token]`       | Download and decrypt a shared file to disk (or `--queue <file>`). |
+| `server status`                | Run a bounded server reachability, readiness, and compatibility preflight. |
 | `update`                       | Check whether a newer stable release is available; see [Updating the CLI](#updating-the-cli). |
 
 ## Configuration
@@ -187,6 +188,44 @@ The examples below assume:
 export SHADOWDROP_SERVER_URL="https://drop.example.com"
 export SHADOWDROP_UPLOAD_TOKEN="sdu1.…"
 ```
+
+## Server status preflight
+
+The public preflight needs only the server URL and never uses a configured upload or admin token implicitly:
+
+```bash
+shadowdrop server status
+shadowdrop server status --json
+```
+
+Choose a more sensitive tier explicitly. The options are mutually exclusive:
+
+```bash
+shadowdrop server status --upload-authorized --upload-token "sdu1.…"
+shadowdrop server status --verbose --admin-token "$SHADOWDROP_ADMIN_TOKEN"
+```
+
+`--upload-authorized` reports the selected credential's effective limits and expiry. `--verbose` reports administrative build, provider,
+component, retained-storage, share-count, cleanup, and warning data. `--json` changes rendering only: endpoint selection and credential
+resolution still come solely from the explicit tier option. Once `server status --json` is recognized, every outcome—including parsing,
+configuration, TLS setup, connectivity, authorization, disabled capability, incompatibility, and not-ready—writes exactly one documented
+JSON result to stdout. Banners and diagnostics stay on stderr.
+Failure results include the selected `mode` as `public`, `upload`, or `admin`; all results include the resolved `serverUrl`, `reachable`,
+`cliVersion`, nullable `protocolCompatible`, stable `outcome`, and nullable stable `error` code. Successful HTTP responses additionally
+include the selected `serverStatus` projection.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Server is ready and protocol-compatible. |
+| `1` | Usage/configuration error, explicitly selected capability is disabled, malformed response, or unexpected failure. |
+| `2` | Server is reachable but not ready, including unavailable upload credential storage. |
+| `3` | Connectivity or TLS transport failure. |
+| `4` | Authorization failed. |
+| `5` | The server operational protocol is outside the CLI-supported inclusive range `[1, 1]`. |
+
+Human output always starts with the server URL, reachability, CLI version, protocol compatibility, and stable outcome before tier-specific
+details. A `404` from an explicitly selected upload/admin status route is `capability-disabled`; a bodyless `503` while authenticating the
+upload tier is `not-ready` and never includes an upload projection.
 
 ## Provisioning upload credentials
 

@@ -24,7 +24,20 @@ public sealed class UploadCredentialService(
             return null;
         }
 
-        var credential = await repository.FindBySelectorDigestAsync(TokenHashing.ComputeHashBase64(selector), cancellationToken);
+        UploadCredentialRecord? credential;
+        try
+        {
+            credential = await repository.FindBySelectorDigestAsync(TokenHashing.ComputeHashBase64(selector), cancellationToken);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new UploadCredentialProviderUnavailableException(exception);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new UploadCredentialProviderUnavailableException(exception);
+        }
+
         if (credential is null)
         {
             return null;
@@ -39,8 +52,23 @@ public sealed class UploadCredentialService(
             return null;
         }
 
-        await repository.RecordUsageAsync(credential.CredentialId, now, cancellationToken);
-        return new(credential.CredentialId, credential.MaxEncryptedFileBytes, credential.MaxEncryptedShareBytes);
+        try
+        {
+            await repository.RecordUsageAsync(credential.CredentialId, now, cancellationToken);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new UploadCredentialProviderUnavailableException(exception);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new UploadCredentialProviderUnavailableException(exception);
+        }
+
+        return new(credential.CredentialId,
+                   credential.MaxEncryptedFileBytes,
+                   credential.MaxEncryptedShareBytes,
+                   credential.ExpiresAtUtc);
     }
 
     public async Task<UploadCredentialCreationResult> CreateAsync(UploadCredentialCreationRequest request, CancellationToken cancellationToken)

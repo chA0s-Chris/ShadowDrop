@@ -9,15 +9,20 @@ using Chaos.Mongo.Configuration;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using FluentAssertions;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MongoDB.Bson;
 using NUnit.Framework;
+using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Api.Uploads;
+using ShadowDrop.Contracts;
 using ShadowDrop.Tests.Uploads;
+using System.Net;
+using System.Text.Json;
 using Testcontainers.MongoDb;
 
 [TestFixture]
@@ -164,9 +169,11 @@ public sealed class RustFsS3IntegrationTests
     public async Task ReadinessCheck_ShouldReportProvisionedBucketReady()
     {
         using var client = new AwsS3Client(CreateStorageOptions());
-        var check = new S3ReadinessCheck(client, CreateStorageOptions());
+        var check = new S3OperationalDependencyProbe(client, CreateStorageOptions());
 
-        (await check.IsReadyAsync(CancellationToken.None)).Should().BeTrue();
+        var act = async () => await check.ProbeAsync(CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
     }
 
     [TestCase(false)]
@@ -236,6 +243,26 @@ public sealed class RustFsS3IntegrationTests
         }
     }
 
+    [TestCase(MetadataProvider.LiteDb)]
+    [TestCase(MetadataProvider.MongoDb)]
+    public async Task StatusEndpoint_ShouldBeReady_WithS3AndEitherMetadataProvider(MetadataProvider metadataProvider)
+    {
+        await using var factory = new S3StatusApiFactory(metadataProvider,
+                                                         _endpoint,
+                                                         _mongoContainer.GetConnectionString(),
+                                                         _mongo.Database.DatabaseNamespace.DatabaseName);
+        using var client = factory.CreateClient();
+
+        using var readinessResponse = await client.GetAsync("/health/ready");
+        using var statusResponse = await client.GetAsync("/api/status");
+
+        readinessResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        statusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var status = JsonDocument.Parse(await statusResponse.Content.ReadAsStringAsync());
+        status.RootElement.GetProperty("ready").GetBoolean().Should().BeTrue();
+        status.RootElement.GetProperty("reason").GetString().Should().Be(OperationalStatusReasons.None);
+    }
+
     private ShadowDropOptions CreateStorageOptions() => new()
     {
         Storage = new()
@@ -252,6 +279,61 @@ public sealed class RustFsS3IntegrationTests
             }
         }
     };
+
+    private sealed class S3StatusApiFactory : WebApplicationFactory<Program>
+    {
+        private readonly Dictionary<String, String?> _previousValues = [];
+        private readonly String _rootDirectory;
+
+        public S3StatusApiFactory(
+            MetadataProvider metadataProvider,
+            String endpoint,
+            String mongoConnectionString,
+            String mongoDatabaseName)
+        {
+            _rootDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-s3-status-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_rootDirectory);
+            SetEnvironmentVariable("ShadowDrop__Metadata__Provider", metadataProvider.ToString());
+            SetEnvironmentVariable("ShadowDrop__Metadata__LiteDbPath", Path.Combine(_rootDirectory, "metadata", "shadowdrop.db"));
+            SetEnvironmentVariable("ShadowDrop__Storage__Provider", BlobStorageProvider.S3.ToString());
+            SetEnvironmentVariable("ShadowDrop__Storage__LocalRoot", Path.Combine(_rootDirectory, "blobs"));
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__BucketName", BucketName);
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__Region", Region);
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__ServiceEndpoint", endpoint);
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__UsePathStyle", "true");
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__AccessKeyId", AccessKey);
+            SetEnvironmentVariable("ShadowDrop__Storage__S3__SecretAccessKey", SecretKey);
+            SetEnvironmentVariable("ShadowDrop__Mongo__ConnectionString", mongoConnectionString);
+            SetEnvironmentVariable("ShadowDrop__Mongo__DatabaseName", mongoDatabaseName);
+            SetEnvironmentVariable("ShadowDrop__ApiExposure__EnableAdminOperations", "false");
+            SetEnvironmentVariable("ShadowDrop__ApiExposure__EnableUploads", "false");
+            SetEnvironmentVariable("ShadowDrop__ApiExposure__EnablePublicDownloads", "true");
+        }
+
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing)
+            {
+                foreach (var (key, value) in _previousValues)
+                {
+                    Environment.SetEnvironmentVariable(key, value);
+                }
+            }
+
+            base.Dispose(disposing);
+
+            if (Directory.Exists(_rootDirectory))
+            {
+                Directory.Delete(_rootDirectory, true);
+            }
+        }
+
+        private void SetEnvironmentVariable(String key, String? value)
+        {
+            _previousValues[key] = Environment.GetEnvironmentVariable(key);
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
 
     private sealed class NonSeekableReadStream(Byte[] content) : MemoryStream(content, false)
     {

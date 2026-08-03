@@ -6,6 +6,7 @@ using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Cli.Interactive;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Shares;
+using ShadowDrop.Cli.Status;
 using ShadowDrop.Cli.Tls;
 using ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Updates;
@@ -412,6 +413,29 @@ internal static class CliApplication
         tokenCommand.Subcommands.Add(tokenInspectCommand);
         tokenCommand.Subcommands.Add(tokenRevokeCommand);
 
+        var uploadAuthorizedOption = new Option<Boolean>("--upload-authorized")
+        {
+            Description = "Request the scoped-upload-authorized status projection."
+        };
+
+        var verboseStatusOption = new Option<Boolean>("--verbose")
+        {
+            Description = "Request the administrator-authorized detailed status projection."
+        };
+
+        var serverStatusCommand = new Command("status", "Check server reachability, readiness, compatibility, and operational state.");
+        serverStatusCommand.Options.Add(serverOption);
+        serverStatusCommand.Options.Add(caCertOption);
+        serverStatusCommand.Options.Add(insecureOption);
+        serverStatusCommand.Options.Add(uploadTokenOption);
+        serverStatusCommand.Options.Add(adminTokenOption);
+        serverStatusCommand.Options.Add(uploadAuthorizedOption);
+        serverStatusCommand.Options.Add(verboseStatusOption);
+        serverStatusCommand.Options.Add(jsonOption);
+
+        var serverCommand = new Command("server", "Inspect the ShadowDrop server.");
+        serverCommand.Subcommands.Add(serverStatusCommand);
+
         var updateCommand = new Command("update", "Check whether a newer ShadowDrop release is available and show how to install it.");
 
         var rootCommand = new RootCommand("ShadowDrop CLI");
@@ -420,6 +444,7 @@ internal static class CliApplication
         rootCommand.Subcommands.Add(queueCommand);
         rootCommand.Subcommands.Add(shareCommand);
         rootCommand.Subcommands.Add(tokenCommand);
+        rootCommand.Subcommands.Add(serverCommand);
         rootCommand.Subcommands.Add(updateCommand);
 
         // The System.CommandLine defaults advertise -?/help and a bare, unlabeled --version; replace both so
@@ -495,6 +520,9 @@ internal static class CliApplication
                    tokenListCommand,
                    tokenInspectCommand,
                    tokenRevokeCommand,
+                   serverStatusCommand,
+                   uploadAuthorizedOption,
+                   verboseStatusOption,
                    updateCommand);
     }
 
@@ -506,6 +534,21 @@ internal static class CliApplication
             foreach (var error in parseResult.Errors)
             {
                 await services.StandardError.WriteLineAsync(error.Message);
+            }
+
+            if (IsStatusJsonInvocation(parseResult, commandModel))
+            {
+                var options = GetServerStatusOptions(parseResult, commandModel);
+                await ServerStatusResultWriter.WriteAsync(
+                    new ServerStatusFailureCliResult(ServerStatusUrl.GetSafeDisplayValue(options.ServerUrlOverride),
+                                                     false,
+                                                     CliVersion.Current,
+                                                     null,
+                                                     ServerStatusOutcomes.UsageError,
+                                                     "parse-error",
+                                                     ResolveStatusMode(options)),
+                    true,
+                    services.StandardOut);
             }
 
             return 1;
@@ -556,6 +599,11 @@ internal static class CliApplication
         if (tlsOptions.CaCertPath is not null && tlsOptions.Insecure)
         {
             await services.StandardError.WriteLineAsync("The --cacert and --insecure options cannot be combined. Choose one.");
+            if (parseResult.CommandResult.Command == commandModel.ServerStatusCommand)
+            {
+                await WriteStatusSetupFailureAsync(parseResult, services, commandModel, "tls-options-invalid");
+            }
+
             return 1;
         }
 
@@ -573,7 +621,22 @@ internal static class CliApplication
         catch (CliTlsConfigurationException exception)
         {
             await services.StandardError.WriteLineAsync(exception.Message);
+            if (parseResult.CommandResult.Command == commandModel.ServerStatusCommand)
+            {
+                await WriteStatusSetupFailureAsync(parseResult, services, commandModel, "tls-configuration-invalid");
+            }
+
             return 1;
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ServerStatusCommand)
+        {
+            return await new ServerStatusCommandHandler(services.ConfigurationResolver,
+                                                        httpClient,
+                                                        services.StandardOut,
+                                                        services.StandardError,
+                                                        services.TimeProvider)
+                .ExecuteAsync(GetServerStatusOptions(parseResult, commandModel), cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.QueueCreateCommand)
@@ -807,6 +870,14 @@ internal static class CliApplication
                                               services.UploadProgressReporterFactory).ExecuteAsync(uploadOptions, cancellationToken);
     }
 
+    private static ServerStatusCommandOptions GetServerStatusOptions(ParseResult parseResult, CliCommandModel commandModel) =>
+        new(parseResult.GetValue(commandModel.ServerOption),
+            parseResult.GetValue(commandModel.UploadTokenOption),
+            parseResult.GetValue(commandModel.AdminTokenOption),
+            parseResult.GetValue(commandModel.UploadAuthorizedOption),
+            parseResult.GetValue(commandModel.VerboseStatusOption),
+            parseResult.GetValue(commandModel.JsonOption));
+
     private static async Task<Int32> InvokeHelpAsync(ParseResult parseResult, CliApplicationServices services, CancellationToken cancellationToken)
     {
         await services.StandardOut.WriteLineAsync($"ShadowDrop v{CliVersion.Current}");
@@ -822,6 +893,32 @@ internal static class CliApplication
     private static Boolean IsJsonRequested(ParseResult parseResult, CliCommandModel commandModel) =>
         parseResult.CommandResult.Command.Options.Contains(commandModel.JsonOption)
         && parseResult.GetValue(commandModel.JsonOption);
+
+    private static Boolean IsStatusJsonInvocation(ParseResult parseResult, CliCommandModel commandModel) =>
+        parseResult.CommandResult.Command == commandModel.ServerStatusCommand
+        && parseResult.GetValue(commandModel.JsonOption);
+
+    private static ServerStatusMode ResolveStatusMode(ServerStatusCommandOptions options) =>
+        options.Verbose ? ServerStatusMode.Admin : options.UploadAuthorized ? ServerStatusMode.Upload : ServerStatusMode.Public;
+
+    private static async Task WriteStatusSetupFailureAsync(
+        ParseResult parseResult,
+        CliApplicationServices services,
+        CliCommandModel commandModel,
+        String error)
+    {
+        var options = GetServerStatusOptions(parseResult, commandModel);
+        await ServerStatusResultWriter.WriteAsync(
+            new ServerStatusFailureCliResult(ServerStatusUrl.GetSafeDisplayValue(options.ServerUrlOverride),
+                                             false,
+                                             CliVersion.Current,
+                                             null,
+                                             ServerStatusOutcomes.UsageError,
+                                             error,
+                                             ResolveStatusMode(options)),
+            options.Json,
+            services.StandardOut);
+    }
 
     private sealed record CliCommandModel(
         RootCommand RootCommand,
@@ -874,6 +971,9 @@ internal static class CliApplication
         Command TokenListCommand,
         Command TokenInspectCommand,
         Command TokenRevokeCommand,
+        Command ServerStatusCommand,
+        Option<Boolean> UploadAuthorizedOption,
+        Option<Boolean> VerboseStatusOption,
         Command UpdateCommand);
 
     private sealed class CliVersionAction : SynchronousCommandLineAction
