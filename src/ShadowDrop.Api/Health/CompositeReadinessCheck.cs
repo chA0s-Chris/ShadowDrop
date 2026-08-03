@@ -42,7 +42,7 @@ internal sealed class CompositeReadinessCheck(IEnumerable<IOperationalDependency
         deadline.CancelAfter(Timeout);
 
         var results = await Task.WhenAll(probes.Select(probe => ProbeAsync(probe, deadline.Token, cancellationToken)));
-        var components = results.SelectMany(static result => result).OrderBy(static component => component.Name).ToArray();
+        var components = results.SelectMany(static result => result).OrderBy(static component => component.Name, StringComparer.Ordinal).ToArray();
         var ready = components.All(component => component.State == OperationalComponentStates.Ready);
         return new(ready, OperationalReadinessSnapshot.SelectReason(components), components);
     }
