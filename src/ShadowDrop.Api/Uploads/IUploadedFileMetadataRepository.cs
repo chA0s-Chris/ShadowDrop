@@ -8,6 +8,11 @@ public interface IUploadedFileMetadataRepository
 
     Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<UploadedFileListProjection>> GetListProjectionsAsync(
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Administrative file-list projections are not supported by this repository.");
+
     Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken);
 
     Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken);

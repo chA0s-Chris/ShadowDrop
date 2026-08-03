@@ -127,6 +127,15 @@ shadowdrop server status
 shadowdrop server status --json
 ```
 
+Administrators can inspect the bounded, redacted share inventory without
+opening the metadata database. Filters repeat and combine with OR; JSON mode
+emits exactly one protocol-v1 page value:
+
+```bash
+shadowdrop share list --status expired --status cleanup-failed --page-size 50
+shadowdrop share list --cursor '<next-cursor>' --json
+```
+
 The upload credential can upload encrypted files and create shares, but cannot
 revoke other shares, run cleanup, or manage credentials. The bootstrap admin
 token remains valid on the scoped upload routes for migration and recovery;

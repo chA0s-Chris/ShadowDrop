@@ -174,6 +174,23 @@ upgrade, legacy completed records have unknown retention state and totals remain
 than presenting an unsafe estimate. Normal successful cleanup reconciles those records to `deleted`. Cleanup-run status is process-local
 and resets to `not-run` on restart; it is operational context, not durable history or a metrics system.
 
+For bounded administrative inventory, use authenticated `GET /api/admin/shares` or `shadowdrop share list`. Both LiteDB/filesystem and
+MongoDB/GridFS installations apply provider-side lifecycle filtering, exact counts, newest-first cursor paging, and one batched file-
+metadata projection per page; blob-provider inventory is never scanned. The returned ciphertext total counts only persisted `retained`
+blobs, so completed cleanup reports zero retained bytes without erasing the share's file count. The exact `totalMatching` can change between
+page requests as shares expire, are revoked, or finish cleanup. Share-list audits contain only operation, outcome, HTTP status, and elapsed
+time. Keep this endpoint on the same protected management boundary as every other `/api/admin/*` route.
+
+Operational audit records for `/api/admin/status` and `/api/admin/shares` are now written by one shared filter, so both use the log source
+context `ShadowDrop.Api.Status.OperationalAuditEndpointFilter`. Log pipelines that selected status audits by the previous
+`ShadowDrop.Api.Status.AdminStatusAuditEndpointFilter` context need updating; the `Operation` property
+(`admin-status-view` or `admin-share-list`) is the stable way to tell the two apart.
+
+LiteDB assembles each share-list page by walking equal-creation-time groups, because it orders by a single field. A page therefore costs one
+indexed ordering query plus one lookup per distinct creation timestamp it spans. With a lifecycle filter that pushes the query planner off
+the creation-time index this stays proportional to collection size; prefer MongoDB for installations where operators page through large
+share inventories regularly.
+
 ### Download-only deployments
 
 A server that only needs to serve downloads can disable the admin surface
@@ -192,6 +209,10 @@ token is not required. Because `EnableUploads` is omitted, it inherits `false`
 and the scoped upload/share routes are also not mapped. See
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#recommended-mitigations) for
 when to choose this shape.
+
+In this mode `GET /api/admin/shares` returns the framework `404`; the CLI reports
+the disabled administrative capability as a generic exit-code-`1` failure with
+no stdout page.
 
 ## Persistence providers
 

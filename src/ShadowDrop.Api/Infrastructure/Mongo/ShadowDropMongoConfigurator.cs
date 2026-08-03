@@ -55,6 +55,28 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 new()
                 {
                     Name = "cleanup_candidates"
+                }),
+            new(Builders<MongoShareDocument>.IndexKeys
+                                            .Descending(x => x.CreatedAtUnixTimeMilliseconds)
+                                            .Descending(x => x.ShareId),
+                new()
+                {
+                    Name = "newest_first_listing"
+                }),
+            new(Builders<MongoShareDocument>.IndexKeys.Ascending(x => x.ExpiresAtUnixTimeMilliseconds),
+                new()
+                {
+                    Name = "share_expiration"
+                }),
+            new(Builders<MongoShareDocument>.IndexKeys.Ascending(x => x.RevokedAtUnixTimeMilliseconds),
+                new()
+                {
+                    Name = "share_revocation"
+                }),
+            new(Builders<MongoShareDocument>.IndexKeys.Ascending(x => x.CleanupState),
+                new()
+                {
+                    Name = "share_cleanup_state"
                 })
         ], cancellationToken);
 

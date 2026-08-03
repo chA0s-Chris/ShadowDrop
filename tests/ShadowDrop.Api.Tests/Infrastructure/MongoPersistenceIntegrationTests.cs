@@ -295,8 +295,8 @@ public abstract class MongoPersistenceIntegrationTests
             CreateShare(completedId, $"counts-c-{Guid.NewGuid():N}", Guid.NewGuid(), now.AddMinutes(-1)), CancellationToken.None);
         await repository.CreateAsync(CreateShare(failedId, $"counts-f-{Guid.NewGuid():N}", Guid.NewGuid()), CancellationToken.None);
         (await repository.TryRevokeAsync(revokedId, now, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryUpdateCleanupStateAsync(completedId, ShareCleanupState.Completed, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryUpdateCleanupStateAsync(failedId, ShareCleanupState.Failed, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryRecordCleanupAttemptAsync(completedId, ShareCleanupState.Completed, now, [], CancellationToken.None)).Should().BeTrue();
+        (await repository.TryRecordCleanupAttemptAsync(failedId, ShareCleanupState.Failed, now, [], CancellationToken.None)).Should().BeTrue();
 
         var counts = await repository.GetStatusCountsAsync(now, CancellationToken.None);
         counts.Active.Should().Be(baseline.Active + 2);
@@ -348,8 +348,9 @@ public abstract class MongoPersistenceIntegrationTests
             DateTimeOffset.FromUnixTimeMilliseconds(firstRevokedAt.ToUnixTimeMilliseconds()),
             "the first revocation timestamp must win");
 
-        (await repository.TryUpdateCleanupStateAsync(shareId, ShareCleanupState.Completed, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryUpdateCleanupStateAsync(Guid.NewGuid(), ShareCleanupState.Completed, CancellationToken.None)).Should().BeFalse();
+        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Completed, firstRevokedAt, [], CancellationToken.None)).Should().BeTrue();
+        (await repository.TryRecordCleanupAttemptAsync(Guid.NewGuid(), ShareCleanupState.Completed, firstRevokedAt, [], CancellationToken.None)).Should()
+            .BeFalse();
         (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
     }
 
@@ -605,12 +606,63 @@ public abstract class MongoPersistenceIntegrationTests
         (await repository.GetCleanupCandidatesAsync(now, CancellationToken.None)).Select(x => x.ShareId).Should().Contain(shareId);
         (await repository.GetStatusCountsAsync(now, CancellationToken.None)).Expired.Should().Be(baseline.Expired + 1);
         (await repository.TryRevokeAsync(shareId, now, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryUpdateCleanupStateAsync(shareId, ShareCleanupState.Completed, CancellationToken.None)).Should().BeTrue();
+        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Completed, now, [], CancellationToken.None)).Should().BeTrue();
         (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
 
         var duplicateFile = CreateShare(Guid.NewGuid(), $"contract-{Guid.NewGuid():N}", fileId);
         var createDuplicate = async () => await repository.CreateAsync(duplicateFile, CancellationToken.None);
         await createDuplicate.Should().ThrowAsync<CreateShareValidationException>();
+
+        var tiedIds = new[]
+        {
+            Guid.Parse("00000000-0000-0000-0000-000000000001"),
+            Guid.Parse("80000000-0000-0000-0000-000000000001"),
+            Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        };
+        var overlappingFilters = new[]
+        {
+            ShareListStatuses.Active,
+            ShareListStatuses.CleanupPending
+        };
+        var baselineOverlapping = await repository.CountMatchingAsync(new(now, overlappingFilters, 1, null), CancellationToken.None);
+
+        // Create the group far enough in the future to be unambiguously newest, so cursor paging over it is
+        // deterministic no matter what the rest of the shared fixture already holds.
+        var tiedCreatedAt = now.AddDays(30);
+        foreach (var tiedId in tiedIds)
+        {
+            await repository.CreateAsync(new(tiedId,
+                                             $"ordering-{Guid.NewGuid():N}",
+                                             tiedCreatedAt,
+                                             now.AddDays(60),
+                                             null,
+                                             ShareCleanupState.Pending,
+                                             false,
+                                             null,
+                                             [new(Guid.NewGuid(), "private-name.bin", null)]),
+                                         CancellationToken.None);
+        }
+
+        var expectedOrder = tiedIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal).ToArray();
+        var listed = await repository.GetListPageAsync(new(now, [], 20, null), CancellationToken.None);
+        listed.Shares.Where(share => tiedIds.Contains(share.ShareId)).Select(share => share.ShareId).Should().Equal(expectedOrder);
+
+        // Continuation must resume strictly after the last (CreatedAtUtc, ShareId) pair, including part-way through
+        // an equal-timestamp group, and must not repeat or skip a share.
+        var firstPage = await repository.GetListPageAsync(new(now, [], 2, null), CancellationToken.None);
+        var secondPage = await repository.GetListPageAsync(new(now, [], 2, firstPage.NextCursor), CancellationToken.None);
+        firstPage.Shares.Select(share => share.ShareId).Should().Equal(expectedOrder[..2]);
+        firstPage.NextCursor.Should().NotBeNull();
+        secondPage.Shares.Select(share => share.ShareId).First().Should().Be(expectedOrder[2]);
+
+        // Every tied share matches both filters, so an OR-combined query has to count each of them exactly once.
+        (await repository.CountMatchingAsync(new(now, overlappingFilters, 1, null), CancellationToken.None))
+            .Should().Be(baselineOverlapping + tiedIds.Length);
+
+        // The exact total is independent of page size and cursor position.
+        var unpagedTotal = await repository.CountMatchingAsync(new(now, [], 200, null), CancellationToken.None);
+        (await repository.CountMatchingAsync(new(now, [], 2, firstPage.NextCursor), CancellationToken.None)).Should().Be(unpagedTotal);
+        (await repository.CountMatchingAsync(new(now, [], 1, null), CancellationToken.None)).Should().Be(unpagedTotal);
     }
 
     private static async Task AssertUploadedFileMetadataContractAsync(IUploadedFileMetadataRepository repository)
@@ -630,6 +682,8 @@ public abstract class MongoPersistenceIntegrationTests
         var record = CreateUploadedFile(fileId, fileId.ToString("N"), 37);
         (await repository.TryCompleteReservationAsync(record, CancellationToken.None)).Should().BeTrue();
         (await repository.GetAsync(fileId, CancellationToken.None)).Should().Be(record);
+        (await repository.GetListProjectionsAsync([fileId, Guid.NewGuid()], CancellationToken.None)).Should().Equal(
+            new UploadedFileListProjection(fileId, 37, BlobRetentionState.Retained));
         var stats = await repository.GetStorageStatsAsync(CancellationToken.None);
         stats.CompletedFileCount.Should().Be(baselineStats.CompletedFileCount + 1);
         stats.TotalEncryptedBytes.Should().Be(baselineStats.TotalEncryptedBytes + 37);

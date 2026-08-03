@@ -118,6 +118,7 @@ stable release is known. This is designed to stay out of the way:
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete server blobs for expired and revoked shares.            |
+| `share list`                   | List bounded share lifecycle and retained-ciphertext metadata. |
 | `token create`                 | Create a scoped upload credential and display its token once.  |
 | `token list`                   | List bounded upload-credential lifecycle metadata.             |
 | `token inspect <credential-id>` | Inspect one upload credential by management ID.               |
@@ -151,7 +152,7 @@ administrative routes. The bootstrap admin token is also accepted on those
 scoped routes for migration and recovery.
 
 Administrative commands (`token create/list/inspect/revoke`, `share revoke`,
-and `share cleanup`) resolve a separate token with this precedence:
+`share cleanup`, and `share list`) resolve a separate token with this precedence:
 
 1. Command-line flag: `--admin-token`
 2. Environment variable: `SHADOWDROP_ADMIN_TOKEN`
@@ -226,6 +227,35 @@ include the selected `serverStatus` projection.
 Human output always starts with the server URL, reachability, CLI version, protocol compatibility, and stable outcome before tier-specific
 details. A `404` from an explicitly selected upload/admin status route is `capability-disabled`; a bodyless `503` while authenticating the
 upload tier is `not-ready` and never includes an upload projection.
+
+## Listing shares
+
+Use the dedicated admin credential to list a bounded, redacted inventory:
+
+```bash
+shadowdrop share list
+shadowdrop share list --status active --status cleanup-failed --page-size 50
+shadowdrop share list --cursor '<next-cursor>' --page-size 200
+shadowdrop share list --json
+```
+
+`--status` repeats and combines with OR. Accepted values, and their output order, are `active`, `expired`, `revoked`, `cleanup-pending`,
+`cleanup-failed`, and `cleanup-completed`; omitting it matches all shares, while a bare `--status` carrying no value is rejected rather
+than read as "all shares". `--page-size` defaults server-side to `50`, accepts `1` through `200`, and is rejected rather than clamped
+outside that range. `--cursor` is the opaque continuation value from the preceding page and is bound to the normalized filters; page
+size may change between requests. Pages are newest first. `totalMatching` counts the whole filter set rather than the page, and is counted
+separately from it, so under concurrent lifecycle or cleanup changes it can disagree with the page it arrives with and can change between
+requests.
+
+Human output uses stable field, status, and cleanup-category ordering and always prints the total and `next-cursor` (`-` on the final page).
+`--json` writes exactly the API's one protocol-v1 page value on stdout. Banners, TLS warnings, and diagnostics remain on stderr. Every
+configuration, validation, HTTP, authorization, disabled-route, cursor, metadata-consistency, or unexpected-response failure returns exit
+code `1`, writes a generic diagnostic to stderr, and writes nothing to stdout. The listing exposes only share ID, lifecycle timestamps and
+statuses, normalized latest cleanup outcome, file count, and retained ciphertext bytes; it never exposes filenames, upload-owner or
+credential identifiers, token material or hashes, blob keys, cryptographic metadata, plaintext hashes, or provider internals.
+
+The share-list controls deliberately differ from `token list`: share listing names the size option `--page-size` and rejects values above
+`200`, while upload-credential listing uses `--limit` and its API clamps values above that endpoint's maximum.
 
 ## Provisioning upload credentials
 

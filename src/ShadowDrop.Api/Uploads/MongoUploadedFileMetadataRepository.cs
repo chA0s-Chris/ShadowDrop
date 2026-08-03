@@ -67,6 +67,23 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
         return document is null ? null : Map(document);
     }
 
+    public async Task<IReadOnlyList<UploadedFileListProjection>> GetListProjectionsAsync(
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fileIds);
+        if (fileIds.Count == 0)
+        {
+            return [];
+        }
+
+        var filter = Builders<MongoUploadedFileDocument>.Filter.In(x => x.FileId, fileIds)
+                     & Builders<MongoUploadedFileDocument>.Filter.Eq(x => x.IsReserved, false);
+        return await Collection.Find(filter)
+                               .Project(x => new UploadedFileListProjection(x.FileId, x.EncryptedLength, x.RetentionState))
+                               .ToListAsync(cancellationToken);
+    }
+
     public async Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken)
     {
         var match = new BsonDocument("$match", new BsonDocument("IsReserved", false));

@@ -9,13 +9,13 @@ using Microsoft.Extensions.Logging.Testing;
 using NUnit.Framework;
 using ShadowDrop.Api.Status;
 
-public sealed class AdminStatusAuditEndpointFilterTests
+public sealed class OperationalAuditEndpointFilterTests
 {
     [Test]
     public async Task InvokeAsync_ShouldAuditCallerCancellation_AndRethrow()
     {
         var collector = new FakeLogCollector();
-        var filter = new AdminStatusAuditEndpointFilter(new FakeLogger<AdminStatusAuditEndpointFilter>(collector));
+        var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         var context = CreateContext(cancellation.Token);
@@ -37,7 +37,7 @@ public sealed class AdminStatusAuditEndpointFilterTests
         LogLevel level)
     {
         var collector = new FakeLogCollector();
-        var filter = new AdminStatusAuditEndpointFilter(new FakeLogger<AdminStatusAuditEndpointFilter>(collector));
+        var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         var context = CreateContext();
 
         _ = await filter.InvokeAsync(context,
@@ -50,7 +50,7 @@ public sealed class AdminStatusAuditEndpointFilterTests
     public async Task InvokeAsync_ShouldAuditUnauthorizedResponse_WithAllowListedPropertiesOnly()
     {
         var collector = new FakeLogCollector();
-        var filter = new AdminStatusAuditEndpointFilter(new FakeLogger<AdminStatusAuditEndpointFilter>(collector));
+        var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers.Authorization = "Bearer secret-token";
         httpContext.SetEndpoint(new(static _ => Task.CompletedTask,
@@ -74,7 +74,7 @@ public sealed class AdminStatusAuditEndpointFilterTests
     public async Task InvokeAsync_ShouldAuditUnhandledFailureWithoutLoggingException_AndRethrow()
     {
         var collector = new FakeLogCollector();
-        var filter = new AdminStatusAuditEndpointFilter(new FakeLogger<AdminStatusAuditEndpointFilter>(collector));
+        var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         var context = CreateContext();
 
         var act = async () => await filter.InvokeAsync(

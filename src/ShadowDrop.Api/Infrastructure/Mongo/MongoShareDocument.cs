@@ -8,6 +8,7 @@ using MongoDB.Bson.Serialization.Attributes;
 [BsonIgnoreExtraElements]
 internal sealed class MongoShareDocument
 {
+    public List<String> CleanupFailureCategories { get; set; } = [];
     public String CleanupState { get; set; } = String.Empty;
 
     public Int64 CreatedAtUnixTimeMilliseconds { get; set; }
@@ -21,6 +22,9 @@ internal sealed class MongoShareDocument
     public Int64 ExpiresAtUnixTimeMilliseconds { get; set; }
 
     public List<MongoShareFileEntryDocument> Files { get; set; } = [];
+
+    [BsonIgnoreIfNull]
+    public Int64? LastCleanupAttemptAtUnixTimeMilliseconds { get; set; }
 
     [BsonIgnoreIfNull]
     [BsonGuidRepresentation(GuidRepresentation.Standard)]

@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
+using Serilog.Core;
+using Serilog.Events;
 using ShadowDrop.Api;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
@@ -55,6 +57,143 @@ public sealed class ApiWalkingSkeletonTests
 
         unauthenticatedResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         authenticatedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task AdminShareList_ShouldUseSharedErrors_AndReturnProtocolPage()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+
+        // Bound to `active`, so replaying it under a different filter set must be rejected rather than silently
+        // continuing a walk the caller never started.
+        var boundToActive = new ShareListCursor(OperationalStatusProtocol.CurrentVersion,
+                                                [ShareListStatuses.Active],
+                                                DateTimeOffset.Parse("2026-08-03T12:00:00Z").ToUnixTimeMilliseconds(),
+                                                Guid.Parse("80000000-0000-0000-0000-000000000001")).Encode();
+
+        var unauthorized = await client.GetAsync("/api/admin/shares");
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var invalid = await client.GetAsync("/api/admin/shares?status=unknown&pageSize=0&cursor=bad");
+        var malformedCursor = await client.GetAsync("/api/admin/shares?cursor=not-base64url!!");
+        var mismatchedCursor = await client.GetAsync($"/api/admin/shares?status={ShareListStatuses.Expired}&cursor={boundToActive}");
+        var success = await client.GetAsync("/api/admin/shares?pageSize=200");
+
+        unauthorized.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await unauthorized.Content.ReadFromJsonAsync<OperationalErrorContract>())!.Reason.Should().Be(OperationalErrorReasons.Unauthorized);
+
+        // A request invalid in both its filters and its cursor reports the filter problem, because cursor validity is
+        // only defined relative to an already-known-good filter set.
+        invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await invalid.Content.ReadFromJsonAsync<OperationalErrorContract>())!.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
+
+        malformedCursor.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await malformedCursor.Content.ReadFromJsonAsync<OperationalErrorContract>())!.Reason.Should().Be(OperationalErrorReasons.InvalidCursor);
+        mismatchedCursor.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await mismatchedCursor.Content.ReadFromJsonAsync<OperationalErrorContract>())!.Reason.Should().Be(OperationalErrorReasons.InvalidCursor);
+
+        success.StatusCode.Should().Be(HttpStatusCode.OK);
+        var page = await success.Content.ReadFromJsonAsync<ShareListPageContract>();
+        page.Should().BeEquivalentTo(new ShareListPageContract(OperationalStatusProtocol.CurrentVersion, [], null, 0));
+    }
+
+    [Test]
+    public async Task AdminShareList_ShouldAuditEveryOutcome_WithoutRecordingRequestDetails()
+    {
+        var sink = new CapturingLogSink();
+        await using var fixture = new TestApiFactory();
+        using var host = fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services => services.AddSingleton<ILogEventSink>(sink)));
+        using var client = host.CreateClient();
+
+        // The audit filter is mapped outside the bearer-token filter precisely so rejected credentials stay
+        // observable, so the unauthorized request has to produce a record just like the accepted ones.
+        var unauthorized = await client.GetAsync("/api/admin/shares?status=active&cursor=leaked-cursor-value");
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var invalid = await client.GetAsync("/api/admin/shares?status=leaked-status-value");
+        var success = await client.GetAsync("/api/admin/shares?pageSize=1");
+
+        unauthorized.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        success.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var audits = sink.Events
+                         .Where(logEvent => Scalar(logEvent, "Operation") == "admin-share-list")
+                         .ToArray();
+
+        audits.Select(logEvent => Scalar(logEvent, "Outcome")).Should().Equal("unauthorized", "invalid-request", "success");
+        audits.Select(logEvent => Scalar(logEvent, "HttpStatus")).Should().Equal("401", "400", "200");
+        audits.Should().OnlyContain(logEvent => logEvent.Exception == null);
+        audits.Should().OnlyContain(logEvent => Scalar(logEvent, "ElapsedMilliseconds") != null);
+        audits.Select(logEvent => logEvent.RenderMessage()).Should().OnlyContain(message => !message.Contains("leaked-cursor-value", StringComparison.Ordinal)
+                                                                                            && !message.Contains(
+                                                                                                "leaked-status-value", StringComparison.Ordinal)
+                                                                                            && !message.Contains(
+                                                                                                fixture.BootstrapToken, StringComparison.Ordinal));
+    }
+
+    private static String? Scalar(LogEvent logEvent, String name) =>
+        logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue { Value: { } scalar }
+            ? scalar.ToString()
+            : null;
+
+    [Test]
+    public async Task AdminShareList_ShouldNotBeMapped_WhenAdministrativeOperationsAreDisabled()
+    {
+        await using var fixture = new TestApiFactory(false);
+        using var client = fixture.CreateClient();
+
+        var response = await client.GetAsync("/api/admin/shares");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Test]
+    public async Task AdminShareList_ShouldFailWholeRequest_WhenBatchFileProjectionIsUnusable([Values] Boolean projectionThrows)
+    {
+        var sink = new CapturingLogSink();
+        var share = new ShareListRecord(Guid.Parse("80000000-0000-0000-0000-000000000001"),
+                                        DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
+                                        DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
+                                        null,
+                                        ShareCleanupState.Pending,
+                                        null,
+                                        [],
+                                        [Guid.NewGuid()]);
+
+        // Either the batch provider fails outright or it silently returns fewer rows than were asked for. Neither may
+        // produce a partial page or an inferred ciphertext total, so both have to fail the whole request identically.
+        var files = new UnusableFileProjectionRepository(projectionThrows);
+        await using var fixture = new TestApiFactory();
+        using var host = fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<ILogEventSink>(sink);
+            services.AddSingleton<IShareMetadataRepository>(new SingleShareMetadataRepository(share));
+            services.AddSingleton<IUploadedFileMetadataRepository>(files);
+        }));
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        var response = await client.GetAsync("/api/admin/shares");
+        var body = await response.Content.ReadAsStringAsync();
+
+        // Pins the failure to the batch projection rather than to some other stub member the endpoint's catch-all
+        // would flatten into the same 500.
+        files.ProjectionCalls.Should().Be(1);
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        JsonSerializer.Deserialize<OperationalErrorContract>(body, JsonOptions)!.Reason.Should().Be(OperationalErrorReasons.OperationFailed);
+        body.Should().NotContain("provider-secret", "provider detail must never reach the caller")
+            .And.NotContain(share.ShareId.ToString("D", CultureInfo.InvariantCulture));
+
+        var audits = sink.Events
+                         .Where(logEvent => Scalar(logEvent, "Operation") == "admin-share-list")
+                         .ToArray();
+
+        audits.Select(logEvent => Scalar(logEvent, "Outcome")).Should().Equal("failure");
+        audits.Select(logEvent => Scalar(logEvent, "HttpStatus")).Should().Equal("500");
+        audits.Should().OnlyContain(logEvent => logEvent.Exception == null);
+        audits.Select(logEvent => logEvent.RenderMessage())
+              .Should().OnlyContain(message => !message.Contains("provider-secret", StringComparison.Ordinal)
+                                               && !message.Contains("80000000-0000-0000-0000-000000000001", StringComparison.Ordinal));
     }
 
     [Test]
@@ -161,7 +300,9 @@ public sealed class ApiWalkingSkeletonTests
             await client.PostAsync("/api/admin/shares", null)
         };
 
-        responses.Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound);
+        responses[..^1].Should().OnlyContain(response => response.StatusCode == HttpStatusCode.NotFound);
+        responses[^1].StatusCode.Should().Be(HttpStatusCode.MethodNotAllowed,
+                                             "GET /api/admin/shares now exists while legacy POST /api/admin/shares remains unavailable");
     }
 
     [Test]
@@ -1899,6 +2040,99 @@ public sealed class ApiWalkingSkeletonTests
         public String SaltBase64 { get; set; } = String.Empty;
 
         public String TokenHashBase64 { get; set; } = String.Empty;
+    }
+
+    /// <summary>
+    /// Captures emitted log events. The API registers Serilog with <c>writeToProviders: false</c>, so an
+    /// <see cref="ILoggerProvider"/> would never be called; <c>ReadFrom.Services</c> does pick up sinks from DI.
+    /// </summary>
+    private sealed class CapturingLogSink : ILogEventSink
+    {
+        private readonly List<LogEvent> _events = [];
+
+        public IReadOnlyList<LogEvent> Events
+        {
+            get
+            {
+                lock (_events)
+                {
+                    return [.. _events];
+                }
+            }
+        }
+
+        public void Emit(LogEvent logEvent)
+        {
+            lock (_events)
+            {
+                _events.Add(logEvent);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns exactly one share page entry so the share-list request reaches its batch file projection.
+    /// </summary>
+    private sealed class SingleShareMetadataRepository(ShareListRecord share) : IShareMetadataRepository
+    {
+        public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => Task.FromResult(1L);
+
+        public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ShareRecord>>([]);
+
+        public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken) =>
+            Task.FromResult(new ShareListRepositoryPage([share], null));
+
+        public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(new ShareStatusCounts(0, 0, 0, 0, 0, 0));
+
+        public Task<Boolean> TryRecordCleanupAttemptAsync(Guid shareId, ShareCleanupState cleanupState, DateTimeOffset completedAtUtc,
+                                                          IReadOnlyCollection<String> failureCategories,
+                                                          CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Makes the bounded batch file projection unusable, either by failing outright or by returning fewer rows than
+    /// the page requires.
+    /// </summary>
+    private sealed class UnusableFileProjectionRepository(Boolean throws) : IUploadedFileMetadataRepository
+    {
+        public Int32 ProjectionCalls { get; private set; }
+
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => Task.FromResult(0);
+
+        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<UploadedFileListProjection>> GetListProjectionsAsync(IReadOnlyCollection<Guid> fileIds,
+                                                                                       CancellationToken cancellationToken)
+        {
+            ProjectionCalls++;
+            return throws
+                ? throw new InvalidOperationException("provider-secret")
+                : Task.FromResult<IReadOnlyList<UploadedFileListProjection>>([]);
+        }
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new UploadedFileStorageStats(0, 0));
+
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class TestApiFactory : WebApplicationFactory<Program>

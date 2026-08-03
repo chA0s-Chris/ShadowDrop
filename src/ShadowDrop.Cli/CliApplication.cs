@@ -330,10 +330,36 @@ internal static class CliApplication
         shareCleanupCommand.Options.Add(insecureOption);
         shareCleanupCommand.Options.Add(adminTokenOption);
 
+        var shareListStatusOption = new Option<String[]>("--status")
+        {
+            Description = "Lifecycle status to match. Repeat to combine statuses with OR.",
+            // ZeroOrMore keeps the option non-greedy so a following flag is still parsed as a flag; a valueless
+            // `--status` is rejected at binding time instead, rather than silently widening the query.
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var shareListPageSizeOption = new Option<Int32?>("--page-size")
+        {
+            Description = "Number of shares per page (default 50, maximum 200)."
+        };
+        var shareListCursorOption = new Option<String?>("--cursor")
+        {
+            Description = "Opaque continuation cursor from a previous share list page."
+        };
+        var shareListCommand = new Command("list", "List shares and retained ciphertext state, newest first.");
+        shareListCommand.Options.Add(serverOption);
+        shareListCommand.Options.Add(caCertOption);
+        shareListCommand.Options.Add(insecureOption);
+        shareListCommand.Options.Add(adminTokenOption);
+        shareListCommand.Options.Add(shareListStatusOption);
+        shareListCommand.Options.Add(shareListPageSizeOption);
+        shareListCommand.Options.Add(shareListCursorOption);
+        shareListCommand.Options.Add(jsonOption);
+
         var shareCommand = new Command("share", "Create and manage shares.");
         shareCommand.Subcommands.Add(shareCreateCommand);
         shareCommand.Subcommands.Add(shareRevokeCommand);
         shareCommand.Subcommands.Add(shareCleanupCommand);
+        shareCommand.Subcommands.Add(shareListCommand);
 
         var tokenNameOption = new Option<String?>("--name")
         {
@@ -508,6 +534,10 @@ internal static class CliApplication
                    shareRevokeCommand,
                    shareIdArgument,
                    shareCleanupCommand,
+                   shareListCommand,
+                   shareListStatusOption,
+                   shareListPageSizeOption,
+                   shareListCursorOption,
                    adminTokenOption,
                    tokenNameOption,
                    tokenExpiresInOption,
@@ -702,6 +732,24 @@ internal static class CliApplication
                                                        httpClient,
                                                        services.StandardOut,
                                                        services.StandardError).ExecuteAsync(revokeOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ShareListCommand)
+        {
+            // Distinguish an absent `--status` from one supplied without a value: the first means "every share", the
+            // second is a caller error that must not be read as the first.
+            var listOptions = new ShareListCommandOptions(parseResult.GetResult(commandModel.ShareListStatusOption) is null
+                                                              ? null
+                                                              : parseResult.GetValue(commandModel.ShareListStatusOption) ?? [],
+                                                          parseResult.GetValue(commandModel.ShareListPageSizeOption),
+                                                          parseResult.GetValue(commandModel.ShareListCursorOption),
+                                                          parseResult.GetValue(commandModel.ServerOption),
+                                                          parseResult.GetValue(commandModel.AdminTokenOption),
+                                                          parseResult.GetValue(commandModel.JsonOption));
+            return await new ShareListCommandHandler(services.ConfigurationResolver,
+                                                     httpClient,
+                                                     services.StandardOut,
+                                                     services.StandardError).ExecuteAsync(listOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.TokenCreateCommand)
@@ -959,6 +1007,10 @@ internal static class CliApplication
         Command ShareRevokeCommand,
         Argument<String?> ShareIdArgument,
         Command ShareCleanupCommand,
+        Command ShareListCommand,
+        Option<String[]> ShareListStatusOption,
+        Option<Int32?> ShareListPageSizeOption,
+        Option<String?> ShareListCursorOption,
         Option<String?> AdminTokenOption,
         Option<String?> TokenNameOption,
         Option<String?> TokenExpiresInOption,

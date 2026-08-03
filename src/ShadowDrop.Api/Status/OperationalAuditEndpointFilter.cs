@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 internal sealed record OperationalAuditMetadata(String Operation);
 
-internal sealed class AdminStatusAuditEndpointFilter(ILogger<AdminStatusAuditEndpointFilter> logger) : IEndpointFilter
+internal sealed class OperationalAuditEndpointFilter(ILogger<OperationalAuditEndpointFilter> logger) : IEndpointFilter
 {
     private static String ResolveOutcome(Int32 statusCode) => statusCode switch
     {

@@ -12,4 +12,10 @@ public sealed record ShareRecord(
     Boolean DirectHttpEnabled,
     DownloadBearerTokenRecord? DownloadBearerToken,
     IReadOnlyList<ShareFileEntryRecord> Files,
-    Guid? OwnerCredentialId = null);
+    Guid? OwnerCredentialId = null,
+    DateTimeOffset? LastCleanupAttemptAtUtc = null,
+    IReadOnlyList<String>? CleanupFailureCategories = null)
+{
+    /// <summary>Gets the distinct sanitized categories of the latest completed cleanup attempt, never null.</summary>
+    public IReadOnlyList<String> CleanupFailureCategories { get; init; } = CleanupFailureCategories ?? [];
+}
