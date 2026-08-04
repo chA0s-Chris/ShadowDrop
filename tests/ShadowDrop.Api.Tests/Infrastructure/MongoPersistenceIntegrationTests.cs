@@ -190,7 +190,10 @@ public abstract class MongoPersistenceIntegrationTests
             .ToListAsync();
         uploadIndexes.Select(x => x["name"].AsString).Should().Contain(["reservation_state", "storage_stats"]);
         shareIndexes.Select(x => x["name"].AsString).Should().Contain(
-            ["share_token_unique", "file_single_use", "cleanup_candidates"]);
+        [
+            "share_token_unique", "file_single_use", "cleanup_candidates", "newest_first_listing",
+            "share_expiration", "share_cleanup_state", "share_lifecycle"
+        ]);
         uploadCredentialIndexes.Select(x => x["name"].AsString).Should().Contain(
             ["selector_digest_unique", "newest_first_listing"]);
     }

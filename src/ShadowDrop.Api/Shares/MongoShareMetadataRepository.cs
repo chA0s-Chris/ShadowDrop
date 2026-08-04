@@ -114,6 +114,9 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
 
     private static String State(ShareCleanupState state) => state.ToString().ToUpperInvariant();
 
+    private Task<Int64> CountStatusAsync(String status, Int64 now, CancellationToken cancellationToken) =>
+        Collection.CountDocumentsAsync(BuildStatusFilter(status, now), cancellationToken: cancellationToken);
+
     public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -200,13 +203,14 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
     public async Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        var active = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.Active, now), cancellationToken: cancellationToken);
-        var expired = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.Expired, now), cancellationToken: cancellationToken);
-        var revoked = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.Revoked, now), cancellationToken: cancellationToken);
-        var pending = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.CleanupPending, now), cancellationToken: cancellationToken);
-        var failed = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.CleanupFailed, now), cancellationToken: cancellationToken);
-        var completed = await Collection.CountDocumentsAsync(BuildStatusFilter(ShareListStatuses.CleanupCompleted, now), cancellationToken: cancellationToken);
-        return new(active, expired, revoked, pending, failed, completed);
+        var active = CountStatusAsync(ShareListStatuses.Active, now, cancellationToken);
+        var expired = CountStatusAsync(ShareListStatuses.Expired, now, cancellationToken);
+        var revoked = CountStatusAsync(ShareListStatuses.Revoked, now, cancellationToken);
+        var pending = CountStatusAsync(ShareListStatuses.CleanupPending, now, cancellationToken);
+        var failed = CountStatusAsync(ShareListStatuses.CleanupFailed, now, cancellationToken);
+        var completed = CountStatusAsync(ShareListStatuses.CleanupCompleted, now, cancellationToken);
+        await Task.WhenAll(active, expired, revoked, pending, failed, completed);
+        return new(await active, await expired, await revoked, await pending, await failed, await completed);
     }
 
     public async Task<Boolean> TryRecordCleanupAttemptAsync(
@@ -216,7 +220,7 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         IReadOnlyCollection<String> failureCategories,
         CancellationToken cancellationToken)
     {
-        List<String> categories = cleanupState == ShareCleanupState.Completed
+        var categories = cleanupState == ShareCleanupState.Completed
             ? []
             : ShareLifecycle.FailureCategories(failureCategories).ToList();
         var result = await Collection.UpdateOneAsync(

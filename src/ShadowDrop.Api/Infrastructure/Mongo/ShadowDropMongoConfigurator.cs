@@ -68,10 +68,15 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 {
                     Name = "share_expiration"
                 }),
-            new(Builders<MongoShareDocument>.IndexKeys.Ascending(x => x.RevokedAtUnixTimeMilliseconds),
+            // Equality on revocation before the expiry range makes the active count a pure COUNT_SCAN. The
+            // revocation prefix serves the revoked count with the same plan a single-field index would give,
+            // so no separate one is needed.
+            new(Builders<MongoShareDocument>.IndexKeys
+                                            .Ascending(x => x.RevokedAtUnixTimeMilliseconds)
+                                            .Ascending(x => x.ExpiresAtUnixTimeMilliseconds),
                 new()
                 {
-                    Name = "share_revocation"
+                    Name = "share_lifecycle"
                 }),
             new(Builders<MongoShareDocument>.IndexKeys.Ascending(x => x.CleanupState),
                 new()
