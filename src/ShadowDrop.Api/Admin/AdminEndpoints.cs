@@ -6,6 +6,7 @@ using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Status;
+using ShadowDrop.Contracts;
 
 public static class AdminEndpoints
 {
@@ -16,7 +17,14 @@ public static class AdminEndpoints
             app.MapGet("/api/admin/status", GetStatusAsync)
                .WithName("AdminServerStatus")
                .WithMetadata(new OperationalAuditMetadata("admin-status-view"))
-               .AddEndpointFilter<AdminStatusAuditEndpointFilter>()
+               .AddEndpointFilter<OperationalAuditEndpointFilter>()
+               .AddEndpointFilter<AdminBearerTokenEndpointFilter>();
+
+            app.MapGet("/api/admin/shares", ListSharesAsync)
+               .WithName("AdminShareList")
+               .WithMetadata(new OperationalAuditMetadata("admin-share-list"))
+               .AddEndpointFilter<OperationalAuditEndpointFilter>()
+               .AddEndpointFilter<ShareListUnauthorizedResultFilter>()
                .AddEndpointFilter<AdminBearerTokenEndpointFilter>();
 
             var adminRoutes = app.MapGroup("/api/admin")
@@ -45,8 +53,40 @@ public static class AdminEndpoints
         return Results.Ok(result);
     }
 
+    private static IResult Error(String reason, Int32 statusCode) =>
+        Results.Json(new OperationalErrorContract(reason),
+                     OperationalStatusJsonSerializerContext.Default.OperationalErrorContract,
+                     statusCode: statusCode);
+
     private static async Task<IResult> GetStatusAsync(OperationalStatusService service, CancellationToken cancellationToken) =>
         StatusEndpoints.ToResult(await service.GetAdminAsync(cancellationToken));
+
+    private static async Task<IResult> ListSharesAsync(
+        HttpRequest request,
+        ShareListService service,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var page = await service.GetAsync(request.Query["status"],
+                                              request.Query["pageSize"],
+                                              request.Query["cursor"],
+                                              cancellationToken);
+            return Results.Json(page, OperationalStatusJsonSerializerContext.Default.ShareListPageContract);
+        }
+        catch (ShareListValidationException exception)
+        {
+            return Error(exception.Reason, StatusCodes.Status400BadRequest);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return Error(OperationalErrorReasons.OperationFailed, StatusCodes.Status500InternalServerError);
+        }
+    }
 
     private static async Task<IResult> RevokeShareAsync(Guid shareId,
                                                         ShareRevocationService shareRevocationService,

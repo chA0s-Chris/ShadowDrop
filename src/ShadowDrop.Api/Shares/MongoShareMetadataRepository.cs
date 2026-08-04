@@ -3,13 +3,51 @@
 namespace ShadowDrop.Api.Shares;
 
 using Chaos.Mongo;
-using MongoDB.Bson;
 using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
+using ShadowDrop.Contracts;
 
 public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMetadataRepository
 {
     private IMongoCollection<MongoShareDocument> Collection => mongo.GetCollection<MongoShareDocument>();
+
+    private static FilterDefinition<MongoShareDocument> BuildQueryFilter(ShareListQuery query, Boolean includeCursor)
+    {
+        var builder = Builders<MongoShareDocument>.Filter;
+        var now = query.NowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        var filter = query.Statuses.Length == 0
+            ? builder.Empty
+            : builder.Or(query.Statuses.Select(status => BuildStatusFilter(status, now)));
+        if (!includeCursor || query.Cursor is null)
+        {
+            return filter;
+        }
+
+        var continuation = builder.Or(
+            builder.Lt(x => x.CreatedAtUnixTimeMilliseconds, query.Cursor.CreatedAtUnixTimeMilliseconds),
+            builder.And(
+                builder.Eq(x => x.CreatedAtUnixTimeMilliseconds, query.Cursor.CreatedAtUnixTimeMilliseconds),
+                builder.Lt(x => x.ShareId, query.Cursor.ShareId)));
+        return builder.And(filter, continuation);
+    }
+
+    private static FilterDefinition<MongoShareDocument> BuildStatusFilter(String status, Int64 now)
+    {
+        var builder = Builders<MongoShareDocument>.Filter;
+        return status switch
+        {
+            ShareListStatuses.Active => builder.Eq(x => x.RevokedAtUnixTimeMilliseconds, null)
+                                        & builder.Gt(x => x.ExpiresAtUnixTimeMilliseconds, now),
+            ShareListStatuses.Expired => builder.Lte(x => x.ExpiresAtUnixTimeMilliseconds, now),
+            ShareListStatuses.Revoked => builder.Exists(x => x.RevokedAtUnixTimeMilliseconds)
+                                         & builder.Ne(x => x.RevokedAtUnixTimeMilliseconds, null),
+            ShareListStatuses.CleanupFailed => builder.Eq(x => x.CleanupState, State(ShareCleanupState.Failed)),
+            ShareListStatuses.CleanupCompleted => builder.Eq(x => x.CleanupState, State(ShareCleanupState.Completed)),
+            ShareListStatuses.CleanupPending => builder.Nin(x => x.CleanupState,
+                                                            [State(ShareCleanupState.Failed), State(ShareCleanupState.Completed)]),
+            _ => builder.Where(_ => false)
+        };
+    }
 
     private static MongoShareDocument Map(ShareRecord record) => new()
     {
@@ -19,6 +57,8 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         ExpiresAtUnixTimeMilliseconds = record.ExpiresAtUtc.ToUnixTimeMilliseconds(),
         RevokedAtUnixTimeMilliseconds = record.RevokedAtUtc?.ToUnixTimeMilliseconds(),
         CleanupState = State(record.CleanupState),
+        LastCleanupAttemptAtUnixTimeMilliseconds = record.LastCleanupAttemptAtUtc?.ToUnixTimeMilliseconds(),
+        CleanupFailureCategories = ShareLifecycle.FailureCategories(record.CleanupFailureCategories).ToList(),
         DirectHttpEnabled = record.DirectHttpEnabled,
         OwnerCredentialId = record.OwnerCredentialId,
         DownloadBearerToken = record.DownloadBearerToken is null
@@ -52,17 +92,36 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
                     document.DownloadBearerToken.TokenHashBase64,
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
             document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList(),
-            document.OwnerCredentialId);
+            document.OwnerCredentialId,
+            document.LastCleanupAttemptAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.LastCleanupAttemptAtUnixTimeMilliseconds.Value),
+            ShareLifecycle.FailureCategories(document.CleanupFailureCategories));
+
+    private static ShareListRecord MapList(MongoShareDocument document) =>
+        new(document.ShareId,
+            DateTimeOffset.FromUnixTimeMilliseconds(document.CreatedAtUnixTimeMilliseconds),
+            DateTimeOffset.FromUnixTimeMilliseconds(document.ExpiresAtUnixTimeMilliseconds),
+            document.RevokedAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.RevokedAtUnixTimeMilliseconds.Value),
+            Enum.TryParse<ShareCleanupState>(document.CleanupState, true, out var state) ? state : ShareCleanupState.Pending,
+            document.LastCleanupAttemptAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.LastCleanupAttemptAtUnixTimeMilliseconds.Value),
+            ShareLifecycle.FailureCategories(document.CleanupFailureCategories),
+            document.Files.Select(file => file.FileId).ToList());
 
     private static String State(ShareCleanupState state) => state.ToString().ToUpperInvariant();
 
-    private static BsonDocument SumWhen(BsonValue condition) =>
-        new("$sum", new BsonDocument("$cond", new BsonArray
-        {
-            condition,
-            1,
-            0
-        }));
+    private Task<Int64> CountStatusAsync(String status, Int64 now, CancellationToken cancellationToken) =>
+        Collection.CountDocumentsAsync(BuildStatusFilter(status, now), cancellationToken: cancellationToken);
+
+    public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return Collection.CountDocumentsAsync(BuildQueryFilter(query, false), cancellationToken: cancellationToken);
+    }
 
     public async Task CreateAsync(ShareRecord record, CancellationToken cancellationToken)
     {
@@ -106,89 +165,73 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         return documents.Select(Map).ToList();
     }
 
+    public async Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var sort = Builders<MongoShareDocument>.Sort
+                                               .Descending(x => x.CreatedAtUnixTimeMilliseconds)
+                                               .Descending(x => x.ShareId);
+        var projection = Builders<MongoShareDocument>.Projection
+                                                     .Include(x => x.ShareId)
+                                                     .Include(x => x.CreatedAtUnixTimeMilliseconds)
+                                                     .Include(x => x.ExpiresAtUnixTimeMilliseconds)
+                                                     .Include(x => x.RevokedAtUnixTimeMilliseconds)
+                                                     .Include(x => x.CleanupState)
+                                                     .Include(x => x.LastCleanupAttemptAtUnixTimeMilliseconds)
+                                                     .Include(x => x.CleanupFailureCategories)
+                                                     .Include("Files.FileId");
+        var documents = await Collection.Find(BuildQueryFilter(query, true))
+                                        .Sort(sort)
+                                        .Limit(query.PageSize + 1)
+                                        .Project<MongoShareDocument>(projection)
+                                        .ToListAsync(cancellationToken);
+        var fetched = documents.Select(MapList).ToList();
+        if (fetched.Count <= query.PageSize)
+        {
+            return new(fetched, null);
+        }
+
+        var shares = fetched.Take(query.PageSize).ToList();
+        var last = shares[^1];
+        return new(shares,
+                   new(OperationalStatusProtocol.CurrentVersion,
+                       query.Statuses,
+                       last.CreatedAtUtc.ToUnixTimeMilliseconds(),
+                       last.ShareId));
+    }
+
     public async Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        var active = CountStatusAsync(ShareListStatuses.Active, now, cancellationToken);
+        var expired = CountStatusAsync(ShareListStatuses.Expired, now, cancellationToken);
+        var revoked = CountStatusAsync(ShareListStatuses.Revoked, now, cancellationToken);
+        var pending = CountStatusAsync(ShareListStatuses.CleanupPending, now, cancellationToken);
+        var failed = CountStatusAsync(ShareListStatuses.CleanupFailed, now, cancellationToken);
+        var completed = CountStatusAsync(ShareListStatuses.CleanupCompleted, now, cancellationToken);
+        await Task.WhenAll(active, expired, revoked, pending, failed, completed);
+        return new(await active, await expired, await revoked, await pending, await failed, await completed);
+    }
 
-        var pending = State(ShareCleanupState.Pending);
-        var failed = State(ShareCleanupState.Failed);
-        var completed = State(ShareCleanupState.Completed);
-        var group = new BsonDocument("$group", new BsonDocument
-        {
-            ["_id"] = BsonNull.Value,
-            ["active"] = SumWhen(new BsonDocument("$and", new BsonArray
-            {
-                new BsonDocument("$eq", new BsonArray
-                {
-                    new BsonDocument("$ifNull", new BsonArray
-                    {
-                        "$RevokedAtUnixTimeMilliseconds",
-                        BsonNull.Value
-                    }),
-                    BsonNull.Value
-                }),
-                new BsonDocument("$gt", new BsonArray
-                {
-                    "$ExpiresAtUnixTimeMilliseconds",
-                    now
-                })
-            })),
-            ["expired"] = SumWhen(new BsonDocument("$lte", new BsonArray
-            {
-                "$ExpiresAtUnixTimeMilliseconds",
-                now
-            })),
-            ["revoked"] = SumWhen(new BsonDocument("$ne", new BsonArray
-            {
-                new BsonDocument("$ifNull", new BsonArray
-                {
-                    "$RevokedAtUnixTimeMilliseconds",
-                    BsonNull.Value
-                }),
-                BsonNull.Value
-            })),
-            ["cleanupPending"] = SumWhen(new BsonDocument("$or", new BsonArray
-            {
-                new BsonDocument("$eq", new BsonArray
-                {
-                    "$CleanupState",
-                    pending
-                }),
-                new BsonDocument("$not", new BsonArray
-                {
-                    new BsonDocument("$in", new BsonArray
-                    {
-                        "$CleanupState",
-                        new BsonArray
-                        {
-                            failed,
-                            completed
-                        }
-                    })
-                })
-            })),
-            ["cleanupFailed"] = SumWhen(new BsonDocument("$eq", new BsonArray
-            {
-                "$CleanupState",
-                failed
-            })),
-            ["cleanupCompleted"] = SumWhen(new BsonDocument("$eq", new BsonArray
-            {
-                "$CleanupState",
-                completed
-            }))
-        });
-        PipelineDefinition<MongoShareDocument, BsonDocument> pipeline = new[] { group };
-        using var cursor = await Collection.AggregateAsync(pipeline, cancellationToken: cancellationToken);
-        var counts = await cursor.FirstOrDefaultAsync(cancellationToken);
-        return counts is null
-            ? new(0, 0, 0, 0, 0, 0)
-            : new(counts["active"].ToInt64(),
-                  counts["expired"].ToInt64(),
-                  counts["revoked"].ToInt64(),
-                  counts["cleanupPending"].ToInt64(),
-                  counts["cleanupFailed"].ToInt64(),
-                  counts["cleanupCompleted"].ToInt64());
+    public async Task<Boolean> TryRecordCleanupAttemptAsync(
+        Guid shareId,
+        ShareCleanupState cleanupState,
+        DateTimeOffset completedAtUtc,
+        IReadOnlyCollection<String> failureCategories,
+        CancellationToken cancellationToken)
+    {
+        var categories = cleanupState == ShareCleanupState.Completed
+            ? []
+            : ShareLifecycle.FailureCategories(failureCategories).ToList();
+        var result = await Collection.UpdateOneAsync(
+            x => x.ShareId == shareId,
+            Builders<MongoShareDocument>.Update
+                                        .Set(x => x.CleanupState, State(cleanupState))
+                                        .Set(x => x.LastCleanupAttemptAtUnixTimeMilliseconds,
+                                             completedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds())
+                                        .Set(x => x.CleanupFailureCategories, categories),
+            cancellationToken: cancellationToken);
+        return result.MatchedCount == 1;
     }
 
     public async Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
@@ -204,14 +247,5 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         }
 
         return await Collection.Find(x => x.ShareId == shareId).AnyAsync(cancellationToken);
-    }
-
-    public async Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken)
-    {
-        var result = await Collection.UpdateOneAsync(
-            x => x.ShareId == shareId,
-            Builders<MongoShareDocument>.Update.Set(x => x.CleanupState, State(cleanupState)),
-            cancellationToken: cancellationToken);
-        return result.MatchedCount == 1;
     }
 }

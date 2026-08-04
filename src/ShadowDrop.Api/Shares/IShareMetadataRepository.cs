@@ -4,6 +4,8 @@ namespace ShadowDrop.Api.Shares;
 
 public interface IShareMetadataRepository
 {
+    Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken);
+
     /// <summary>
     /// Persists a new share record, enforcing that uploaded files are single-use across shares.
     /// </summary>
@@ -19,9 +21,16 @@ public interface IShareMetadataRepository
 
     Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
+    Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken);
+
     Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
-    Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken);
+    Task<Boolean> TryRecordCleanupAttemptAsync(
+        Guid shareId,
+        ShareCleanupState cleanupState,
+        DateTimeOffset completedAtUtc,
+        IReadOnlyCollection<String> failureCategories,
+        CancellationToken cancellationToken);
 
-    Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken);
+    Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken);
 }

@@ -18,31 +18,6 @@ using System.Security.Cryptography;
 public sealed class DownloadFileServiceTests
 {
     [Test]
-    public async Task DirectHttpDecryptingStream_ShouldReuseDerivedContentKeyAcrossChunks()
-    {
-        var fileId = Guid.NewGuid();
-        var payload = CreateDirectHttpPayload(fileId);
-        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
-        var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
-
-        await using var decryptingStream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
-                                                                                       CreateUploadedFileRecord(fileId, payload),
-                                                                                       shareSecret,
-                                                                                       CancellationToken.None);
-        var initialContentKey = GetPrivateField<ContentKey>(decryptingStream, "_contentKey");
-
-        var firstReadBuffer = new Byte[payload.ChunkSize - 5];
-        var secondReadBuffer = new Byte[payload.ChunkSize];
-        var firstRead = await decryptingStream.ReadAsync(firstReadBuffer, CancellationToken.None);
-        var secondRead = await decryptingStream.ReadAsync(secondReadBuffer, CancellationToken.None);
-
-        firstRead.Should().Be(firstReadBuffer.Length);
-        secondRead.Should().Be(secondReadBuffer.Length);
-        GetPrivateField<ContentKey>(decryptingStream, "_contentKey").Should().BeSameAs(initialContentKey);
-        GetContentKeyBytes(initialContentKey).Should().Contain(value => value != 0);
-    }
-
-    [Test]
     public async Task DirectHttpDecryptingStreamCreateAsync_ShouldZeroShareSecretWhenInitializationFails()
     {
         var fileId = Guid.NewGuid();
@@ -69,6 +44,43 @@ public sealed class DownloadFileServiceTests
 
         await act.Should().ThrowAsync<CryptographicException>();
         wrongShareSecret.Should().OnlyContain(value => value == 0);
+        encryptedStream.DisposeCount.Should().Be(1);
+        encryptedStream.WasDisposed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task DirectHttpDecryptingStreamDisposeAsync_ShouldZeroRetainedContentKeyAndShareSecret()
+    {
+        var fileId = Guid.NewGuid();
+        var payload = CreateDirectHttpPayload(fileId);
+        var encryptedStream = new TrackingReadStream(payload.Ciphertext);
+        var uploadedFile = new UploadedFileRecord(fileId,
+                                                  "blob-key",
+                                                  "cipher.bin",
+                                                  payload.Plaintext.LongLength,
+                                                  payload.Ciphertext.LongLength,
+                                                  "application/octet-stream",
+                                                  FormatConstants.EncryptionFormatVersion,
+                                                  FormatConstants.Aes256GcmAlgorithmId,
+                                                  payload.ChunkSize,
+                                                  payload.ChunkCount,
+                                                  payload.KdfSaltBase64,
+                                                  payload.PlaintextSha256);
+        var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
+
+        var stream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
+                                                                 uploadedFile,
+                                                                 shareSecret,
+                                                                 CancellationToken.None);
+        var contentKey = GetPrivateField<ContentKey>(stream, "_contentKey");
+        var keyMaterial = GetContentKeyBytes(contentKey);
+
+        keyMaterial.Should().Contain(value => value != 0);
+
+        await stream.DisposeAsync();
+
+        shareSecret.Should().OnlyContain(value => value == 0);
+        keyMaterial.Should().OnlyContain(value => value == 0);
         encryptedStream.DisposeCount.Should().Be(1);
         encryptedStream.WasDisposed.Should().BeTrue();
     }
@@ -109,40 +121,28 @@ public sealed class DownloadFileServiceTests
     }
 
     [Test]
-    public async Task DirectHttpDecryptingStreamDisposeAsync_ShouldZeroRetainedContentKeyAndShareSecret()
+    public async Task DirectHttpDecryptingStream_ShouldReuseDerivedContentKeyAcrossChunks()
     {
         var fileId = Guid.NewGuid();
         var payload = CreateDirectHttpPayload(fileId);
         var encryptedStream = new TrackingReadStream(payload.Ciphertext);
-        var uploadedFile = new UploadedFileRecord(fileId,
-                                                  "blob-key",
-                                                  "cipher.bin",
-                                                  payload.Plaintext.LongLength,
-                                                  payload.Ciphertext.LongLength,
-                                                  "application/octet-stream",
-                                                  FormatConstants.EncryptionFormatVersion,
-                                                  FormatConstants.Aes256GcmAlgorithmId,
-                                                  payload.ChunkSize,
-                                                  payload.ChunkCount,
-                                                  payload.KdfSaltBase64,
-                                                  payload.PlaintextSha256);
         var shareSecret = Convert.FromBase64String(payload.KeyMaterialBase64);
 
-        var stream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
-                                                                 uploadedFile,
-                                                                 shareSecret,
-                                                                 CancellationToken.None);
-        var contentKey = GetPrivateField<ContentKey>(stream, "_contentKey");
-        var keyMaterial = GetContentKeyBytes(contentKey);
+        await using var decryptingStream = await CreateDirectHttpDecryptingStreamAsync(encryptedStream,
+                                                                                       CreateUploadedFileRecord(fileId, payload),
+                                                                                       shareSecret,
+                                                                                       CancellationToken.None);
+        var initialContentKey = GetPrivateField<ContentKey>(decryptingStream, "_contentKey");
 
-        keyMaterial.Should().Contain(value => value != 0);
+        var firstReadBuffer = new Byte[payload.ChunkSize - 5];
+        var secondReadBuffer = new Byte[payload.ChunkSize];
+        var firstRead = await decryptingStream.ReadAsync(firstReadBuffer, CancellationToken.None);
+        var secondRead = await decryptingStream.ReadAsync(secondReadBuffer, CancellationToken.None);
 
-        await stream.DisposeAsync();
-
-        shareSecret.Should().OnlyContain(value => value == 0);
-        keyMaterial.Should().OnlyContain(value => value == 0);
-        encryptedStream.DisposeCount.Should().Be(1);
-        encryptedStream.WasDisposed.Should().BeTrue();
+        firstRead.Should().Be(firstReadBuffer.Length);
+        secondRead.Should().Be(secondReadBuffer.Length);
+        GetPrivateField<ContentKey>(decryptingStream, "_contentKey").Should().BeSameAs(initialContentKey);
+        GetContentKeyBytes(initialContentKey).Should().Contain(value => value != 0);
     }
 
     [Test]
@@ -989,6 +989,8 @@ public sealed class DownloadFileServiceTests
 
     private sealed class StubShareMetadataRepository(ShareRecord record) : IShareMetadataRepository
     {
+        public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task CreateAsync(ShareRecord uploadedFileRecord, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => Task.FromResult<ShareRecord?>(record);
@@ -999,13 +1001,18 @@ public sealed class DownloadFileServiceTests
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
+        public Task<Boolean> TryRecordCleanupAttemptAsync(Guid shareId, ShareCleanupState cleanupState, DateTimeOffset completedAtUtc,
+                                                          IReadOnlyCollection<String> failureCategories,
+                                                          CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken) =>
+        public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

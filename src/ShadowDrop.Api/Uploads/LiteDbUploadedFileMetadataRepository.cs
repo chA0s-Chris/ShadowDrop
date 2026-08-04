@@ -190,6 +190,27 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         return Task.FromResult(document is null || document.IsReserved ? null : Map(document));
     }
 
+    public Task<IReadOnlyList<UploadedFileListProjection>> GetListProjectionsAsync(
+        IReadOnlyCollection<Guid> fileIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fileIds);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (fileIds.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<UploadedFileListProjection>>([]);
+        }
+
+        IReadOnlyList<UploadedFileListProjection> projections = _collection
+                                                                .Find(Query.In("_id", fileIds.Distinct().Select(id => new BsonValue(id))))
+                                                                .Where(document => !document.IsReserved)
+                                                                .Select(document => new UploadedFileListProjection(document.FileId,
+                                                                            document.EncryptedLength,
+                                                                            document.RetentionState))
+                                                                .ToList();
+        return Task.FromResult<IReadOnlyList<UploadedFileListProjection>>(projections);
+    }
+
     public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

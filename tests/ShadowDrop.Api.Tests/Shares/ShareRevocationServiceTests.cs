@@ -45,6 +45,8 @@ public sealed class ShareRevocationServiceTests
 
     private sealed class StubShareMetadataRepository(Boolean revokeResult) : IShareMetadataRepository
     {
+        public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -55,13 +57,18 @@ public sealed class ShareRevocationServiceTests
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<Boolean> TryRecordCleanupAttemptAsync(Guid shareId, ShareCleanupState cleanupState, DateTimeOffset completedAtUtc,
+                                                          IReadOnlyCollection<String> failureCategories,
+                                                          CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
             Task.FromResult(revokeResult);
-
-        public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
     }
 }

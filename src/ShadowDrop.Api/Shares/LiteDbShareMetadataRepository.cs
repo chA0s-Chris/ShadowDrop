@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Shares;
 using LiteDB;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Storage;
+using ShadowDrop.Contracts;
 
 public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, IDisposable
 {
@@ -43,6 +44,10 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             _collection.EnsureIndex(document => document.ShareId, true);
             _collection.EnsureIndex(document => document.ShareTokenHashBase64, true);
             _collection.EnsureIndex(document => document.Files.Select(file => file.FileId), false);
+            _collection.EnsureIndex(document => document.CreatedAtUnixTimeMilliseconds, false);
+            _collection.EnsureIndex(document => document.ExpiresAtUnixTimeMilliseconds, false);
+            _collection.EnsureIndex(document => document.RevokedAtUnixTimeMilliseconds, false);
+            _collection.EnsureIndex(document => document.CleanupState, false);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -61,6 +66,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             ExpiresAtUnixTimeMilliseconds = record.ExpiresAtUtc.ToUnixTimeMilliseconds(),
             RevokedAtUnixTimeMilliseconds = record.RevokedAtUtc?.ToUnixTimeMilliseconds(),
             CleanupState = record.CleanupState.ToString().ToUpperInvariant(),
+            LastCleanupAttemptAtUnixTimeMilliseconds = record.LastCleanupAttemptAtUtc?.ToUnixTimeMilliseconds(),
+            CleanupFailureCategories = ShareLifecycle.FailureCategories(record.CleanupFailureCategories).ToList(),
             DirectHttpEnabled = record.DirectHttpEnabled,
             OwnerCredentialId = record.OwnerCredentialId,
             DownloadBearerToken = record.DownloadBearerToken is null
@@ -95,12 +102,119 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                     document.DownloadBearerToken.TokenHashBase64,
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
             document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList(),
-            document.OwnerCredentialId);
+            document.OwnerCredentialId,
+            document.LastCleanupAttemptAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.LastCleanupAttemptAtUnixTimeMilliseconds.Value),
+            ShareLifecycle.FailureCategories(document.CleanupFailureCategories));
+
+    private static ShareListRecord MapList(ShareDocument document) =>
+        new(document.ShareId,
+            DateTimeOffset.FromUnixTimeMilliseconds(document.CreatedAtUnixTimeMilliseconds),
+            DateTimeOffset.FromUnixTimeMilliseconds(document.ExpiresAtUnixTimeMilliseconds),
+            document.RevokedAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.RevokedAtUnixTimeMilliseconds.Value),
+            ParseCleanupState(document.CleanupState),
+            document.LastCleanupAttemptAtUnixTimeMilliseconds is null
+                ? null
+                : DateTimeOffset.FromUnixTimeMilliseconds(document.LastCleanupAttemptAtUnixTimeMilliseconds.Value),
+            ShareLifecycle.FailureCategories(document.CleanupFailureCategories),
+            document.Files.Select(file => file.FileId).ToList());
+
+    private static ShareCleanupState ParseCleanupState(String? value) =>
+        Enum.TryParse<ShareCleanupState>(value, true, out var state) ? state : ShareCleanupState.Pending;
+
+    private ILiteQueryable<ShareDocument> CreateListQuery(
+        ShareListQuery query,
+        Int64? exactCreatedAt = null,
+        Int64? createdBefore = null,
+        Int64? createdAtOrBefore = null,
+        Guid? shareIdBefore = null)
+    {
+        var parameters = new List<BsonValue>();
+        var clauses = new List<String>();
+
+        String Parameter(BsonValue value)
+        {
+            var name = $"@{parameters.Count}";
+            parameters.Add(value);
+            return name;
+        }
+
+        if (query.Statuses.Length > 0)
+        {
+            var now = Parameter(query.NowUtc.ToUniversalTime().ToUnixTimeMilliseconds());
+            var failed = Parameter(nameof(ShareCleanupState.Failed).ToUpperInvariant());
+            var completed = Parameter(nameof(ShareCleanupState.Completed).ToUpperInvariant());
+            var statusClauses = query.Statuses.Select(status => status switch
+            {
+                ShareListStatuses.Active => $"($.RevokedAtUnixTimeMilliseconds = null AND $.ExpiresAtUnixTimeMilliseconds > {now})",
+                ShareListStatuses.Expired => $"$.ExpiresAtUnixTimeMilliseconds <= {now}",
+                ShareListStatuses.Revoked => "$.RevokedAtUnixTimeMilliseconds != null",
+                ShareListStatuses.CleanupFailed => $"$.CleanupState = {failed}",
+                ShareListStatuses.CleanupCompleted => $"$.CleanupState = {completed}",
+                ShareListStatuses.CleanupPending => $"($.CleanupState != {failed} AND $.CleanupState != {completed})",
+                _ => "false"
+            });
+            clauses.Add($"({String.Join(" OR ", statusClauses)})");
+        }
+
+        if (exactCreatedAt is not null)
+        {
+            clauses.Add($"$.CreatedAtUnixTimeMilliseconds = {Parameter(exactCreatedAt.Value)}");
+        }
+
+        if (createdBefore is not null)
+        {
+            clauses.Add($"$.CreatedAtUnixTimeMilliseconds < {Parameter(createdBefore.Value)}");
+        }
+
+        if (createdAtOrBefore is not null)
+        {
+            clauses.Add($"$.CreatedAtUnixTimeMilliseconds <= {Parameter(createdAtOrBefore.Value)}");
+        }
+
+        if (shareIdBefore is not null)
+        {
+            clauses.Add($"$._id < {Parameter(shareIdBefore.Value)}");
+        }
+
+        var result = _collection.Query();
+        return clauses.Count == 0
+            ? result
+            : result.Where(String.Join(" AND ", clauses), parameters.ToArray());
+    }
+
+    /// <summary>
+    /// Reads the next descending run of matching creation timestamps in one indexed query.
+    /// </summary>
+    /// <remarks>
+    /// LiteDB orders by a single field, so the page is still assembled one equal-timestamp group at a time. Fetching
+    /// the timestamps as one bounded batch keeps that to a single ordering query per page instead of one per group:
+    /// with a status filter the optimizer drops off the creation-time index, which made the per-group form cost a
+    /// full collection scan for every row of the page.
+    /// </remarks>
+    private List<Int64> FindCreatedAtBatch(ShareListQuery query, Int64? bound, Boolean inclusive, Int32 limit) =>
+        CreateListQuery(query,
+                        createdBefore: inclusive ? null : bound,
+                        createdAtOrBefore: inclusive ? bound : null)
+            .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)
+            .Select(document => document.CreatedAtUnixTimeMilliseconds)
+            .Limit(limit)
+            .ToList();
 
     private Boolean IsFileReferenced(Guid fileId) =>
         _collection.Exists(document => document.Files.Select(file => file.FileId).Any(value => value == fileId));
 
     public void Dispose() => _database.Dispose();
+
+    public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult((Int64)CreateListQuery(query).Count());
+    }
 
     public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken)
     {
@@ -164,56 +278,119 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         return Task.FromResult(candidates);
     }
 
+    public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var wanted = query.PageSize + 1;
+        var fetched = new List<ShareListRecord>(wanted);
+        var cursorCreatedAt = query.Cursor?.CreatedAtUnixTimeMilliseconds;
+        var bound = cursorCreatedAt;
+        var inclusive = query.Cursor is not null;
+        while (fetched.Count < wanted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // The page holds at most pageSize + 1 shares, so every creation timestamp it can still need is within
+            // the next pageSize + 1 matching timestamps. One query therefore replaces the whole group walk.
+            var timestamps = FindCreatedAtBatch(query, bound, inclusive, wanted - fetched.Count);
+            if (timestamps.Count == 0)
+            {
+                break;
+            }
+
+            Int64? previous = null;
+            foreach (var createdAt in timestamps)
+            {
+                if (createdAt == previous)
+                {
+                    continue;
+                }
+
+                previous = createdAt;
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // The tie-break stays inside LiteDB: within one timestamp the identifier index orders the group and
+                // the cursor's identifier excludes everything already returned, so nothing is materialized twice.
+                var group = CreateListQuery(query,
+                                            exactCreatedAt: createdAt,
+                                            shareIdBefore: createdAt == cursorCreatedAt ? query.Cursor?.ShareId : null)
+                            .OrderByDescending(document => document.ShareId)
+                            .Limit(wanted - fetched.Count)
+                            .ToList();
+                fetched.AddRange(group.Select(MapList));
+                if (fetched.Count >= wanted)
+                {
+                    break;
+                }
+            }
+
+            // A partially consumed cursor group can yield fewer shares than timestamps, so continue strictly after
+            // the last timestamp inspected rather than assuming the batch was enough.
+            bound = previous;
+            inclusive = false;
+        }
+
+        if (fetched.Count <= query.PageSize)
+        {
+            return Task.FromResult(new ShareListRepositoryPage(fetched, null));
+        }
+
+        var shares = fetched.Take(query.PageSize).ToList();
+        var last = shares[^1];
+        var cursor = new ShareListCursor(OperationalStatusProtocol.CurrentVersion,
+                                         query.Statuses,
+                                         last.CreatedAtUtc.ToUnixTimeMilliseconds(),
+                                         last.ShareId);
+        return Task.FromResult(new ShareListRepositoryPage(shares, cursor));
+    }
+
     public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        _statusStatsIterationTestHook?.Invoke();
+        cancellationToken.ThrowIfCancellationRequested();
 
-        var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        var completedState = nameof(ShareCleanupState.Completed).ToUpperInvariant();
-        var failedState = nameof(ShareCleanupState.Failed).ToUpperInvariant();
-
-        var active = 0L;
-        var expired = 0L;
-        var revoked = 0L;
-        var cleanupPending = 0L;
-        var cleanupCompleted = 0L;
-        var cleanupFailed = 0L;
-
-        foreach (var document in _collection.FindAll())
+        Int64 Count(String status)
         {
-            _statusStatsIterationTestHook?.Invoke();
-            cancellationToken.ThrowIfCancellationRequested();
-            if (document.RevokedAtUnixTimeMilliseconds is null
-                && document.ExpiresAtUnixTimeMilliseconds > nowUnixTimeMilliseconds)
-            {
-                active++;
-            }
-
-            if (document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds)
-            {
-                expired++;
-            }
-
-            if (document.RevokedAtUnixTimeMilliseconds is not null)
-            {
-                revoked++;
-            }
-
-            if (String.Equals(document.CleanupState, completedState, StringComparison.Ordinal))
-            {
-                cleanupCompleted++;
-            }
-            else if (String.Equals(document.CleanupState, failedState, StringComparison.Ordinal))
-            {
-                cleanupFailed++;
-            }
-            else
-            {
-                cleanupPending++;
-            }
+            return CreateListQuery(new(nowUtc, [status], 1, null)).Count();
         }
 
-        return Task.FromResult(new ShareStatusCounts(active, expired, revoked, cleanupPending, cleanupFailed, cleanupCompleted));
+        return Task.FromResult(new ShareStatusCounts(Count(ShareListStatuses.Active),
+                                                     Count(ShareListStatuses.Expired),
+                                                     Count(ShareListStatuses.Revoked),
+                                                     Count(ShareListStatuses.CleanupPending),
+                                                     Count(ShareListStatuses.CleanupFailed),
+                                                     Count(ShareListStatuses.CleanupCompleted)));
+    }
+
+    public Task<Boolean> TryRecordCleanupAttemptAsync(
+        Guid shareId,
+        ShareCleanupState cleanupState,
+        DateTimeOffset completedAtUtc,
+        IReadOnlyCollection<String> failureCategories,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(shareId);
+            if (document is null)
+            {
+                return Task.FromResult(false);
+            }
+
+            document.CleanupState = cleanupState.ToString().ToUpperInvariant();
+            document.LastCleanupAttemptAtUnixTimeMilliseconds = completedAtUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+            document.CleanupFailureCategories = cleanupState == ShareCleanupState.Completed
+                ? []
+                : ShareLifecycle.FailureCategories(failureCategories).ToList();
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.FromResult(true);
+        }
     }
 
     public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken)
@@ -241,31 +418,6 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         }
     }
 
-    public Task<Boolean> TryUpdateCleanupStateAsync(Guid shareId, ShareCleanupState cleanupState, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        lock (_syncRoot)
-        {
-            var document = _collection.FindById(shareId);
-            if (document is null)
-            {
-                return Task.FromResult(false);
-            }
-
-            var newCleanupState = cleanupState.ToString().ToUpperInvariant();
-            if (String.Equals(document.CleanupState, newCleanupState, StringComparison.Ordinal))
-            {
-                return Task.FromResult(true);
-            }
-
-            document.CleanupState = newCleanupState;
-            _collection.Update(document);
-            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
-            return Task.FromResult(true);
-        }
-    }
-
     private sealed class DownloadBearerTokenDocument
     {
         public Int64 ExpiresAtUnixTimeMilliseconds { get; set; }
@@ -275,6 +427,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
 
     private sealed class ShareDocument
     {
+        public List<String> CleanupFailureCategories { get; set; } = [];
+
         public String CleanupState { get; set; } = String.Empty;
 
         public Int64 CreatedAtUnixTimeMilliseconds { get; set; }
@@ -286,6 +440,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         public Int64 ExpiresAtUnixTimeMilliseconds { get; set; }
 
         public List<ShareFileEntryDocument> Files { get; set; } = [];
+
+        public Int64? LastCleanupAttemptAtUnixTimeMilliseconds { get; set; }
 
         public Guid? OwnerCredentialId { get; set; }
 

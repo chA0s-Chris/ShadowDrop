@@ -106,6 +106,17 @@ token through `--admin-token`, `SHADOWDROP_ADMIN_TOKEN`, or config-file
 upload-token setting. Keep this token on the management boundary described in
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#admin-endpoint-exposure).
 
+`GET /api/admin/shares` and `shadowdrop share list` are administrative inventory
+surfaces. They deliberately expose stable share IDs, lifecycle timestamps and
+statuses, normalized latest cleanup outcomes, file counts, and retained
+ciphertext byte totals. They never expose filenames, upload-owner or credential
+identifiers, share/download token material or hashes, blob keys, cryptographic
+metadata, plaintext hashes, persistence records, provider details, or exception
+text. Treat the returned IDs and lifecycle history as sensitive operational
+metadata even though they are not download capabilities. Share-list audit events
+contain only operation, outcome, HTTP status, and elapsed time; query values,
+cursors, identifiers, results, and exceptions are excluded.
+
 ### Status projection sensitivity
 
 `GET /api/status` is intentionally public and coarse: it exposes only protocol version, liveness/readiness, a stable allow-listed reason,
