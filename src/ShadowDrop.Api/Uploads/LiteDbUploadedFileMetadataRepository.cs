@@ -348,6 +348,32 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         }
     }
 
+    public Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(fileId);
+            if (document is null)
+            {
+                return Task.FromResult(true);
+            }
+
+            if (document.IsReserved)
+            {
+                return Task.FromResult(false);
+            }
+
+            var deleted = _collection.Delete(fileId);
+            if (deleted)
+            {
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            }
+
+            return Task.FromResult(deleted);
+        }
+    }
+
     public Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

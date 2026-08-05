@@ -46,7 +46,7 @@ public sealed class OperationalStatusServiceTests
         cleanup.Record(timeProvider.GetUtcNow(), CleanupRunStatus.Success);
         var service = CreateService(new ManualReadinessCheck(true),
                                     new ManualStatisticsProvider(
-                                        new OperationalStatisticsSnapshot(new(2, 350, true), new(1, 2, 3, 4, 5, 6))),
+                                        new OperationalStatisticsSnapshot(new(2, 350, true), new(1, 2, 3, 4, 5))),
                                     cleanup,
                                     timeProvider);
         timeProvider.UtcNow = timeProvider.UtcNow.AddSeconds(42);
@@ -59,7 +59,7 @@ public sealed class OperationalStatusServiceTests
         status.UptimeSeconds.Should().Be(42);
         status.Providers.Should().Be(new StatusProvidersContract("litedb", "filesystem"));
         status.Storage.Should().Be(new StatusStorageContract(2, 350));
-        status.Shares.Should().Be(new StatusSharesContract(1, 2, 3, 4, 5, 6));
+        status.Shares.Should().Be(new StatusSharesContract(1, 2, 3, 4, 5));
         status.Cleanup.LastOutcome.Should().Be(CleanupRunStatus.Success);
         status.ResumableSessions.ActiveCount.Should().BeNull();
         status.ConfigurationWarnings.Should().BeEmpty();
@@ -88,7 +88,7 @@ public sealed class OperationalStatusServiceTests
     {
         var service = CreateService(new ManualReadinessCheck(true),
                                     new ManualStatisticsProvider(
-                                        new OperationalStatisticsSnapshot(new(null, null, false), new(0, 0, 0, 0, 0, 0))));
+                                        new OperationalStatisticsSnapshot(new(null, null, false), new(0, 0, 0, 0, 0))));
 
         var status = await service.GetAdminAsync(CancellationToken.None);
 

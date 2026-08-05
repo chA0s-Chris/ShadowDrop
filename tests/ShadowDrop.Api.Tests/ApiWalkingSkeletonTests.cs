@@ -527,7 +527,9 @@ public sealed class ApiWalkingSkeletonTests
         result.Should().Be(new ShareCleanupResult(1, 1, 1, 0, 0));
 
         var repository = fixture.Services.GetRequiredService<IShareMetadataRepository>();
-        (await repository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
+        (await repository.GetAsync(share.ShareId, CancellationToken.None)).Should().BeNull();
+        var uploads = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
+        (await uploads.GetAsync(fileId, CancellationToken.None)).Should().BeNull();
         Directory.EnumerateFiles(fixture.LocalStorageRoot, "*", SearchOption.AllDirectories).Should().BeEmpty();
     }
 
@@ -2081,7 +2083,10 @@ public sealed class ApiWalkingSkeletonTests
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
+        public Task<ShareRecord?> GetByShareTokenHashAsync(
+            String shareTokenHashBase64,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
@@ -2091,7 +2096,7 @@ public sealed class ApiWalkingSkeletonTests
             Task.FromResult(new ShareListRepositoryPage([share], null));
 
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
-            Task.FromResult(new ShareStatusCounts(0, 0, 0, 0, 0, 0));
+            Task.FromResult(new ShareStatusCounts(0, 0, 0, 0, 0));
 
         public Task<Boolean> TryRecordCleanupAttemptAsync(Guid shareId, ShareCleanupState cleanupState, DateTimeOffset completedAtUtc,
                                                           IReadOnlyCollection<String> failureCategories,

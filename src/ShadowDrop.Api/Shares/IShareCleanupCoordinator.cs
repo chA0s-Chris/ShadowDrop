@@ -6,3 +6,8 @@ public interface IShareCleanupCoordinator
 {
     Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken);
 }
+
+public interface IShareCleanupCoordinationLease : IAsyncDisposable
+{
+    Boolean IsValid { get; }
+}

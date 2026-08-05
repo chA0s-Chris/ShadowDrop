@@ -94,9 +94,11 @@ public sealed class ShareListServiceTests
                                            new CountingTimeProvider(DateTimeOffset.Parse("2026-08-03T12:00:00Z")));
 
         var invalid = () => service.GetAsync(new("unknown"), new("0"), new("bad"), CancellationToken.None);
+        var removedStatus = () => service.GetAsync(new("cleanup-completed"), StringValues.Empty, StringValues.Empty, CancellationToken.None);
         var tooLarge = () => service.GetAsync(StringValues.Empty, new("201"), StringValues.Empty, CancellationToken.None);
 
         (await invalid.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
+        (await removedStatus.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
         (await tooLarge.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
 
         var fileId = Guid.NewGuid();
@@ -155,7 +157,10 @@ public sealed class ShareListServiceTests
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
+        public Task<ShareRecord?> GetByShareTokenHashAsync(
+            String shareTokenHashBase64,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>

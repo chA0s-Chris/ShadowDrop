@@ -10,7 +10,6 @@ using System.Text;
 public static class ShareListStatuses
 {
     public const String Active = "active";
-    public const String CleanupCompleted = "cleanup-completed";
     public const String CleanupFailed = "cleanup-failed";
     public const String CleanupPending = "cleanup-pending";
     public const String Expired = "expired";
@@ -23,15 +22,13 @@ public static class ShareListStatuses
         Expired,
         Revoked,
         CleanupPending,
-        CleanupFailed,
-        CleanupCompleted
+        CleanupFailed
     ];
 }
 
 /// <summary>Stable normalized cleanup-state values.</summary>
 public static class ShareListCleanupStates
 {
-    public const String Completed = "completed";
     public const String Failed = "failed";
     public const String Pending = "pending";
 }
@@ -42,12 +39,10 @@ public static class ShareCleanupFailureCategories
     public const String BlobDeleteFailed = "blob-delete-failed";
     public const String MetadataUnavailable = "metadata-unavailable";
     public const String Unknown = "unknown";
-    public const String UploadMetadataMissing = "upload-metadata-missing";
 
     /// <summary>Gets every supported category in canonical order.</summary>
     public static IReadOnlyList<String> CanonicalOrder { get; } =
     [
-        UploadMetadataMissing,
         MetadataUnavailable,
         BlobDeleteFailed,
         Unknown

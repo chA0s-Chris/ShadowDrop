@@ -8,29 +8,29 @@ Cleanup deletes ciphertext but keeps metadata forever, so a share that expired y
 
 ## Acceptance Criteria
 
-- [ ] Resolve shares by token hash through a repository lookup that never returns an expired or revoked share, so the download path cannot observe one regardless of its own checks.
-- [ ] Keep the by-identifier share lookup privileged and unfiltered, so the visibility rule applies only to token-hash resolution and administrative reads are unaffected.
-- [ ] Keep cleanup able to reach expired and revoked shares through an explicit privileged query.
-- [ ] Keep single-use file enforcement rejecting files referenced by an expired or revoked share that has not been purged yet.
-- [ ] Acquire a durable cleanup operation claim covering every file identifier of a share before starting any blob deletion for it.
-- [ ] Delete or confirm absent every blob of a claimed share without deleting any uploaded-file metadata row during that blob phase.
-- [ ] When cleanup-claim acquisition conflicts, perform no destructive work; after acquisition, retain every metadata row and the cleanup claim when any blob deletion or retained-blob accounting operation fails, record `cleanup-failed`, and retry the invisible share on the next run.
-- [ ] Treat uploaded-file metadata that is already absent during cleanup as success for that file, so a retried share converges on deletion.
-- [ ] Only after every blob has been deleted or confirmed absent, delete the uploaded-file metadata rows and then the share record; keep a share whose metadata deletion failed partway as a `cleanup-failed` candidate that converges on a later run.
-- [ ] Remove `ShareCleanupState.Completed`, `ShareListStatuses.CleanupCompleted` including its `CanonicalOrder` entry, and `ShareListCleanupStates.Completed`, so every listed share reports exactly one of `cleanup-pending` or `cleanup-failed`.
-- [ ] Remove the now-unreachable `upload-metadata-missing` failure category and its `CanonicalOrder` entry.
-- [ ] Remove the cleanup-completed share count from the status counts, the administrative server status contract, its service mapping, the startup summary log, and the CLI status output.
-- [ ] Reject `cleanup-completed` as an unknown value in the API status filter, the CLI `--status` option, and share-list cursor validation.
-- [ ] Read shares already persisted with the removed completed state back as `cleanup-pending` and purge them in the first cleanup run after the upgrade, without a migration step.
-- [ ] Keep `share list` and the operational status counts reporting active, expired, revoked, cleanup-pending, and cleanup-failed shares until their records are deleted.
-- [ ] Keep the cleanup-run guard non-blocking so overlapping cleanup runs report `Skipped`, while making durable operation claims rather than the guard's lease responsible for data safety.
-- [ ] Before reading uploaded-file metadata or inserting a share, atomically acquire one durable share-creation operation claim covering every requested file identifier; make share-creation and cleanup claims mutually exclusive for each file across API instances.
-- [ ] Associate every operation claim with its proposed share identifier and a durable lifecycle so abandoned pre-insert claims can be conditionally aborted, while indeterminate insertions are resolved or retried idempotently with the same share identifier without exposing any file to cleanup in between.
-- [ ] Retain a cleanup claim through blob-deletion failures and metadata-deletion retries so an external deletion that outlives a cleanup-run lease cannot race with a new share.
-- [ ] Update Chaos.Mongo to 0.7.0, extend the MongoDB cleanup-run lease for the complete run through `IMongoLock.TryExtendAsync()`, and stop starting new cleanup work when extension returns `false` or no successful extension occurs before the owned lease expires.
-- [ ] Provide equivalent visibility, deletion, retry, cleanup-claim, and coordination behavior for the LiteDB and MongoDB metadata providers.
-- [ ] Add automated tests.
-- [ ] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` for the removed values and metadata being deleted rather than retained after cleanup.
+- [x] Resolve shares by token hash through a repository lookup that never returns an expired or revoked share, so the download path cannot observe one regardless of its own checks.
+- [x] Keep the by-identifier share lookup privileged and unfiltered, so the visibility rule applies only to token-hash resolution and administrative reads are unaffected.
+- [x] Keep cleanup able to reach expired and revoked shares through an explicit privileged query.
+- [x] Keep single-use file enforcement rejecting files referenced by an expired or revoked share that has not been purged yet.
+- [x] Acquire a durable cleanup operation claim covering every file identifier of a share before starting any blob deletion for it.
+- [x] Delete or confirm absent every blob of a claimed share without deleting any uploaded-file metadata row during that blob phase.
+- [x] When cleanup-claim acquisition conflicts, perform no destructive work; after acquisition, retain every metadata row and the cleanup claim when any blob deletion or retained-blob accounting operation fails, record `cleanup-failed`, and retry the invisible share on the next run.
+- [x] Treat uploaded-file metadata that is already absent during cleanup as success for that file, so a retried share converges on deletion.
+- [x] Only after every blob has been deleted or confirmed absent, delete the uploaded-file metadata rows and then the share record; keep a share whose metadata deletion failed partway as a `cleanup-failed` candidate that converges on a later run.
+- [x] Remove `ShareCleanupState.Completed`, `ShareListStatuses.CleanupCompleted` including its `CanonicalOrder` entry, and `ShareListCleanupStates.Completed`, so every listed share reports exactly one of `cleanup-pending` or `cleanup-failed`.
+- [x] Remove the now-unreachable `upload-metadata-missing` failure category and its `CanonicalOrder` entry.
+- [x] Remove the cleanup-completed share count from the status counts, the administrative server status contract, its service mapping, the startup summary log, and the CLI status output.
+- [x] Reject `cleanup-completed` as an unknown value in the API status filter, the CLI `--status` option, and share-list cursor validation.
+- [x] Read shares already persisted with the removed completed state back as `cleanup-pending` and purge them in the first cleanup run after the upgrade, without a migration step.
+- [x] Keep `share list` and the operational status counts reporting active, expired, revoked, cleanup-pending, and cleanup-failed shares until their records are deleted.
+- [x] Keep the cleanup-run guard non-blocking so overlapping cleanup runs report `Skipped`, while making durable operation claims rather than the guard's lease responsible for data safety.
+- [x] Before reading uploaded-file metadata or inserting a share, atomically acquire one durable share-creation operation claim covering every requested file identifier; make share-creation and cleanup claims mutually exclusive for each file across API instances.
+- [x] Associate every operation claim with its proposed share identifier and a durable lifecycle so abandoned pre-insert claims can be conditionally aborted, while indeterminate insertions are resolved or retried idempotently with the same share identifier without exposing any file to cleanup in between.
+- [x] Retain a cleanup claim through blob-deletion failures and metadata-deletion retries so an external deletion that outlives a cleanup-run lease cannot race with a new share.
+- [x] Update Chaos.Mongo to 0.7.0, extend the MongoDB cleanup-run lease for the complete run through `IMongoLock.TryExtendAsync()`, and stop starting new cleanup work when extension returns `false` or no successful extension occurs before the owned lease expires.
+- [x] Provide equivalent visibility, deletion, retry, cleanup-claim, and coordination behavior for the LiteDB and MongoDB metadata providers.
+- [x] Add automated tests.
+- [x] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` for the removed values and metadata being deleted rather than retained after cleanup.
 
 ## Technical Details
 

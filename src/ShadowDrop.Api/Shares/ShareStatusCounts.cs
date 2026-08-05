@@ -7,9 +7,4 @@ public sealed record ShareStatusCounts(
     Int64 Expired,
     Int64 Revoked,
     Int64 CleanupPending,
-    Int64 CleanupFailed,
-    Int64 CleanupCompleted)
-{
-    public ShareStatusCounts(Int64 active, Int64 expired, Int64 revoked, Int64 cleanupCompleted, Int64 cleanupFailed)
-        : this(active, expired, revoked, 0, cleanupFailed, cleanupCompleted) { }
-}
+    Int64 CleanupFailed);

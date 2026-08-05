@@ -136,6 +136,10 @@ shadowdrop share list --status expired --status cleanup-failed --page-size 50
 shadowdrop share list --cursor '<next-cursor>' --json
 ```
 
+Expired and revoked shares stop resolving through their public token immediately. A successful cleanup deletes their encrypted blobs,
+uploaded-file metadata, and share metadata; a failed cleanup keeps the share in the administrative inventory as `cleanup-failed` for
+diagnosis and retry.
+
 The upload credential can upload encrypted files and create shares, but cannot
 revoke other shares, run cleanup, or manage credentials. The bootstrap admin
 token remains valid on the scoped upload routes for migration and recovery;

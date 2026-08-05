@@ -23,7 +23,7 @@ public sealed class OperationalStatusContractTests
             [new("metadata", OperationalComponentStates.Ready, OperationalStatusReasons.None)],
             new("litedb", "filesystem"),
             new(2, 100),
-            new(1, 2, 3, 4, 5, 6),
+            new(1, 2, 3, 4, 5),
             new(DateTimeOffset.Parse("2026-08-02T12:00:00Z"), "success"),
             new(null),
             []);

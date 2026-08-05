@@ -17,13 +17,24 @@ public interface IShareMetadataRepository
 
     Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken);
 
-    Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken);
+    /// <summary>
+    /// Resolves a share by its token hash, never returning one that is expired or revoked at
+    /// <paramref name="nowUtc"/>. Visibility is enforced here rather than in callers, so the rule
+    /// holds for callers that have not been written yet.
+    /// </summary>
+    Task<ShareRecord?> GetByShareTokenHashAsync(
+        String shareTokenHashBase64,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
     Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken);
 
     Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    Task<Boolean> TryDeleteAsync(Guid shareId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Share deletion is not supported by this repository.");
 
     Task<Boolean> TryRecordCleanupAttemptAsync(
         Guid shareId,

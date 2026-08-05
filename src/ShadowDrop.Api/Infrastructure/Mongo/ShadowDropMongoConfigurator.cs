@@ -85,6 +85,21 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 })
         ], cancellationToken);
 
+        var operationClaims = helper.GetCollection<MongoShareOperationClaimDocument>();
+        await operationClaims.Indexes.CreateManyAsync([
+            new(Builders<MongoShareOperationClaimDocument>.IndexKeys.Ascending(x => x.FileIds),
+                new()
+                {
+                    Name = "claimed_file_unique",
+                    Unique = true
+                }),
+            new(Builders<MongoShareOperationClaimDocument>.IndexKeys.Ascending(x => x.Kind),
+                new()
+                {
+                    Name = "claim_kind"
+                })
+        ], cancellationToken);
+
         // MongoDB's built-in _id index provides the fixed-id admin credential bootstrap guarantee.
         _ = helper.GetCollection<MongoAdminTokenCredentialDocument>();
 

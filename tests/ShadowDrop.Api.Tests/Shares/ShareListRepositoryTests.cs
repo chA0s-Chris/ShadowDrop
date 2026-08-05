@@ -20,12 +20,11 @@ public sealed class ShareListRepositoryTests
         var active = Guid.NewGuid();
         var expired = Guid.NewGuid();
         var revoked = Guid.NewGuid();
-        var completed = Guid.NewGuid();
+        var pending = Guid.NewGuid();
         await repository.CreateAsync(CreateShare(active, now.AddHours(-4), now.AddDays(1), null), CancellationToken.None);
         await repository.CreateAsync(CreateShare(expired, now.AddHours(-3), now.AddDays(-1), null), CancellationToken.None);
         await repository.CreateAsync(CreateShare(revoked, now.AddHours(-2), now.AddDays(1), now.AddHours(-1)), CancellationToken.None);
-        await repository.CreateAsync(CreateShare(completed, now.AddHours(-1), now.AddDays(-2), null), CancellationToken.None);
-        await repository.TryRecordCleanupAttemptAsync(completed, ShareCleanupState.Completed, now, [], CancellationToken.None);
+        await repository.CreateAsync(CreateShare(pending, now.AddHours(-1), now.AddDays(-2), null), CancellationToken.None);
         await repository.TryRecordCleanupAttemptAsync(expired,
                                                       ShareCleanupState.Failed,
                                                       now,
@@ -36,21 +35,44 @@ public sealed class ShareListRepositoryTests
 
         // The two surfaces must consume the same lifecycle predicates, so every status count has to equal the
         // share-list total for the equivalent single-status query evaluated at the same instant.
-        async Task<Int64> TotalAsync(String status) =>
-            await repository.CountMatchingAsync(new(now, [status], 1, null), CancellationToken.None);
+        async Task<Int64> TotalAsync(String status)
+        {
+            return await repository.CountMatchingAsync(new(now, [status], 1, null), CancellationToken.None);
+        }
 
         counts.Active.Should().Be(await TotalAsync(ShareListStatuses.Active));
         counts.Expired.Should().Be(await TotalAsync(ShareListStatuses.Expired));
         counts.Revoked.Should().Be(await TotalAsync(ShareListStatuses.Revoked));
         counts.CleanupPending.Should().Be(await TotalAsync(ShareListStatuses.CleanupPending));
         counts.CleanupFailed.Should().Be(await TotalAsync(ShareListStatuses.CleanupFailed));
-        counts.CleanupCompleted.Should().Be(await TotalAsync(ShareListStatuses.CleanupCompleted));
         // Only the unrevoked, unexpired share is active; the revoked one carries `revoked` instead.
-        counts.Should().Be(new ShareStatusCounts(1, 2, 1, 2, 1, 1));
+        counts.Should().Be(new ShareStatusCounts(1, 2, 1, 3, 1));
     }
 
     [Test]
-    public async Task LiteDb_ShouldOrFiltersWithoutDoubleCounting_AndReplaceCleanupOutcome()
+    public async Task LiteDb_ShouldHideExpiredAndRevokedSharesOnlyFromTokenLookup()
+    {
+        await using var fixture = new RepositoryFixture();
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options);
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var active = CreateShare(Guid.NewGuid(), now.AddHours(-3), now.AddHours(1), null);
+        var expired = CreateShare(Guid.NewGuid(), now.AddHours(-2), now, null);
+        var revoked = CreateShare(Guid.NewGuid(), now.AddHours(-1), now.AddHours(1), now.AddMinutes(-1));
+        await repository.CreateAsync(active, CancellationToken.None);
+        await repository.CreateAsync(expired, CancellationToken.None);
+        await repository.CreateAsync(revoked, CancellationToken.None);
+
+        (await repository.GetByShareTokenHashAsync(active.ShareTokenHashBase64, now, CancellationToken.None)).Should().NotBeNull();
+        (await repository.GetByShareTokenHashAsync(expired.ShareTokenHashBase64, now, CancellationToken.None)).Should().BeNull();
+        (await repository.GetByShareTokenHashAsync(revoked.ShareTokenHashBase64, now, CancellationToken.None)).Should().BeNull();
+        (await repository.GetAsync(expired.ShareId, CancellationToken.None)).Should().NotBeNull();
+        (await repository.GetAsync(revoked.ShareId, CancellationToken.None)).Should().NotBeNull();
+        (await repository.GetCleanupCandidatesAsync(now, CancellationToken.None)).Select(share => share.ShareId)
+                                                                                 .Should().BeEquivalentTo([expired.ShareId, revoked.ShareId]);
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldOrFiltersWithoutDoubleCounting_AndReplaceCleanupFailureDetails()
     {
         await using var fixture = new RepositoryFixture();
         using var repository = new LiteDbShareMetadataRepository(fixture.Options);
@@ -83,14 +105,14 @@ public sealed class ShareListRepositoryTests
 
         var retry = now.AddMinutes(2);
         await repository.TryRecordCleanupAttemptAsync(expiredAndRevoked.ShareId,
-                                                      ShareCleanupState.Completed,
+                                                      ShareCleanupState.Failed,
                                                       retry,
                                                       [ShareCleanupFailureCategories.Unknown],
                                                       CancellationToken.None);
-        var completed = await repository.GetAsync(expiredAndRevoked.ShareId, CancellationToken.None);
-        completed!.CleanupState.Should().Be(ShareCleanupState.Completed);
-        completed.LastCleanupAttemptAtUtc.Should().Be(retry);
-        completed.CleanupFailureCategories.Should().BeEmpty();
+        var retried = await repository.GetAsync(expiredAndRevoked.ShareId, CancellationToken.None);
+        retried!.CleanupState.Should().Be(ShareCleanupState.Failed);
+        retried.LastCleanupAttemptAtUtc.Should().Be(retry);
+        retried.CleanupFailureCategories.Should().Equal(ShareCleanupFailureCategories.Unknown);
     }
 
     [Test]
@@ -186,6 +208,31 @@ public sealed class ShareListRepositoryTests
         listed.CleanupState.Should().Be(ShareCleanupState.Pending);
         (await reopened.CountMatchingAsync(new(now, [ShareListStatuses.CleanupPending], 50, null), CancellationToken.None))
             .Should().Be(1);
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldReadLegacyCompletedStateAsPendingCleanupCandidate()
+    {
+        await using var fixture = new RepositoryFixture();
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options);
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var share = CreateShare(Guid.NewGuid(), now.AddDays(-2), now.AddDays(-1), null);
+        await repository.CreateAsync(share, CancellationToken.None);
+        using (var database = new LiteDatabase(new ConnectionString
+               {
+                   Filename = fixture.Options.Metadata.LiteDbPath,
+                   Connection = ConnectionType.Shared
+               }))
+        {
+            var collection = database.GetCollection("shares");
+            var document = collection.FindById(share.ShareId);
+            document["CleanupState"] = "COMPLETED";
+            collection.Update(document).Should().BeTrue();
+        }
+
+        (await repository.GetAsync(share.ShareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Pending);
+        (await repository.GetCleanupCandidatesAsync(now, CancellationToken.None)).Select(candidate => candidate.ShareId)
+                                                                                 .Should().Contain(share.ShareId);
     }
 
     [Test]

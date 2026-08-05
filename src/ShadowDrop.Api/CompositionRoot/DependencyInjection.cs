@@ -43,6 +43,7 @@ public static class DependencyInjection
                                           options.RunConfiguratorsOnStartup = false;
                                           options.AddMapping<MongoUploadedFileDocument>("uploaded_files");
                                           options.AddMapping<MongoShareDocument>("shares");
+                                          options.AddMapping<MongoShareOperationClaimDocument>("share_operation_claims");
                                           options.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
                                           options.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                                       })
@@ -97,11 +98,13 @@ public static class DependencyInjection
             {
                 builder.Services.AddSingleton<IUploadedFileMetadataRepository, LiteDbUploadedFileMetadataRepository>();
                 builder.Services.AddSingleton<IShareMetadataRepository, LiteDbShareMetadataRepository>();
+                builder.Services.AddSingleton<IShareOperationClaimRepository, LiteDbShareOperationClaimRepository>();
             }
             else
             {
                 builder.Services.AddSingleton<IUploadedFileMetadataRepository, MongoUploadedFileMetadataRepository>();
                 builder.Services.AddSingleton<IShareMetadataRepository, MongoShareMetadataRepository>();
+                builder.Services.AddSingleton<IShareOperationClaimRepository, MongoShareOperationClaimRepository>();
             }
 
             builder.Services.AddSingleton<ShareCleanupService>();

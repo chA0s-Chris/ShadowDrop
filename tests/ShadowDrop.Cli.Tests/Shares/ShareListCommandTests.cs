@@ -55,6 +55,7 @@ public sealed class ShareListCommandTests
     [TestCase(0, null)]
     [TestCase(201, null)]
     [TestCase(null, "not-a-status")]
+    [TestCase(null, "cleanup-completed")]
     [TestCase(null, "active,expired")]
     [TestCase(null, "")]
     public async Task InvalidOptions_ShouldFailWithoutIssuingRequest(Int32? pageSize, String? status)

@@ -22,9 +22,6 @@ public sealed class ShareMetadataRepositoryStatsTests
         await repository.CreateAsync(revokedShare, CancellationToken.None);
         (await repository.TryRevokeAsync(revokedShare.ShareId, now, CancellationToken.None)).Should().BeTrue(); // revoked
         await repository.CreateAsync(CreateShare(now.AddDays(-1)), CancellationToken.None); // expired
-        var completedShare = CreateShare(now.AddDays(-1));
-        await repository.CreateAsync(completedShare, CancellationToken.None);
-        (await repository.TryRecordCleanupAttemptAsync(completedShare.ShareId, ShareCleanupState.Completed, now, [], CancellationToken.None)).Should().BeTrue();
         var failedShare = CreateShare(now.AddDays(-1));
         await repository.CreateAsync(failedShare, CancellationToken.None);
         (await repository.TryRecordCleanupAttemptAsync(failedShare.ShareId, ShareCleanupState.Failed, now, [], CancellationToken.None)).Should().BeTrue();
@@ -32,11 +29,10 @@ public sealed class ShareMetadataRepositoryStatsTests
         var counts = await repository.GetStatusCountsAsync(now, CancellationToken.None);
 
         counts.Should().Be(new ShareStatusCounts(Active: 1,
-                                                 Expired: 3,
+                                                 Expired: 2,
                                                  Revoked: 1,
                                                  CleanupPending: 3,
-                                                 CleanupFailed: 1,
-                                                 CleanupCompleted: 1));
+                                                 CleanupFailed: 1));
     }
 
     [Test]
