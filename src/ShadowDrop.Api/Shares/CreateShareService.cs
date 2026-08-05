@@ -143,11 +143,11 @@ public sealed class CreateShareService
             {
                 if (!commitStarted)
                 {
-                    await _operationClaimRepository.TryAbortAcquiredAsync(operationId, CancellationToken.None);
+                    await TryCleanupClaimAsync(operationId, false);
                 }
                 else if (exception is CreateShareValidationException)
                 {
-                    await _operationClaimRepository.TryReleaseAsync(operationId, CancellationToken.None);
+                    await TryCleanupClaimAsync(operationId, true);
                 }
 
                 throw;
@@ -237,6 +237,32 @@ public sealed class CreateShareService
                                    claim.OperationId);
                 await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Releases or aborts the operation claim without letting a claim-store failure mask the share-creation
+    /// failure that is already on its way out. An orphaned claim is not lost work: a later request reconciles
+    /// it via <see cref="ReconcileUnfinishedShareCreationsAsync"/>.
+    /// </summary>
+    private async Task TryCleanupClaimAsync(Guid operationId, Boolean commitStarted)
+    {
+        try
+        {
+            if (commitStarted)
+            {
+                await _operationClaimRepository.TryReleaseAsync(operationId, CancellationToken.None);
+            }
+            else
+            {
+                await _operationClaimRepository.TryAbortAcquiredAsync(operationId, CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception,
+                               "Share creation could not clean up its operation claim; a later request will reconcile it. OperationId: {OperationId}",
+                               operationId);
         }
     }
 }
