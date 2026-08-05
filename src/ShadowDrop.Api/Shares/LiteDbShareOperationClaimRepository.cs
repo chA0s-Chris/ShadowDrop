@@ -29,8 +29,9 @@ public sealed class LiteDbShareOperationClaimRepository : IShareOperationClaimRe
         {
             _collection = _database.GetCollection<ClaimDocument>("share_operation_claims");
             _collection.EnsureIndex(document => document.OperationId, true);
-            _collection.EnsureIndex(document => document.FileIds, false);
-            _collection.EnsureIndex(document => document.Kind, false);
+            _collection.EnsureIndex(document => document.FileIds);
+            _collection.EnsureIndex(document => document.Kind);
+            _collection.EnsureIndex("sweep_recovery", document => document.LastRecoveryInspectionAtUnixTimeMilliseconds);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -95,6 +96,29 @@ public sealed class LiteDbShareOperationClaimRepository : IShareOperationClaimRe
     }
 
     public void Dispose() => _database.Dispose();
+
+    public Task<IReadOnlyList<ShareOperationClaim>> GetSweepClaimsAsync(Int32 limit, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (limit <= 0)
+        {
+            return Task.FromResult<IReadOnlyList<ShareOperationClaim>>([]);
+        }
+
+        lock (_syncRoot)
+        {
+            IReadOnlyList<ShareOperationClaim> claims =
+            [
+                .. _collection.Find(document => document.Kind == ShareOperationClaimKind.SweepUpload)
+                              .OrderBy(document => document.LastRecoveryInspectionAtUnixTimeMilliseconds.HasValue)
+                              .ThenBy(document => document.LastRecoveryInspectionAtUnixTimeMilliseconds ?? 0)
+                              .ThenBy(document => document.OperationId)
+                              .Take(limit)
+                              .Select(Map)
+            ];
+            return Task.FromResult(claims);
+        }
+    }
 
     public Task<IReadOnlyList<ShareOperationClaim>> GetUnfinishedShareCreationsAsync(
         IReadOnlyCollection<Guid> fileIds,
@@ -219,6 +243,31 @@ public sealed class LiteDbShareOperationClaimRepository : IShareOperationClaimRe
         }
     }
 
+    public Task<Boolean> TryRecordSweepClaimInspectionAsync(
+        Guid operationId,
+        DateTimeOffset inspectedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(operationId);
+            if (document is null || document.Kind != ShareOperationClaimKind.SweepUpload)
+            {
+                return Task.FromResult(false);
+            }
+
+            document.LastRecoveryInspectionAtUnixTimeMilliseconds = inspectedAtUtc.ToUnixTimeMilliseconds();
+            var updated = _collection.Update(document);
+            if (updated)
+            {
+                FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            }
+
+            return Task.FromResult(updated);
+        }
+    }
+
     public Task<Boolean> TryReleaseAsync(Guid operationId, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -239,6 +288,8 @@ public sealed class LiteDbShareOperationClaimRepository : IShareOperationClaimRe
         public List<Guid> FileIds { get; set; } = [];
 
         public ShareOperationClaimKind Kind { get; set; }
+
+        public Int64? LastRecoveryInspectionAtUnixTimeMilliseconds { get; set; }
 
         public ShareOperationClaimLifecycle Lifecycle { get; set; }
 

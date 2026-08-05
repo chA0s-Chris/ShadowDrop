@@ -8,22 +8,22 @@ Completed uploads that are never referenced by a share currently retain both the
 
 ## Acceptance Criteria
 
-- [ ] Record a completion timestamp for every completed upload.
-- [ ] When a legacy completed upload has no completion timestamp, stamp its completion timestamp with the current time when first encountered and wait a full grace period from that stamp before making it eligible.
-- [ ] Delete an unreferenced completed upload when its completion timestamp is at or before the configurable grace-period cutoff, defaulting the grace period to seven days, and delete or confirm its blob absent before deleting its metadata.
-- [ ] Never sweep an upload reservation, whether claimed or unclaimed, a completed upload younger than the grace period, or a file referenced by any share, including an expired or revoked share awaiting purge.
-- [ ] Durably claim an eligible upload for cleanup before starting blob deletion so share creation cannot adopt it, including when an external deletion outlives a distributed lease.
-- [ ] Reconcile abandoned acquired and committing share-creation claims before retrying a conflicting sweep claim, while performing no destructive work when the conflict remains unresolved.
-- [ ] Retain the cleanup claim and metadata for retry when blob deletion or retained-blob accounting fails, and retry idempotently when metadata deletion fails after the blob is gone.
-- [ ] Recover and release an orphaned sweep claim when a crash occurs after upload metadata deletion but before claim release, inspecting at most 50 sweep claims per run separately from the candidate budget and rotating inspected claims so retained ones cannot hide later orphans.
-- [ ] Count sweep deletion failures in the cleanup result, report the run as a partial failure, and log only the affected file identifier.
-- [ ] Report sweep counters for candidates inspected, uploads deleted, blobs already missing, and failures, and surface them in the administrative cleanup response and the CLI `share-cleanup` output.
-- [ ] Inspect at most 200 upload candidates per run.
-- [ ] Prioritize never-inspected and then least-recently-inspected candidates, using completion time and file identifier as deterministic tie-breakers so referenced or failing records cannot starve the backlog.
-- [ ] Add provider indexes that bound candidate-selection work for LiteDB and MongoDB.
-- [ ] Provide equivalent behavior for the LiteDB and MongoDB metadata providers.
-- [ ] Add automated coverage for grace-period boundaries, legacy timestamps, reservation states, referenced uploads, cleanup claims, deletion failures, retry convergence, batching, and starvation prevention.
-- [ ] Update operator, deployment, API, CLI, and security documentation for the new retention setting and cleanup behavior.
+- [x] Record a completion timestamp for every completed upload.
+- [x] When a legacy completed upload has no completion timestamp, stamp its completion timestamp with the current time when first encountered and wait a full grace period from that stamp before making it eligible.
+- [x] Delete an unreferenced completed upload when its completion timestamp is at or before the configurable grace-period cutoff, defaulting the grace period to seven days, and delete or confirm its blob absent before deleting its metadata.
+- [x] Never sweep an upload reservation, whether claimed or unclaimed, a completed upload younger than the grace period, or a file referenced by any share, including an expired or revoked share awaiting purge.
+- [x] Durably claim an eligible upload for cleanup before starting blob deletion so share creation cannot adopt it, including when an external deletion outlives a distributed lease.
+- [x] Reconcile abandoned acquired and committing share-creation claims before retrying a conflicting sweep claim, while performing no destructive work when the conflict remains unresolved.
+- [x] Retain the cleanup claim and metadata for retry when blob deletion or retained-blob accounting fails, and retry idempotently when metadata deletion fails after the blob is gone.
+- [x] Recover and release an orphaned sweep claim when a crash occurs after upload metadata deletion but before claim release, inspecting at most 50 sweep claims per run separately from the candidate budget and rotating inspected claims so retained ones cannot hide later orphans.
+- [x] Count sweep deletion failures in the cleanup result, report the run as a partial failure, and log only the affected file identifier.
+- [x] Report sweep counters for candidates inspected, uploads deleted, blobs already missing, and failures, and surface them in the administrative cleanup response and the CLI `share-cleanup` output.
+- [x] Inspect at most 200 upload candidates per run.
+- [x] Prioritize never-inspected and then least-recently-inspected candidates, using completion time and file identifier as deterministic tie-breakers so referenced or failing records cannot starve the backlog.
+- [x] Add provider indexes that bound candidate-selection work for LiteDB and MongoDB.
+- [x] Provide equivalent behavior for the LiteDB and MongoDB metadata providers.
+- [x] Add automated coverage for grace-period boundaries, legacy timestamps, reservation states, referenced uploads, cleanup claims, deletion failures, retry convergence, batching, and starvation prevention.
+- [x] Update operator, deployment, API, CLI, and security documentation for the new retention setting and cleanup behavior.
 
 ## Technical Details
 

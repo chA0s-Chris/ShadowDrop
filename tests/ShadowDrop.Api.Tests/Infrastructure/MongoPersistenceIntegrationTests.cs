@@ -188,7 +188,11 @@ public abstract class MongoPersistenceIntegrationTests
             .ToListAsync();
         var uploadCredentialIndexes = await (await _mongo.GetCollection<MongoUploadCredentialDocument>().Indexes.ListAsync())
             .ToListAsync();
-        uploadIndexes.Select(x => x["name"].AsString).Should().Contain(["reservation_state", "storage_stats"]);
+        var claimIndexes = await (await _mongo.GetCollection<MongoShareOperationClaimDocument>().Indexes.ListAsync())
+            .ToListAsync();
+        uploadIndexes.Select(x => x["name"].AsString).Should()
+                     .Contain(["reservation_state", "storage_stats", "retention_stats", "unreferenced_upload_sweep"]);
+        claimIndexes.Select(x => x["name"].AsString).Should().Contain(["claimed_file_unique", "claim_kind", "sweep_claim_recovery"]);
         shareIndexes.Select(x => x["name"].AsString).Should().Contain(
         [
             "share_token_unique", "file_single_use", "cleanup_candidates", "newest_first_listing",
@@ -247,7 +251,10 @@ public abstract class MongoPersistenceIntegrationTests
             _services.GetRequiredService<ILoggerFactory>().CreateLogger<ShareCleanupService>());
         using var coordinator = new MongoShareCleanupCoordinator(_mongo);
         var runner = new ShareCleanupRunner(
-            service, coordinator, _services.GetRequiredService<ILoggerFactory>().CreateLogger<ShareCleanupRunner>());
+            service,
+            CreateSweepService(),
+            coordinator,
+            _services.GetRequiredService<ILoggerFactory>().CreateLogger<ShareCleanupRunner>());
         await using var heldLock = await _mongo.TryAcquireLockAsync("shadowdrop-share-cleanup", TimeSpan.FromMinutes(1));
 
         var result = await runner.RunIfIdleAsync(CancellationToken.None);
@@ -504,26 +511,7 @@ public abstract class MongoPersistenceIntegrationTests
             }
         };
         MongoSerialization.EnsureConfigured();
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddSingleton(options);
-        services.AddMongo(options.Mongo.ConnectionString, options.Mongo.DatabaseName, mongoOptions =>
-                {
-                    mongoOptions.UseDefaultCollectionNames = false;
-                    mongoOptions.AddMapping<MongoUploadedFileDocument>("uploaded_files");
-                    mongoOptions.AddMapping<MongoShareDocument>("shares");
-                    mongoOptions.AddMapping<MongoShareOperationClaimDocument>("share_operation_claims");
-                    mongoOptions.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
-                    mongoOptions.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
-                })
-                .WithConfigurator<ShadowDropMongoConfigurator>();
-        services.AddSingleton<MongoUploadedFileMetadataRepository>();
-        services.AddSingleton<MongoShareMetadataRepository>();
-        services.AddSingleton<MongoShareOperationClaimRepository>();
-        services.AddSingleton<MongoAdminTokenCredentialRepository>();
-        services.AddSingleton<MongoUploadCredentialRepository>();
-        services.AddSingleton<MongoGridFsBlobStorage>();
-        _services = services.BuildServiceProvider();
+        _services = CreateMongoServiceProvider(options);
         _mongo = _services.GetRequiredService<IMongoHelper>();
         await _mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
         await _services.GetRequiredService<IMongoConfiguratorRunner>().RunConfiguratorsAsync();
@@ -598,6 +586,191 @@ public abstract class MongoPersistenceIntegrationTests
 
         await UploadCredentialRepositoryContract.AssertContractAsync(repository);
         await UploadCredentialRepositoryContract.AssertListPaginationContractAsync(repository);
+    }
+
+    [Test]
+    public async Task UploadSweep_ShouldApplyDeterministicOrderingBeforeTheMongoCandidateLimit()
+    {
+        await using var scope = await CreateIsolatedMongoScopeAsync();
+        var completedAt = DateTimeOffset.UtcNow.AddYears(-2);
+        var documents = Enumerable.Range(0, UploadSweepService.MaxCandidatesPerRun + 25)
+                                  .Select(index =>
+                                  {
+                                      var fileId = Guid.NewGuid();
+                                      return new MongoUploadedFileDocument
+                                      {
+                                          FileId = fileId,
+                                          BlobKey = $"batch/{fileId:N}",
+                                          IsReserved = false,
+                                          RetentionState = BlobRetentionState.Retained,
+                                          CompletedAtUnixTimeMilliseconds = completedAt
+                                                                            .AddMilliseconds(UploadSweepService.MaxCandidatesPerRun + 25 - index)
+                                                                            .ToUnixTimeMilliseconds()
+                                      };
+                                  })
+                                  .ToList();
+        await scope.Mongo.GetCollection<MongoUploadedFileDocument>().InsertManyAsync(documents);
+
+        var candidates = await scope.Services.GetRequiredService<MongoUploadedFileMetadataRepository>()
+                                    .GetSweepCandidatesAsync(DateTimeOffset.UtcNow,
+                                                             UploadSweepService.MaxCandidatesPerRun,
+                                                             CancellationToken.None);
+
+        candidates.Select(candidate => candidate.FileId).Should().Equal(
+            documents.OrderBy(document => document.CompletedAtUnixTimeMilliseconds)
+                     .Take(UploadSweepService.MaxCandidatesPerRun)
+                     .Select(document => document.FileId));
+    }
+
+    [Test]
+    public async Task UploadSweep_ShouldOrderCandidatesNeverInspectedFirstThenLeastRecentlyInspected()
+    {
+        var uploads = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
+        var blobs = _services.GetRequiredService<MongoGridFsBlobStorage>();
+        var neverInspected = await CompleteGridFsUploadAsync(uploads, blobs);
+        var longAgoInspected = await CompleteGridFsUploadAsync(uploads, blobs);
+        var recentlyInspected = await CompleteGridFsUploadAsync(uploads, blobs);
+        var inspectedAt = DateTimeOffset.UtcNow;
+        (await uploads.TryRecordSweepInspectionAsync(longAgoInspected, inspectedAt.AddDays(-2), CancellationToken.None))
+            .Should().BeTrue();
+        (await uploads.TryRecordSweepInspectionAsync(recentlyInspected, inspectedAt.AddDays(-1), CancellationToken.None))
+            .Should().BeTrue();
+
+        var candidates = await uploads.GetSweepCandidatesAsync(DateTimeOffset.UtcNow, 500, CancellationToken.None);
+
+        // A missing inspection timestamp sorts before every number in MongoDB, so the never-inspected upload leads.
+        // Other tests in this fixture leave candidates of their own behind, which is why only the relative order of
+        // these three is asserted.
+        candidates.Select(candidate => candidate.FileId)
+                  .Where(fileId => fileId == neverInspected || fileId == longAgoInspected || fileId == recentlyInspected)
+                  .Should().Equal(neverInspected, longAgoInspected, recentlyInspected);
+    }
+
+    [Test]
+    public async Task UploadSweep_ShouldReclaimOnlyUnreferencedUploadsPastTheGracePeriod()
+    {
+        var uploads = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
+        var shares = _services.GetRequiredService<MongoShareMetadataRepository>();
+        var blobs = _services.GetRequiredService<MongoGridFsBlobStorage>();
+        var unreferenced = await CompleteGridFsUploadAsync(uploads, blobs);
+        var referenced = await CompleteGridFsUploadAsync(uploads, blobs);
+        var recent = await CompleteGridFsUploadAsync(uploads, blobs);
+        await shares.CreateAsync(CreateShare(Guid.NewGuid(), $"sweep-{Guid.NewGuid():N}", referenced), CancellationToken.None);
+
+        // Only the back-dated uploads cross a one-year grace period, which also keeps this run from touching
+        // uploads other tests in this fixture left behind.
+        await BackdateCompletionAsync(unreferenced);
+        await BackdateCompletionAsync(referenced);
+        var sweep = CreateSweepService(OptionsWithRetention(TimeSpan.FromDays(365)));
+
+        var result = await sweep.RunAsync(CancellationToken.None);
+
+        result.Failures.Should().Be(0);
+        (await uploads.GetAsync(unreferenced, CancellationToken.None)).Should().BeNull();
+        await AssertGridFsUploadWasRemovedAsync(unreferenced);
+        (await uploads.GetAsync(referenced, CancellationToken.None)).Should().NotBeNull("a referenced upload is never reclaimed");
+        (await uploads.GetAsync(recent, CancellationToken.None)).Should().NotBeNull("an upload inside the grace period is never reclaimed");
+
+        // Nothing may keep the referenced file claimed once the sweep has skipped it.
+        var probe = Guid.NewGuid();
+        (await _services.GetRequiredService<MongoShareOperationClaimRepository>()
+                        .TryAcquireAsync(probe, ShareOperationClaimKind.CreateShare, Guid.NewGuid(), [referenced], CancellationToken.None))
+            .Should().NotBeNull();
+        (await _services.GetRequiredService<MongoShareOperationClaimRepository>().TryReleaseAsync(probe, CancellationToken.None))
+            .Should().BeTrue();
+    }
+
+    [Test]
+    public async Task UploadSweep_ShouldRotateRetainedMongoClaimsBeforeRecoveringALaterOrphan()
+    {
+        await using var scope = await CreateIsolatedMongoScopeAsync();
+        var now = DateTimeOffset.UtcNow;
+        var retainedFiles = Enumerable.Range(0, UploadSweepService.MaxRecoveryClaimsPerRun)
+                                      .Select(_ => Guid.NewGuid())
+                                      .ToList();
+        await scope.Mongo.GetCollection<MongoUploadedFileDocument>().InsertManyAsync(
+            retainedFiles.Select(fileId => new MongoUploadedFileDocument
+            {
+                FileId = fileId,
+                BlobKey = $"retained/{fileId:N}",
+                IsReserved = false,
+                RetentionState = BlobRetentionState.Retained,
+                CompletedAtUnixTimeMilliseconds = now.ToUnixTimeMilliseconds()
+            }));
+
+        var claims = scope.Services.GetRequiredService<MongoShareOperationClaimRepository>();
+        var retainedOperationIds = new List<Guid>();
+        foreach (var fileId in retainedFiles)
+        {
+            var operationId = Guid.NewGuid();
+            retainedOperationIds.Add(operationId);
+            (await claims.TryAcquireAsync(operationId,
+                                          ShareOperationClaimKind.SweepUpload,
+                                          operationId,
+                                          [fileId],
+                                          CancellationToken.None)).Should().NotBeNull();
+        }
+
+        var orphanedOperationId = Guid.NewGuid();
+        (await claims.TryAcquireAsync(orphanedOperationId,
+                                      ShareOperationClaimKind.SweepUpload,
+                                      orphanedOperationId,
+                                      [Guid.NewGuid()],
+                                      CancellationToken.None)).Should().NotBeNull();
+        (await claims.TryRecordSweepClaimInspectionAsync(orphanedOperationId, now.AddDays(-1), CancellationToken.None))
+            .Should().BeTrue();
+
+        var sweep = CreateSweepService(scope.Services, OptionsWithRetention(TimeSpan.FromDays(365)));
+        var first = await sweep.RunAsync(CancellationToken.None);
+        var afterFirst = await claims.GetSweepClaimsAsync(1000, CancellationToken.None);
+        var second = await sweep.RunAsync(CancellationToken.None);
+        var afterSecond = await claims.GetSweepClaimsAsync(1000, CancellationToken.None);
+
+        first.Should().Be(new UploadSweepResult(0, 0, 0, 0));
+        afterFirst.Select(claim => claim.OperationId).Should().Contain(orphanedOperationId);
+        afterFirst[0].OperationId.Should().Be(orphanedOperationId,
+                                              "the 50 retained claims were rotated behind the older orphan");
+        second.Should().Be(new UploadSweepResult(0, 0, 0, 0));
+        afterSecond.Select(claim => claim.OperationId).Should().BeEquivalentTo(retainedOperationIds);
+    }
+
+    [Test]
+    public async Task UploadSweep_ShouldStampLegacyCompletion_AndWaitAFullGracePeriodFromThere()
+    {
+        var uploads = _services.GetRequiredService<MongoUploadedFileMetadataRepository>();
+        var fileId = await CompleteGridFsUploadAsync(uploads, _services.GetRequiredService<MongoGridFsBlobStorage>());
+
+        // A document written before completion timestamps existed carries no field at all rather than a null one,
+        // because MongoUploadedFileDocument omits the property when it is null.
+        await ClearCompletionAsync(fileId);
+        var sweep = CreateSweepService(OptionsWithRetention(TimeSpan.FromDays(365)));
+
+        // Each run's outcome is captured before the next one starts: the record only survives until the run that
+        // legitimately reclaims it, so asserting afterwards would assert against the wrong phase.
+        var stamping = await sweep.RunAsync(CancellationToken.None);
+        var stampedCompletion = await GetCompletionAsync(fileId);
+        var afterStamping = await uploads.GetAsync(fileId, CancellationToken.None);
+
+        var withFreshStamp = await sweep.RunAsync(CancellationToken.None);
+        var afterFreshStamp = await uploads.GetAsync(fileId, CancellationToken.None);
+
+        await BackdateCompletionAsync(fileId);
+        var reclaiming = await sweep.RunAsync(CancellationToken.None);
+
+        // The legacy record surfaces despite its missing timestamp, is stamped on that first encounter, and is
+        // never reclaimed merely for having carried no timestamp.
+        stamping.Failures.Should().Be(0);
+        stampedCompletion.Should().NotBeNull("the first inspection stamps a legacy record");
+        afterStamping.Should().NotBeNull("the encounter that stamps a legacy record never reclaims it");
+
+        // The stamp starts the grace period rather than ending it, so the very next run leaves the record alone.
+        withFreshStamp.Failures.Should().Be(0);
+        afterFreshStamp.Should().NotBeNull("a freshly stamped record waits a full grace period from that stamp");
+
+        // Only once the stamp itself has aged past the retention does the record become eligible.
+        reclaiming.Failures.Should().Be(0);
+        (await uploads.GetAsync(fileId, CancellationToken.None)).Should().BeNull();
+        await AssertGridFsUploadWasRemovedAsync(fileId);
     }
 
     [Test]
@@ -812,12 +985,72 @@ public abstract class MongoPersistenceIntegrationTests
         afterDelete.TotalEncryptedBytes.Should().Be(baselineStats.TotalEncryptedBytes);
     }
 
+    private static async Task<Guid> CompleteGridFsUploadAsync(
+        MongoUploadedFileMetadataRepository uploads,
+        MongoGridFsBlobStorage blobs)
+    {
+        var fileId = await uploads.ReserveFileIdAsync(CancellationToken.None);
+        (await uploads.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        var descriptor = await blobs.SaveAsync(fileId, new MemoryStream([1, 2, 3, 4]), CancellationToken.None);
+        (await uploads.TryCompleteReservationAsync(CreateUploadedFile(fileId, descriptor.BlobKey, descriptor.WrittenLength),
+                                                   CancellationToken.None)).Should().BeTrue();
+        return fileId;
+    }
+
+    private static ServiceProvider CreateMongoServiceProvider(ShadowDropOptions options)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(options);
+        services.AddMongo(options.Mongo.ConnectionString, options.Mongo.DatabaseName, mongoOptions =>
+                {
+                    mongoOptions.UseDefaultCollectionNames = false;
+                    mongoOptions.AddMapping<MongoUploadedFileDocument>("uploaded_files");
+                    mongoOptions.AddMapping<MongoShareDocument>("shares");
+                    mongoOptions.AddMapping<MongoShareOperationClaimDocument>("share_operation_claims");
+                    mongoOptions.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
+                    mongoOptions.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
+                })
+                .WithConfigurator<ShadowDropMongoConfigurator>();
+        services.AddSingleton<MongoUploadedFileMetadataRepository>();
+        services.AddSingleton<MongoShareMetadataRepository>();
+        services.AddSingleton<MongoShareOperationClaimRepository>();
+        services.AddSingleton<MongoAdminTokenCredentialRepository>();
+        services.AddSingleton<MongoUploadCredentialRepository>();
+        services.AddSingleton<MongoGridFsBlobStorage>();
+        return services.BuildServiceProvider();
+    }
+
     private static ShareRecord CreateShare(Guid shareId, String token, Guid fileId, DateTimeOffset? expiresAtUtc = null) =>
         new(shareId, token, DateTimeOffset.UtcNow, expiresAtUtc ?? DateTimeOffset.UtcNow.AddHours(1), null, ShareCleanupState.Pending,
             false, null, [new(fileId, "file.bin", null)]);
 
+    private static UploadSweepService CreateSweepService(IServiceProvider services, ShadowDropOptions? options = null)
+    {
+        var shares = services.GetRequiredService<MongoShareMetadataRepository>();
+        var claims = services.GetRequiredService<MongoShareOperationClaimRepository>();
+        var loggerFactory = services.GetRequiredService<ILoggerFactory>();
+        return new(services.GetRequiredService<MongoUploadedFileMetadataRepository>(),
+                   shares,
+                   claims,
+                   new(claims, shares, loggerFactory.CreateLogger<ShareCreationClaimReconciler>()),
+                   services.GetRequiredService<MongoGridFsBlobStorage>(),
+                   options ?? new(),
+                   TimeProvider.System,
+                   loggerFactory.CreateLogger<UploadSweepService>());
+    }
+
     private static UploadedFileRecord CreateUploadedFile(Guid fileId, String blobKey, Int64 length) =>
         new(fileId, blobKey, "file.bin", length, length, "application/octet-stream", "v2", "aes", 1024, 1, "salt", null);
+
+    private static ShadowDropOptions OptionsWithRetention(TimeSpan retention) =>
+        new()
+        {
+            Cleanup = new()
+            {
+                UnreferencedUploadRetention = retention
+            }
+        };
 
     private static async Task<Boolean> TryCreateAsync(MongoShareMetadataRepository repository, ShareRecord record)
     {
@@ -841,6 +1074,53 @@ public abstract class MongoPersistenceIntegrationTests
         fileCount.Should().Be(0);
         chunkCount.Should().Be(0);
     }
+
+    private Task BackdateCompletionAsync(Guid fileId) =>
+        _mongo.GetCollection<MongoUploadedFileDocument>()
+              .UpdateOneAsync(x => x.FileId == fileId,
+                              Builders<MongoUploadedFileDocument>.Update
+                                                                 .Set(x => x.CompletedAtUnixTimeMilliseconds,
+                                                                      DateTimeOffset.UtcNow.AddYears(-2).ToUnixTimeMilliseconds()));
+
+    /// <summary>Reproduces a document written before completion timestamps existed: the field is absent entirely.</summary>
+    private Task ClearCompletionAsync(Guid fileId) =>
+        _mongo.GetCollection<MongoUploadedFileDocument>()
+              .UpdateOneAsync(x => x.FileId == fileId,
+                              Builders<MongoUploadedFileDocument>.Update.Unset(x => x.CompletedAtUnixTimeMilliseconds));
+
+    private async Task<IsolatedMongoScope> CreateIsolatedMongoScopeAsync()
+    {
+        var options = new ShadowDropOptions
+        {
+            Metadata = new()
+            {
+                Provider = MetadataProvider.MongoDb
+            },
+            Storage = new()
+            {
+                Provider = BlobStorageProvider.MongoGridFs,
+                GridFsBucketName = "shadowdrop_test_blobs"
+            },
+            Mongo = new()
+            {
+                ConnectionString = _container.GetConnectionString(),
+                DatabaseName = $"shadowdrop_sweep_{Guid.NewGuid():N}"
+            }
+        };
+        var services = CreateMongoServiceProvider(options);
+        var mongo = services.GetRequiredService<IMongoHelper>();
+        await mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
+        await services.GetRequiredService<IMongoConfiguratorRunner>().RunConfiguratorsAsync();
+        return new(services, mongo);
+    }
+
+    private UploadSweepService CreateSweepService(ShadowDropOptions? options = null) =>
+        CreateSweepService(_services, options);
+
+    private async Task<Int64?> GetCompletionAsync(Guid fileId) =>
+        (await _mongo.GetCollection<MongoUploadedFileDocument>()
+                     .Find(x => x.FileId == fileId)
+                     .FirstOrDefaultAsync())?.CompletedAtUnixTimeMilliseconds;
 
     private sealed class FailAfterStream(Byte[] content, Int32 throwAfter, Exception failure) : Stream
     {
@@ -870,6 +1150,19 @@ public abstract class MongoPersistenceIntegrationTests
         public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(Int64 value) => throw new NotSupportedException();
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+    }
+
+    private sealed class IsolatedMongoScope(ServiceProvider services, IMongoHelper mongo) : IAsyncDisposable
+    {
+        public IMongoHelper Mongo { get; } = mongo;
+
+        public ServiceProvider Services { get; } = services;
+
+        public async ValueTask DisposeAsync()
+        {
+            await Mongo.Database.Client.DropDatabaseAsync(Mongo.Database.DatabaseNamespace.DatabaseName);
+            await Services.DisposeAsync();
+        }
     }
 
     // Program reads configuration overrides from environment variables (same mechanism as ApiWalkingSkeletonTests'

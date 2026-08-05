@@ -20,6 +20,9 @@ internal sealed class MongoUploadedFileDocument
     public Int32 ChunkSize { get; set; }
 
     [BsonIgnoreIfNull]
+    public Int64? CompletedAtUnixTimeMilliseconds { get; set; }
+
+    [BsonIgnoreIfNull]
     public String? ContentType { get; set; }
 
     [BsonIgnoreIfDefault]
@@ -36,6 +39,9 @@ internal sealed class MongoUploadedFileDocument
     public Boolean IsReserved { get; set; }
 
     public String KdfSaltBase64 { get; set; } = String.Empty;
+
+    [BsonIgnoreIfNull]
+    public Int64? LastSweepAttemptAtUnixTimeMilliseconds { get; set; }
 
     public String OriginalFileName { get; set; } = String.Empty;
 

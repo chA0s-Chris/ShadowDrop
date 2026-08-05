@@ -27,7 +27,10 @@ public sealed class ShareCleanupServiceTests
                                                      timeProvider,
                                                      NullLogger<ShareCleanupService>.Instance);
         using var coordinator = new InProcessShareCleanupCoordinator();
-        var runner = new ShareCleanupRunner(cleanupService, coordinator, NullLogger<ShareCleanupRunner>.Instance);
+        var runner = new ShareCleanupRunner(cleanupService,
+                                            CreateIdleSweepService(),
+                                            coordinator,
+                                            NullLogger<ShareCleanupRunner>.Instance);
         var options = new ShadowDropOptions();
         using var hostedService = new ShareCleanupHostedService(runner, options, timeProvider, NullLogger<ShareCleanupHostedService>.Instance);
 
@@ -108,7 +111,7 @@ public sealed class ShareCleanupServiceTests
         var now = DateTimeOffset.Parse("2026-06-02T00:00:00Z");
         var fileId = Guid.NewGuid();
         var share = CreateShareRecord(fileId, now.AddDays(-1));
-        var shares = new InMemoryShareRepository(share, failFirstDelete: true);
+        var shares = new InMemoryShareRepository(share, true);
         var uploads = new FailSecondMetadataDeleteUploadedFileRepository([CreateUploadedFileRecord(fileId)]);
         var service = new ShareCleanupService(shares,
                                               uploads,
@@ -551,7 +554,10 @@ public sealed class ShareCleanupServiceTests
         var cleanupService = CreateService(shareRepository, uploadedFileRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
         var collector = new FakeLogCollector();
         using var coordinator = new InProcessShareCleanupCoordinator();
-        var sut = new ShareCleanupRunner(cleanupService, coordinator, new FakeLogger<ShareCleanupRunner>(collector));
+        var sut = new ShareCleanupRunner(cleanupService,
+                                         CreateIdleSweepService(),
+                                         coordinator,
+                                         new FakeLogger<ShareCleanupRunner>(collector));
 
         var result = await sut.RunIfIdleAsync(CancellationToken.None);
 
@@ -583,7 +589,10 @@ public sealed class ShareCleanupServiceTests
         var cleanupService = CreateService(shareRepository, uploadRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
         var collector = new FakeLogCollector();
         using var coordinator = new InProcessShareCleanupCoordinator();
-        var runner = new ShareCleanupRunner(cleanupService, coordinator, new FakeLogger<ShareCleanupRunner>(collector));
+        var runner = new ShareCleanupRunner(cleanupService,
+                                            CreateIdleSweepService(),
+                                            coordinator,
+                                            new FakeLogger<ShareCleanupRunner>(collector));
 
         var firstRun = runner.RunIfIdleAsync(CancellationToken.None);
         await blobStorage.DeleteStarted.Task;
@@ -608,6 +617,7 @@ public sealed class ShareCleanupServiceTests
         var timeProvider = new FrozenTimeProvider(now);
         var status = new CleanupRunStatus();
         var runner = new ShareCleanupRunner(CreateEmptyCleanupService(timeProvider),
+                                            CreateIdleSweepService(),
                                             new ThrowingAcquireCoordinator(),
                                             timeProvider,
                                             status,
@@ -626,6 +636,7 @@ public sealed class ShareCleanupServiceTests
         var timeProvider = new FrozenTimeProvider(now);
         var status = new CleanupRunStatus();
         var runner = new ShareCleanupRunner(CreateEmptyCleanupService(timeProvider),
+                                            CreateIdleSweepService(),
                                             new ThrowingDisposeCoordinator(),
                                             timeProvider,
                                             status,
@@ -656,6 +667,7 @@ public sealed class ShareCleanupServiceTests
         var status = new CleanupRunStatus();
         using var coordinator = new InProcessShareCleanupCoordinator();
         var runner = new ShareCleanupRunner(cleanupService,
+                                            CreateIdleSweepService(),
                                             coordinator,
                                             timeProvider,
                                             status,
@@ -667,6 +679,7 @@ public sealed class ShareCleanupServiceTests
 
         var skippedStatus = new CleanupRunStatus();
         var skippedRunner = new ShareCleanupRunner(cleanupService,
+                                                   CreateIdleSweepService(),
                                                    new NeverAcquireCoordinator(),
                                                    timeProvider,
                                                    skippedStatus,
@@ -688,6 +701,7 @@ public sealed class ShareCleanupServiceTests
             NullLogger<ShareCleanupService>.Instance);
         using var cancellationCoordinator = new InProcessShareCleanupCoordinator();
         var cancellationRunner = new ShareCleanupRunner(cancellationService,
+                                                        CreateIdleSweepService(),
                                                         cancellationCoordinator,
                                                         timeProvider,
                                                         cancellationStatus,
@@ -745,6 +759,24 @@ public sealed class ShareCleanupServiceTests
             new BlockingBlobStorage(),
             timeProvider,
             NullLogger<ShareCleanupService>.Instance);
+
+    /// <summary>
+    /// A sweep with nothing to reclaim. These tests are about the share phase, the run lease, and run status;
+    /// <see cref="UploadSweepServiceTests"/> covers reclamation itself.
+    /// </summary>
+    private static UploadSweepService CreateIdleSweepService()
+    {
+        var shares = new SignalingShareRepository();
+        var claims = new InMemoryShareOperationClaimRepository();
+        return new(new NoSweepCandidatesUploadedFileRepository(),
+                   shares,
+                   claims,
+                   new(claims, shares, NullLogger<ShareCreationClaimReconciler>.Instance),
+                   new AlwaysMissingBlobStorage(),
+                   new(),
+                   TimeProvider.System,
+                   NullLogger<UploadSweepService>.Instance);
+    }
 
     private static ShareCleanupService CreateService(IShareMetadataRepository shareRepository,
                                                      IUploadedFileMetadataRepository uploadedFileRepository,
@@ -1140,6 +1172,30 @@ public sealed class ShareCleanupServiceTests
     {
         public Task<IAsyncDisposable?> TryAcquireAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IAsyncDisposable?>(null);
+    }
+
+    private sealed class NoSweepCandidatesUploadedFileRepository : IUploadedFileMetadataRepository
+    {
+        public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(
+            DateTimeOffset completionCutoffUtc,
+            Int32 limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<UploadSweepCandidate>>([]);
+
+        public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private sealed class SequenceDeleteBlobStorage : IBlobStorage

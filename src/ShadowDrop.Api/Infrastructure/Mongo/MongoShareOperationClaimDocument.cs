@@ -13,6 +13,9 @@ internal sealed class MongoShareOperationClaimDocument
     [BsonRepresentation(BsonType.String)]
     public ShareOperationClaimKind Kind { get; set; }
 
+    [BsonIgnoreIfNull]
+    public Int64? LastRecoveryInspectionAtUnixTimeMilliseconds { get; set; }
+
     [BsonRepresentation(BsonType.String)]
     public ShareOperationClaimLifecycle Lifecycle { get; set; }
 

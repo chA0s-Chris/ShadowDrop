@@ -240,6 +240,14 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         return new(await active, await expired, await revoked, await pending, await failed);
     }
 
+    /// <summary>
+    /// Served by the same multikey file index that enforces single-use, so the lookup stays a point query
+    /// regardless of how many shares exist. No lifecycle predicate is applied: an expired or revoked share
+    /// awaiting purge still owns its files.
+    /// </summary>
+    public Task<Boolean> IsFileReferencedAsync(Guid fileId, CancellationToken cancellationToken) =>
+        Collection.Find(Builders<MongoShareDocument>.Filter.Eq("Files.FileId", fileId)).AnyAsync(cancellationToken);
+
     public async Task<Boolean> TryDeleteAsync(Guid shareId, CancellationToken cancellationToken)
     {
         var result = await Collection.DeleteOneAsync(x => x.ShareId == shareId, cancellationToken);

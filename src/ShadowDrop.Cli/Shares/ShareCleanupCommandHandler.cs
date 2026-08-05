@@ -35,7 +35,7 @@ internal sealed class ShareCleanupCommandHandler(
         }
 
         await standardOut.WriteLineAsync(
-            $"share-cleanup:candidates-scanned={result.CandidatesScanned} shares-completed={result.SharesCompleted} blobs-deleted={result.BlobsDeleted} blobs-already-missing={result.BlobsAlreadyMissing} failures={result.Failures} skipped={result.Skipped.ToString().ToLowerInvariant()}");
+            $"share-cleanup:candidates-scanned={result.CandidatesScanned} shares-completed={result.SharesCompleted} blobs-deleted={result.BlobsDeleted} blobs-already-missing={result.BlobsAlreadyMissing} failures={result.Failures} sweep-candidates-inspected={result.SweepCandidatesInspected} sweep-uploads-deleted={result.SweepUploadsDeleted} sweep-blobs-already-missing={result.SweepBlobsAlreadyMissing} sweep-failures={result.SweepFailures} skipped={result.Skipped.ToString().ToLowerInvariant()}");
         return 0;
     }
 }

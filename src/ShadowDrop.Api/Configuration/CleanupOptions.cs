@@ -5,4 +5,11 @@ namespace ShadowDrop.Api.Configuration;
 public sealed class CleanupOptions
 {
     public String CronExpression { get; set; } = "0 */2 * * *";
+
+    /// <summary>
+    /// How long a completed upload that no share references is kept before the cleanup run reclaims it.
+    /// There is no separate on/off switch: a retention long enough that nothing ever becomes eligible is
+    /// how an operator disables reclamation.
+    /// </summary>
+    public TimeSpan UnreferencedUploadRetention { get; set; } = TimeSpan.FromDays(7);
 }

@@ -58,7 +58,11 @@ public sealed class ShareCleanupCommandHandlerTests
                                                                              new(HttpStatusCode.OK)
                                                                              {
                                                                                  Content = new StringContent(
-                                                                                     """{"candidatesScanned":2,"sharesCompleted":1,"blobsDeleted":3,"blobsAlreadyMissing":4,"failures":5,"skipped":false}""")
+                                                                                     """
+                                                                                     {"candidatesScanned":2,"sharesCompleted":1,"blobsDeleted":3,"blobsAlreadyMissing":4,"failures":5,
+                                                                                      "sweepCandidatesInspected":6,"sweepUploadsDeleted":7,"sweepBlobsAlreadyMissing":8,"sweepFailures":9,
+                                                                                      "skipped":false}
+                                                                                     """)
                                                                              }));
         var handler = new ShareCleanupCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
                                                                                 adminToken: "admin-token"),
@@ -70,7 +74,8 @@ public sealed class ShareCleanupCommandHandlerTests
 
         exitCode.Should().Be(0);
         standardOut.ToString().Trim().Should()
-                   .Be("share-cleanup:candidates-scanned=2 shares-completed=1 blobs-deleted=3 blobs-already-missing=4 failures=5 skipped=false");
+                   .Be("share-cleanup:candidates-scanned=2 shares-completed=1 blobs-deleted=3 blobs-already-missing=4 failures=5 "
+                       + "sweep-candidates-inspected=6 sweep-uploads-deleted=7 sweep-blobs-already-missing=8 sweep-failures=9 skipped=false");
         standardError.ToString().Should().BeEmpty();
     }
 

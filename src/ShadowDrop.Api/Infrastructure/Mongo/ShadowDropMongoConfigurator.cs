@@ -31,6 +31,17 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 new()
                 {
                     Name = "retention_stats"
+                }),
+            // Equality on the reservation flag ahead of the sweep-ordering fields lets candidate selection walk
+            // the index in the order the sweep needs, so a large upload collection cannot force a blocking sort.
+            new(Builders<MongoUploadedFileDocument>.IndexKeys
+                                                   .Ascending(x => x.IsReserved)
+                                                   .Ascending(x => x.LastSweepAttemptAtUnixTimeMilliseconds)
+                                                   .Ascending(x => x.CompletedAtUnixTimeMilliseconds)
+                                                   .Ascending(x => x.FileId),
+                new()
+                {
+                    Name = "unreferenced_upload_sweep"
                 })
         ], cancellationToken);
 
@@ -97,6 +108,16 @@ internal sealed class ShadowDropMongoConfigurator : IMongoConfigurator
                 new()
                 {
                     Name = "claim_kind"
+                }),
+            // Orphaned-sweep-claim recovery walks its own bounded batch in rotation order. The kind prefix keeps
+            // it off the share-creation claims entirely.
+            new(Builders<MongoShareOperationClaimDocument>.IndexKeys
+                                                          .Ascending(x => x.Kind)
+                                                          .Ascending(x => x.LastRecoveryInspectionAtUnixTimeMilliseconds)
+                                                          .Ascending(x => x.OperationId),
+                new()
+                {
+                    Name = "sweep_claim_recovery"
                 })
         ], cancellationToken);
 

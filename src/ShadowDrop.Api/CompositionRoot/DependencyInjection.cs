@@ -107,7 +107,9 @@ public static class DependencyInjection
                 builder.Services.AddSingleton<IShareOperationClaimRepository, MongoShareOperationClaimRepository>();
             }
 
+            builder.Services.AddSingleton<ShareCreationClaimReconciler>();
             builder.Services.AddSingleton<ShareCleanupService>();
+            builder.Services.AddSingleton<UploadSweepService>();
             if (mongoRequired)
             {
                 builder.Services.AddSingleton<IShareCleanupCoordinator, MongoShareCleanupCoordinator>();

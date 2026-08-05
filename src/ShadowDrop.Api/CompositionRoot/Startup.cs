@@ -44,7 +44,8 @@ public static class Startup
             "MetadataDatabase: {MetadataDatabase}; MongoDatabase: {MongoDatabase}; S3Bucket: {S3Bucket}; S3ServiceEndpoint: {S3ServiceEndpoint}; " +
             "S3UsePathStyle: {S3UsePathStyle}; S3KeyPrefix: {S3KeyPrefix}; S3CredentialSource: {S3CredentialSource}; UploadMaxBytes: {UploadMaxBytes}; " +
             "KestrelMaxRequestBodySize: {KestrelMaxRequestBodySize}; EnableAdminOperations: {EnableAdminOperations}; UploadsEnabled: {UploadsEnabled}; " +
-            "EnablePublicDownloads: {EnablePublicDownloads}; CleanupCronExpression: {CleanupCronExpression}",
+            "EnablePublicDownloads: {EnablePublicDownloads}; CleanupCronExpression: {CleanupCronExpression}; " +
+            "UnreferencedUploadRetention: {UnreferencedUploadRetention}",
             options.Metadata.Provider,
             options.Storage.Provider,
             options.Storage.Provider == BlobStorageProvider.FileSystem ? options.Storage.LocalRoot : "(not used)",
@@ -66,7 +67,8 @@ public static class Startup
             options.ApiExposure.EnableAdminOperations,
             options.ApiExposure.UploadsEnabled,
             options.ApiExposure.EnablePublicDownloads,
-            options.Cleanup.CronExpression);
+            options.Cleanup.CronExpression,
+            options.Cleanup.UnreferencedUploadRetention);
     }
 
     private static async Task LogStartupStateSummaryAsync(WebApplication app, ILogger logger, ShadowDropOptions options,

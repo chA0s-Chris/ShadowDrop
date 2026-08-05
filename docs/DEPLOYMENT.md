@@ -191,6 +191,48 @@ indexed ordering query plus one lookup per distinct creation timestamp it spans.
 the creation-time index this stays proportional to collection size; prefer MongoDB for installations where operators page through large
 share inventories regularly.
 
+### Unreferenced upload reclamation
+
+Every cleanup run finishes by reclaiming completed uploads that no share
+references. Without it, an upload whose share creation was abandoned keeps its
+ciphertext and per-file metadata forever, because the share phase only walks
+shares.
+
+```bash
+ShadowDrop__Cleanup__CronExpression=0 */2 * * *
+ShadowDrop__Cleanup__UnreferencedUploadRetention=7.00:00:00
+```
+
+`UnreferencedUploadRetention` is a `d.hh:mm:ss` duration and must be positive;
+it defaults to seven days. An upload becomes eligible only once its completion
+timestamp is at or before `now - retention`. **There is no separate on/off
+switch:** to effectively disable reclamation, configure a retention long enough
+that nothing ever reaches it (for example `36500.00:00:00`).
+
+The sweep never touches an upload reservation, claimed or unclaimed, an upload
+inside the grace period, or a file referenced by any share — including an
+expired or revoked share still awaiting purge. A completed upload written before
+this feature existed carries no completion timestamp; the first run stamps it
+with the current time, so it waits a full grace period from that first sighting
+rather than being reclaimed immediately after an upgrade.
+
+Each run inspects at most 200 upload candidates, never-inspected and then
+least-recently-inspected first, so a record that keeps failing rotates to the
+back of the queue instead of starving fresh ones; a backlog drains across
+successive runs. A separate budget of 50 claims per run recovers claims orphaned
+by a crash. Reclamation deletes or confirms absent the ciphertext, records the
+retained-blob accounting transition, and only then deletes the metadata row, so
+a failure at any step retains both the claim and the row for an idempotent
+retry. Failures are counted in the cleanup result's `sweepFailures`, included in
+the run's `failures` total, and logged with the affected file identifier only.
+
+A share creation that races a cleanup run over one of these eligible files can be
+rejected with `Share creation was superseded before it could commit. Retry the
+request.` — the sweep resolves a conflicting creation claim before it reclaims,
+and a claim being resolved cannot be distinguished from an abandoned one. No
+share is ever created over reclaimed ciphertext, so the error is safe to retry:
+the retry either succeeds or reports the file as gone.
+
 ### Download-only deployments
 
 A server that only needs to serve downloads can disable the admin surface
@@ -382,7 +424,10 @@ to the in-process guard and extends that lease throughout a running cleanup.
 Durable per-file operation claims in the metadata store, rather than the run
 lease, prevent share creation from racing blob or metadata deletion. Cleanup
 remains idempotent if lease ownership is lost or an instance terminates partway
-through a run.
+through a run. Unreferenced-upload reclamation runs under the same lease and
+takes the same kind of durable per-file claim, so it is safe on the same terms:
+losing the lease stops it from starting further files rather than leaving a
+half-deleted one behind.
 
 ### Switching, backup, and restore
 
