@@ -88,8 +88,7 @@ public sealed record StatusSharesContract(
     Int64 Expired,
     Int64 Revoked,
     Int64 CleanupPending,
-    Int64 CleanupFailed,
-    Int64 CleanupCompleted);
+    Int64 CleanupFailed);
 
 /// <summary>Contains process-local cleanup-run state.</summary>
 public sealed record StatusCleanupContract(DateTimeOffset? LastRunAtUtc, String LastOutcome);

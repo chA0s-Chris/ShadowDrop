@@ -79,8 +79,8 @@ Invalid, expired, or revoked upload credentials return `401`. If the credential 
 authentication returns a bodyless `503` rather than disclosing limits or returning an internal exception. Disabled upload/admin status
 routes are not registered and return `404`.
 
-Administrative storage totals count blobs whose persisted retention state is `retained`; successful or already-missing cleanup changes it
-to `deleted`. Records written before retention accounting are `unknown`, so both totals are `null` and
+Administrative storage totals count blobs whose persisted retention state is `retained`; successful cleanup removes the corresponding
+uploaded-file records after every blob is deleted or confirmed absent. Records written before retention accounting are `unknown`, so both totals are `null` and
 `configurationWarnings` contains `storage-accounting-incomplete` until exact accounting is possible. Share lifecycle counts and cleanup
 counts are independent predicates and may overlap. Cleanup history is process-local: restart resets it to `not-run`.
 
@@ -95,7 +95,7 @@ audit event containing only operation, outcome, HTTP status, and elapsed time.
 
 | Method | Route                            | Purpose                                                                                                                                      |
 |--------|----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| `GET`  | `/d/{token}`                     | Resolve a share to its manifest — the shared files with their metadata. `401` for unknown or expired shares.                                 |
+| `GET`  | `/d/{token}`                     | Resolve a share to its manifest — the shared files with their metadata. `401` for unknown, expired, or revoked shares.                     |
 | `GET`  | `/d/{token}/files/{fileId:guid}` | Download a file's content. Supports a direct-HTTP mode (server-assisted, browser-friendly) and a streamed CLI mode, both with range support. |
 
 In direct-HTTP mode, clients supply decryption key material either in the `ShadowDrop-Key`
@@ -132,7 +132,7 @@ the endpoint filter in `AdminBearerTokenEndpointFilterExtensions`)
 |--------|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `GET`  | `/api/admin/management/ping`                               | Connectivity and credential check for management tooling.                                                  |
 | `GET`  | `/api/admin/shares`                                        | List a bounded, redacted page of share lifecycle and retained-ciphertext state.                            |
-| `POST` | `/api/admin/shares/cleanup`                                | Trigger a cleanup run for expired shares; reports the outcome, skipping when a run is already in progress. |
+| `POST` | `/api/admin/shares/cleanup`                                | Trigger a cleanup run for expired and revoked shares; reports the outcome, skipping when a run is already in progress. |
 | `POST` | `/api/admin/shares/{shareId:guid}/revoke`                  | Revoke a share so its download token stops resolving. `404` for unknown shares.                            |
 | `POST` | `/api/admin/upload-credentials`                            | Create a scoped upload credential; the credential token is returned exactly once in the response.          |
 | `GET`  | `/api/admin/upload-credentials`                            | List upload credentials, newest first, with cursor-based paging (`cursor`, `limit`).                       |
@@ -142,12 +142,12 @@ the endpoint filter in `AdminBearerTokenEndpointFilterExtensions`)
 ### Administrative share listing
 
 `GET /api/admin/shares?status=<value>&status=<value>&pageSize=<1-200>&cursor=<opaque>` uses operational protocol version `1`.
-`status` may be repeated with `active`, `expired`, `revoked`, `cleanup-pending`, `cleanup-failed`, or `cleanup-completed`; values combine
+`status` may be repeated with `active`, `expired`, `revoked`, `cleanup-pending`, or `cleanup-failed`; values combine
 with OR, duplicates are ignored, and omitting the parameter matches every share. `active` means unrevoked and expiring after the request's
 single captured time; `expired` means expiring at or before it; `revoked` means a revocation timestamp exists. Cleanup statuses are exact
 normalized cleanup-state matches and carry no lifecycle qualifier, so a share may have several statuses. Statuses are emitted in the order
 shown above. Missing or unknown legacy cleanup state is `pending`. Distinct cleanup failure categories are emitted in this order:
-`upload-metadata-missing`, `metadata-unavailable`, `blob-delete-failed`, `unknown`.
+`metadata-unavailable`, `blob-delete-failed`, `unknown`.
 
 `pageSize` defaults to `50`; values below `1` or above `200` are rejected, not clamped. This intentionally differs from the older upload-
 credential list, whose parameter is named `limit` and whose implementation clamps values above its maximum. `cursor` is opaque and binds
@@ -159,10 +159,10 @@ cursors return `400 {"reason":"invalid-cursor"}`.
 The response has `protocolVersion`, `items`, nullable `nextCursor`, and a provider-side `totalMatching` counted over the whole normalized
 filter set, independently of page size and cursor. The count is evaluated by a second provider query using the same filters and captured
 time as the page rather than a shared snapshot, so a concurrent lifecycle change can leave it disagreeing with the page it accompanies, and
-membership and totals may change between page requests as shares expire, are revoked, or finish cleanup. Each item contains only
+membership and totals may change between page requests as shares expire, are revoked, or are deleted by cleanup. Each item contains only
 `shareId`, `createdAtUtc`, `expiresAtUtc`, nullable `revokedAtUtc`, ordered `statuses`, `cleanupState`, nullable
-`lastCleanupAttemptAtUtc`, ordered `cleanupFailureCategories`, `fileCount`, and retained-only `ciphertextBytes`. Deleted blobs contribute
-zero while file membership remains unchanged. Missing referenced file metadata or provider failure fails the whole request with
+`lastCleanupAttemptAtUtc`, ordered `cleanupFailureCategories`, `fileCount`, and retained-only `ciphertextBytes`. Successfully cleaned
+shares no longer appear because their share and uploaded-file metadata is deleted. Missing referenced file metadata or provider failure fails the whole request with
 `500 {"reason":"operation-failed"}`; partial totals are never inferred. Authorization failure is
 `401 {"reason":"unauthorized"}`. No response, error, audit, or log projection includes filenames, owner/credential identifiers, token
 hashes, blob keys, download-token data, cryptographic metadata, plaintext hashes, provider details, query values, cursor contents, or

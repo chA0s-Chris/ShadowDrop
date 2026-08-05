@@ -61,7 +61,9 @@ public sealed class ShareCleanupRunner
     {
         await using (lease)
         {
-            return await _cleanupService.RunAsync(cancellationToken);
+            return await _cleanupService.RunAsync(
+                () => lease is not IShareCleanupCoordinationLease coordinationLease || coordinationLease.IsValid,
+                cancellationToken);
         }
     }
 }

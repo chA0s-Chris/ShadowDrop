@@ -117,6 +117,16 @@ metadata even though they are not download capabilities. Share-list audit events
 contain only operation, outcome, HTTP status, and elapsed time; query values,
 cursors, identifiers, results, and exceptions are excluded.
 
+Expired and revoked shares are hidden at the token-lookup boundary immediately, independent of the cleanup schedule. Cleanup claims every
+file before deleting anything, then removes uploaded-file and share metadata only after all ciphertext is deleted or confirmed absent.
+Failures retain the metadata as `cleanup-failed` so operators can diagnose and retry them; successful cleanup removes filenames, hashes,
+KDF salts, owner credential IDs, and other per-file metadata instead of retaining a historical record.
+
+Those claims are themselves a metadata store: while a share creation is in flight, `share_operation_claims` holds the proposed share
+record — filenames, share and download token hashes, and the owner credential ID — so an interrupted creation can be resolved without
+exposing its files to cleanup. The claim is deleted once the operation finishes, but it survives a process failure until a later run
+resolves it, so protect and back up that collection exactly like the share and uploaded-file metadata it mirrors.
+
 ### Status projection sensitivity
 
 `GET /api/status` is intentionally public and coarse: it exposes only protocol version, liveness/readiness, a stable allow-listed reason,

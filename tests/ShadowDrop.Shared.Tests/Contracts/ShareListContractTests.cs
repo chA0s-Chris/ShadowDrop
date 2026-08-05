@@ -27,6 +27,10 @@ public sealed class ShareListContractTests
         var changed = Encoding.UTF8.GetString(decodedBytes).Replace("1|", "2|", StringComparison.Ordinal);
         var future = Base64Url.EncodeToString(Encoding.UTF8.GetBytes(changed));
         ShareListCursor.TryDecode(future, out _).Should().BeFalse();
+
+        var removedStatusPayload = Base64Url.EncodeToString(
+            Encoding.UTF8.GetBytes("1|cleanup-completed|1786000000000|80000000-0000-0000-0000-000000000001"));
+        ShareListCursor.TryDecode(removedStatusPayload, out _).Should().BeFalse();
     }
 
     [Test]

@@ -9,7 +9,6 @@ internal static class ShareLifecycle
     public static String CleanupState(ShareCleanupState state) => state switch
     {
         ShareCleanupState.Failed => ShareListCleanupStates.Failed,
-        ShareCleanupState.Completed => ShareListCleanupStates.Completed,
         _ => ShareListCleanupStates.Pending
     };
 
@@ -40,7 +39,6 @@ internal static class ShareLifecycle
             ShareListStatuses.Revoked => IsRevoked(share.RevokedAtUtc),
             ShareListStatuses.CleanupPending => share.CleanupState == ShareCleanupState.Pending,
             ShareListStatuses.CleanupFailed => share.CleanupState == ShareCleanupState.Failed,
-            ShareListStatuses.CleanupCompleted => share.CleanupState == ShareCleanupState.Completed,
             _ => false
         });
     }
@@ -66,7 +64,6 @@ internal static class ShareLifecycle
         statuses.Add(share.CleanupState switch
         {
             ShareCleanupState.Failed => ShareListStatuses.CleanupFailed,
-            ShareCleanupState.Completed => ShareListStatuses.CleanupCompleted,
             _ => ShareListStatuses.CleanupPending
         });
         return [.. statuses];

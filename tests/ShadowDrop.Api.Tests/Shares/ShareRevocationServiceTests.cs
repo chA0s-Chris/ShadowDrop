@@ -51,7 +51,10 @@ public sealed class ShareRevocationServiceTests
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
+        public Task<ShareRecord?> GetByShareTokenHashAsync(
+            String shareTokenHashBase64,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>

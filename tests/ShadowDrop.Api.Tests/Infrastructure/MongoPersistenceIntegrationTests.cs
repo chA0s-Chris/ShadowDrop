@@ -241,6 +241,7 @@ public abstract class MongoPersistenceIntegrationTests
         var service = new ShareCleanupService(
             _services.GetRequiredService<MongoShareMetadataRepository>(),
             _services.GetRequiredService<MongoUploadedFileMetadataRepository>(),
+            _services.GetRequiredService<MongoShareOperationClaimRepository>(),
             _services.GetRequiredService<MongoGridFsBlobStorage>(),
             TimeProvider.System,
             _services.GetRequiredService<ILoggerFactory>().CreateLogger<ShareCleanupService>());
@@ -279,6 +280,114 @@ public abstract class MongoPersistenceIntegrationTests
     }
 
     [Test]
+    public async Task ShareOperationClaims_ShouldAcquireMultiFileSetAtomicallyAndIdempotently()
+    {
+        var repository = _services.GetRequiredService<MongoShareOperationClaimRepository>();
+        var operationId = Guid.NewGuid();
+        var shareId = Guid.NewGuid();
+        var fileIds = new[]
+        {
+            Guid.NewGuid(),
+            Guid.NewGuid()
+        };
+        var acquired = await repository.TryAcquireAsync(operationId,
+                                                        ShareOperationClaimKind.CreateShare,
+                                                        shareId,
+                                                        fileIds,
+                                                        CancellationToken.None);
+        var reacquired = await repository.TryAcquireAsync(operationId,
+                                                          ShareOperationClaimKind.CreateShare,
+                                                          shareId,
+                                                          fileIds.Reverse().ToArray(),
+                                                          CancellationToken.None);
+        var conflict = await repository.TryAcquireAsync(Guid.NewGuid(),
+                                                        ShareOperationClaimKind.CleanupShare,
+                                                        Guid.NewGuid(),
+                                                        [fileIds[1], Guid.NewGuid()],
+                                                        CancellationToken.None);
+
+        acquired.Should().NotBeNull();
+        reacquired.Should().BeEquivalentTo(acquired);
+        conflict.Should().BeNull();
+        (await repository.TryReleaseAsync(operationId, CancellationToken.None)).Should().BeTrue();
+
+        var sharedFileId = Guid.NewGuid();
+        var attempts = new[]
+        {
+            repository.TryAcquireAsync(Guid.NewGuid(), ShareOperationClaimKind.CreateShare, Guid.NewGuid(), [sharedFileId], CancellationToken.None),
+            repository.TryAcquireAsync(Guid.NewGuid(), ShareOperationClaimKind.CleanupShare, Guid.NewGuid(), [sharedFileId], CancellationToken.None)
+        };
+        var results = await Task.WhenAll(attempts);
+        results.Count(claim => claim is not null).Should().Be(1);
+        await repository.TryReleaseAsync(results.Single(claim => claim is not null)!.OperationId, CancellationToken.None);
+    }
+
+    [Test]
+    public async Task ShareOperationClaims_ShouldFenceShareCreationAfterCleanupRunLeaseIsLost()
+    {
+        var claims = _services.GetRequiredService<MongoShareOperationClaimRepository>();
+        var fileId = Guid.NewGuid();
+        var cleanupShareId = Guid.NewGuid();
+
+        // A run lease under its own name rather than the production one: this fixture also boots the real
+        // application, whose startup cleanup can still hold `shadowdrop-share-cleanup` on its default lease.
+        // What is under test is the claim outliving a lease, not which name the coordinator locks.
+        var runLease = await _mongo.TryAcquireLockAsync($"cleanup-run-{Guid.NewGuid():N}", TimeSpan.FromMinutes(1));
+        runLease.Should().NotBeNull();
+        (await claims.TryAcquireAsync(cleanupShareId,
+                                      ShareOperationClaimKind.CleanupShare,
+                                      cleanupShareId,
+                                      [fileId],
+                                      CancellationToken.None)).Should().NotBeNull();
+
+        // Losing the run lease is what would let a second instance start cleaning; the durable claim, not the
+        // lease, is what keeps a concurrent share creation off a file whose blobs may still be deleted.
+        await runLease!.DisposeAsync();
+
+        (await claims.TryAcquireAsync(Guid.NewGuid(),
+                                      ShareOperationClaimKind.CreateShare,
+                                      Guid.NewGuid(),
+                                      [fileId],
+                                      CancellationToken.None)).Should().BeNull();
+        (await claims.TryReleaseAsync(cleanupShareId, CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ShareOperationClaims_ShouldPersistProposedShareThroughCommittingTransition()
+    {
+        var repository = _services.GetRequiredService<MongoShareOperationClaimRepository>();
+        var operationId = Guid.NewGuid();
+        var shareId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+
+        // Nullable and nested members are populated on purpose: recovery replays this record verbatim, so the
+        // serialized payload is the only thing an interrupted share creation can be resolved from.
+        var proposed = new ShareRecord(shareId,
+                                       $"claim-token-{Guid.NewGuid():N}",
+                                       DateTimeOffset.Parse("2026-08-05T10:00:00Z"),
+                                       DateTimeOffset.Parse("2026-08-06T10:00:00Z"),
+                                       null,
+                                       ShareCleanupState.Pending,
+                                       false,
+                                       new($"bearer-hash-{Guid.NewGuid():N}", DateTimeOffset.Parse("2026-08-05T11:00:00Z")),
+                                       [new(fileId, "file.bin", "display.bin")],
+                                       Guid.NewGuid());
+
+        (await repository.TryAcquireAsync(operationId,
+                                          ShareOperationClaimKind.CreateShare,
+                                          shareId,
+                                          [fileId],
+                                          CancellationToken.None)).Should().NotBeNull();
+        (await repository.TryBeginCommitAsync(operationId, proposed, CancellationToken.None)).Should().BeTrue();
+
+        var recovered = (await repository.GetUnfinishedShareCreationsAsync([fileId], CancellationToken.None))
+                        .Should().ContainSingle().Subject;
+        recovered.Lifecycle.Should().Be(ShareOperationClaimLifecycle.Committing);
+        recovered.ProposedShare.Should().BeEquivalentTo(proposed);
+        (await repository.TryReleaseAsync(operationId, CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Test]
     public async Task ShareRepository_ShouldComputeStatusCountsAndCleanupCandidatesServerSide()
     {
         var repository = _services.GetRequiredService<MongoShareMetadataRepository>();
@@ -288,25 +397,26 @@ public abstract class MongoPersistenceIntegrationTests
         var activeId = Guid.NewGuid();
         var expiredId = Guid.NewGuid();
         var revokedId = Guid.NewGuid();
-        var completedId = Guid.NewGuid();
+        var legacyCompletedId = Guid.NewGuid();
         var failedId = Guid.NewGuid();
         await repository.CreateAsync(CreateShare(activeId, $"counts-a-{Guid.NewGuid():N}", Guid.NewGuid()), CancellationToken.None);
         await repository.CreateAsync(
             CreateShare(expiredId, $"counts-e-{Guid.NewGuid():N}", Guid.NewGuid(), now.AddMinutes(-1)), CancellationToken.None);
         await repository.CreateAsync(CreateShare(revokedId, $"counts-r-{Guid.NewGuid():N}", Guid.NewGuid()), CancellationToken.None);
         await repository.CreateAsync(
-            CreateShare(completedId, $"counts-c-{Guid.NewGuid():N}", Guid.NewGuid(), now.AddMinutes(-1)), CancellationToken.None);
+            CreateShare(legacyCompletedId, $"counts-c-{Guid.NewGuid():N}", Guid.NewGuid(), now.AddMinutes(-1)), CancellationToken.None);
         await repository.CreateAsync(CreateShare(failedId, $"counts-f-{Guid.NewGuid():N}", Guid.NewGuid()), CancellationToken.None);
         (await repository.TryRevokeAsync(revokedId, now, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryRecordCleanupAttemptAsync(completedId, ShareCleanupState.Completed, now, [], CancellationToken.None)).Should().BeTrue();
+        var shares = _services.GetRequiredService<IMongoHelper>().GetCollection<MongoShareDocument>();
+        _ = await shares.UpdateOneAsync(document => document.ShareId == legacyCompletedId,
+                                        Builders<MongoShareDocument>.Update.Set(document => document.CleanupState, "COMPLETED"));
         (await repository.TryRecordCleanupAttemptAsync(failedId, ShareCleanupState.Failed, now, [], CancellationToken.None)).Should().BeTrue();
 
         var counts = await repository.GetStatusCountsAsync(now, CancellationToken.None);
         counts.Active.Should().Be(baseline.Active + 2);
         counts.Expired.Should().Be(baseline.Expired + 2);
         counts.Revoked.Should().Be(baseline.Revoked + 1);
-        counts.CleanupPending.Should().Be(baseline.CleanupPending + 3);
-        counts.CleanupCompleted.Should().Be(baseline.CleanupCompleted + 1);
+        counts.CleanupPending.Should().Be(baseline.CleanupPending + 4);
         counts.CleanupFailed.Should().Be(baseline.CleanupFailed + 1);
 
         var candidateIds = (await repository.GetCleanupCandidatesAsync(now, CancellationToken.None))
@@ -314,7 +424,7 @@ public abstract class MongoPersistenceIntegrationTests
         candidateIds.Should().Contain(expiredId);
         candidateIds.Should().Contain(revokedId);
         candidateIds.Should().NotContain(activeId);
-        candidateIds.Should().NotContain(completedId, "completed shares are no longer cleanup candidates even when expired");
+        candidateIds.Should().Contain(legacyCompletedId, "legacy completed state is parsed as pending and purged after upgrade");
     }
 
     [Test]
@@ -331,11 +441,13 @@ public abstract class MongoPersistenceIntegrationTests
         };
         var results = await Task.WhenAll(attempts);
         results.Count(x => x).Should().Be(1);
-        (await repository.GetByShareTokenHashAsync(results[0] ? "token-a" : "token-b", CancellationToken.None)).Should().NotBeNull();
+        (await repository.GetByShareTokenHashAsync(results[0] ? "token-a" : "token-b",
+                                                   DateTimeOffset.UtcNow,
+                                                   CancellationToken.None)).Should().NotBeNull();
     }
 
     [Test]
-    public async Task ShareRepository_ShouldRevokeIdempotentlyAndUpdateCleanupState()
+    public async Task ShareRepository_ShouldRevokeIdempotentlyAndRecordCleanupFailure()
     {
         var repository = _services.GetRequiredService<MongoShareMetadataRepository>();
         var shareId = Guid.NewGuid();
@@ -351,10 +463,10 @@ public abstract class MongoPersistenceIntegrationTests
             DateTimeOffset.FromUnixTimeMilliseconds(firstRevokedAt.ToUnixTimeMilliseconds()),
             "the first revocation timestamp must win");
 
-        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Completed, firstRevokedAt, [], CancellationToken.None)).Should().BeTrue();
-        (await repository.TryRecordCleanupAttemptAsync(Guid.NewGuid(), ShareCleanupState.Completed, firstRevokedAt, [], CancellationToken.None)).Should()
+        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Failed, firstRevokedAt, [], CancellationToken.None)).Should().BeTrue();
+        (await repository.TryRecordCleanupAttemptAsync(Guid.NewGuid(), ShareCleanupState.Failed, firstRevokedAt, [], CancellationToken.None)).Should()
             .BeFalse();
-        (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
+        (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Failed);
     }
 
     [OneTimeSetUp]
@@ -400,12 +512,14 @@ public abstract class MongoPersistenceIntegrationTests
                     mongoOptions.UseDefaultCollectionNames = false;
                     mongoOptions.AddMapping<MongoUploadedFileDocument>("uploaded_files");
                     mongoOptions.AddMapping<MongoShareDocument>("shares");
+                    mongoOptions.AddMapping<MongoShareOperationClaimDocument>("share_operation_claims");
                     mongoOptions.AddMapping<MongoAdminTokenCredentialDocument>("admin_tokens");
                     mongoOptions.AddMapping<MongoUploadCredentialDocument>("upload_credentials");
                 })
                 .WithConfigurator<ShadowDropMongoConfigurator>();
         services.AddSingleton<MongoUploadedFileMetadataRepository>();
         services.AddSingleton<MongoShareMetadataRepository>();
+        services.AddSingleton<MongoShareOperationClaimRepository>();
         services.AddSingleton<MongoAdminTokenCredentialRepository>();
         services.AddSingleton<MongoUploadCredentialRepository>();
         services.AddSingleton<MongoGridFsBlobStorage>();
@@ -604,13 +718,14 @@ public abstract class MongoPersistenceIntegrationTests
             [new(fileId, "file.bin", null)], ownerCredentialId);
 
         await repository.CreateAsync(record, CancellationToken.None);
+        await repository.CreateAsync(record, CancellationToken.None);
         (await repository.GetAsync(shareId, CancellationToken.None)).Should().BeEquivalentTo(record);
-        (await repository.GetByShareTokenHashAsync(token, CancellationToken.None)).Should().BeEquivalentTo(record);
+        (await repository.GetByShareTokenHashAsync(token, now, CancellationToken.None)).Should().BeNull();
         (await repository.GetCleanupCandidatesAsync(now, CancellationToken.None)).Select(x => x.ShareId).Should().Contain(shareId);
         (await repository.GetStatusCountsAsync(now, CancellationToken.None)).Expired.Should().Be(baseline.Expired + 1);
         (await repository.TryRevokeAsync(shareId, now, CancellationToken.None)).Should().BeTrue();
-        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Completed, now, [], CancellationToken.None)).Should().BeTrue();
-        (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Completed);
+        (await repository.TryRecordCleanupAttemptAsync(shareId, ShareCleanupState.Failed, now, [], CancellationToken.None)).Should().BeTrue();
+        (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Failed);
 
         var duplicateFile = CreateShare(Guid.NewGuid(), $"contract-{Guid.NewGuid():N}", fileId);
         var createDuplicate = async () => await repository.CreateAsync(duplicateFile, CancellationToken.None);

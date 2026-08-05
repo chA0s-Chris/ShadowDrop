@@ -69,7 +69,6 @@ internal static class ServerStatusResultWriter
                 await standardOut.WriteLineAsync($"shares-revoked:{Format(status.Shares?.Revoked)}");
                 await standardOut.WriteLineAsync($"shares-cleanup-pending:{Format(status.Shares?.CleanupPending)}");
                 await standardOut.WriteLineAsync($"shares-cleanup-failed:{Format(status.Shares?.CleanupFailed)}");
-                await standardOut.WriteLineAsync($"shares-cleanup-completed:{Format(status.Shares?.CleanupCompleted)}");
                 await standardOut.WriteLineAsync($"cleanup-last-run-at-utc:{Format(status.Cleanup.LastRunAtUtc)}");
                 await standardOut.WriteLineAsync($"cleanup-outcome:{status.Cleanup.LastOutcome}");
                 await standardOut.WriteLineAsync($"resumable-sessions-active:{Format(status.ResumableSessions.ActiveCount)}");

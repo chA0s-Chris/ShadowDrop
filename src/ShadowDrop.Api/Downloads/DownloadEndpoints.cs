@@ -55,7 +55,7 @@ public static class DownloadEndpoints
         return result.Status switch
         {
             DownloadLookupStatus.Success => new DownloadStreamResult(result.Resolution!),
-            DownloadLookupStatus.InvalidShare or DownloadLookupStatus.ExpiredShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
+            DownloadLookupStatus.InvalidShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
             DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
             DownloadLookupStatus.InvalidRequest or DownloadLookupStatus.InvalidRange => new StatusDownloadResult(StatusCodes.Status400BadRequest,
@@ -85,7 +85,7 @@ public static class DownloadEndpoints
         return result.Status switch
         {
             DownloadLookupStatus.Success => new NoStoreResult(Results.Json(result.Manifest)),
-            DownloadLookupStatus.InvalidShare or DownloadLookupStatus.ExpiredShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
+            DownloadLookupStatus.InvalidShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
             DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
             _ => new StatusDownloadResult(StatusCodes.Status500InternalServerError)

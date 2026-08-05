@@ -170,15 +170,15 @@ Scoped `GET /api/status/upload` is mapped only with uploads enabled, and adminis
 enabled. Status dependency collection has a five-second server budget; configure the CLI or reverse proxy with a deadline longer than that.
 
 Administrative storage totals come from persisted retained-blob accounting, never filesystem, GridFS, or S3 inventory scans. After an
-upgrade, legacy completed records have unknown retention state and totals remain unavailable with `storage-accounting-incomplete` rather
-than presenting an unsafe estimate. Normal successful cleanup reconciles those records to `deleted`. Cleanup-run status is process-local
-and resets to `not-run` on restart; it is operational context, not durable history or a metrics system.
+upgrade, legacy records with unknown retention state keep totals unavailable with `storage-accounting-incomplete` rather than presenting
+an unsafe estimate. Successful cleanup deletes uploaded-file metadata after all blobs are deleted or confirmed absent. Cleanup-run status
+is process-local and resets to `not-run` on restart; it is operational context, not durable history or a metrics system.
 
 For bounded administrative inventory, use authenticated `GET /api/admin/shares` or `shadowdrop share list`. Both LiteDB/filesystem and
 MongoDB/GridFS installations apply provider-side lifecycle filtering, exact counts, newest-first cursor paging, and one batched file-
 metadata projection per page; blob-provider inventory is never scanned. The returned ciphertext total counts only persisted `retained`
-blobs, so completed cleanup reports zero retained bytes without erasing the share's file count. The exact `totalMatching` can change between
-page requests as shares expire, are revoked, or finish cleanup. Share-list audits contain only operation, outcome, HTTP status, and elapsed
+blobs. Successfully cleaned shares disappear from the inventory because both their uploaded-file metadata and share record are deleted.
+The exact `totalMatching` can change between page requests as shares expire, are revoked, or are deleted. Share-list audits contain only operation, outcome, HTTP status, and elapsed
 time. Keep this endpoint on the same protected management boundary as every other `/api/admin/*` route.
 
 Operational audit records for `/api/admin/status` and `/api/admin/shares` are now written by one shared filter, so both use the log source
@@ -378,8 +378,11 @@ instances:
   but it does not make LiteDB metadata safe for multiple writers.
 
 MongoDB-backed cleanup uses a leased Chaos.Mongo distributed lock in addition
-to the in-process guard. Cleanup remains idempotent if a lease expires or an
-instance terminates partway through a run.
+to the in-process guard and extends that lease throughout a running cleanup.
+Durable per-file operation claims in the metadata store, rather than the run
+lease, prevent share creation from racing blob or metadata deletion. Cleanup
+remains idempotent if lease ownership is lost or an instance terminates partway
+through a run.
 
 ### Switching, backup, and restore
 
@@ -395,8 +398,8 @@ contains the LiteDB metadata, hashed admin credential, and encrypted filesystem
 blobs.
 
 For `docker/compose.mongodb.yaml`, use MongoDB-supported backup tooling and include the
-ShadowDrop metadata collections (`uploaded_files`, `shares`, `admin_tokens`,
-and `upload_credentials`),
+ShadowDrop metadata collections (`uploaded_files`, `shares`,
+`share_operation_claims`, `admin_tokens`, and `upload_credentials`),
 both GridFS collections (`shadowdrop_blobs.files` and
 `shadowdrop_blobs.chunks`), and the Chaos.Mongo distributed-lock collection
 from the same consistent backup point. Restore the complete set together before

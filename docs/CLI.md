@@ -117,7 +117,7 @@ stable release is known. This is designed to stay out of the way:
 | `upload raw <files>`           | Encrypt and upload only; prints file IDs and the share key.    |
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
-| `share cleanup`                | Delete server blobs for expired and revoked shares.            |
+| `share cleanup`                | Delete blobs and metadata for expired and revoked shares.       |
 | `share list`                   | List bounded share lifecycle and retained-ciphertext metadata. |
 | `token create`                 | Create a scoped upload credential and display its token once.  |
 | `token list`                   | List bounded upload-credential lifecycle metadata.             |
@@ -240,7 +240,7 @@ shadowdrop share list --json
 ```
 
 `--status` repeats and combines with OR. Accepted values, and their output order, are `active`, `expired`, `revoked`, `cleanup-pending`,
-`cleanup-failed`, and `cleanup-completed`; omitting it matches all shares, while a bare `--status` carrying no value is rejected rather
+and `cleanup-failed`; omitting it matches all shares, while a bare `--status` carrying no value is rejected rather
 than read as "all shares". `--page-size` defaults server-side to `50`, accepts `1` through `200`, and is rejected rather than clamped
 outside that range. `--cursor` is the opaque continuation value from the preceding page and is bound to the normalized filters; page
 size may change between requests. Pages are newest first. `totalMatching` counts the whole filter set rather than the page, and is counted
@@ -456,7 +456,7 @@ shadowdrop download --queue queue.json --output-root incoming
 
 ```bash
 shadowdrop share revoke <share-id>   # revoke immediately
-shadowdrop share cleanup             # delete blobs of expired/revoked shares
+shadowdrop share cleanup             # delete blobs and metadata of expired/revoked shares
 ```
 
 Both commands require the dedicated admin-token configuration described above;

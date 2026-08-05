@@ -42,12 +42,29 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
             ShareListStatuses.Revoked => builder.Exists(x => x.RevokedAtUnixTimeMilliseconds)
                                          & builder.Ne(x => x.RevokedAtUnixTimeMilliseconds, null),
             ShareListStatuses.CleanupFailed => builder.Eq(x => x.CleanupState, State(ShareCleanupState.Failed)),
-            ShareListStatuses.CleanupCompleted => builder.Eq(x => x.CleanupState, State(ShareCleanupState.Completed)),
-            ShareListStatuses.CleanupPending => builder.Nin(x => x.CleanupState,
-                                                            [State(ShareCleanupState.Failed), State(ShareCleanupState.Completed)]),
+            ShareListStatuses.CleanupPending => builder.Ne(x => x.CleanupState, State(ShareCleanupState.Failed)),
             _ => builder.Where(_ => false)
         };
     }
+
+    private static Boolean Equivalent(ShareRecord left, ShareRecord right) =>
+        left.ShareId == right.ShareId
+        && String.Equals(left.ShareTokenHashBase64, right.ShareTokenHashBase64, StringComparison.Ordinal)
+        && left.CreatedAtUtc.ToUnixTimeMilliseconds() == right.CreatedAtUtc.ToUnixTimeMilliseconds()
+        && left.ExpiresAtUtc.ToUnixTimeMilliseconds() == right.ExpiresAtUtc.ToUnixTimeMilliseconds()
+        && left.RevokedAtUtc?.ToUnixTimeMilliseconds() == right.RevokedAtUtc?.ToUnixTimeMilliseconds()
+        && left.CleanupState == right.CleanupState
+        && left.DirectHttpEnabled == right.DirectHttpEnabled
+        && Equivalent(left.DownloadBearerToken, right.DownloadBearerToken)
+        && left.OwnerCredentialId == right.OwnerCredentialId
+        && left.Files.SequenceEqual(right.Files);
+
+    private static Boolean Equivalent(DownloadBearerTokenRecord? left, DownloadBearerTokenRecord? right) =>
+        left is null
+            ? right is null
+            : right is not null
+              && String.Equals(left.TokenHashBase64, right.TokenHashBase64, StringComparison.Ordinal)
+              && left.ExpiresAtUtc.ToUnixTimeMilliseconds() == right.ExpiresAtUtc.ToUnixTimeMilliseconds();
 
     private static MongoShareDocument Map(ShareRecord record) => new()
     {
@@ -137,6 +154,12 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         }
         catch (MongoWriteException exception) when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
         {
+            var existing = await Collection.Find(x => x.ShareId == record.ShareId).FirstOrDefaultAsync(cancellationToken);
+            if (existing is not null && Equivalent(Map(existing), record))
+            {
+                return;
+            }
+
             throw new CreateShareValidationException("The share token or a referenced file is already in use.", exception);
         }
     }
@@ -147,20 +170,25 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         return document is null ? null : Map(document);
     }
 
-    public async Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken)
+    public async Task<ShareRecord?> GetByShareTokenHashAsync(
+        String shareTokenHashBase64,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shareTokenHashBase64);
-        var document = await Collection.Find(x => x.ShareTokenHashBase64 == shareTokenHashBase64).FirstOrDefaultAsync(cancellationToken);
+        var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        var document = await Collection.Find(x => x.ShareTokenHashBase64 == shareTokenHashBase64
+                                                  && x.RevokedAtUnixTimeMilliseconds == null
+                                                  && x.ExpiresAtUnixTimeMilliseconds > now)
+                                       .FirstOrDefaultAsync(cancellationToken);
         return document is null ? null : Map(document);
     }
 
     public async Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
-        var completed = State(ShareCleanupState.Completed);
-        var documents = await Collection.Find(x => x.CleanupState != completed
-                                                   && (x.ExpiresAtUnixTimeMilliseconds <= now
-                                                       || x.RevokedAtUnixTimeMilliseconds != null))
+        var documents = await Collection.Find(x => x.ExpiresAtUnixTimeMilliseconds <= now
+                                                   || x.RevokedAtUnixTimeMilliseconds != null)
                                         .ToListAsync(cancellationToken);
         return documents.Select(Map).ToList();
     }
@@ -208,9 +236,19 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         var revoked = CountStatusAsync(ShareListStatuses.Revoked, now, cancellationToken);
         var pending = CountStatusAsync(ShareListStatuses.CleanupPending, now, cancellationToken);
         var failed = CountStatusAsync(ShareListStatuses.CleanupFailed, now, cancellationToken);
-        var completed = CountStatusAsync(ShareListStatuses.CleanupCompleted, now, cancellationToken);
-        await Task.WhenAll(active, expired, revoked, pending, failed, completed);
-        return new(await active, await expired, await revoked, await pending, await failed, await completed);
+        await Task.WhenAll(active, expired, revoked, pending, failed);
+        return new(await active, await expired, await revoked, await pending, await failed);
+    }
+
+    public async Task<Boolean> TryDeleteAsync(Guid shareId, CancellationToken cancellationToken)
+    {
+        var result = await Collection.DeleteOneAsync(x => x.ShareId == shareId, cancellationToken);
+        if (result.DeletedCount == 1)
+        {
+            return true;
+        }
+
+        return !await Collection.Find(x => x.ShareId == shareId).AnyAsync(cancellationToken);
     }
 
     public async Task<Boolean> TryRecordCleanupAttemptAsync(
@@ -220,9 +258,7 @@ public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMet
         IReadOnlyCollection<String> failureCategories,
         CancellationToken cancellationToken)
     {
-        var categories = cleanupState == ShareCleanupState.Completed
-            ? []
-            : ShareLifecycle.FailureCategories(failureCategories).ToList();
+        var categories = ShareLifecycle.FailureCategories(failureCategories).ToList();
         var result = await Collection.UpdateOneAsync(
             x => x.ShareId == shareId,
             Builders<MongoShareDocument>.Update

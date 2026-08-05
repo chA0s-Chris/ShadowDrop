@@ -165,6 +165,17 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
         return result.ModifiedCount == 1;
     }
 
+    public async Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        var result = await Collection.DeleteOneAsync(x => x.FileId == fileId && !x.IsReserved, cancellationToken);
+        if (result.DeletedCount == 1)
+        {
+            return true;
+        }
+
+        return !await Collection.Find(x => x.FileId == fileId).AnyAsync(cancellationToken);
+    }
+
     public async Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken)
     {
         var result = await Collection.UpdateOneAsync(

@@ -29,6 +29,9 @@ public interface IUploadedFileMetadataRepository
 
     Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken);
 
+    Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Uploaded-file metadata deletion is not supported by this repository.");
+
     Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Retained-blob accounting transitions are not supported by this repository.");
 }

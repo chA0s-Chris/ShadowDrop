@@ -11,17 +11,20 @@ public sealed class CreateShareService
 {
     private const Int32 MinimumTokenEntropyBytes = 32;
     private readonly ILogger<CreateShareService> _logger;
+    private readonly IShareOperationClaimRepository _operationClaimRepository;
     private readonly IShareMetadataRepository _shareMetadataRepository;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadedFileMetadataRepository _uploadedFileMetadataRepository;
 
     public CreateShareService(IUploadedFileMetadataRepository uploadedFileMetadataRepository,
                               IShareMetadataRepository shareMetadataRepository,
+                              IShareOperationClaimRepository operationClaimRepository,
                               TimeProvider timeProvider,
                               ILogger<CreateShareService> logger)
     {
         _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
         _shareMetadataRepository = shareMetadataRepository;
+        _operationClaimRepository = operationClaimRepository;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -42,76 +45,113 @@ public sealed class CreateShareService
         {
             ValidateRequest(request);
 
-            var distinctFileIds = new HashSet<Guid>();
-            var files = new List<ShareFileEntryRecord>(request.Files!.Count);
-            var aggregateEncryptedBytes = 0L;
-            foreach (var fileRequest in request.Files)
+            var fileIds = request.Files!.Select(file => file.FileId).ToArray();
+            if (fileIds.Distinct().Count() != fileIds.Length)
             {
-                if (!distinctFileIds.Add(fileRequest.FileId))
-                {
-                    throw new CreateShareValidationException("Duplicate file ids are not allowed.");
-                }
-
-                var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileRequest.FileId, cancellationToken);
-                if (uploadedFile is null)
-                {
-                    throw new CreateShareValidationException("All referenced files must exist.");
-                }
-
-                if (!authorizationContext.IsBootstrapAdmin
-                    && uploadedFile.OwnerCredentialId != authorizationContext.CredentialId)
-                {
-                    throw new CreateShareValidationException("All referenced files must exist.");
-                }
-
-                try
-                {
-                    aggregateEncryptedBytes = checked(aggregateEncryptedBytes + uploadedFile.EncryptedLength);
-                }
-                catch (OverflowException exception)
-                {
-                    throw new CreateShareValidationException("The aggregate encrypted share size is invalid.", exception);
-                }
-
-                files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
+                throw new CreateShareValidationException("Duplicate file ids are not allowed.");
             }
 
-            if (authorizationContext.MaxEncryptedShareBytes is { } maxEncryptedShareBytes
-                && aggregateEncryptedBytes > maxEncryptedShareBytes)
-            {
-                throw new CreateShareValidationException("The aggregate encrypted share size exceeds the credential limit.");
-            }
+            await ReconcileUnfinishedShareCreationsAsync(fileIds, cancellationToken);
 
             var shareId = Guid.NewGuid();
-            var createdAtUtc = _timeProvider.GetUtcNow();
+            var operationId = Guid.NewGuid();
             var shareToken = GenerateOpaqueToken();
             var downloadBearerToken = request.GenerateDownloadBearerToken == true ? GenerateOpaqueToken() : null;
-            var record = new ShareRecord(shareId,
-                                         TokenHashing.ComputeHashBase64(shareToken),
-                                         createdAtUtc,
-                                         request.ExpiresAtUtc.ToUniversalTime(),
-                                         null,
-                                         ShareCleanupState.Pending,
-                                         request.DirectHttpEnabled ?? false,
-                                         downloadBearerToken is null
-                                             ? null
-                                             : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
-                                                                             request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
-                                         files,
-                                         authorizationContext.CredentialId);
+            var claim = await _operationClaimRepository.TryAcquireAsync(operationId,
+                                                                        ShareOperationClaimKind.CreateShare,
+                                                                        shareId,
+                                                                        fileIds,
+                                                                        cancellationToken);
+            if (claim is null)
+            {
+                throw new CreateShareValidationException("All referenced files must be unused by another share operation.");
+            }
 
-            await _shareMetadataRepository.CreateAsync(record, cancellationToken);
+            var commitStarted = false;
+            try
+            {
+                var files = new List<ShareFileEntryRecord>(request.Files!.Count);
+                var aggregateEncryptedBytes = 0L;
+                foreach (var fileRequest in request.Files)
+                {
+                    var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileRequest.FileId, cancellationToken);
+                    if (uploadedFile is null)
+                    {
+                        throw new CreateShareValidationException("All referenced files must exist.");
+                    }
 
-            _logger.LogInformation(
-                "Share created. ShareId: {ShareId}; FileCount: {FileCount}; ExpiresAtUtc: {ExpiresAtUtc}; DirectHttpEnabled: {DirectHttpEnabled}; " +
-                "HasDownloadBearerToken: {HasDownloadBearerToken}",
-                shareId,
-                files.Count,
-                record.ExpiresAtUtc,
-                record.DirectHttpEnabled,
-                downloadBearerToken is not null);
+                    if (!authorizationContext.IsBootstrapAdmin
+                        && uploadedFile.OwnerCredentialId != authorizationContext.CredentialId)
+                    {
+                        throw new CreateShareValidationException("All referenced files must exist.");
+                    }
 
-            return new(shareId, shareToken, downloadBearerToken);
+                    try
+                    {
+                        aggregateEncryptedBytes = checked(aggregateEncryptedBytes + uploadedFile.EncryptedLength);
+                    }
+                    catch (OverflowException exception)
+                    {
+                        throw new CreateShareValidationException("The aggregate encrypted share size is invalid.", exception);
+                    }
+
+                    files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
+                }
+
+                if (authorizationContext.MaxEncryptedShareBytes is { } maxEncryptedShareBytes
+                    && aggregateEncryptedBytes > maxEncryptedShareBytes)
+                {
+                    throw new CreateShareValidationException("The aggregate encrypted share size exceeds the credential limit.");
+                }
+
+                var createdAtUtc = _timeProvider.GetUtcNow();
+                var record = new ShareRecord(shareId,
+                                             TokenHashing.ComputeHashBase64(shareToken),
+                                             createdAtUtc,
+                                             request.ExpiresAtUtc.ToUniversalTime(),
+                                             null,
+                                             ShareCleanupState.Pending,
+                                             request.DirectHttpEnabled ?? false,
+                                             downloadBearerToken is null
+                                                 ? null
+                                                 : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
+                                                                                 request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
+                                             files,
+                                             authorizationContext.CredentialId);
+
+                if (!await _operationClaimRepository.TryBeginCommitAsync(operationId, record, cancellationToken))
+                {
+                    throw new CreateShareValidationException("Share creation was superseded before it could commit. Retry the request.");
+                }
+
+                commitStarted = true;
+                await _shareMetadataRepository.CreateAsync(record, cancellationToken);
+                await _operationClaimRepository.TryReleaseAsync(operationId, cancellationToken);
+
+                _logger.LogInformation(
+                    "Share created. ShareId: {ShareId}; FileCount: {FileCount}; ExpiresAtUtc: {ExpiresAtUtc}; DirectHttpEnabled: {DirectHttpEnabled}; " +
+                    "HasDownloadBearerToken: {HasDownloadBearerToken}",
+                    shareId,
+                    files.Count,
+                    record.ExpiresAtUtc,
+                    record.DirectHttpEnabled,
+                    downloadBearerToken is not null);
+
+                return new(shareId, shareToken, downloadBearerToken);
+            }
+            catch (Exception exception)
+            {
+                if (!commitStarted)
+                {
+                    await TryCleanupClaimAsync(operationId, false);
+                }
+                else if (exception is CreateShareValidationException)
+                {
+                    await TryCleanupClaimAsync(operationId, true);
+                }
+
+                throw;
+            }
         }
         catch (CreateShareValidationException exception)
         {
@@ -162,6 +202,67 @@ public sealed class CreateShareService
         else if (request.DownloadBearerTokenExpiresAtUtc is not null)
         {
             throw new CreateShareValidationException("Download bearer token expiration requires token generation.");
+        }
+    }
+
+    private async Task ReconcileUnfinishedShareCreationsAsync(
+        IReadOnlyCollection<Guid> requestedFileIds,
+        CancellationToken cancellationToken)
+    {
+        var claims = await _operationClaimRepository.GetUnfinishedShareCreationsAsync(requestedFileIds, cancellationToken);
+        foreach (var claim in claims)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (claim.Lifecycle == ShareOperationClaimLifecycle.Acquired)
+            {
+                await _operationClaimRepository.TryAbortAcquiredAsync(claim.OperationId, cancellationToken);
+                continue;
+            }
+
+            if (claim.ProposedShare is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                await _shareMetadataRepository.CreateAsync(claim.ProposedShare, cancellationToken);
+                await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken);
+            }
+            catch (CreateShareValidationException exception)
+            {
+                _logger.LogWarning(exception,
+                                   "Abandoned share creation failed definitively during recovery. ShareId: {ShareId}; OperationId: {OperationId}",
+                                   claim.ShareId,
+                                   claim.OperationId);
+                await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Releases or aborts the operation claim without letting a claim-store failure mask the share-creation
+    /// failure that is already on its way out. An orphaned claim is not lost work: a later request reconciles
+    /// it via <see cref="ReconcileUnfinishedShareCreationsAsync"/>.
+    /// </summary>
+    private async Task TryCleanupClaimAsync(Guid operationId, Boolean commitStarted)
+    {
+        try
+        {
+            if (commitStarted)
+            {
+                await _operationClaimRepository.TryReleaseAsync(operationId, CancellationToken.None);
+            }
+            else
+            {
+                await _operationClaimRepository.TryAbortAcquiredAsync(operationId, CancellationToken.None);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception,
+                               "Share creation could not clean up its operation claim; a later request will reconcile it. OperationId: {OperationId}",
+                               operationId);
         }
     }
 }

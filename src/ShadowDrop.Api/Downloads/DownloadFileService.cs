@@ -596,18 +596,14 @@ public sealed class DownloadFileService
             return new(DownloadLookupStatus.InvalidShare, null);
         }
 
-        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(shareToken), cancellationToken);
-        if (share is null || share.RevokedAtUtc is not null)
-        {
-            _logger.LogWarning("Download request rejected because the share is unknown or revoked. ShareId: {ShareId}", share?.ShareId);
-            return new(DownloadLookupStatus.InvalidShare, null);
-        }
-
         var now = _timeProvider.GetUtcNow();
-        if (share.ExpiresAtUtc < now)
+        var share = await _shareMetadataRepository.GetByShareTokenHashAsync(TokenHashing.ComputeHashBase64(shareToken),
+                                                                            now,
+                                                                            cancellationToken);
+        if (share is null)
         {
-            _logger.LogWarning("Download request rejected because the share has expired. ShareId: {ShareId}", share.ShareId);
-            return new(DownloadLookupStatus.ExpiredShare, null);
+            _logger.LogWarning("Download request rejected because the share is unknown, expired, or revoked");
+            return new(DownloadLookupStatus.InvalidShare, null);
         }
 
         if (share.DownloadBearerToken is not null)

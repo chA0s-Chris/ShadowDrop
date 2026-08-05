@@ -101,7 +101,7 @@ internal sealed class OperationalStatusService
     }
 
     private static StatusSharesContract Map(ShareStatusCounts shares) =>
-        new(shares.Active, shares.Expired, shares.Revoked, shares.CleanupPending, shares.CleanupFailed, shares.CleanupCompleted);
+        new(shares.Active, shares.Expired, shares.Revoked, shares.CleanupPending, shares.CleanupFailed);
 
     private static String ResolveBuildVersion()
     {

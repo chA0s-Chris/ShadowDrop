@@ -35,7 +35,7 @@ public sealed class ServerStatusCommandTests
             ],
             new("litedb", "filesystem"),
             new(2, 350),
-            new(1, 2, 3, 4, 5, 6),
+            new(1, 2, 3, 4, 5),
             new(DateTimeOffset.Parse("2026-08-02T12:34:56Z"), "success"),
             new(7),
             [OperationalStatusWarnings.StorageAccountingIncomplete]);
@@ -77,7 +77,6 @@ public sealed class ServerStatusCommandTests
             "shares-revoked:3",
             "shares-cleanup-pending:4",
             "shares-cleanup-failed:5",
-            "shares-cleanup-completed:6",
             "cleanup-last-run-at-utc:2026-08-02T12:34:56.0000000+00:00",
             "cleanup-outcome:success",
             "resumable-sessions-active:7",
@@ -360,7 +359,7 @@ public sealed class ServerStatusCommandTests
             ],
             new("litedb", "filesystem"),
             new(0, 0),
-            new(0, 0, 0, 0, 0, 0),
+            new(0, 0, 0, 0, 0),
             new(null, "not-run"),
             new(null),
             []);

@@ -88,7 +88,7 @@ public static class Startup
         logger.Information(
             "Startup state summary: CompletedFiles: {CompletedFiles}; StoredBlobBytes: {StoredBlobBytes}; StorageAccountingExact: {StorageAccountingExact}; " +
             "PendingReservations: {PendingReservations}; ActiveShares: {ActiveShares}; ExpiredShares: {ExpiredShares}; RevokedShares: {RevokedShares}; " +
-            "CleanupPendingShares: {CleanupPendingShares}; CleanupCompletedShares: {CleanupCompletedShares}; CleanupFailedShares: {CleanupFailedShares}",
+            "CleanupPendingShares: {CleanupPendingShares}; CleanupFailedShares: {CleanupFailedShares}",
             storageStats.CompletedFileCount?.ToString() ?? "unavailable",
             storageStats.TotalEncryptedBytes?.ToString() ?? "unavailable",
             storageStats.IsExact,
@@ -97,7 +97,6 @@ public static class Startup
             shareStatusCounts.Expired,
             shareStatusCounts.Revoked,
             shareStatusCounts.CleanupPending,
-            shareStatusCounts.CleanupCompleted,
             shareStatusCounts.CleanupFailed);
     }
 }

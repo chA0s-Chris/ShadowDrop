@@ -995,8 +995,15 @@ public sealed class DownloadFileServiceTests
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => Task.FromResult<ShareRecord?>(record);
 
-        public Task<ShareRecord?> GetByShareTokenHashAsync(String shareTokenHashBase64, CancellationToken cancellationToken) =>
-            Task.FromResult(record.ShareTokenHashBase64 == shareTokenHashBase64 ? record : null);
+        public Task<ShareRecord?> GetByShareTokenHashAsync(
+            String shareTokenHashBase64,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(record.ShareTokenHashBase64 == shareTokenHashBase64
+                            && record.RevokedAtUtc is null
+                            && record.ExpiresAtUtc > nowUtc
+                                ? record
+                                : null);
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
