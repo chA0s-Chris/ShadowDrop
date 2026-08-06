@@ -22,12 +22,16 @@ public sealed class ShareCleanupApiClientTests
             request.Headers.Authorization.Should().NotBeNull();
             request.Headers.Authorization!.Scheme.Should().Be("Bearer");
             request.Headers.Authorization.Parameter.Should().Be("upload-token");
-            return JsonResponse("""{"candidatesScanned":2,"sharesCompleted":1,"blobsDeleted":3,"blobsAlreadyMissing":4,"failures":5,"skipped":false}""");
+            return JsonResponse("""
+                                {"candidatesScanned":2,"sharesCompleted":1,"blobsDeleted":3,"blobsAlreadyMissing":4,"failures":5,
+                                 "sweepCandidatesInspected":6,"sweepUploadsDeleted":7,"sweepBlobsAlreadyMissing":8,"sweepFailures":9,
+                                 "skipped":false}
+                                """);
         })));
 
         var result = await client.CleanupAsync(ServerUrl, "upload-token", CancellationToken.None);
 
-        result.Should().Be(new ShareCleanupResultContract(2, 1, 3, 4, 5, false));
+        result.Should().Be(new ShareCleanupResultContract(2, 1, 3, 4, 5, 6, 7, 8, 9, false));
     }
 
     [TestCase(HttpStatusCode.Unauthorized, "Authentication token invalid or missing.")]

@@ -117,7 +117,7 @@ stable release is known. This is designed to stay out of the way:
 | `upload raw <files>`           | Encrypt and upload only; prints file IDs and the share key.    |
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
-| `share cleanup`                | Delete blobs and metadata for expired and revoked shares.       |
+| `share cleanup`                | Delete blobs and metadata for expired and revoked shares, and reclaim unreferenced uploads. |
 | `share list`                   | List bounded share lifecycle and retained-ciphertext metadata. |
 | `token create`                 | Create a scoped upload credential and display its token once.  |
 | `token list`                   | List bounded upload-credential lifecycle metadata.             |
@@ -461,6 +461,19 @@ shadowdrop share cleanup             # delete blobs and metadata of expired/revo
 
 Both commands require the dedicated admin-token configuration described above;
 they never use the upload token.
+
+`share cleanup` prints one `share-cleanup:` line mirroring the API response
+field for field:
+
+```text
+share-cleanup:candidates-scanned=2 shares-completed=1 blobs-deleted=3 blobs-already-missing=4 failures=5 sweep-candidates-inspected=6 sweep-uploads-deleted=7 sweep-blobs-already-missing=8 sweep-failures=9 skipped=false
+```
+
+The `sweep-*` fields report the same run's reclamation of completed uploads that
+no share references, which the server governs with
+`ShadowDrop:Cleanup:UnreferencedUploadRetention`. `failures` is the run total and
+already includes `sweep-failures`. `skipped=true` means another run held the
+cleanup lease and nothing was attempted.
 
 The internal share ID is reported as `shareId` in the `--json` output of
 `upload` and `share create` — capture it at creation time if you may need to

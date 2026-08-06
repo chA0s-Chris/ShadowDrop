@@ -110,7 +110,48 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
         }
 
         var retained = groups.FirstOrDefault(document => document["_id"].ToInt32() == (Int32)BlobRetentionState.Retained);
-        return new(retained?["count"].ToInt64() ?? 0, retained?["total"].ToInt64() ?? 0, true);
+        return new(retained?["count"].ToInt64() ?? 0, retained?["total"].ToInt64() ?? 0);
+    }
+
+    public async Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(
+        DateTimeOffset completionCutoffUtc,
+        Int32 limit,
+        CancellationToken cancellationToken)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        // A range predicate never matches a missing field, so legacy documents need the explicit null branch or
+        // they would never surface. Missing fields sort before numbers, which is exactly the required order:
+        // never-inspected first, then least recently inspected, then legacy completion times.
+        var builder = Builders<MongoUploadedFileDocument>.Filter;
+        var filter = builder.Eq(x => x.IsReserved, false)
+                     & builder.Or(builder.Eq(x => x.CompletedAtUnixTimeMilliseconds, null),
+                                  builder.Lte(x => x.CompletedAtUnixTimeMilliseconds,
+                                              completionCutoffUtc.ToUnixTimeMilliseconds()));
+        var sort = Builders<MongoUploadedFileDocument>.Sort
+                                                      .Ascending(x => x.LastSweepAttemptAtUnixTimeMilliseconds)
+                                                      .Ascending(x => x.CompletedAtUnixTimeMilliseconds)
+                                                      .Ascending(x => x.FileId);
+        // The timestamp is projected raw and converted here: the driver cannot translate the conversion itself.
+        var projections = await Collection.Find(filter)
+                                          .Sort(sort)
+                                          .Limit(limit)
+                                          .Project(x => new SweepCandidateProjection(x.FileId,
+                                                                                     x.BlobKey,
+                                                                                     x.CompletedAtUnixTimeMilliseconds))
+                                          .ToListAsync(cancellationToken);
+        return
+        [
+            .. projections.Select(projection => new UploadSweepCandidate(
+                                      projection.FileId,
+                                      projection.BlobKey,
+                                      projection.CompletedAtUnixTimeMilliseconds is { } completedAt
+                                          ? DateTimeOffset.FromUnixTimeMilliseconds(completedAt)
+                                          : null))
+        ];
     }
 
     public async Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
@@ -154,7 +195,8 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
             KdfSaltBase64 = record.KdfSaltBase64,
             PlaintextSha256 = record.PlaintextSha256,
             OwnerCredentialId = record.OwnerCredentialId,
-            RetentionState = BlobRetentionState.Retained
+            RetentionState = BlobRetentionState.Retained,
+            CompletedAtUnixTimeMilliseconds = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
         var result = await Collection.ReplaceOneAsync(
             x => x.FileId == record.FileId && x.IsReserved && x.IsClaimed
@@ -190,4 +232,30 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
         return await Collection.Find(x => x.FileId == fileId && !x.IsReserved && x.RetentionState == BlobRetentionState.Deleted)
                                .AnyAsync(cancellationToken);
     }
+
+    public async Task<Boolean> TryRecordSweepInspectionAsync(
+        Guid fileId,
+        DateTimeOffset inspectedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var inspectedAt = inspectedAtUtc.ToUnixTimeMilliseconds();
+        var stamped = await Collection.UpdateOneAsync(
+            x => x.FileId == fileId && !x.IsReserved && x.CompletedAtUnixTimeMilliseconds == null,
+            Builders<MongoUploadedFileDocument>.Update
+                                               .Set(x => x.CompletedAtUnixTimeMilliseconds, inspectedAt)
+                                               .Set(x => x.LastSweepAttemptAtUnixTimeMilliseconds, inspectedAt),
+            cancellationToken: cancellationToken);
+        if (stamped.MatchedCount == 1)
+        {
+            return true;
+        }
+
+        var rotated = await Collection.UpdateOneAsync(
+            x => x.FileId == fileId && !x.IsReserved,
+            Builders<MongoUploadedFileDocument>.Update.Set(x => x.LastSweepAttemptAtUnixTimeMilliseconds, inspectedAt),
+            cancellationToken: cancellationToken);
+        return rotated.MatchedCount == 1;
+    }
+
+    private sealed record SweepCandidateProjection(Guid FileId, String BlobKey, Int64? CompletedAtUnixTimeMilliseconds);
 }

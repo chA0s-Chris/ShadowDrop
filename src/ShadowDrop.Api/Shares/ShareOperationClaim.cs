@@ -5,7 +5,13 @@ namespace ShadowDrop.Api.Shares;
 public enum ShareOperationClaimKind
 {
     CreateShare = 0,
-    CleanupShare = 1
+    CleanupShare = 1,
+
+    /// <summary>
+    /// Reclamation of a single unreferenced completed upload. No share exists, so the claim's share identifier
+    /// carries the sweep's operation identifier purely to satisfy the non-null convention.
+    /// </summary>
+    SweepUpload = 2
 }
 
 public enum ShareOperationClaimLifecycle

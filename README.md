@@ -140,6 +140,11 @@ Expired and revoked shares stop resolving through their public token immediately
 uploaded-file metadata, and share metadata; a failed cleanup keeps the share in the administrative inventory as `cleanup-failed` for
 diagnosis and retry.
 
+The same cleanup run also reclaims completed uploads that no share ever referenced — an upload whose share creation was abandoned would
+otherwise keep its ciphertext forever. Reclamation waits out `ShadowDrop:Cleanup:UnreferencedUploadRetention`, seven days by default, and
+never touches an upload reservation or a file any share still points at. Configure a retention nothing ever reaches to effectively turn
+reclamation off; see [deployment](docs/DEPLOYMENT.md#unreferenced-upload-reclamation) for the details.
+
 The upload credential can upload encrypted files and create shares, but cannot
 revoke other shares, run cleanup, or manage credentials. The bootstrap admin
 token remains valid on the scoped upload routes for migration and recovery;

@@ -132,12 +132,25 @@ the endpoint filter in `AdminBearerTokenEndpointFilterExtensions`)
 |--------|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `GET`  | `/api/admin/management/ping`                               | Connectivity and credential check for management tooling.                                                  |
 | `GET`  | `/api/admin/shares`                                        | List a bounded, redacted page of share lifecycle and retained-ciphertext state.                            |
-| `POST` | `/api/admin/shares/cleanup`                                | Trigger a cleanup run for expired and revoked shares; reports the outcome, skipping when a run is already in progress. |
+| `POST` | `/api/admin/shares/cleanup`                                | Trigger a cleanup run for expired and revoked shares and unreferenced uploads; reports the outcome, skipping when a run is already in progress. |
 | `POST` | `/api/admin/shares/{shareId:guid}/revoke`                  | Revoke a share so its download token stops resolving. `404` for unknown shares.                            |
 | `POST` | `/api/admin/upload-credentials`                            | Create a scoped upload credential; the credential token is returned exactly once in the response.          |
 | `GET`  | `/api/admin/upload-credentials`                            | List upload credentials, newest first, with cursor-based paging (`cursor`, `limit`).                       |
 | `GET`  | `/api/admin/upload-credentials/{credentialId:guid}`        | Inspect a single upload credential's metadata (never the token).                                           |
 | `POST` | `/api/admin/upload-credentials/{credentialId:guid}/revoke` | Revoke an upload credential so its token stops authenticating.                                             |
+
+### Administrative cleanup run
+
+`POST /api/admin/shares/cleanup` runs the share phase and then the unreferenced-upload sweep under one distributed lease, and returns
+`candidatesScanned`, `sharesCompleted`, `blobsDeleted`, `blobsAlreadyMissing`, `failures`, `sweepCandidatesInspected`,
+`sweepUploadsDeleted`, `sweepBlobsAlreadyMissing`, `sweepFailures`, and `skipped`. `failures` is the run total and already includes
+`sweepFailures`, so a run in which only the sweep failed is still recorded as a partial cleanup run. `sweepUploadsDeleted` and
+`sweepBlobsAlreadyMissing` are disjoint: an upload whose ciphertext was already gone is counted only as already-missing, so an upgrade
+cannot report freed storage that was never freed. `skipped` is `true` when another run held the lease and nothing was attempted.
+
+The sweep inspects at most 200 upload candidates per run, never-inspected and least-recently-inspected first, plus at most 50 of its own
+claims for orphan recovery. A candidate is reclaimed only when it is a completed upload no share references and its completion timestamp
+is at or before the `ShadowDrop:Cleanup:UnreferencedUploadRetention` cutoff.
 
 ### Administrative share listing
 

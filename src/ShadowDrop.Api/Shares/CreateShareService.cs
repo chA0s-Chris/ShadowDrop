@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 public sealed class CreateShareService
 {
     private const Int32 MinimumTokenEntropyBytes = 32;
+    private readonly ShareCreationClaimReconciler _claimReconciler;
     private readonly ILogger<CreateShareService> _logger;
     private readonly IShareOperationClaimRepository _operationClaimRepository;
     private readonly IShareMetadataRepository _shareMetadataRepository;
@@ -19,12 +20,14 @@ public sealed class CreateShareService
     public CreateShareService(IUploadedFileMetadataRepository uploadedFileMetadataRepository,
                               IShareMetadataRepository shareMetadataRepository,
                               IShareOperationClaimRepository operationClaimRepository,
+                              ShareCreationClaimReconciler claimReconciler,
                               TimeProvider timeProvider,
                               ILogger<CreateShareService> logger)
     {
         _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
         _shareMetadataRepository = shareMetadataRepository;
         _operationClaimRepository = operationClaimRepository;
+        _claimReconciler = claimReconciler;
         _timeProvider = timeProvider;
         _logger = logger;
     }
@@ -51,7 +54,7 @@ public sealed class CreateShareService
                 throw new CreateShareValidationException("Duplicate file ids are not allowed.");
             }
 
-            await ReconcileUnfinishedShareCreationsAsync(fileIds, cancellationToken);
+            await _claimReconciler.ReconcileAsync(fileIds, cancellationToken);
 
             var shareId = Guid.NewGuid();
             var operationId = Guid.NewGuid();
@@ -205,45 +208,10 @@ public sealed class CreateShareService
         }
     }
 
-    private async Task ReconcileUnfinishedShareCreationsAsync(
-        IReadOnlyCollection<Guid> requestedFileIds,
-        CancellationToken cancellationToken)
-    {
-        var claims = await _operationClaimRepository.GetUnfinishedShareCreationsAsync(requestedFileIds, cancellationToken);
-        foreach (var claim in claims)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (claim.Lifecycle == ShareOperationClaimLifecycle.Acquired)
-            {
-                await _operationClaimRepository.TryAbortAcquiredAsync(claim.OperationId, cancellationToken);
-                continue;
-            }
-
-            if (claim.ProposedShare is null)
-            {
-                continue;
-            }
-
-            try
-            {
-                await _shareMetadataRepository.CreateAsync(claim.ProposedShare, cancellationToken);
-                await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken);
-            }
-            catch (CreateShareValidationException exception)
-            {
-                _logger.LogWarning(exception,
-                                   "Abandoned share creation failed definitively during recovery. ShareId: {ShareId}; OperationId: {OperationId}",
-                                   claim.ShareId,
-                                   claim.OperationId);
-                await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken);
-            }
-        }
-    }
-
     /// <summary>
     /// Releases or aborts the operation claim without letting a claim-store failure mask the share-creation
-    /// failure that is already on its way out. An orphaned claim is not lost work: a later request reconciles
-    /// it via <see cref="ReconcileUnfinishedShareCreationsAsync"/>.
+    /// failure that is already on its way out. An orphaned claim is not lost work: a later request or cleanup
+    /// run reconciles it via <see cref="ShareCreationClaimReconciler"/>.
     /// </summary>
     private async Task TryCleanupClaimAsync(Guid operationId, Boolean commitStarted)
     {

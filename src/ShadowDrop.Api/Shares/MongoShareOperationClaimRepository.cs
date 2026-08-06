@@ -31,6 +31,25 @@ public sealed class MongoShareOperationClaimRepository(IMongoHelper mongo) : ISh
         && document.ShareId == shareId
         && document.FileIds.Order().SequenceEqual(fileIds);
 
+    public async Task<IReadOnlyList<ShareOperationClaim>> GetSweepClaimsAsync(Int32 limit, CancellationToken cancellationToken)
+    {
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        // A missing inspection timestamp sorts before every number, so never-inspected claims come first.
+        var sort = Builders<MongoShareOperationClaimDocument>.Sort
+                                                             .Ascending(x => x.LastRecoveryInspectionAtUnixTimeMilliseconds)
+                                                             .Ascending(x => x.OperationId);
+        var documents = await Collection
+                              .Find(document => document.Kind == ShareOperationClaimKind.SweepUpload)
+                              .Sort(sort)
+                              .Limit(limit)
+                              .ToListAsync(cancellationToken);
+        return [.. documents.Select(Map)];
+    }
+
     public async Task<IReadOnlyList<ShareOperationClaim>> GetUnfinishedShareCreationsAsync(
         IReadOnlyCollection<Guid> fileIds,
         CancellationToken cancellationToken)
@@ -97,6 +116,20 @@ public sealed class MongoShareOperationClaimRepository(IMongoHelper mongo) : ISh
                                                            ShareOperationClaimLifecycle.Committing),
             cancellationToken: cancellationToken);
         return result.ModifiedCount == 1;
+    }
+
+    public async Task<Boolean> TryRecordSweepClaimInspectionAsync(
+        Guid operationId,
+        DateTimeOffset inspectedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var result = await Collection.UpdateOneAsync(
+            document => document.OperationId == operationId && document.Kind == ShareOperationClaimKind.SweepUpload,
+            Builders<MongoShareOperationClaimDocument>.Update
+                                                      .Set(document => document.LastRecoveryInspectionAtUnixTimeMilliseconds,
+                                                           inspectedAtUtc.ToUnixTimeMilliseconds()),
+            cancellationToken: cancellationToken);
+        return result.MatchedCount == 1;
     }
 
     public async Task<Boolean> TryReleaseAsync(Guid operationId, CancellationToken cancellationToken)

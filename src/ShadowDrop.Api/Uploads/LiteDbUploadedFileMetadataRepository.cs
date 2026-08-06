@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Uploads;
 using LiteDB;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Storage;
+using System.Globalization;
 
 public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadataRepository, IDisposable
 {
@@ -41,6 +42,11 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         {
             _collection = _database.GetCollection<UploadedFileDocument>("uploaded_files");
             _collection.EnsureIndex(document => document.FileId, true);
+            // The completion index narrows the eligible set, while the persisted composite key gives LiteDB the
+            // complete deterministic ordering before the batch limit is applied.
+            _collection.EnsureIndex("sweep_completion", document => document.CompletedAtUnixTimeMilliseconds);
+            _collection.EnsureIndex("sweep_order", document => document.SweepOrderKey);
+            BackfillSweepOrderKeys();
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -49,6 +55,17 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             throw;
         }
     }
+
+    /// <summary>
+    /// Produces a fixed-width ordinal key matching the sweep's required ordering: never-inspected first, then
+    /// least-recently-inspected, then completion time, then file identifier. Flipping the sign bit preserves the
+    /// full signed timestamp ordering when its hexadecimal representation is compared as text.
+    /// </summary>
+    internal static String CreateSweepOrderKey(
+        Int64? lastSweepAttemptAtUnixTimeMilliseconds,
+        Int64? completedAtUnixTimeMilliseconds,
+        Guid fileId) =>
+        $"{SortableTimestamp(lastSweepAttemptAtUnixTimeMilliseconds)}{SortableTimestamp(completedAtUnixTimeMilliseconds)}{fileId:N}";
 
     private static Int64 GetReservationCutoffUnixTimeMilliseconds(DateTimeOffset now) =>
         now.Subtract(ReservationRetention).ToUnixTimeMilliseconds();
@@ -72,6 +89,32 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             document.PlaintextSha256,
             document.OwnerCredentialId,
             document.RetentionState);
+
+    private static String SortableTimestamp(Int64? value) =>
+        value is { } timestamp
+            ? $"1{unchecked((UInt64)(timestamp - Int64.MinValue)).ToString("X16", CultureInfo.InvariantCulture)}"
+            : "00000000000000000";
+
+    private void BackfillSweepOrderKeys()
+    {
+        var documents = _collection.Query()
+                                   .Where(document => !document.IsReserved
+                                                      && (document.SweepOrderKey == null
+                                                          || document.SweepOrderKey == String.Empty))
+                                   .ToList();
+        foreach (var document in documents)
+        {
+            document.SweepOrderKey = CreateSweepOrderKey(document.LastSweepAttemptAtUnixTimeMilliseconds,
+                                                         document.CompletedAtUnixTimeMilliseconds,
+                                                         document.FileId);
+            _collection.Update(document);
+        }
+
+        if (documents.Count > 0)
+        {
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+        }
+    }
 
     private Boolean DeleteExpiredReservation(UploadedFileDocument? document, DateTimeOffset now)
     {
@@ -208,7 +251,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                                                                             document.EncryptedLength,
                                                                             document.RetentionState))
                                                                 .ToList();
-        return Task.FromResult<IReadOnlyList<UploadedFileListProjection>>(projections);
+        return Task.FromResult(projections);
     }
 
     public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken)
@@ -233,7 +276,46 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             }
         }
 
-        return Task.FromResult(new UploadedFileStorageStats(completedFileCount, totalEncryptedBytes, true));
+        return Task.FromResult(new UploadedFileStorageStats(completedFileCount, totalEncryptedBytes));
+    }
+
+    public Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(
+        DateTimeOffset completionCutoffUtc,
+        Int32 limit,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (limit <= 0)
+        {
+            return Task.FromResult<IReadOnlyList<UploadSweepCandidate>>([]);
+        }
+
+        var cutoff = completionCutoffUtc.ToUnixTimeMilliseconds();
+        lock (_syncRoot)
+        {
+            // Legacy documents carry no completion timestamp and must be included, or they would never surface;
+            // they sort as never-inspected, count against the budget, and are stamped on inspection. The composite
+            // key keeps every tie-breaker inside the engine before the limit, so the chosen batch is deterministic.
+            var documents = _collection.Query()
+                                       .Where(document => !document.IsReserved
+                                                          && (document.CompletedAtUnixTimeMilliseconds == null
+                                                              || document.CompletedAtUnixTimeMilliseconds <= cutoff))
+                                       .OrderBy(document => document.SweepOrderKey)
+                                       .Limit(limit)
+                                       .ToList();
+
+            IReadOnlyList<UploadSweepCandidate> candidates =
+            [
+                .. documents
+                    .Select(document => new UploadSweepCandidate(
+                                document.FileId,
+                                document.BlobKey,
+                                document.CompletedAtUnixTimeMilliseconds is { } completedAt
+                                    ? DateTimeOffset.FromUnixTimeMilliseconds(completedAt)
+                                    : null))
+            ];
+            return Task.FromResult(candidates);
+        }
     }
 
     public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken)
@@ -321,7 +403,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 return Task.FromResult(false);
             }
 
-            _collection.Update(new UploadedFileDocument
+            var completed = new UploadedFileDocument
             {
                 FileId = record.FileId,
                 BlobKey = record.BlobKey,
@@ -339,8 +421,13 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                 ChunkCount = record.ChunkCount,
                 KdfSaltBase64 = record.KdfSaltBase64,
                 PlaintextSha256 = record.PlaintextSha256,
-                RetentionState = BlobRetentionState.Retained
-            });
+                RetentionState = BlobRetentionState.Retained,
+                CompletedAtUnixTimeMilliseconds = now.ToUnixTimeMilliseconds()
+            };
+            completed.SweepOrderKey = CreateSweepOrderKey(null,
+                                                          completed.CompletedAtUnixTimeMilliseconds,
+                                                          completed.FileId);
+            _collection.Update(completed);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
             // UploadPersistenceService logs the operator-facing "Upload completed" event with a superset of these fields.
             _logger.LogDebug("Upload reservation completed. FileId: {FileId}; BlobKey: {BlobKey}", record.FileId, record.BlobKey);
@@ -397,6 +484,33 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         }
     }
 
+    public Task<Boolean> TryRecordSweepInspectionAsync(
+        Guid fileId,
+        DateTimeOffset inspectedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_syncRoot)
+        {
+            var document = _collection.FindById(fileId);
+            if (document is null || document.IsReserved)
+            {
+                return Task.FromResult(false);
+            }
+
+            var inspectedAt = inspectedAtUtc.ToUnixTimeMilliseconds();
+            document.LastSweepAttemptAtUnixTimeMilliseconds = inspectedAt;
+            document.CompletedAtUnixTimeMilliseconds ??= inspectedAt;
+            document.SweepOrderKey = CreateSweepOrderKey(document.LastSweepAttemptAtUnixTimeMilliseconds,
+                                                         document.CompletedAtUnixTimeMilliseconds,
+                                                         document.FileId);
+            _collection.Update(document);
+            FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
+            return Task.FromResult(true);
+        }
+    }
+
     private sealed class UploadedFileDocument
     {
         public String AlgorithmId { get; set; } = String.Empty;
@@ -406,6 +520,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         public Int64 ChunkCount { get; set; }
 
         public Int32 ChunkSize { get; set; }
+
+        public Int64? CompletedAtUnixTimeMilliseconds { get; set; }
 
         public String? ContentType { get; set; }
 
@@ -422,6 +538,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
 
         public String KdfSaltBase64 { get; set; } = String.Empty;
 
+        public Int64? LastSweepAttemptAtUnixTimeMilliseconds { get; set; }
+
         public String OriginalFileName { get; set; } = String.Empty;
 
         public Guid? OwnerCredentialId { get; set; }
@@ -433,5 +551,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         public Int64? ReservedAtUnixTimeMilliseconds { get; set; }
 
         public BlobRetentionState RetentionState { get; set; }
+
+        public String? SweepOrderKey { get; set; }
     }
 }

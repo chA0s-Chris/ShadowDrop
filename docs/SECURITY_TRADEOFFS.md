@@ -122,6 +122,13 @@ file before deleting anything, then removes uploaded-file and share metadata onl
 Failures retain the metadata as `cleanup-failed` so operators can diagnose and retry them; successful cleanup removes filenames, hashes,
 KDF salts, owner credential IDs, and other per-file metadata instead of retaining a historical record.
 
+The same run reclaims completed uploads that no share references once they are older than
+`ShadowDrop:Cleanup:UnreferencedUploadRetention` (seven days by default). Until then, an upload whose share creation was abandoned keeps
+its ciphertext and its per-file metadata at rest, so the retention is a deliberate exposure window: shorten it to narrow that window,
+lengthen it to keep recovery material available. Reclamation takes the same durable per-file claim cleanup takes and re-checks share
+references behind it, so it can never delete ciphertext a share still points at — including an expired or revoked share awaiting purge —
+and never touches an upload reservation. Its failures are logged with the file identifier alone, never the blob key or file name.
+
 Those claims are themselves a metadata store: while a share creation is in flight, `share_operation_claims` holds the proposed share
 record — filenames, share and download token hashes, and the owner credential ID — so an interrupted creation can be resolved without
 exposing its files to cleanup. The claim is deleted once the operation finishes, but it survives a process failure until a later run

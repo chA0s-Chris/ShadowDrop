@@ -51,6 +51,11 @@ public static class ShadowDropOptionsBinding
             throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:CronExpression' is required.");
         }
 
+        if (options.Cleanup.UnreferencedUploadRetention <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("The configuration value 'ShadowDrop:Cleanup:UnreferencedUploadRetention' must be a positive duration.");
+        }
+
         if (options.Upload.MaxBytes <= UploadLimitCalculator.MultipartEnvelopeAllowanceBytes)
         {
             throw new InvalidOperationException(

@@ -15,6 +15,19 @@ public interface IUploadedFileMetadataRepository
 
     Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Returns at most <paramref name="limit"/> completed uploads that are candidates for unreferenced-upload
+    /// reclamation: never reservations, and either carrying no completion timestamp or one at or before
+    /// <paramref name="completionCutoffUtc"/>. Never-inspected candidates come first, then the least recently
+    /// inspected, with completion time and file identifier as deterministic tie-breakers, so a candidate that is
+    /// repeatedly skipped cannot starve the backlog.
+    /// </summary>
+    Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(
+        DateTimeOffset completionCutoffUtc,
+        Int32 limit,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Unreferenced-upload sweep candidates are not supported by this repository.");
+
     Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken);
 
     Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken);
@@ -34,4 +47,16 @@ public interface IUploadedFileMetadataRepository
 
     Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Retained-blob accounting transitions are not supported by this repository.");
+
+    /// <summary>
+    /// Records that the unreferenced-upload sweep inspected <paramref name="fileId"/>, rotating it to the back of
+    /// the candidate queue. A completed upload that carries no completion timestamp is stamped with
+    /// <paramref name="inspectedAtUtc"/> here, so a legacy record waits a full grace period from its first
+    /// inspection instead of being reclaimed immediately.
+    /// </summary>
+    Task<Boolean> TryRecordSweepInspectionAsync(
+        Guid fileId,
+        DateTimeOffset inspectedAtUtc,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Unreferenced-upload sweep inspection state is not supported by this repository.");
 }

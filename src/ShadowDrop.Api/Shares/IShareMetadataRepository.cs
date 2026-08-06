@@ -33,6 +33,14 @@ public interface IShareMetadataRepository
 
     Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Reports whether any share references <paramref name="fileId"/>, including a share that is expired or
+    /// revoked and still awaiting purge. The unreferenced-upload sweep uses this after it holds its durable
+    /// claim, so visibility rules that hide a share from downloads must not hide it here.
+    /// </summary>
+    Task<Boolean> IsFileReferencedAsync(Guid fileId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Per-file share reference lookups are not supported by this repository.");
+
     Task<Boolean> TryDeleteAsync(Guid shareId, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Share deletion is not supported by this repository.");
 

@@ -43,11 +43,11 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             _collection = _database.GetCollection<ShareDocument>("shares");
             _collection.EnsureIndex(document => document.ShareId, true);
             _collection.EnsureIndex(document => document.ShareTokenHashBase64, true);
-            _collection.EnsureIndex(document => document.Files.Select(file => file.FileId), false);
-            _collection.EnsureIndex(document => document.CreatedAtUnixTimeMilliseconds, false);
-            _collection.EnsureIndex(document => document.ExpiresAtUnixTimeMilliseconds, false);
-            _collection.EnsureIndex(document => document.RevokedAtUnixTimeMilliseconds, false);
-            _collection.EnsureIndex(document => document.CleanupState, false);
+            _collection.EnsureIndex(document => document.Files.Select(file => file.FileId));
+            _collection.EnsureIndex(document => document.CreatedAtUnixTimeMilliseconds);
+            _collection.EnsureIndex(document => document.ExpiresAtUnixTimeMilliseconds);
+            _collection.EnsureIndex(document => document.RevokedAtUnixTimeMilliseconds);
+            _collection.EnsureIndex(document => document.CleanupState);
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(_databasePath);
         }
         catch
@@ -347,7 +347,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                 // The tie-break stays inside LiteDB: within one timestamp the identifier index orders the group and
                 // the cursor's identifier excludes everything already returned, so nothing is materialized twice.
                 var group = CreateListQuery(query,
-                                            exactCreatedAt: createdAt,
+                                            createdAt,
                                             shareIdBefore: createdAt == cursorCreatedAt ? query.Cursor?.ShareId : null)
                             .OrderByDescending(document => document.ShareId)
                             .Limit(wanted - fetched.Count)
@@ -395,6 +395,15 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                                                      Count(ShareListStatuses.Revoked),
                                                      Count(ShareListStatuses.CleanupPending),
                                                      Count(ShareListStatuses.CleanupFailed)));
+    }
+
+    public Task<Boolean> IsFileReferencedAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_syncRoot)
+        {
+            return Task.FromResult(IsFileReferenced(fileId));
+        }
     }
 
     public Task<Boolean> TryDeleteAsync(Guid shareId, CancellationToken cancellationToken)

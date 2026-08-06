@@ -15,5 +15,13 @@ internal sealed record ShareCleanupResultContract(
     Int32 BlobsAlreadyMissing,
     [property: JsonPropertyName("failures")]
     Int32 Failures,
+    [property: JsonPropertyName("sweepCandidatesInspected")]
+    Int32 SweepCandidatesInspected,
+    [property: JsonPropertyName("sweepUploadsDeleted")]
+    Int32 SweepUploadsDeleted,
+    [property: JsonPropertyName("sweepBlobsAlreadyMissing")]
+    Int32 SweepBlobsAlreadyMissing,
+    [property: JsonPropertyName("sweepFailures")]
+    Int32 SweepFailures,
     [property: JsonPropertyName("skipped")]
     Boolean Skipped);

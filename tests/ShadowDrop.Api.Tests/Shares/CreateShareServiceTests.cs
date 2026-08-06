@@ -28,11 +28,7 @@ public sealed class CreateShareServiceTests
                                                Guid.NewGuid(),
                                                [fileId],
                                                CancellationToken.None)).Should().NotBeNull();
-        var sut = new CreateShareService(new ThrowingReadUploadedFileRepository(),
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(new ThrowingReadUploadedFileRepository(), shareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-08-06T00:00:00Z"),
                                              [new(fileId)],
                                              GenerateDownloadBearerToken: false);
@@ -52,11 +48,7 @@ public sealed class CreateShareServiceTests
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
         var collector = new FakeLogCollector();
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         new FakeLogger<CreateShareService>(collector));
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository, new FakeLogger<CreateShareService>(collector));
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(fileId, "Display.bin")],
                                              GenerateDownloadBearerToken: true,
@@ -82,11 +74,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(fileId, "Display.bin")],
                                              GenerateDownloadBearerToken: true,
@@ -128,11 +116,7 @@ public sealed class CreateShareServiceTests
         using var claims = new LiteDbShareOperationClaimRepository(options);
         var firstFileId = await ReserveAndCompleteAsync(uploads, CreateUploadedFileRecord(Guid.NewGuid(), "first.bin"));
         var interrupted = new IndeterminateInsertShareRepository(shares, insertLanded);
-        var firstService = new CreateShareService(uploads,
-                                                  interrupted,
-                                                  claims,
-                                                  TimeProvider.System,
-                                                  NullLogger<CreateShareService>.Instance);
+        var firstService = CreateService(uploads, interrupted, claims);
 
         var firstAttempt = async () => await firstService.CreateAsync(
             new(DateTimeOffset.UtcNow.AddDays(1), [new(firstFileId)], GenerateDownloadBearerToken: false),
@@ -143,11 +127,7 @@ public sealed class CreateShareServiceTests
         (await shares.GetAsync(unfinished.ShareId, CancellationToken.None) is not null).Should().Be(
             insertLanded, "the claim must survive the failure whether or not the insert reached the store");
 
-        var recoveryService = new CreateShareService(uploads,
-                                                     shares,
-                                                     claims,
-                                                     TimeProvider.System,
-                                                     NullLogger<CreateShareService>.Instance);
+        var recoveryService = CreateService(uploads, shares, claims);
         var recoveryAttempt = async () => await recoveryService.CreateAsync(
             new(DateTimeOffset.UtcNow.AddDays(1), [new(firstFileId)], GenerateDownloadBearerToken: false),
             CancellationToken.None);
@@ -166,11 +146,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(fileId), new(fileId)],
                                              GenerateDownloadBearerToken: false);
@@ -190,11 +166,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository);
         var firstRequest = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                                   [new(fileId)],
                                                   GenerateDownloadBearerToken: false);
@@ -229,11 +201,7 @@ public sealed class CreateShareServiceTests
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(fileId)],
                                              directHttpEnabled,
@@ -253,11 +221,7 @@ public sealed class CreateShareServiceTests
         using var uploadedFileRepository = new LiteDbUploadedFileMetadataRepository(options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
         using var shareRepository = new LiteDbShareMetadataRepository(options);
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         shareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, shareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(Guid.NewGuid())],
                                              GenerateDownloadBearerToken: false);
@@ -276,11 +240,7 @@ public sealed class CreateShareServiceTests
         var fileId = await ReserveAndCompleteAsync(uploadedFileRepository, CreateUploadedFileRecord(Guid.NewGuid(), "cipher.bin"));
         var failingShareRepository = new LiteDbShareMetadataRepository(options, () => throw new InvalidOperationException("Simulated transaction failure."));
         using var claimRepository = new LiteDbShareOperationClaimRepository(options);
-        var sut = new CreateShareService(uploadedFileRepository,
-                                         failingShareRepository,
-                                         claimRepository,
-                                         TimeProvider.System,
-                                         NullLogger<CreateShareService>.Instance);
+        var sut = CreateService(uploadedFileRepository, failingShareRepository, claimRepository);
         var request = new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
                                              [new(fileId)],
                                              GenerateDownloadBearerToken: false);
@@ -292,6 +252,18 @@ public sealed class CreateShareServiceTests
         using var database = new LiteDatabase(options.Metadata.LiteDbPath);
         database.GetCollection("shares").Count().Should().Be(0);
     }
+
+    private static CreateShareService CreateService(
+        IUploadedFileMetadataRepository uploadedFileRepository,
+        IShareMetadataRepository shareRepository,
+        IShareOperationClaimRepository claimRepository,
+        ILogger<CreateShareService>? logger = null) =>
+        new(uploadedFileRepository,
+            shareRepository,
+            claimRepository,
+            new(claimRepository, shareRepository, NullLogger<ShareCreationClaimReconciler>.Instance),
+            TimeProvider.System,
+            logger ?? NullLogger<CreateShareService>.Instance);
 
     private static UploadedFileRecord CreateUploadedFileRecord(Guid fileId, String originalFileName) =>
         new(fileId,
