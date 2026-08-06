@@ -189,23 +189,19 @@ public static partial class QueueFileParser
             return;
         }
 
-        var isAbsoluteHttpUrl = Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri) &&
-                                uri is not null &&
-                                (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
-
-        if (!isAbsoluteHttpUrl)
+        if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
             errors.Add(new(path, "The serverUrl value must be an absolute HTTP or HTTPS URL."));
             return;
         }
 
-        var validatedUri = uri!;
-        if (!String.IsNullOrEmpty(validatedUri.UserInfo))
+        if (!String.IsNullOrEmpty(uri.UserInfo))
         {
             errors.Add(new(path, "The serverUrl value must not include user information."));
         }
 
-        if (!String.IsNullOrEmpty(validatedUri.Query) || !String.IsNullOrEmpty(validatedUri.Fragment))
+        if (!String.IsNullOrEmpty(uri.Query) || !String.IsNullOrEmpty(uri.Fragment))
         {
             errors.Add(new(path, "The serverUrl value must not include query string or fragment components."));
         }

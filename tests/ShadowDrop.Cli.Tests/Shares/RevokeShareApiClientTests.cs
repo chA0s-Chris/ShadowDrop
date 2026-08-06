@@ -21,7 +21,7 @@ public sealed class RevokeShareApiClientTests
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri(ServerUrl, $"/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
-            request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+            request.Headers.Authorization.Scheme.Should().Be("Bearer");
             request.Headers.Authorization.Parameter.Should().Be("upload-token");
             return new(HttpStatusCode.NoContent);
         })));

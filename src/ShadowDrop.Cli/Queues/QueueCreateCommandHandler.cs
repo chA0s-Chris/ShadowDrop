@@ -60,7 +60,7 @@ internal sealed class QueueCreateCommandHandler(
         }
 
         _ = Uri.TryCreate(configuration.ServerUrl, UriKind.Absolute, out var configuredServerUrl);
-        if (!ShareReferenceResolver.TryResolve(options.ShareToken!, configuredServerUrl, out var serverUrl, out var shareToken))
+        if (!ShareReferenceResolver.TryResolve(options.ShareToken, configuredServerUrl, out var serverUrl, out var shareToken))
         {
             await standardError.WriteLineAsync("Share token invalid or missing.");
             return 1;

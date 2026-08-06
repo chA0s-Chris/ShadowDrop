@@ -63,6 +63,15 @@ The code style rules are described in the `.editorconfig` file.
 - Use `ArgumentNullException.ThrowIfNull()` for null checks
 - Use `String.IsNullOrEmpty()` for string validation
 
+### Nullability
+- Nullable reference types are enabled project-wide - keep them enabled and do not suppress nullable warnings
+- Prefer guard clauses, validated locals, pattern matching, and nullable-flow attributes over the null-forgiving operator (`!`)
+- Have validation return the proven values instead of forgiving them afterwards - `[MemberNotNull]` only covers members of the containing type, so it cannot carry a post-condition about a parameter's members
+- Do not repeat `!` after a value has been validated - carry the proven value in one non-nullable local
+- In tests, `!` is unnecessary after a FluentAssertions `Should().NotBeNull()` on the same expression, and fixture members assigned in `[SetUp]`/`[OneTimeSetUp]` need no `= null!` initializer because NUnit.Analyzers suppresses the warning
+- Use `!` only for invariants nullable flow analysis cannot establish - framework-injected members and deliberately invalid `null!` inputs in argument-validation tests - and make such uses obvious from the surrounding code or add a short comment
+- `dotnet jb inspectcode` reports redundant uses as `RedundantSuppressNullableWarningExpression`
+
 ### Async/Await
 - Use `async`/`await` instead of `.Result` or `.Wait()`
 - Suffix async methods with `Async` (e.g., `GetDataAsync`)

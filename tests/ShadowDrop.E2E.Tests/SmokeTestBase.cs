@@ -24,7 +24,7 @@ public abstract class SmokeTestBase
                           .FirstOrDefault();
 
         value.Should().NotBeNullOrWhiteSpace($"the CLI output should contain a non-empty '{prefix}' value.{Environment.NewLine}{result.Describe()}");
-        return value!;
+        return value;
     }
 
     protected static void AssertFilesEqual(FileInfo expected, String actualPath)

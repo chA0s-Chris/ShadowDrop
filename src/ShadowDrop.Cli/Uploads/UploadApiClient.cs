@@ -206,7 +206,8 @@ internal sealed class UploadApiClient(
         {
             using var uploadTimeout = isStreamingUpload ? new UploadAttemptTimeout(cancellationToken, _timeProvider) : null;
             using var controlTimeout = isStreamingUpload ? null : new ControlPlaneTimeout(cancellationToken, _timeProvider);
-            var effectiveCancellation = uploadTimeout?.Token ?? controlTimeout!.Token;
+            // Exactly one of the two timeouts is created per attempt, so the final fallback is unreachable.
+            var effectiveCancellation = uploadTimeout?.Token ?? controlTimeout?.Token ?? cancellationToken;
             Action? reportActivity = uploadTimeout is null ? null : uploadTimeout.Reset;
             using var request = requestFactory(effectiveCancellation, reportActivity);
             try

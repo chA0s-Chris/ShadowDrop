@@ -132,15 +132,25 @@ internal sealed class DownloadCommandHandler(
         return parsedFileId;
     }
 
+    /// <summary>
+    /// Returns the manifest files. <see cref="ShareManifestClient"/> already rejects a manifest without files,
+    /// so this guard restates that contract in a form nullable flow analysis can carry to the consumers.
+    /// </summary>
+    internal static IReadOnlyList<ShareManifestFileContract> RequireManifestFiles(ShareManifestContract manifest) =>
+        manifest.Files is { Count: > 0 } files
+            ? files
+            : throw new DownloadCommandException("Share metadata invalid or missing.");
+
     internal static ShareManifestFileContract SelectDirectDownloadFile(ShareManifestContract manifest, String? fileId)
     {
+        var files = RequireManifestFiles(manifest);
         if (!String.IsNullOrWhiteSpace(fileId))
         {
-            return SelectFileById(manifest.Files!, ParseFileId(fileId));
+            return SelectFileById(files, ParseFileId(fileId));
         }
 
-        return manifest.Files!.Count == 1
-            ? manifest.Files[0]
+        return files.Count == 1
+            ? files[0]
             : throw new DownloadCommandException("Share contains multiple files; specify --file.");
     }
 
@@ -458,6 +468,24 @@ internal sealed class DownloadCommandHandler(
         }
     }
 
+    /// <inheritdoc cref="RequireQueueValue{T}"/>
+    private static IReadOnlyList<QueueFileEntry> RequireQueueFiles(QueueFile queue) =>
+        queue.Files is { Count: > 0 } files
+            ? files
+            : throw new DownloadCommandException("The queue file is invalid.");
+
+    /// <inheritdoc cref="RequireQueueValue{T}"/>
+    private static Int64 RequireQueueLength(QueueFileEntry entry) =>
+        entry.Length ?? throw new DownloadCommandException("The queue file is invalid.");
+
+    /// <summary>
+    /// Returns a value <see cref="QueueFileParser"/> has already validated to be present. The parser rejects a
+    /// queue file missing any of these, so the guards restate that contract in a form nullable flow analysis
+    /// can carry to the consumers, and report the same failure the queue loader uses.
+    /// </summary>
+    private static T RequireQueueValue<T>(T? value) where T : class =>
+        value ?? throw new DownloadCommandException("The queue file is invalid.");
+
     private static void ResetResumeState(String partialPath, String markerPath)
     {
         if (File.Exists(partialPath))
@@ -514,12 +542,12 @@ internal sealed class DownloadCommandHandler(
             throw new DownloadCommandException("Server URL invalid or missing.");
         }
 
-        return new(serverUrl, entry.ShareToken!);
+        return new(serverUrl, RequireQueueValue(entry.ShareToken));
     }
 
     private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
     {
-        var match = SelectFileById(manifest.Files!, ParseFileId(entry.FileId));
+        var match = SelectFileById(RequireManifestFiles(manifest), ParseFileId(entry.FileId));
         if (!String.Equals(match.FileName, entry.FileName, StringComparison.Ordinal) || match.Length != entry.Length)
         {
             throw new DownloadCommandException("Queue entry does not match share metadata.");
@@ -598,7 +626,7 @@ internal sealed class DownloadCommandHandler(
             return false;
         }
 
-        var expectedLength = entry.Length!.Value;
+        var expectedLength = RequireQueueLength(entry);
         if (!await IsExistingOutputMatchAsync(outputPath, expectedLength, entry.PlaintextSha256, cancellationToken))
         {
             throw new DownloadCommandException("Existing output file does not match the queue entry.");
@@ -692,7 +720,7 @@ internal sealed class DownloadCommandHandler(
                     return 1;
                 }
 
-                shareKeyBytes = DecodeShareKey(queue.Credentials.ShareKey!);
+                shareKeyBytes = DecodeShareKey(RequireQueueValue(queue.Credentials.ShareKey));
                 bearerToken = queue.Credentials.DownloadBearerToken;
             }
             else
@@ -712,34 +740,39 @@ internal sealed class DownloadCommandHandler(
             var outputRoot = ResolveOutputRoot(options.OutputRoot);
             var capturedShareKeyBytes = shareKeyBytes;
 
-            var items = queue.Files!.Select(entry => new QueueDownloadItem(
-                                                entry.FileName ?? entry.FileId ?? "unknown",
-                                                entry.Length,
-                                                entry.OutputPath!,
-                                                async (progress, token) =>
-                                                {
-                                                    var outputPath = ResolveQueueOutputPath(outputRoot, entry.OutputPath!);
-                                                    if (await TrySkipCompletedQueueOutputAsync(entry, outputPath, progress, token))
-                                                    {
-                                                        return;
-                                                    }
+            var queueFiles = RequireQueueFiles(queue);
+            var items = queueFiles.Select(entry =>
+                                  {
+                                      var entryOutputPath = RequireQueueValue(entry.OutputPath);
+                                      return new QueueDownloadItem(
+                                          entry.FileName ?? entry.FileId ?? "unknown",
+                                          entry.Length,
+                                          entryOutputPath,
+                                          async (progress, token) =>
+                                          {
+                                              var outputPath = ResolveQueueOutputPath(outputRoot, entryOutputPath);
+                                              if (await TrySkipCompletedQueueOutputAsync(entry, outputPath, progress, token))
+                                              {
+                                                  return;
+                                              }
 
-                                                    var shareReference = ResolveQueueShareReference(entry);
-                                                    var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, token);
-                                                    var file = SelectQueuedFile(manifest, entry);
-                                                    await DownloadToFileAsync(shareReference.ServerUrl,
-                                                                              shareReference.ShareToken,
-                                                                              file,
-                                                                              capturedShareKeyBytes,
-                                                                              bearerToken,
-                                                                              outputPath,
-                                                                              token,
-                                                                              progress,
-                                                                              ResolveExpectedPlaintextSha256(entry, file));
-                                                }))
-                             .ToList();
+                                              var shareReference = ResolveQueueShareReference(entry);
+                                              var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, token);
+                                              var file = SelectQueuedFile(manifest, entry);
+                                              await DownloadToFileAsync(shareReference.ServerUrl,
+                                                                        shareReference.ShareToken,
+                                                                        file,
+                                                                        capturedShareKeyBytes,
+                                                                        bearerToken,
+                                                                        outputPath,
+                                                                        token,
+                                                                        progress,
+                                                                        ResolveExpectedPlaintextSha256(entry, file));
+                                          });
+                                  })
+                                  .ToList();
 
-            var totalBytes = SumQueueBytes(queue.Files!);
+            var totalBytes = SumQueueBytes(queueFiles);
 
             var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
             return summary.Failed == 0 ? 0 : 1;

@@ -117,7 +117,7 @@ public sealed class UploadCredentialEndpointTests
         firstPage.NextCursor.Should().NotBeNullOrWhiteSpace();
 
         var secondPage = await ReadListAsync(client,
-                                             $"/api/admin/upload-credentials/?limit=2&cursor={Uri.EscapeDataString(firstPage.NextCursor!)}");
+                                             $"/api/admin/upload-credentials/?limit=2&cursor={Uri.EscapeDataString(firstPage.NextCursor)}");
         secondPage.Ids.Should().HaveCount(1);
         secondPage.NextCursor.Should().BeNull();
         firstPage.Ids.Concat(secondPage.Ids).Should().OnlyHaveUniqueItems();

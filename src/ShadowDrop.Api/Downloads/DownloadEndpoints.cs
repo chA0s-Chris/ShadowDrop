@@ -54,7 +54,7 @@ public static class DownloadEndpoints
 
         return result.Status switch
         {
-            DownloadLookupStatus.Success => new DownloadStreamResult(result.Resolution!),
+            DownloadLookupStatus.Success when result.Resolution is { } resolution => new DownloadStreamResult(resolution),
             DownloadLookupStatus.InvalidShare => new StatusDownloadResult(StatusCodes.Status401Unauthorized),
             DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),

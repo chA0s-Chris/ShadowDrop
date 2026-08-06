@@ -8,16 +8,16 @@ The null-forgiving operator (`!`) silences the compiler instead of proving that 
 
 ## Acceptance Criteria
 
-- [ ] Every null-forgiving expression in production code under `src` has been reviewed, using the `dotnet jb inspectcode` worklist described below as the enumeration.
-- [ ] Unnecessary production uses are replaced with nullable flow the compiler can verify (validation that returns the proven values, guard clauses, validated locals, pattern matching, accurately typed APIs, and nullable-flow attributes where they genuinely apply).
-- [ ] Null-forgiving expressions in `tests` and `build` are reviewed against the same `dotnet jb inspectcode` worklist, which covers them equally; intentional invalid-null test inputs (e.g. `null!` passed to argument-validation tests) are preserved.
-- [ ] `!` that is redundant because FluentAssertions or NUnit.Analyzers already establish non-nullness (assertion subjects, fields assigned in `[SetUp]`/`[OneTimeSetUp]`) is removed.
-- [ ] Remaining null-forgiving expressions represent deliberate invariants that cannot reasonably be expressed through normal nullable flow, and each one in `src` either carries a short comment explaining the invariant or is listed with a one-line justification in the PR description.
-- [ ] Nullable reference type analysis remains enabled; no nullable warnings are suppressed globally, via `#pragma`, or via `.editorconfig` severity downgrades.
-- [ ] `CODESTYLE.md` documents the preferred nullable-flow style and the narrow cases in which the null-forgiving operator is acceptable.
-- [ ] `tests/AGENTS.md` states the test-specific rules so new tests do not reintroduce redundant `!`: no `!` after a FluentAssertions assertion, no `= null!` on members assigned in `[SetUp]`/`[OneTimeSetUp]`, `null!` only for deliberately invalid arguments. This deliberately extends the documentation scope of issue #182, which names only `CODESTYLE.md`; the PR description should say so.
-- [ ] Runtime behavior and public contracts remain unchanged; no unrelated formatting or cleanup is included.
-- [ ] The existing automated test suite passes unchanged and the solution builds without warnings in Release configuration (`TreatWarningsAsErrors` is on in Release); new tests are expected only if an internal API is restructured in a way the suite does not already cover.
+- [x] Every null-forgiving expression in production code under `src` has been reviewed, using the `dotnet jb inspectcode` worklist described below as the enumeration.
+- [x] Unnecessary production uses are replaced with nullable flow the compiler can verify (validation that returns the proven values, guard clauses, validated locals, pattern matching, accurately typed APIs, and nullable-flow attributes where they genuinely apply).
+- [x] Null-forgiving expressions in `tests` and `build` are reviewed against the `dotnet jb inspectcode` worklist and, because that inspection misses the FluentAssertions-narrowed category, against the compiler itself; intentional invalid-null test inputs (e.g. `null!` passed to argument-validation tests) are preserved.
+- [x] `!` that is redundant because FluentAssertions or NUnit.Analyzers already establish non-nullness (assertion subjects, fields assigned in `[SetUp]`/`[OneTimeSetUp]`) is removed.
+- [x] Remaining null-forgiving expressions represent deliberate invariants that cannot reasonably be expressed through normal nullable flow, and each one in `src` either carries a short comment explaining the invariant or is listed with a one-line justification in the PR description.
+- [x] Nullable reference type analysis remains enabled; no nullable warnings are suppressed globally, via `#pragma`, or via `.editorconfig` severity downgrades.
+- [x] `CODESTYLE.md` documents the preferred nullable-flow style and the narrow cases in which the null-forgiving operator is acceptable.
+- [x] `tests/AGENTS.md` states the test-specific rules so new tests do not reintroduce redundant `!`: no `!` after a FluentAssertions assertion, no `= null!` on members assigned in `[SetUp]`/`[OneTimeSetUp]`, `null!` only for deliberately invalid arguments. This deliberately extends the documentation scope of issue #182, which names only `CODESTYLE.md`; the PR description should say so.
+- [x] Runtime behavior and public contracts remain unchanged; no unrelated formatting or cleanup is included.
+- [x] The existing automated test suite passes unchanged and the solution builds without warnings in Release configuration (`TreatWarningsAsErrors` is on in Release); new tests are expected only if an internal API is restructured in a way the suite does not already cover.
 
 ## Technical Details
 
@@ -31,6 +31,8 @@ Start by enumerating them mechanically rather than by grepping for `!`: the repo
 - **`ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract`** catches the complementary case, where the `!` is genuinely required but the *guard* is the problem — it flags `QueueFileParser.cs:193` today, the composite boolean behind replacement 2 below.
 
 Pass `--project=<name>` to narrow a run while iterating; the full-solution pass is considerably slower. Note that the C# compiler itself never warns about a redundant `!`, which is why a mechanical enumeration matters: removing one is silent whether it was needed or not.
+
+**The inspection is necessary but not sufficient.** Running it over the whole solution reported only 15 redundant expressions, all in tests, and none of the FluentAssertions-narrowed ones — ReSharper does not model the `[NotNull]` post-condition on `Should()` the way Roslyn does, so it misses that entire category (and it also missed `QueueCreateCommandHandler.cs:63`, where the compiler was already narrowing). The authority for the test sweep is therefore the compiler: remove the candidate `!` in bulk, build in Release with `TreatWarningsAsErrors`, and restore only those the compiler demands back. That loop is sound and complete, and it converges — a second full cycle restored everything it stripped, confirming a fixed point.
 
 The production occurrences cluster in a few places and should be addressed by category rather than one by one:
 

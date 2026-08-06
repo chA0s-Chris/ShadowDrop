@@ -164,7 +164,7 @@ public sealed class CliDownloadSessionTests
         handler.Requests[1].RequestUri!.Query.Should().Be("?mode=cli");
         var resumedRange = handler.Requests[1].Headers.Range;
         resumedRange.Should().NotBeNull();
-        resumedRange!.Ranges.Should().ContainSingle();
+        resumedRange.Ranges.Should().ContainSingle();
         resumedRange.Ranges.Single().From.Should().Be(fixture.ChunkSize);
         resumedRange.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
         destination.ToArray().Should().Equal(fixture.Plaintext);

@@ -5,6 +5,7 @@ namespace ShadowDrop.Api.Uploads;
 using LiteDB;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Storage;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadataRepository, IDisposable
@@ -70,7 +71,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     private static Int64 GetReservationCutoffUnixTimeMilliseconds(DateTimeOffset now) =>
         now.Subtract(ReservationRetention).ToUnixTimeMilliseconds();
 
-    private static Boolean IsActiveReservation(UploadedFileDocument? document, DateTimeOffset now) =>
+    private static Boolean IsActiveReservation([NotNullWhen(true)] UploadedFileDocument? document, DateTimeOffset now) =>
         document is { IsReserved: true, IsClaimed: false, ReservedAtUnixTimeMilliseconds: not null }
         && document.ReservedAtUnixTimeMilliseconds.Value > GetReservationCutoffUnixTimeMilliseconds(now);
 
@@ -190,7 +191,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
         {
             var now = DateTimeOffset.UtcNow;
             var document = _collection.FindById(fileId);
-            if (!IsActiveReservation(document, now) || document!.OwnerCredentialId != ownerCredentialId)
+            if (!IsActiveReservation(document, now) || document.OwnerCredentialId != ownerCredentialId)
             {
                 if (!DeleteExpiredReservation(document, now))
                 {

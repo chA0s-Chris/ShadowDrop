@@ -178,7 +178,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         var collection = database.GetCollection("uploaded_files");
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
-        document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        document["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
         collection.Update(document);
     }
 

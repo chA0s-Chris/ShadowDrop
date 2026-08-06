@@ -90,7 +90,7 @@ public sealed class UploadPersistenceServiceTests
         var stored = await repository.GetAsync(record.FileId, CancellationToken.None);
 
         stored.Should().NotBeNull();
-        stored!.OwnerCredentialId.Should().BeNull();
+        stored.OwnerCredentialId.Should().BeNull();
     }
 
     [Test]
@@ -221,7 +221,7 @@ public sealed class UploadPersistenceServiceTests
         values.Should().NotContain(value => value != null && value.Contains(request.KdfSaltBase64));
         values.Should().NotContain(value => value != null && value.Contains(request.PlaintextSha256!));
         values.Should().NotContain(value => value != null && value.Contains(request.OriginalFileName));
-        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "FileId" && pair.Value == result.FileId.ToString());
+        completionRecord.StructuredState.Should().Contain(pair => pair.Key == "FileId" && pair.Value == result.FileId.ToString());
     }
 
     [Test]
@@ -239,7 +239,7 @@ public sealed class UploadPersistenceServiceTests
         var initialResult = await sut.PersistAsync(request, initialContent, CancellationToken.None);
         var storedRecord = await repository.GetAsync(initialResult.FileId, CancellationToken.None);
         storedRecord.Should().NotBeNull();
-        var blobPath = Path.Combine(options.Storage.LocalRoot, storedRecord!.BlobKey);
+        var blobPath = Path.Combine(options.Storage.LocalRoot, storedRecord.BlobKey);
         var originalBlob = await File.ReadAllBytesAsync(blobPath);
 
         var act = async () => await sut.PersistAsync(request, duplicateContent, CancellationToken.None);
@@ -311,7 +311,7 @@ public sealed class UploadPersistenceServiceTests
         var storedRecord = await repository.GetAsync(result.FileId, CancellationToken.None);
 
         storedRecord.Should().NotBeNull();
-        storedRecord!.FileId.Should().Be(request.FileId);
+        storedRecord.FileId.Should().Be(request.FileId);
         storedRecord.OriginalFileName.Should().Be(request.OriginalFileName);
         storedRecord.BlobKey.Should().NotContain(request.OriginalFileName);
         storedRecord.KdfSaltBase64.Should().Be(request.KdfSaltBase64);
@@ -372,7 +372,7 @@ public sealed class UploadPersistenceServiceTests
         var collection = database.GetCollection("uploaded_files");
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
-        document!["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
+        document["ReservedAtUnixTimeMilliseconds"] = DateTimeOffset.UtcNow.AddDays(-2).ToUnixTimeMilliseconds();
         collection.Update(document);
     }
 
@@ -392,8 +392,8 @@ public sealed class UploadPersistenceServiceTests
     private sealed class AtomicClaimMetadataRepository(Guid reservedFileId) : IUploadedFileMetadataRepository
     {
         private readonly Lock _syncRoot = new();
-        private Boolean _claimed;
         private Boolean _claimReleased;
+        private Boolean _claimed;
 
         public Boolean IsCompleted { get; private set; }
 

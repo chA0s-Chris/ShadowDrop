@@ -197,8 +197,12 @@ internal static partial class MultipartUploadRequestReader
             throw new UploadValidationException("Encrypted length metadata is internally inconsistent.");
         }
 
-        if (!String.Equals(request.EncryptionFormatVersion, FormatConstants.EncryptionFormatVersion, StringComparison.Ordinal)
-            || !String.Equals(request.AlgorithmId, FormatConstants.Aes256GcmAlgorithmId, StringComparison.Ordinal))
+        var encryptionFormatVersion = request.EncryptionFormatVersion;
+        var algorithmId = request.AlgorithmId;
+        if (encryptionFormatVersion is null
+            || algorithmId is null
+            || !String.Equals(encryptionFormatVersion, FormatConstants.EncryptionFormatVersion, StringComparison.Ordinal)
+            || !String.Equals(algorithmId, FormatConstants.Aes256GcmAlgorithmId, StringComparison.Ordinal))
         {
             throw new UploadValidationException("Unsupported encryption metadata was supplied.");
         }
@@ -233,8 +237,8 @@ internal static partial class MultipartUploadRequestReader
                    request.PlaintextLength,
                    request.EncryptedLength,
                    request.ContentType,
-                   request.EncryptionFormatVersion!,
-                   request.AlgorithmId!,
+                   encryptionFormatVersion,
+                   algorithmId,
                    request.ChunkSize,
                    request.ChunkCount,
                    request.KdfSalt,

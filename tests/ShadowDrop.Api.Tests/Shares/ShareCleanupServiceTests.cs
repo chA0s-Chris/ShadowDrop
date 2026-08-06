@@ -174,7 +174,7 @@ public sealed class ShareCleanupServiceTests
         var completionRecord = collector.GetSnapshot().Single(logRecord => logRecord.Message.Contains("Share cleanup completed"));
         completionRecord.Level.Should().Be(LogLevel.Information);
         completionRecord.Message.Should().NotContain("with failures");
-        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "0");
+        completionRecord.StructuredState.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "0");
     }
 
     [Test]
@@ -202,7 +202,7 @@ public sealed class ShareCleanupServiceTests
         result.Failures.Should().Be(1);
         var completionRecord = collector.GetSnapshot().Single(logRecord => logRecord.Message.Contains("Share cleanup completed with failures"));
         completionRecord.Level.Should().Be(LogLevel.Warning);
-        completionRecord.StructuredState!.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "1");
+        completionRecord.StructuredState.Should().Contain(pair => pair.Key == "Failures" && pair.Value == "1");
     }
 
     [Test]

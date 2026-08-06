@@ -670,7 +670,7 @@ public sealed class UploadSweepServiceTests
             var collection = database.GetCollection("uploaded_files");
             var document = collection.FindById(fileId);
             ((Object?)document).Should().NotBeNull();
-            document!["CompletedAtUnixTimeMilliseconds"] = completedAtUtc is { } completedAt
+            document["CompletedAtUnixTimeMilliseconds"] = completedAtUtc is { } completedAt
                 ? completedAt.ToUnixTimeMilliseconds()
                 : BsonValue.Null;
             document["SweepOrderKey"] = LiteDbUploadedFileMetadataRepository.CreateSweepOrderKey(

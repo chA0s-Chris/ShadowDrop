@@ -62,7 +62,7 @@ public sealed class CreateShareServiceTests
         var values = creationRecord.StructuredState!.Select(pair => pair.Value).ToList();
         values.Should().NotContain(value => value != null && value.Contains(result.ShareToken));
         values.Should().NotContain(value => value != null && value.Contains(result.DownloadBearerToken!));
-        creationRecord.StructuredState!.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == result.ShareId.ToString());
+        creationRecord.StructuredState.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == result.ShareId.ToString());
     }
 
     [Test]
@@ -86,7 +86,7 @@ public sealed class CreateShareServiceTests
         storedShare.Should().NotBeNull();
         storedShare.ShareTokenHashBase64.Should().NotBe(result.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
-        storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(result.DownloadBearerToken);
+        storedShare.DownloadBearerToken.TokenHashBase64.Should().NotBe(result.DownloadBearerToken);
         storedShare.CreatedAtUtc.Should().BeCloseTo(DateTimeOffset.UtcNow, TimeSpan.FromSeconds(5));
         storedShare.ExpiresAtUtc.Should().Be(request.ExpiresAtUtc);
         storedShare.RevokedAtUtc.Should().BeNull();
@@ -99,7 +99,7 @@ public sealed class CreateShareServiceTests
         result.ShareToken.Should().NotBeNullOrWhiteSpace();
         result.ShareToken.Length.Should().BeGreaterThanOrEqualTo(43);
         result.DownloadBearerToken.Should().NotBeNullOrWhiteSpace();
-        result.DownloadBearerToken!.Length.Should().BeGreaterThanOrEqualTo(43);
+        result.DownloadBearerToken.Length.Should().BeGreaterThanOrEqualTo(43);
     }
 
     // An indeterminate insert has two possible outcomes, and recovery may assume neither: the write either

@@ -236,7 +236,7 @@ public sealed class ApiWalkingSkeletonTests
 
         _ = await client.GetAsync("/health/live");
 
-        Directory.Exists(Path.GetDirectoryName(fixture.MetadataDatabasePath)!).Should().BeTrue();
+        Directory.Exists(Path.GetDirectoryName(fixture.MetadataDatabasePath)).Should().BeTrue();
         Directory.Exists(fixture.LocalStorageRoot).Should().BeTrue();
     }
 
@@ -352,7 +352,7 @@ public sealed class ApiWalkingSkeletonTests
         storedShare.Should().NotBeNull();
         storedShare.ShareTokenHashBase64.Should().NotBe(createShareResult.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
-        storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(createShareResult.DownloadBearerToken);
+        storedShare.DownloadBearerToken.TokenHashBase64.Should().NotBe(createShareResult.DownloadBearerToken);
         storedShare.ExpiresAtUtc.Should().BeCloseTo(request.ExpiresAtUtc, TimeSpan.FromSeconds(1));
         storedShare.RevokedAtUtc.Should().BeNull();
         storedShare.CleanupState.Should().Be(ShareCleanupState.Pending);
@@ -430,7 +430,7 @@ public sealed class ApiWalkingSkeletonTests
         storedShare.RevokedAtUtc.Should().NotBeNull();
         storedShare.ShareTokenHashBase64.Should().NotBe(share.ShareToken);
         storedShare.DownloadBearerToken.Should().NotBeNull();
-        storedShare.DownloadBearerToken!.TokenHashBase64.Should().NotBe(share.DownloadBearerToken);
+        storedShare.DownloadBearerToken.TokenHashBase64.Should().NotBe(share.DownloadBearerToken);
     }
 
     [Test]
@@ -445,7 +445,7 @@ public sealed class ApiWalkingSkeletonTests
         var firstResponse = await RevokeShareAsync(client, fixture.BootstrapToken, share.ShareId);
         var firstStoredShare = await repository.GetAsync(share.ShareId, CancellationToken.None);
         firstStoredShare!.RevokedAtUtc.Should().NotBeNull();
-        var firstRevokedAt = firstStoredShare.RevokedAtUtc!.Value;
+        var firstRevokedAt = firstStoredShare.RevokedAtUtc.Value;
 
         // Wait until the wall clock has strictly advanced past the first revocation timestamp so that a
         // regression which overwrites RevokedAtUtc would necessarily record a later value (and fail below),
@@ -853,12 +853,12 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.CacheControl.Should().NotBeNull();
-        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Headers.CacheControl.NoStore.Should().BeTrue();
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/json");
         var manifest = await response.Content.ReadFromJsonAsync<ShareManifestContract>(JsonOptions);
         manifest.Should().NotBeNull();
         manifest.Files.Should().ContainSingle();
-        var manifestFile = manifest.Files!.Single();
+        var manifestFile = manifest.Files.Single();
         manifestFile.FileId.Should().Be(fileId.ToString());
         manifestFile.FileName.Should().Be("renamed.bin");
         manifestFile.Length.Should().Be(128);
@@ -879,7 +879,7 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType.Should().NotBeNull();
-        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Content.Headers.ContentType.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
         response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
@@ -1033,7 +1033,7 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType.Should().NotBeNull();
-        response.Content.Headers.ContentType!.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        response.Content.Headers.ContentType.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
         response.Headers.AcceptRanges.Should().BeEmpty();
         response.Content.Headers.ContentRange.Should().BeNull();
         response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
@@ -1133,7 +1133,7 @@ public sealed class ApiWalkingSkeletonTests
         using var shareSecret = ShareSecret.FromBytes(Convert.FromBase64String(payload.KeyMaterialBase64));
         await using var destination = new MemoryStream();
         using var session = new CliDownloadSession(client,
-                                                   new(client.BaseAddress!, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}"),
+                                                   new(fixture.BaseAddress, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}"),
                                                    destination,
                                                    shareSecret,
                                                    new(directHttpFixture.FileId, Convert.FromBase64String(payload.KdfSaltBase64)));
@@ -1198,7 +1198,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var cliFixture = await UploadCliDownloadFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(cliFixture.FileId, false));
-        var downloadUri = new Uri(client.BaseAddress!, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
+        var downloadUri = new Uri(fixture.BaseAddress, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
 
         using var plaintext = new MemoryStream();
         var downloadResult = await DownloadCliPlaintextAsync(client,
@@ -1225,7 +1225,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
         var cliFixture = await UploadCliDownloadFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(cliFixture.FileId, false));
-        var downloadUri = new Uri(client.BaseAddress!, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
+        var downloadUri = new Uri(fixture.BaseAddress, $"/d/{share.ShareToken}/files/{cliFixture.FileId}");
         using var durablePlaintext = new MemoryStream();
         const Int64 interruptionOffset = 70;
 
@@ -1336,11 +1336,11 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentLength.Should().Be(directHttpFixture.Plaintext.LongLength);
         response.Headers.CacheControl.Should().NotBeNull();
-        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Headers.CacheControl.NoStore.Should().BeTrue();
         response.Headers.AcceptRanges.Should().ContainSingle("bytes");
         response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         response.Content.Headers.ContentDisposition.Should().NotBeNull();
-        response.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
+        response.Content.Headers.ContentDisposition.DispositionType.Should().Be("attachment");
         response.Content.Headers.ContentDisposition.FileNameStar.Should().Be("renamed.bin");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext);
     }
@@ -1361,16 +1361,16 @@ public sealed class ApiWalkingSkeletonTests
 
         response.StatusCode.Should().Be(HttpStatusCode.PartialContent);
         response.Headers.CacheControl.Should().NotBeNull();
-        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        response.Headers.CacheControl.NoStore.Should().BeTrue();
         response.Headers.AcceptRanges.Should().ContainSingle("bytes");
         response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("direct-http");
         response.Content.Headers.ContentLength.Should().Be(32);
         response.Content.Headers.ContentRange.Should().NotBeNull();
-        response.Content.Headers.ContentRange!.From.Should().Be(64);
+        response.Content.Headers.ContentRange.From.Should().Be(64);
         response.Content.Headers.ContentRange.To.Should().Be(95);
         response.Content.Headers.ContentRange.Length.Should().Be(directHttpFixture.Plaintext.LongLength);
         response.Content.Headers.ContentDisposition.Should().NotBeNull();
-        response.Content.Headers.ContentDisposition!.DispositionType.Should().Be("attachment");
+        response.Content.Headers.ContentDisposition.DispositionType.Should().Be("attachment");
         response.Content.Headers.ContentDisposition.FileNameStar.Should().Be("renamed.bin");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(directHttpFixture.Plaintext.Skip(64).Take(32));
     }
@@ -1514,9 +1514,9 @@ public sealed class ApiWalkingSkeletonTests
                                                                    "filename with CR/LF must be sanitized before being written to response headers");
         sanitizedFileName.Any(Char.IsControl).Should().BeFalse("all control characters, including C1 controls, must be removed from mirrored filename headers");
         response.Content.Headers.ContentDisposition.Should().NotBeNull();
-        response.Content.Headers.ContentDisposition!.FileNameStar.Should().NotContain("\r").And.NotContain("\n",
+        response.Content.Headers.ContentDisposition.FileNameStar.Should().NotContain("\r").And.NotContain("\n",
             "Content-Disposition must use the sanitized filename");
-        response.Content.Headers.ContentDisposition.FileNameStar!.Any(Char.IsControl)
+        response.Content.Headers.ContentDisposition.FileNameStar.Any(Char.IsControl)
                 .Should()
                 .BeFalse("Content-Disposition must also strip persisted C1 control characters");
     }
@@ -1719,7 +1719,7 @@ public sealed class ApiWalkingSkeletonTests
         options.Metadata.LiteDbPath.Should().StartWith(contentRoot, "the resolved metadata path must be anchored to the content root");
         options.Storage.LocalRoot.Should().StartWith(contentRoot, "the resolved storage path must be anchored to the content root");
         options.Cleanup.CronExpression.Should().Be("0 */2 * * *");
-        Directory.Exists(Path.GetDirectoryName(options.Metadata.LiteDbPath)!).Should().BeTrue();
+        Directory.Exists(Path.GetDirectoryName(options.Metadata.LiteDbPath)).Should().BeTrue();
         Directory.Exists(options.Storage.LocalRoot).Should().BeTrue();
     }
 
@@ -2029,7 +2029,7 @@ public sealed class ApiWalkingSkeletonTests
         var collection = database.GetCollection("uploaded_files");
         var document = collection.FindById(fileId);
         ((Object?)document).Should().NotBeNull();
-        document!["ContentType"] = contentType;
+        document["ContentType"] = contentType;
         collection.Update(document);
     }
 
@@ -2201,6 +2201,12 @@ public sealed class ApiWalkingSkeletonTests
             Environment.SetEnvironmentVariable(CleanupCronExpressionEnvironmentVariable, cleanupCronExpression);
             Environment.SetEnvironmentVariable(UploadMaxBytesEnvironmentVariable, uploadMaxBytes?.ToString(CultureInfo.InvariantCulture));
         }
+
+        /// <summary>
+        /// The base address the factory assigns to every client it creates. Non-nullable, unlike
+        /// <see cref="HttpClient.BaseAddress"/>, so call sites need no null-forgiving operator.
+        /// </summary>
+        public Uri BaseAddress => ClientOptions.BaseAddress;
 
         public String BootstrapToken { get; }
 
