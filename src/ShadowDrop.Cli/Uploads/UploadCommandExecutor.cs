@@ -240,12 +240,25 @@ internal sealed record UploadExecutionResult(
     // would hand out a fresh instance every time.
     public IReadOnlyList<UploadFailure> Failures { get; } = BuildFailures(Files, BatchErrorMessage);
 
-    public IReadOnlyList<Guid> UploadedFileIds => Files.Select(static result => result.UploadedFileId)
-                                                       .OfType<Guid>()
-                                                       .ToArray();
+    public IReadOnlyList<Guid> UploadedFileIds
+    {
+        get
+        {
+            List<Guid> ids = [];
+            foreach (var result in Files)
+            {
+                if (result.UploadedFileId is { } fileId)
+                {
+                    ids.Add(fileId);
+                }
+            }
 
-    private static IReadOnlyList<UploadFailure> BuildFailures(IReadOnlyList<UploadFileExecutionResult> files,
-                                                              String? batchErrorMessage)
+            return [.. ids];
+        }
+    }
+
+    private static List<UploadFailure> BuildFailures(IReadOnlyList<UploadFileExecutionResult> files,
+                                                     String? batchErrorMessage)
     {
         List<UploadFailure> failures = [];
         if (batchErrorMessage is not null)
