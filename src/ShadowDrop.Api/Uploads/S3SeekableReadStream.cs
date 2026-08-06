@@ -2,11 +2,25 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Uploads;
 
-internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, String objectKey, String blobKey, Int64 length) : Stream
+internal sealed class S3SeekableReadStream : Stream
 {
+    private readonly String _blobKey;
+    private readonly String _bucketName;
+    private readonly IS3Client _client;
+    private readonly String _objectKey;
+
     private S3ReadResponse? _activeResponse;
     private Boolean _disposed;
     private Int64 _position;
+
+    public S3SeekableReadStream(IS3Client client, String bucketName, String objectKey, String blobKey, Int64 length)
+    {
+        _client = client;
+        _bucketName = bucketName;
+        _objectKey = objectKey;
+        _blobKey = blobKey;
+        Length = length >= 0 ? length : throw new ArgumentOutOfRangeException(nameof(length));
+    }
 
     public override Boolean CanRead => !_disposed;
 
@@ -14,7 +28,7 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
 
     public override Boolean CanWrite => false;
 
-    public override Int64 Length { get; } = length >= 0 ? length : throw new ArgumentOutOfRangeException(nameof(length));
+    public override Int64 Length { get; }
 
     public override Int64 Position
     {
@@ -127,11 +141,11 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
         {
             try
             {
-                _activeResponse = await client.GetObjectAsync(bucketName, objectKey, _position, cancellationToken);
+                _activeResponse = await _client.GetObjectAsync(_bucketName, _objectKey, _position, cancellationToken);
             }
             catch (S3ObjectNotFoundException exception)
             {
-                throw new FileNotFoundException("The requested blob does not exist.", blobKey, exception);
+                throw new FileNotFoundException("The requested blob does not exist.", _blobKey, exception);
             }
         }
 

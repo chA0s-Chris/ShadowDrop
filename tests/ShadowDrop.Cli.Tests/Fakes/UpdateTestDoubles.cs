@@ -20,7 +20,10 @@ internal sealed class StubUpdateReleaseClient : IUpdateReleaseClient
         _latestVersion = parsed;
     }
 
-    public StubUpdateReleaseClient(UpdateCheckException exception) => _exception = exception;
+    public StubUpdateReleaseClient(UpdateCheckException exception)
+    {
+        _exception = exception;
+    }
 
     public Int32 RequestCount { get; private set; }
 
@@ -35,9 +38,14 @@ internal sealed class StubUpdateReleaseClient : IUpdateReleaseClient
 /// Holds the update-check record in memory so cache freshness and persistence can be asserted without
 /// touching the real cache location.
 /// </summary>
-internal sealed class InMemoryUpdateCheckCache(UpdateCheckRecord? record = null) : IUpdateCheckCache
+internal sealed class InMemoryUpdateCheckCache : IUpdateCheckCache
 {
-    public UpdateCheckRecord? Record { get; private set; } = record;
+    public InMemoryUpdateCheckCache(UpdateCheckRecord? record = null)
+    {
+        Record = record;
+    }
+
+    public UpdateCheckRecord? Record { get; private set; }
     public Int32 WriteCount { get; private set; }
 
     public UpdateCheckRecord? Read() => Record;

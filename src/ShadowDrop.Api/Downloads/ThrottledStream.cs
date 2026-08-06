@@ -9,26 +9,35 @@ using System.Diagnostics;
 /// DEVELOPMENT-ONLY write decorator that paces writes to an inner stream to a target byte rate.
 /// </summary>
 /// <remarks>
-/// Streamed downloads complete near-instantly over loopback, which makes the CLI's live progress output impossible to observe.
-/// Wrapping the response body in this stream slows the transfer to a steady rate so the spinner, percentage, speed, and ETA render.
-/// The type is compiled only when the <c>ENABLE_THROTTLE_DOWNLOAD</c> symbol is defined (Debug builds), so it is physically absent
-/// from Release binaries.
+/// Streamed downloads complete near-instantly over loopback, which makes the CLI's live progress output
+/// impossible to observe. Wrapping the response body in this stream slows the transfer to a steady rate so the
+/// spinner, percentage, speed, and ETA render. The type is compiled only when the <c>ENABLE_THROTTLE_DOWNLOAD</c>
+/// symbol is defined (Debug builds), so it is physically absent from Release binaries.
 /// <para>
-/// Ownership: this decorator deliberately does not own or dispose <paramref name="inner"/>. The throttle middleware swaps it onto
-/// <c>HttpResponse.Body</c> and restores the original body in a <c>finally</c> without ever disposing the wrapper, and the inner
-/// response body is owned by Kestrel. Disposal is therefore intentionally not forwarded.
+/// Ownership: this decorator deliberately does not own or dispose the inner stream. The throttle middleware swaps
+/// it onto <c>HttpResponse.Body</c> and restores the original body in a <c>finally</c> without ever disposing the
+/// wrapper, and the inner response body is owned by Kestrel. Disposal is therefore intentionally not forwarded.
 /// </para>
 /// </remarks>
-internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stream
+internal sealed class ThrottledStream : Stream
 {
-    // Validate here so the decorator is self-contained: a non-positive rate would divide by zero or produce nonsensical
-    // pacing, regardless of whether the constructing middleware guards the value.
-    private readonly Int64 _bytesPerSecond = bytesPerSecond > 0
-        ? bytesPerSecond
-        : throw new ArgumentOutOfRangeException(nameof(bytesPerSecond), bytesPerSecond, "Throttle rate must be a positive number of bytes per second.");
-
+    private readonly Int64 _bytesPerSecond;
+    private readonly Stream _inner;
     private readonly Int64 _startTimestamp = Stopwatch.GetTimestamp();
     private Int64 _bytesWritten;
+
+    /// <param name="inner">The stream writes are forwarded to. Ownership stays with the caller; it is never disposed here.</param>
+    /// <param name="bytesPerSecond">The target write rate. Must be positive.</param>
+    public ThrottledStream(Stream inner, Int64 bytesPerSecond)
+    {
+        _inner = inner;
+
+        // Validate here so the decorator is self-contained: a non-positive rate would divide by zero or produce nonsensical
+        // pacing, regardless of whether the constructing middleware guards the value.
+        _bytesPerSecond = bytesPerSecond > 0
+            ? bytesPerSecond
+            : throw new ArgumentOutOfRangeException(nameof(bytesPerSecond), bytesPerSecond, "Throttle rate must be a positive number of bytes per second.");
+    }
 
     public override Boolean CanRead => false;
 
@@ -44,9 +53,9 @@ internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stre
         set => throw new NotSupportedException();
     }
 
-    public override void Flush() => inner.Flush();
+    public override void Flush() => _inner.Flush();
 
-    public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
+    public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
 
     public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
 
@@ -56,7 +65,7 @@ internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stre
 
     public override void Write(Byte[] buffer, Int32 offset, Int32 count)
     {
-        inner.Write(buffer, offset, count);
+        _inner.Write(buffer, offset, count);
         // Sync-over-async pacing: this path is effectively dead because Kestrel disallows synchronous body writes by default
         // (AllowSynchronousIO is false), so the response body is always written via the async overloads above. Kept only to
         // satisfy the abstract Stream contract for this development-only decorator.
@@ -68,7 +77,7 @@ internal sealed class ThrottledStream(Stream inner, Int64 bytesPerSecond) : Stre
 
     public override async ValueTask WriteAsync(ReadOnlyMemory<Byte> buffer, CancellationToken cancellationToken = default)
     {
-        await inner.WriteAsync(buffer, cancellationToken);
+        await _inner.WriteAsync(buffer, cancellationToken);
         await DelayToMatchRateAsync(buffer.Length, cancellationToken);
     }
 

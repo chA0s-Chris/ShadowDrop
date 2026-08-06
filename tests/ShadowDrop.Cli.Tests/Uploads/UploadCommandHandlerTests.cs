@@ -289,7 +289,7 @@ public sealed class UploadCommandHandlerTests
         downloadUrl.Should().StartWith($"{httpClient.BaseAddress}d/")
                    .And.Contain("/files/")
                    .And.Contain("sd-key=");
-        Convert.FromBase64String(ReadDirectHttpKeyMaterial(new Uri(downloadUrl))).Should().Equal(Convert.FromHexString(shareKey));
+        Convert.FromBase64String(ReadDirectHttpKeyMaterial(new(downloadUrl))).Should().Equal(Convert.FromHexString(shareKey));
     }
 
     [Test]
@@ -2027,6 +2027,7 @@ public sealed class UploadCommandHandlerTests
         private readonly String? _previousMetadataPath;
         private readonly String? _previousStorageRoot;
         private readonly String? _previousUploadMaxBytes;
+
         private readonly String _rootDirectory =
             Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "cli-upload-tests", Guid.NewGuid().ToString("N"));
 
@@ -2179,14 +2180,28 @@ public sealed class UploadCommandHandlerTests
             };
     }
 
-    private sealed class StubConfigPathResolver(String? configPath) : CliConfigPathResolver
+    private sealed class StubConfigPathResolver : CliConfigPathResolver
     {
-        public override String? GetConfigFilePath() => configPath;
+        private readonly String? _configPath;
+
+        public StubConfigPathResolver(String? configPath)
+        {
+            _configPath = configPath;
+        }
+
+        public override String? GetConfigFilePath() => _configPath;
     }
 
-    private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
+    private sealed class StubEnvironmentReader : IEnvironmentReader
     {
-        public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+        private readonly IReadOnlyDictionary<String, String?> _values;
+
+        public StubEnvironmentReader(IReadOnlyDictionary<String, String?> values)
+        {
+            _values = values;
+        }
+
+        public String? GetEnvironmentVariable(String variableName) => _values.TryGetValue(variableName, out var value) ? value : null;
     }
 
     private sealed class TransientThenSuccessUploadHandler : HttpMessageHandler

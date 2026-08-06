@@ -5,23 +5,35 @@ namespace ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Configuration;
 using System.Text.Json;
 
-internal sealed class TokenRevokeCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class TokenRevokeCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public TokenRevokeCommandHandler(CliConfigurationResolver configurationResolver,
+                                     HttpClient httpClient,
+                                     TextWriter standardOut,
+                                     TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(TokenRevokeCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (!Guid.TryParse(options.CredentialId, out var credentialId) || credentialId == Guid.Empty)
         {
-            await standardError.WriteLineAsync("Credential id invalid or missing.");
+            await _standardError.WriteLineAsync("Credential id invalid or missing.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -29,25 +41,25 @@ internal sealed class TokenRevokeCommandHandler(
 
         try
         {
-            await new TokenApiClient(httpClient).RevokeAsync(configuration.ServerUrl,
-                                                             configuration.AdminToken,
-                                                             credentialId,
-                                                             cancellationToken);
+            await new TokenApiClient(_httpClient).RevokeAsync(configuration.ServerUrl,
+                                                              configuration.AdminToken,
+                                                              credentialId,
+                                                              cancellationToken);
         }
         catch (TokenCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
         if (options.Json)
         {
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(new(credentialId),
-                                                                      CliJsonSerializerContext.Default.TokenRevokeCliResult));
+            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(new(credentialId),
+                                                                       CliJsonSerializerContext.Default.TokenRevokeCliResult));
             return 0;
         }
 
-        await standardOut.WriteLineAsync($"token-revoked:{credentialId}");
+        await _standardOut.WriteLineAsync($"token-revoked:{credentialId}");
         return 0;
     }
 }

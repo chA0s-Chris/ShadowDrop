@@ -89,8 +89,16 @@ public sealed class FileUpdateCheckCacheTests
         return new(new FixedCachePathResolver(cacheFilePath));
     }
 
-    private sealed class FixedCachePathResolver(String? cacheFilePath) : UpdateCheckCachePathResolver(new FakeEnvironmentReader())
+    private sealed class FixedCachePathResolver : UpdateCheckCachePathResolver
     {
-        public override String? GetCacheFilePath() => cacheFilePath;
+        private readonly String? _cacheFilePath;
+
+        public FixedCachePathResolver(String? cacheFilePath)
+            : base(new FakeEnvironmentReader())
+        {
+            _cacheFilePath = cacheFilePath;
+        }
+
+        public override String? GetCacheFilePath() => _cacheFilePath;
     }
 }

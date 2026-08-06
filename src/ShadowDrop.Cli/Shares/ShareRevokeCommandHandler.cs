@@ -5,23 +5,35 @@ namespace ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Tokens;
 
-internal sealed class ShareRevokeCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class ShareRevokeCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public ShareRevokeCommandHandler(CliConfigurationResolver configurationResolver,
+                                     HttpClient httpClient,
+                                     TextWriter standardOut,
+                                     TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(ShareRevokeCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (!Guid.TryParse(options.ShareId, out var shareId) || shareId == Guid.Empty)
         {
-            await standardError.WriteLineAsync("Share id invalid or missing.");
+            await _standardError.WriteLineAsync("Share id invalid or missing.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -29,15 +41,15 @@ internal sealed class ShareRevokeCommandHandler(
 
         try
         {
-            await new RevokeShareApiClient(httpClient).RevokeAsync(configuration.ServerUrl, configuration.AdminToken, shareId, cancellationToken);
+            await new RevokeShareApiClient(_httpClient).RevokeAsync(configuration.ServerUrl, configuration.AdminToken, shareId, cancellationToken);
         }
         catch (RevokeShareCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
-        await standardOut.WriteLineAsync($"share-revoked:{shareId}");
+        await _standardOut.WriteLineAsync($"share-revoked:{shareId}");
         return 0;
     }
 }

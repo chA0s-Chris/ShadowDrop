@@ -132,20 +132,27 @@ public sealed class OperationalStatusServiceTests
             CollectionTimeout = collectionTimeout ?? OperationalStatusService.DefaultCollectionTimeout
         };
 
-    private sealed class ManualReadinessCheck(Boolean ready) : IReadinessCheck
+    private sealed class ManualReadinessCheck : IReadinessCheck
     {
+        private readonly Boolean _ready;
+
+        public ManualReadinessCheck(Boolean ready)
+        {
+            _ready = ready;
+        }
+
         public Task<OperationalReadinessSnapshot> GetStatusAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new OperationalReadinessSnapshot(
-                                ready,
-                                ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable,
+                                _ready,
+                                _ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable,
                                 [
                                     new("metadata",
-                                        ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
-                                        ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable),
+                                        _ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
+                                        _ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable),
                                     new("storage", OperationalComponentStates.Ready, OperationalStatusReasons.None)
                                 ]));
 
-        public Task<Boolean> IsReadyAsync(CancellationToken cancellationToken) => Task.FromResult(ready);
+        public Task<Boolean> IsReadyAsync(CancellationToken cancellationToken) => Task.FromResult(_ready);
     }
 
     private sealed class ManualStatisticsProvider : IOperationalStatisticsProvider
@@ -163,9 +170,14 @@ public sealed class OperationalStatusServiceTests
         public Task<OperationalStatisticsSnapshot> GetAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => _get(cancellationToken);
     }
 
-    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    private sealed class ManualTimeProvider : TimeProvider
     {
-        public DateTimeOffset UtcNow { get; set; } = utcNow;
+        public ManualTimeProvider(DateTimeOffset utcNow)
+        {
+            UtcNow = utcNow;
+        }
+
+        public DateTimeOffset UtcNow { get; set; }
 
         public override DateTimeOffset GetUtcNow() => UtcNow;
     }

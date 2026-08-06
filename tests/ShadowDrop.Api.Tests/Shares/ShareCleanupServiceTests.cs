@@ -914,11 +914,15 @@ public sealed class ShareCleanupServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class FailSecondMetadataDeleteUploadedFileRepository(
-        IEnumerable<UploadedFileRecord> records) : IUploadedFileMetadataRepository
+    private sealed class FailSecondMetadataDeleteUploadedFileRepository : IUploadedFileMetadataRepository
     {
-        private readonly Dictionary<Guid, UploadedFileRecord> _records = records.ToDictionary(record => record.FileId);
+        private readonly Dictionary<Guid, UploadedFileRecord> _records;
         private Int32 _deleteCalls;
+
+        public FailSecondMetadataDeleteUploadedFileRepository(IEnumerable<UploadedFileRecord> records)
+        {
+            _records = records.ToDictionary(record => record.FileId);
+        }
 
         public IReadOnlyCollection<Guid> RemainingFileIds => _records.Keys;
 
@@ -958,14 +962,21 @@ public sealed class ShareCleanupServiceTests
             Task.FromResult(_records.ContainsKey(fileId));
     }
 
-    private sealed class FlakyAccountingUploadedFileRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository
+    private sealed class FlakyAccountingUploadedFileRepository : IUploadedFileMetadataRepository
     {
+        private readonly UploadedFileRecord _record;
+
+        public FlakyAccountingUploadedFileRepository(UploadedFileRecord record)
+        {
+            _record = record;
+        }
+
         public Int32 TransitionCalls { get; private set; }
 
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
-            Task.FromResult<UploadedFileRecord?>(fileId == record.FileId ? record : null);
+            Task.FromResult<UploadedFileRecord?>(fileId == _record.FileId ? _record : null);
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -987,15 +998,29 @@ public sealed class ShareCleanupServiceTests
         }
     }
 
-    private sealed class FrozenTimeProvider(DateTimeOffset nowUtc) : TimeProvider
+    private sealed class FrozenTimeProvider : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => nowUtc;
+        private readonly DateTimeOffset _nowUtc;
+
+        public FrozenTimeProvider(DateTimeOffset nowUtc)
+        {
+            _nowUtc = nowUtc;
+        }
+
+        public override DateTimeOffset GetUtcNow() => _nowUtc;
     }
 
-    private sealed class InMemoryShareRepository(ShareRecord share, Boolean failFirstDelete = false) : IShareMetadataRepository
+    private sealed class InMemoryShareRepository : IShareMetadataRepository
     {
+        private readonly Boolean _failFirstDelete;
         private Int32 _deleteCalls;
-        private ShareRecord? _share = share;
+        private ShareRecord? _share;
+
+        public InMemoryShareRepository(ShareRecord share, Boolean failFirstDelete = false)
+        {
+            _share = share;
+            _failFirstDelete = failFirstDelete;
+        }
 
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -1026,7 +1051,7 @@ public sealed class ShareCleanupServiceTests
                 return Task.FromResult(true);
             }
 
-            if (failFirstDelete && Interlocked.Increment(ref _deleteCalls) == 1)
+            if (_failFirstDelete && Interlocked.Increment(ref _deleteCalls) == 1)
             {
                 return Task.FromResult(false);
             }
@@ -1060,12 +1085,19 @@ public sealed class ShareCleanupServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class InMemoryUploadedFileRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository
+    private sealed class InMemoryUploadedFileRepository : IUploadedFileMetadataRepository
     {
+        private readonly UploadedFileRecord _record;
+
+        public InMemoryUploadedFileRepository(UploadedFileRecord record)
+        {
+            _record = record;
+        }
+
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
-            Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
+            Task.FromResult<UploadedFileRecord?>(_record.FileId == fileId ? _record : null);
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -1081,14 +1113,19 @@ public sealed class ShareCleanupServiceTests
         public Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken) => Task.FromResult(true);
 
         public Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
-            Task.FromResult(record.FileId == fileId);
+            Task.FromResult(_record.FileId == fileId);
     }
 
-    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    private sealed class ManualTimeProvider : TimeProvider
     {
         private readonly Lock _gate = new();
         private readonly List<ManualTimer> _timers = [];
-        private DateTimeOffset _utcNow = utcNow;
+        private DateTimeOffset _utcNow;
+
+        public ManualTimeProvider(DateTimeOffset utcNow)
+        {
+            _utcNow = utcNow;
+        }
 
         public Int32 PendingTimerCount
         {
@@ -1146,23 +1183,38 @@ public sealed class ShareCleanupServiceTests
             }
         }
 
-        private sealed class ManualTimer(ManualTimeProvider provider, TimerCallback callback, Object? state, DateTimeOffset dueAt) : ITimer
+        private sealed class ManualTimer : ITimer
         {
-            public DateTimeOffset DueAt { get; private set; } = dueAt;
+            private readonly TimerCallback _callback;
+            private readonly ManualTimeProvider _provider;
+            private readonly Object? _state;
 
-            public void Fire() => callback(state);
+            public ManualTimer(ManualTimeProvider provider,
+                               TimerCallback callback,
+                               Object? state,
+                               DateTimeOffset dueAt)
+            {
+                _provider = provider;
+                _callback = callback;
+                _state = state;
+                DueAt = dueAt;
+            }
+
+            public DateTimeOffset DueAt { get; private set; }
+
+            public void Fire() => _callback(_state);
 
             public ValueTask DisposeAsync()
             {
-                provider.Remove(this);
+                _provider.Remove(this);
                 return ValueTask.CompletedTask;
             }
 
-            public void Dispose() => provider.Remove(this);
+            public void Dispose() => _provider.Remove(this);
 
             public Boolean Change(TimeSpan dueTime, TimeSpan period)
             {
-                DueAt = provider.GetUtcNow() + dueTime;
+                DueAt = _provider.GetUtcNow() + dueTime;
                 return true;
             }
         }
@@ -1290,9 +1342,16 @@ public sealed class ShareCleanupServiceTests
             Task.FromException<IAsyncDisposable?>(new InvalidOperationException("lease acquisition failed"));
     }
 
-    private sealed class ThrowingBlobStorage(Exception failure) : IBlobStorage
+    private sealed class ThrowingBlobStorage : IBlobStorage
     {
-        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => throw failure;
+        private readonly Exception _failure;
+
+        public ThrowingBlobStorage(Exception failure)
+        {
+            _failure = failure;
+        }
+
+        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => throw _failure;
 
         public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -1311,11 +1370,18 @@ public sealed class ShareCleanupServiceTests
         }
     }
 
-    private sealed class ThrowingReadUploadedFileRepository(Exception failure) : IUploadedFileMetadataRepository
+    private sealed class ThrowingReadUploadedFileRepository : IUploadedFileMetadataRepository
     {
+        private readonly Exception _failure;
+
+        public ThrowingReadUploadedFileRepository(Exception failure)
+        {
+            _failure = failure;
+        }
+
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => throw failure;
+        public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) => throw _failure;
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 

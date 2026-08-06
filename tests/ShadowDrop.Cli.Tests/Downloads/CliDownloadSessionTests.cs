@@ -421,9 +421,16 @@ public sealed class CliDownloadSessionTests
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) { }
     }
 
-    private sealed class RecordingProgress(Action<Int64> onReport) : IProgress<Int64>
+    private sealed class RecordingProgress : IProgress<Int64>
     {
-        public void Report(Int64 value) => onReport(value);
+        private readonly Action<Int64> _onReport;
+
+        public RecordingProgress(Action<Int64> onReport)
+        {
+            _onReport = onReport;
+        }
+
+        public void Report(Int64 value) => _onReport(value);
     }
 
     private sealed class StubHttpMessageHandler : HttpMessageHandler

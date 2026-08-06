@@ -6,10 +6,17 @@ using Chaos.Mongo;
 using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 
-public sealed class MongoUploadCredentialRepository(IMongoHelper mongo) : IUploadCredentialRepository
+public sealed class MongoUploadCredentialRepository : IUploadCredentialRepository
 {
+    private readonly IMongoHelper _mongo;
+
+    public MongoUploadCredentialRepository(IMongoHelper mongo)
+    {
+        _mongo = mongo;
+    }
+
     private IMongoCollection<MongoUploadCredentialDocument> Collection =>
-        mongo.GetCollection<MongoUploadCredentialDocument>();
+        _mongo.GetCollection<MongoUploadCredentialDocument>();
 
     private static MongoUploadCredentialDocument Map(UploadCredentialRecord record) => new()
     {

@@ -284,9 +284,16 @@ public sealed class TokenCommandHandlerTests
     private static String[] ReadLines(StringWriter writer) =>
         writer.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
 
-    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    private sealed class FixedTimeProvider : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => utcNow;
+        private readonly DateTimeOffset _utcNow;
+
+        public FixedTimeProvider(DateTimeOffset utcNow)
+        {
+            _utcNow = utcNow;
+        }
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
     }
 
     private sealed class NeverCalledHandler : HttpMessageHandler

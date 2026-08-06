@@ -99,8 +99,15 @@ public sealed class CliApplicationTlsTests
         public override String? GetConfigFilePath() => null;
     }
 
-    private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
+    private sealed class StubEnvironmentReader : IEnvironmentReader
     {
-        public String? GetEnvironmentVariable(String variableName) => values.GetValueOrDefault(variableName);
+        private readonly IReadOnlyDictionary<String, String?> _values;
+
+        public StubEnvironmentReader(IReadOnlyDictionary<String, String?> values)
+        {
+            _values = values;
+        }
+
+        public String? GetEnvironmentVariable(String variableName) => _values.GetValueOrDefault(variableName);
     }
 }

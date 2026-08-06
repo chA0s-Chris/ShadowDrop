@@ -7,9 +7,16 @@ using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 using ShadowDrop.Contracts;
 
-public sealed class MongoShareMetadataRepository(IMongoHelper mongo) : IShareMetadataRepository
+public sealed class MongoShareMetadataRepository : IShareMetadataRepository
 {
-    private IMongoCollection<MongoShareDocument> Collection => mongo.GetCollection<MongoShareDocument>();
+    private readonly IMongoHelper _mongo;
+
+    public MongoShareMetadataRepository(IMongoHelper mongo)
+    {
+        _mongo = mongo;
+    }
+
+    private IMongoCollection<MongoShareDocument> Collection => _mongo.GetCollection<MongoShareDocument>();
 
     private static FilterDefinition<MongoShareDocument> BuildQueryFilter(ShareListQuery query, Boolean includeCursor)
     {

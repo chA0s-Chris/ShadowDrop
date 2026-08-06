@@ -5,17 +5,29 @@ namespace ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Tokens;
 
-internal sealed class ShareCleanupCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class ShareCleanupCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public ShareCleanupCommandHandler(CliConfigurationResolver configurationResolver,
+                                      HttpClient httpClient,
+                                      TextWriter standardOut,
+                                      TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(ShareCleanupCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -24,17 +36,17 @@ internal sealed class ShareCleanupCommandHandler(
         ShareCleanupResultContract result;
         try
         {
-            result = await new ShareCleanupApiClient(httpClient).CleanupAsync(configuration.ServerUrl,
-                                                                              configuration.AdminToken,
-                                                                              cancellationToken);
+            result = await new ShareCleanupApiClient(_httpClient).CleanupAsync(configuration.ServerUrl,
+                                                                               configuration.AdminToken,
+                                                                               cancellationToken);
         }
         catch (ShareCleanupCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
-        await standardOut.WriteLineAsync(
+        await _standardOut.WriteLineAsync(
             $"share-cleanup:candidates-scanned={result.CandidatesScanned} shares-completed={result.SharesCompleted} blobs-deleted={result.BlobsDeleted} blobs-already-missing={result.BlobsAlreadyMissing} failures={result.Failures} sweep-candidates-inspected={result.SweepCandidatesInspected} sweep-uploads-deleted={result.SweepUploadsDeleted} sweep-blobs-already-missing={result.SweepBlobsAlreadyMissing} sweep-failures={result.SweepFailures} skipped={result.Skipped.ToString().ToLowerInvariant()}");
         return 0;
     }

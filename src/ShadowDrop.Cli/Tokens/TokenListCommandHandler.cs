@@ -5,23 +5,35 @@ namespace ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Configuration;
 using System.Text.Json;
 
-internal sealed class TokenListCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class TokenListCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public TokenListCommandHandler(CliConfigurationResolver configurationResolver,
+                                   HttpClient httpClient,
+                                   TextWriter standardOut,
+                                   TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(TokenListCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (options.Limit is <= 0)
         {
-            await standardError.WriteLineAsync("The --limit value must be positive.");
+            await _standardError.WriteLineAsync("The --limit value must be positive.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -30,33 +42,33 @@ internal sealed class TokenListCommandHandler(
         UploadCredentialCliListResult result;
         try
         {
-            result = await new TokenApiClient(httpClient).ListAsync(configuration.ServerUrl,
-                                                                    configuration.AdminToken,
-                                                                    options.Cursor,
-                                                                    options.Limit,
-                                                                    cancellationToken);
+            result = await new TokenApiClient(_httpClient).ListAsync(configuration.ServerUrl,
+                                                                     configuration.AdminToken,
+                                                                     options.Cursor,
+                                                                     options.Limit,
+                                                                     cancellationToken);
         }
         catch (TokenCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
         if (options.Json)
         {
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(result,
-                                                                      CliJsonSerializerContext.Default.UploadCredentialCliListResult));
+            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(result,
+                                                                       CliJsonSerializerContext.Default.UploadCredentialCliListResult));
             return 0;
         }
 
         foreach (var credential in result.Credentials)
         {
-            await standardOut.WriteLineAsync(TokenOutput.FormatListLine(credential));
+            await _standardOut.WriteLineAsync(TokenOutput.FormatListLine(credential));
         }
 
         if (result.NextCursor is not null)
         {
-            await standardOut.WriteLineAsync($"next-cursor:{result.NextCursor}");
+            await _standardOut.WriteLineAsync($"next-cursor:{result.NextCursor}");
         }
 
         return 0;

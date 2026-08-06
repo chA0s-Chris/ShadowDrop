@@ -5,16 +5,26 @@ namespace ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Tls;
 using System.Text.Json;
 
-internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathResolver, IEnvironmentReader environmentReader)
+internal sealed class CliConfigurationResolver
 {
+    private readonly CliConfigPathResolver _configPathResolver;
+    private readonly IEnvironmentReader _environmentReader;
+
+    public CliConfigurationResolver(CliConfigPathResolver configPathResolver,
+                                    IEnvironmentReader environmentReader)
+    {
+        _configPathResolver = configPathResolver;
+        _environmentReader = environmentReader;
+    }
+
     public CliResolvedConfiguration Resolve(String? serverUrlOverride, String? uploadTokenOverride)
     {
         var configFile = ReadConfigFile();
         var serverUrl = FirstNonEmpty(serverUrlOverride,
-                                      environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
+                                      _environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
                                       configFile?.ServerUrl);
         var uploadToken = FirstNonEmpty(uploadTokenOverride,
-                                        environmentReader.GetEnvironmentVariable("SHADOWDROP_UPLOAD_TOKEN"),
+                                        _environmentReader.GetEnvironmentVariable("SHADOWDROP_UPLOAD_TOKEN"),
                                         configFile?.UploadToken)?.Trim();
 
         return new(serverUrl, uploadToken);
@@ -29,10 +39,10 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
     {
         var configFile = ReadConfigFile();
         var serverUrl = FirstNonEmpty(serverUrlOverride,
-                                      environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
+                                      _environmentReader.GetEnvironmentVariable("SHADOWDROP_SERVER_URL"),
                                       configFile?.ServerUrl);
         var adminToken = FirstNonEmpty(adminTokenOverride,
-                                       environmentReader.GetEnvironmentVariable("SHADOWDROP_ADMIN_TOKEN"),
+                                       _environmentReader.GetEnvironmentVariable("SHADOWDROP_ADMIN_TOKEN"),
                                        configFile?.AdminToken)?.Trim();
 
         return new(serverUrl, adminToken);
@@ -50,8 +60,8 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
     /// <returns>The resolved TLS trust settings (config files are deliberately not consulted).</returns>
     public CliTlsOptions ResolveTls(String? caCertOverride, Boolean insecureFlag)
     {
-        var caCertPath = FirstNonEmpty(caCertOverride, environmentReader.GetEnvironmentVariable("SHADOWDROP_CACERT"))?.Trim();
-        var insecure = insecureFlag || EnvironmentValue.IsTruthy(environmentReader.GetEnvironmentVariable("SHADOWDROP_INSECURE"));
+        var caCertPath = FirstNonEmpty(caCertOverride, _environmentReader.GetEnvironmentVariable("SHADOWDROP_CACERT"))?.Trim();
+        var insecure = insecureFlag || EnvironmentValue.IsTruthy(_environmentReader.GetEnvironmentVariable("SHADOWDROP_INSECURE"));
 
         return new(caCertPath, insecure);
     }
@@ -60,7 +70,7 @@ internal sealed class CliConfigurationResolver(CliConfigPathResolver configPathR
 
     private CliConfigFile? ReadConfigFile()
     {
-        var configFilePath = configPathResolver.GetConfigFilePath();
+        var configFilePath = _configPathResolver.GetConfigFilePath();
         if (String.IsNullOrWhiteSpace(configFilePath) || !File.Exists(configFilePath))
         {
             return null;

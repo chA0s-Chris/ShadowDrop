@@ -9,8 +9,15 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
-internal sealed class ShareListApiClient(HttpClient httpClient)
+internal sealed class ShareListApiClient
 {
+    private readonly HttpClient _httpClient;
+
+    public ShareListApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<ShareListPageContract> ListAsync(
         Uri serverUrl,
         String adminToken,
@@ -40,7 +47,7 @@ internal sealed class ShareListApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 throw new ShareListCommandException("Share listing failed.");

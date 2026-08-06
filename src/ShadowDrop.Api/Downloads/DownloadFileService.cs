@@ -885,17 +885,23 @@ public sealed class DownloadFileService
 
     private sealed record DirectHttpOpenResult(DownloadLookupStatus Status, Stream? Content);
 
-    private sealed class LengthLimitingReadStream(Stream source, Int64 sourceLength) : Stream
+    private sealed class LengthLimitingReadStream : Stream
     {
-        private readonly Stream _source = source;
-        private readonly Int64 _sourceLength = sourceLength;
+        private readonly Stream _source;
         private Boolean _disposed;
-        private Int64 _remainingSourceBytes = sourceLength;
+        private Int64 _remainingSourceBytes;
+
+        public LengthLimitingReadStream(Stream source, Int64 sourceLength)
+        {
+            _source = source;
+            Length = sourceLength;
+            _remainingSourceBytes = sourceLength;
+        }
 
         public override Boolean CanRead => !_disposed;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => _sourceLength;
+        public override Int64 Length { get; }
 
         public override Int64 Position
         {

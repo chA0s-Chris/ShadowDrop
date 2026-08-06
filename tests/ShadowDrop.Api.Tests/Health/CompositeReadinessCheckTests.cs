@@ -80,17 +80,27 @@ public sealed class CompositeReadinessCheckTests
         }
     }
 
-    private sealed class RecordingOperationalDependencyProbe(Boolean fail, String component) : IOperationalDependencyProbe
+    private sealed class RecordingOperationalDependencyProbe : IOperationalDependencyProbe
     {
-        public Int32 CallCount { get; private set; }
-        public IReadOnlyList<String> Components { get; } = [component];
+        private readonly Boolean _fail;
 
-        public String Name => component;
+        public RecordingOperationalDependencyProbe(Boolean fail,
+                                                   String component)
+        {
+            _fail = fail;
+            Name = component;
+            Components = [component];
+        }
+
+        public Int32 CallCount { get; private set; }
+        public IReadOnlyList<String> Components { get; }
+
+        public String Name { get; }
 
         public Task ProbeAsync(CancellationToken cancellationToken)
         {
             CallCount++;
-            return fail ? Task.FromException(new IOException("unavailable")) : Task.CompletedTask;
+            return _fail ? Task.FromException(new IOException("unavailable")) : Task.CompletedTask;
         }
     }
 }

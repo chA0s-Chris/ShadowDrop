@@ -4,9 +4,16 @@ namespace ShadowDrop.Api.Health;
 
 using ShadowDrop.Contracts;
 
-internal sealed class CompositeReadinessCheck(IEnumerable<IOperationalDependencyProbe> probes) : IReadinessCheck
+internal sealed class CompositeReadinessCheck : IReadinessCheck
 {
     internal static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5);
+
+    private readonly IEnumerable<IOperationalDependencyProbe> _probes;
+
+    public CompositeReadinessCheck(IEnumerable<IOperationalDependencyProbe> probes)
+    {
+        _probes = probes;
+    }
 
     internal TimeSpan Timeout { get; init; } = DefaultTimeout;
 
@@ -41,7 +48,7 @@ internal sealed class CompositeReadinessCheck(IEnumerable<IOperationalDependency
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(Timeout);
 
-        var results = await Task.WhenAll(probes.Select(probe => ProbeAsync(probe, deadline.Token, cancellationToken)));
+        var results = await Task.WhenAll(_probes.Select(probe => ProbeAsync(probe, deadline.Token, cancellationToken)));
         var components = results.SelectMany(static result => result).OrderBy(static component => component.Name, StringComparer.Ordinal).ToArray();
         var ready = components.All(component => component.State == OperationalComponentStates.Ready);
         return new(ready, OperationalReadinessSnapshot.SelectReason(components), components);

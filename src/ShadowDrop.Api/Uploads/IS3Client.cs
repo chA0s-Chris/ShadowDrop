@@ -30,11 +30,23 @@ internal interface IS3Client
 
 internal sealed record S3UploadedPart(Int32 PartNumber, String ETag);
 
-internal sealed class S3ObjectNotFoundException(Exception innerException) : IOException("The requested S3 object does not exist.", innerException);
-
-internal sealed class S3ReadResponse(Stream content, IDisposable response) : IDisposable
+internal sealed class S3ObjectNotFoundException : IOException
 {
-    public Stream Content { get; } = content;
+    public S3ObjectNotFoundException(Exception innerException)
+        : base("The requested S3 object does not exist.", innerException) { }
+}
 
-    public void Dispose() => response.Dispose();
+internal sealed class S3ReadResponse : IDisposable
+{
+    private readonly IDisposable _response;
+
+    public S3ReadResponse(Stream content, IDisposable response)
+    {
+        Content = content;
+        _response = response;
+    }
+
+    public Stream Content { get; }
+
+    public void Dispose() => _response.Dispose();
 }

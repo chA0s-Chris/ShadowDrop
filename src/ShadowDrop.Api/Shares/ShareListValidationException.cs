@@ -2,7 +2,13 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Shares;
 
-public sealed class ShareListValidationException(String reason) : Exception("The administrative share-list request is invalid.")
+public sealed class ShareListValidationException : Exception
 {
-    public String Reason { get; } = reason;
+    public ShareListValidationException(String reason)
+        : base("The administrative share-list request is invalid.")
+    {
+        Reason = reason;
+    }
+
+    public String Reason { get; }
 }

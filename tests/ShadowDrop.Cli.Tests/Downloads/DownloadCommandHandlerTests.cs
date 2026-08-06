@@ -29,16 +29,11 @@ public sealed class DownloadCommandHandlerTests
     private readonly List<String> _scratchDirectories = [];
 
     [Test]
-    public void DecodeShareKey_ShouldReturn32Bytes_WhenValueIsValidHex()
-    {
-        DownloadCommandHandler.DecodeShareKey(ValidShareKey).Should().HaveCount(32);
-    }
+    public void DecodeShareKey_ShouldReturn32Bytes_WhenValueIsValidHex() => DownloadCommandHandler.DecodeShareKey(ValidShareKey).Should().HaveCount(32);
 
     [Test]
-    public void DecodeShareKey_ShouldStripSecretPrefix_WhenPresent()
-    {
+    public void DecodeShareKey_ShouldStripSecretPrefix_WhenPresent() =>
         DownloadCommandHandler.DecodeShareKey($"  secret:{ValidShareKey}  ").Should().HaveCount(32);
-    }
 
     [Test]
     public void DecodeShareKey_ShouldThrow_WhenLengthIsNot32Bytes()
@@ -632,7 +627,7 @@ public sealed class DownloadCommandHandlerTests
     public async Task InvokeAsync_ShouldFail_WhenAnnouncedFileNameCannotBeSanitized()
     {
         var fixture = DownloadHttpFixture.Create();
-        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(fileName: ".."));
+        using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(".."));
         using var httpClient = new HttpClient(handler);
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -821,7 +816,7 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("interactive-download.bin", 72);
-        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var upload = await fixture.UploadFilesAsync([inputFile], true);
         var share = upload.Share;
         using var httpClient = fixture.CreateClient();
         var standardOut = new StringWriter();
@@ -856,7 +851,7 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("protected.bin", 96);
-        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var upload = await fixture.UploadFilesAsync([inputFile], true);
         var share = upload.Share;
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -1367,7 +1362,7 @@ public sealed class DownloadCommandHandlerTests
         var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--output-root", "downloads"],
                                                         CreateServices(standardOut,
                                                                        standardError,
-                                                                       httpClient: new HttpClient(new NeverCalledHandler()),
+                                                                       httpClient: new(new NeverCalledHandler()),
                                                                        interactiveSession: interactiveSession),
                                                         CancellationToken.None);
 
@@ -1411,7 +1406,7 @@ public sealed class DownloadCommandHandlerTests
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
                                                             CreateServices(standardOut,
                                                                            standardError,
-                                                                           httpClient: new HttpClient(new NeverCalledHandler())),
+                                                                           httpClient: new(new NeverCalledHandler())),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -1461,7 +1456,7 @@ public sealed class DownloadCommandHandlerTests
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
                                                             CreateServices(standardOut,
                                                                            standardError,
-                                                                           httpClient: new HttpClient(new NeverCalledHandler())),
+                                                                           httpClient: new(new NeverCalledHandler())),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -1933,7 +1928,7 @@ public sealed class DownloadCommandHandlerTests
     {
         await using var fixture = new CliDownloadApiFactory();
         var inputFile = fixture.CreateInputFile("interactive-protected.bin", 72);
-        var upload = await fixture.UploadFilesAsync([inputFile], requireDownloadToken: true);
+        var upload = await fixture.UploadFilesAsync([inputFile], true);
         var share = upload.Share;
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
@@ -2268,18 +2263,31 @@ public sealed class DownloadCommandHandlerTests
         return directory;
     }
 
-    private sealed class CancellingReadStream(Stream inner, Int32 bytesBeforeCancellation, CancellationTokenSource cancellation) : Stream
+    private sealed class CancellingReadStream : Stream
     {
+        private readonly Int32 _bytesBeforeCancellation;
+        private readonly CancellationTokenSource _cancellation;
+        private readonly Stream _inner;
+
         private Int32 _bytesRead;
+
+        public CancellingReadStream(Stream inner,
+                                    Int32 bytesBeforeCancellation,
+                                    CancellationTokenSource cancellation)
+        {
+            _inner = inner;
+            _bytesBeforeCancellation = bytesBeforeCancellation;
+            _cancellation = cancellation;
+        }
 
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => inner.Length;
+        public override Int64 Length => _inner.Length;
 
         public override Int64 Position
         {
-            get => inner.Position;
+            get => _inner.Position;
             set => throw new NotSupportedException();
         }
 
@@ -2293,14 +2301,14 @@ public sealed class DownloadCommandHandlerTests
 
         public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (_bytesRead >= bytesBeforeCancellation)
+            if (_bytesRead >= _bytesBeforeCancellation)
             {
-                await cancellation.CancelAsync();
-                throw new OperationCanceledException(cancellation.Token);
+                await _cancellation.CancelAsync();
+                throw new OperationCanceledException(_cancellation.Token);
             }
 
-            var allowed = Math.Min(buffer.Length, bytesBeforeCancellation - _bytesRead);
-            var read = await inner.ReadAsync(buffer[..allowed], cancellationToken);
+            var allowed = Math.Min(buffer.Length, _bytesBeforeCancellation - _bytesRead);
+            var read = await _inner.ReadAsync(buffer[..allowed], cancellationToken);
             _bytesRead += read;
             return read;
         }
@@ -2313,7 +2321,7 @@ public sealed class DownloadCommandHandlerTests
         {
             if (disposing)
             {
-                inner.Dispose();
+                _inner.Dispose();
             }
 
             base.Dispose(disposing);
@@ -2332,6 +2340,7 @@ public sealed class DownloadCommandHandlerTests
         private readonly String? _previousMetadataPath;
         private readonly String? _previousPublicDownloadsExposure;
         private readonly String? _previousStorageRoot;
+
         private readonly String _rootDirectory =
             Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "cli-download-tests", Guid.NewGuid().ToString("N"));
 
@@ -2593,18 +2602,28 @@ public sealed class DownloadCommandHandlerTests
         }
     }
 
-    private sealed class InterruptingReadStream(Stream inner, Int32 bytesBeforeFailure) : Stream
+    private sealed class InterruptingReadStream : Stream
     {
+        private readonly Int32 _bytesBeforeFailure;
+        private readonly Stream _inner;
+
         private Int32 _bytesRead;
+
+        public InterruptingReadStream(Stream inner,
+                                      Int32 bytesBeforeFailure)
+        {
+            _inner = inner;
+            _bytesBeforeFailure = bytesBeforeFailure;
+        }
 
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => inner.Length;
+        public override Int64 Length => _inner.Length;
 
         public override Int64 Position
         {
-            get => inner.Position;
+            get => _inner.Position;
             set => throw new NotSupportedException();
         }
 
@@ -2618,13 +2637,13 @@ public sealed class DownloadCommandHandlerTests
 
         public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (_bytesRead >= bytesBeforeFailure)
+            if (_bytesRead >= _bytesBeforeFailure)
             {
                 throw new IOException("Simulated interrupted download.");
             }
 
-            var allowed = Math.Min(buffer.Length, bytesBeforeFailure - _bytesRead);
-            var read = await inner.ReadAsync(buffer[..allowed], cancellationToken);
+            var allowed = Math.Min(buffer.Length, _bytesBeforeFailure - _bytesRead);
+            var read = await _inner.ReadAsync(buffer[..allowed], cancellationToken);
             _bytesRead += read;
             return read;
         }
@@ -2637,7 +2656,7 @@ public sealed class DownloadCommandHandlerTests
         {
             if (disposing)
             {
-                inner.Dispose();
+                _inner.Dispose();
             }
 
             base.Dispose(disposing);
@@ -2672,9 +2691,14 @@ public sealed class DownloadCommandHandlerTests
         public required String ShareToken { get; init; }
     }
 
-    private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+    private sealed class SequenceHttpMessageHandler : HttpMessageHandler
     {
-        private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = new(responses);
+        private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses;
+
+        public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
+        {
+            _responses = new(responses);
+        }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -2689,18 +2713,39 @@ public sealed class DownloadCommandHandlerTests
 
     private sealed record ShareFixture(String ShareToken, String? DownloadBearerToken);
 
-    private sealed class StubConfigPathResolver(String? configPath) : CliConfigPathResolver
+    private sealed class StubConfigPathResolver : CliConfigPathResolver
     {
-        public override String? GetConfigFilePath() => configPath;
+        private readonly String? _configPath;
+
+        public StubConfigPathResolver(String? configPath)
+        {
+            _configPath = configPath;
+        }
+
+        public override String? GetConfigFilePath() => _configPath;
     }
 
-    private sealed class StubEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
+    private sealed class StubEnvironmentReader : IEnvironmentReader
     {
-        public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+        private readonly IReadOnlyDictionary<String, String?> _values;
+
+        public StubEnvironmentReader(IReadOnlyDictionary<String, String?> values)
+        {
+            _values = values;
+        }
+
+        public String? GetEnvironmentVariable(String variableName) => _values.TryGetValue(variableName, out var value) ? value : null;
     }
 
-    private sealed class ThrowingReadStream(Exception exception) : Stream
+    private sealed class ThrowingReadStream : Stream
     {
+        private readonly Exception _exception;
+
+        public ThrowingReadStream(Exception exception)
+        {
+            _exception = exception;
+        }
+
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
@@ -2714,13 +2759,13 @@ public sealed class DownloadCommandHandlerTests
 
         public override void Flush() => throw new NotSupportedException();
 
-        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw exception;
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw _exception;
 
         public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) =>
-            Task.FromException<Int32>(exception);
+            Task.FromException<Int32>(_exception);
 
         public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default) =>
-            ValueTask.FromException<Int32>(exception);
+            ValueTask.FromException<Int32>(_exception);
 
         public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(Int64 value) => throw new NotSupportedException();

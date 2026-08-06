@@ -7,13 +7,27 @@ using ShadowDrop.Contracts;
 using System.Net;
 using System.Text.Json;
 
-internal sealed class ServerStatusCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError,
-    TimeProvider timeProvider)
+internal sealed class ServerStatusCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly TimeProvider _timeProvider;
+
+    public ServerStatusCommandHandler(CliConfigurationResolver configurationResolver,
+                                      HttpClient httpClient,
+                                      TextWriter standardOut,
+                                      TextWriter standardError,
+                                      TimeProvider timeProvider)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<Int32> ExecuteAsync(ServerStatusCommandOptions options, CancellationToken cancellationToken)
     {
         var mode = ResolveMode(options);
@@ -42,7 +56,7 @@ internal sealed class ServerStatusCommandHandler(
         ServerStatusApiResponse response;
         try
         {
-            response = await new ServerStatusApiClient(httpClient, timeProvider)
+            response = await new ServerStatusApiClient(_httpClient, _timeProvider)
                 .GetAsync(configuration.ServerUrl, mode, configuration.BearerToken, cancellationToken);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -102,7 +116,7 @@ internal sealed class ServerStatusCommandHandler(
         String error,
         String diagnostic)
     {
-        await standardError.WriteLineAsync(diagnostic);
+        await _standardError.WriteLineAsync(diagnostic);
         return await WriteFailureAsync(options, mode, serverUrl, ServerStatusOutcomes.UsageError, error, 1);
     }
 
@@ -159,14 +173,14 @@ internal sealed class ServerStatusCommandHandler(
         String? bearerToken = null;
         if (mode == ServerStatusMode.Admin)
         {
-            var configuration = configurationResolver.ResolveAdmin(options.ServerUrlOverride, options.AdminTokenOverride);
+            var configuration = _configurationResolver.ResolveAdmin(options.ServerUrlOverride, options.AdminTokenOverride);
             serverUrl = configuration.ServerUrl;
             bearerToken = configuration.AdminToken;
         }
         else
         {
-            var configuration = configurationResolver.Resolve(options.ServerUrlOverride,
-                                                              mode == ServerStatusMode.Upload ? options.UploadTokenOverride : null);
+            var configuration = _configurationResolver.Resolve(options.ServerUrlOverride,
+                                                               mode == ServerStatusMode.Upload ? options.UploadTokenOverride : null);
             serverUrl = configuration.ServerUrl;
             if (mode == ServerStatusMode.Upload)
             {
@@ -195,7 +209,7 @@ internal sealed class ServerStatusCommandHandler(
     {
         await ServerStatusResultWriter.WriteAsync(new ServerStatusFailureCliResult(serverUrl, reachable, CliVersion.Current, protocolCompatible,
                                                                                    outcome, error, mode),
-                                                  options.Json, standardOut);
+                                                  options.Json, _standardOut);
         return exitCode;
     }
 
@@ -208,7 +222,7 @@ internal sealed class ServerStatusCommandHandler(
         var evaluation = Evaluate(status.ProtocolVersion, status.Ready, statusCode);
         await ServerStatusResultWriter.WriteAsync(new PublicServerStatusCliResult(serverUrl.ToString(), true, CliVersion.Current,
                                                                                   evaluation.Compatible, evaluation.Outcome, evaluation.Error, status),
-                                                  options.Json, standardOut);
+                                                  options.Json, _standardOut);
         return evaluation.ExitCode;
     }
 
@@ -221,7 +235,7 @@ internal sealed class ServerStatusCommandHandler(
         var evaluation = Evaluate(status.ProtocolVersion, status.Ready, statusCode);
         await ServerStatusResultWriter.WriteAsync(new UploadServerStatusCliResult(serverUrl.ToString(), true, CliVersion.Current,
                                                                                   evaluation.Compatible, evaluation.Outcome, evaluation.Error, status),
-                                                  options.Json, standardOut);
+                                                  options.Json, _standardOut);
         return evaluation.ExitCode;
     }
 
@@ -234,7 +248,7 @@ internal sealed class ServerStatusCommandHandler(
         var evaluation = Evaluate(status.ProtocolVersion, status.Ready, statusCode);
         await ServerStatusResultWriter.WriteAsync(new AdminServerStatusCliResult(serverUrl.ToString(), true, CliVersion.Current,
                                                                                  evaluation.Compatible, evaluation.Outcome, evaluation.Error, status),
-                                                  options.Json, standardOut);
+                                                  options.Json, _standardOut);
         return evaluation.ExitCode;
     }
 

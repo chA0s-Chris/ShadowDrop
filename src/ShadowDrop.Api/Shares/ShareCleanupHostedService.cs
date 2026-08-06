@@ -5,13 +5,24 @@ namespace ShadowDrop.Api.Shares;
 using Cronos;
 using ShadowDrop.Api.Configuration;
 
-public sealed class ShareCleanupHostedService(
-    ShareCleanupRunner cleanupRunner,
-    ShadowDropOptions options,
-    TimeProvider timeProvider,
-    ILogger<ShareCleanupHostedService> logger) : BackgroundService
+public sealed class ShareCleanupHostedService : BackgroundService
 {
-    private readonly CronExpression _schedule = CronExpression.Parse(options.Cleanup.CronExpression, CronFormat.Standard);
+    private readonly ShareCleanupRunner _cleanupRunner;
+    private readonly ILogger<ShareCleanupHostedService> _logger;
+    private readonly CronExpression _schedule;
+    private readonly TimeProvider _timeProvider;
+
+    public ShareCleanupHostedService(
+        ShareCleanupRunner cleanupRunner,
+        ShadowDropOptions options,
+        TimeProvider timeProvider,
+        ILogger<ShareCleanupHostedService> logger)
+    {
+        _cleanupRunner = cleanupRunner;
+        _timeProvider = timeProvider;
+        _logger = logger;
+        _schedule = CronExpression.Parse(options.Cleanup.CronExpression, CronFormat.Standard);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -19,18 +30,18 @@ public sealed class ShareCleanupHostedService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var now = timeProvider.GetUtcNow();
+            var now = _timeProvider.GetUtcNow();
             var nextOccurrence = _schedule.GetNextOccurrence(now, TimeZoneInfo.Utc);
             if (nextOccurrence is null)
             {
-                logger.LogError("Share cleanup schedule produced no future occurrence");
+                _logger.LogError("Share cleanup schedule produced no future occurrence");
                 return;
             }
 
             var delay = nextOccurrence.Value - now;
             if (delay > TimeSpan.Zero)
             {
-                await Task.Delay(delay, timeProvider, stoppingToken);
+                await Task.Delay(delay, _timeProvider, stoppingToken);
             }
 
             await RunCleanupAsync(stoppingToken);
@@ -41,7 +52,7 @@ public sealed class ShareCleanupHostedService(
     {
         try
         {
-            _ = await cleanupRunner.RunIfIdleAsync(cancellationToken);
+            _ = await _cleanupRunner.RunIfIdleAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -49,7 +60,7 @@ public sealed class ShareCleanupHostedService(
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Scheduled share cleanup failed");
+            _logger.LogError(exception, "Scheduled share cleanup failed");
         }
     }
 }

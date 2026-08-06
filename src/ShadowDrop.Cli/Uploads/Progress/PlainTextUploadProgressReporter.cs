@@ -8,8 +8,18 @@ using System.Globalization;
 /// <summary>
 /// Emits deterministic upload lifecycle and progress lines to standard error for redirected streams and CI.
 /// </summary>
-internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, TimeProvider timeProvider) : IUploadProgressReporter
+internal sealed class PlainTextUploadProgressReporter : IUploadProgressReporter
 {
+    private readonly TextWriter _standardError;
+    private readonly TimeProvider _timeProvider;
+
+    public PlainTextUploadProgressReporter(TextWriter standardError,
+                                           TimeProvider timeProvider)
+    {
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+    }
+
     private static Double CalculatePercentage(Int64 bytes, Int64 totalBytes)
     {
         if (totalBytes <= 0)
@@ -39,15 +49,10 @@ internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, 
     private static String FormatStats(Int64 bytes, Int64 totalBytes, TimeSpan elapsed) =>
         $"{FormatProgress(bytes, totalBytes, elapsed)} in {HumanReadableSize.FormatDuration(elapsed)}";
 
-    public async Task ReportBatchErrorAsync(String message, CancellationToken cancellationToken)
-    {
-        await standardError.WriteLineAsync(message);
-    }
+    public async Task ReportBatchErrorAsync(String message, CancellationToken cancellationToken) => await _standardError.WriteLineAsync(message);
 
-    public async Task ReportFileFailureAsync(UploadProgressFile file, String message, CancellationToken cancellationToken)
-    {
-        await standardError.WriteLineAsync($"FAILED {FormatFile(file)}: {message}");
-    }
+    public async Task ReportFileFailureAsync(UploadProgressFile file, String message, CancellationToken cancellationToken) =>
+        await _standardError.WriteLineAsync($"FAILED {FormatFile(file)}: {message}");
 
     public async Task<UploadProgressResult<T>> RunFileAsync<T>(UploadProgressFile file,
                                                                Func<UploadProgressSink?, CancellationToken, Task<T>> uploadAsync,
@@ -57,9 +62,9 @@ internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, 
         ArgumentNullException.ThrowIfNull(uploadAsync);
         ArgumentNullException.ThrowIfNull(classifyError);
 
-        await standardError.WriteLineAsync($"START {FormatFile(file)} ({HumanReadableSize.FormatBytes(file.TotalBytes)})");
+        await _standardError.WriteLineAsync($"START {FormatFile(file)} ({HumanReadableSize.FormatBytes(file.TotalBytes)})");
 
-        var start = timeProvider.GetTimestamp();
+        var start = _timeProvider.GetTimestamp();
         Int64 transferredBytes = 0;
         var gate = new Object();
         // Track the latest cumulative byte count silently; the plain reporter stays sparse (START/SUCCESS/FAILED/RETRY
@@ -76,7 +81,7 @@ internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, 
             lock (gate)
             {
                 transferredBytes = 0;
-                standardError.WriteLine($"RETRY {FormatFile(file)} attempt {attempt}");
+                _standardError.WriteLine($"RETRY {FormatFile(file)} attempt {attempt}");
             }
 
             return Task.CompletedTask;
@@ -85,8 +90,8 @@ internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, 
         try
         {
             var value = await uploadAsync(sink, cancellationToken);
-            var elapsed = timeProvider.GetElapsedTime(start);
-            await standardError.WriteLineAsync($"SUCCESS {FormatFile(file)} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
+            var elapsed = _timeProvider.GetElapsedTime(start);
+            await _standardError.WriteLineAsync($"SUCCESS {FormatFile(file)} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
             return new(value, null);
         }
         catch (Exception exception)
@@ -97,14 +102,21 @@ internal sealed class PlainTextUploadProgressReporter(TextWriter standardError, 
                 throw;
             }
 
-            var elapsed = timeProvider.GetElapsedTime(start);
-            await standardError.WriteLineAsync($"FAILED {FormatFile(file)}: {message} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
+            var elapsed = _timeProvider.GetElapsedTime(start);
+            await _standardError.WriteLineAsync($"FAILED {FormatFile(file)}: {message} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
             return new(default, message);
         }
     }
 
-    private sealed class SynchronousProgress(Action<Int64> onReport) : IProgress<Int64>
+    private sealed class SynchronousProgress : IProgress<Int64>
     {
-        public void Report(Int64 value) => onReport(value);
+        private readonly Action<Int64> _onReport;
+
+        public SynchronousProgress(Action<Int64> onReport)
+        {
+            _onReport = onReport;
+        }
+
+        public void Report(Int64 value) => _onReport(value);
     }
 }

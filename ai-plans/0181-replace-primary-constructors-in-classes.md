@@ -10,19 +10,19 @@ Positional records (including positional `record struct`) stay allowed and untou
 
 ## Acceptance Criteria
 
-- [ ] No class declaration in `src`, `tests`, or `build` uses a primary constructor.
-- [ ] Positional records and positional record structs are unchanged.
-- [ ] Every replacement constructor preserves the original accessibility, parameter order, default parameter values, base-constructor invocation, argument validation, and runtime behavior.
-- [ ] Constructor dependencies are stored in `_camelCase` private readonly fields (or initialized properties where the existing type already exposes them as properties), following `CODESTYLE.md` naming rules.
-- [ ] XML documentation that referenced primary constructor parameters via `<paramref>` still resolves — the parameters are documented with `<param>` tags on the new constructor or the prose is reworded.
-- [ ] `CODESTYLE.md` gains an explicit rule prohibiting primary constructors on classes while allowing positional records.
-- [ ] The unclosed ```` ```csharp ```` fence in the Documentation section of `CODESTYLE.md` is closed.
-- [ ] `.editorconfig` sets `csharp_style_prefer_primary_constructors = false:suggestion` so IDE0290 no longer suggests the conversion back.
-- [ ] `ShadowDrop.slnx.DotSettings` disables ReSharper's *Convert into primary constructor* suggestion, verified by the suggestion no longer being reported.
-- [ ] `bash build.sh Test` passes: all production projects build warning-free in Release via the test projects' references (`TreatWarningsAsErrors` is on for Release; the build path suppresses CS1591, CS1998, and CS4014) and the fast unit/integration suite is green.
-- [ ] `dotnet build ShadowDrop.slnx -c Debug -warnaserror` succeeds, so the code behind `ENABLE_THROTTLE_DOWNLOAD` is compiled and held to the same warning bar as Release.
-- [ ] The end-to-end suite (`bash build.sh TestEndToEnd`) passes locally or in CI.
-- [ ] No unrelated formatting, renaming, or cleanup is included in the change — member reordering required by the repository's enforced file layout does not count as unrelated.
+- [x] No class declaration in `src`, `tests`, or `build` uses a primary constructor.
+- [x] Positional records and positional record structs are unchanged.
+- [x] Every replacement constructor preserves the original accessibility, parameter order, default parameter values, base-constructor invocation, argument validation, and runtime behavior.
+- [x] Constructor dependencies are stored in `_camelCase` private readonly fields (or initialized properties where the existing type already exposes them as properties), following `CODESTYLE.md` naming rules.
+- [x] XML documentation that referenced primary constructor parameters via `<paramref>` still resolves — the parameters are documented with `<param>` tags on the new constructor or the prose is reworded.
+- [x] `CODESTYLE.md` gains an explicit rule prohibiting primary constructors on classes while allowing positional records.
+- [x] The unclosed ```` ```csharp ```` fence in the Documentation section of `CODESTYLE.md` is closed.
+- [x] `.editorconfig` sets `csharp_style_prefer_primary_constructors = false:suggestion` so IDE0290 no longer suggests the conversion back.
+- [x] `ShadowDrop.slnx.DotSettings` disables ReSharper's *Convert into primary constructor* suggestion, verified by the suggestion no longer being reported.
+- [x] `bash build.sh Test` passes: all production projects build warning-free in Release via the test projects' references (`TreatWarningsAsErrors` is on for Release; the build path suppresses CS1591, CS1998, and CS4014) and the fast unit/integration suite is green.
+- [x] `dotnet build ShadowDrop.slnx -c Debug -warnaserror` succeeds, so the code behind `ENABLE_THROTTLE_DOWNLOAD` is compiled and held to the same warning bar as Release.
+- [x] The end-to-end suite (`bash build.sh TestEndToEnd`) passes locally or in CI.
+- [x] No unrelated formatting, renaming, or cleanup is included in the change — member reordering required by the repository's enforced file layout does not count as unrelated.
 
 ## Technical Details
 

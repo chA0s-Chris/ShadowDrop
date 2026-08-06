@@ -112,19 +112,33 @@ public sealed class ShareListServiceTests
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
-    private sealed class CountingTimeProvider(DateTimeOffset now) : TimeProvider
+    private sealed class CountingTimeProvider : TimeProvider
     {
+        private readonly DateTimeOffset _now;
+
+        public CountingTimeProvider(DateTimeOffset now)
+        {
+            _now = now;
+        }
+
         public Int32 ReadCount { get; private set; }
 
         public override DateTimeOffset GetUtcNow()
         {
             ReadCount++;
-            return now;
+            return _now;
         }
     }
 
-    private sealed class RecordingFileRepository(IReadOnlyList<UploadedFileListProjection> projections) : IUploadedFileMetadataRepository
+    private sealed class RecordingFileRepository : IUploadedFileMetadataRepository
     {
+        private readonly IReadOnlyList<UploadedFileListProjection> _projections;
+
+        public RecordingFileRepository(IReadOnlyList<UploadedFileListProjection> projections)
+        {
+            _projections = projections;
+        }
+
         public Int32 Calls { get; private set; }
 
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -134,7 +148,7 @@ public sealed class ShareListServiceTests
                                                                                        CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(projections);
+            return Task.FromResult(_projections);
         }
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -144,14 +158,24 @@ public sealed class ShareListServiceTests
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    private sealed class RecordingShareRepository(ShareListRepositoryPage page, Int64 total) : IShareMetadataRepository
+    private sealed class RecordingShareRepository : IShareMetadataRepository
     {
+        private readonly ShareListRepositoryPage _page;
+        private readonly Int64 _total;
+
+        public RecordingShareRepository(ShareListRepositoryPage page,
+                                        Int64 total)
+        {
+            _page = page;
+            _total = total;
+        }
+
         public ShareListQuery? Query { get; private set; }
 
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken)
         {
             Query.Should().Be(query);
-            return Task.FromResult(total);
+            return Task.FromResult(_total);
         }
 
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -169,7 +193,7 @@ public sealed class ShareListServiceTests
         public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken)
         {
             Query = query;
-            return Task.FromResult(page);
+            return Task.FromResult(_page);
         }
 
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) => throw new NotSupportedException();

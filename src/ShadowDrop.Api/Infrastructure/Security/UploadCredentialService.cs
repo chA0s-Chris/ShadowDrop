@@ -10,12 +10,22 @@ using ShadowDrop.Api.Shares;
 /// and compared in fixed time before the lifecycle state is combined into the result, and no caller-visible
 /// distinction is made between the failure causes. Credential validity is never cached across requests.
 /// </summary>
-public sealed class UploadCredentialService(
-    IUploadCredentialRepository repository,
-    TimeProvider timeProvider,
-    ILogger<UploadCredentialService> logger)
+public sealed class UploadCredentialService
 {
     public const Int32 MaxNameLength = 100;
+    private readonly ILogger<UploadCredentialService> _logger;
+    private readonly IUploadCredentialRepository _repository;
+    private readonly TimeProvider _timeProvider;
+
+    public UploadCredentialService(
+        IUploadCredentialRepository repository,
+        TimeProvider timeProvider,
+        ILogger<UploadCredentialService> logger)
+    {
+        _repository = repository;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
 
     public async Task<UploadCredentialAuthorizationContext?> AuthenticateAsync(String? bearerToken, CancellationToken cancellationToken)
     {
@@ -27,7 +37,7 @@ public sealed class UploadCredentialService(
         UploadCredentialRecord? credential;
         try
         {
-            credential = await repository.FindBySelectorDigestAsync(TokenHashing.ComputeHashBase64(selector), cancellationToken);
+            credential = await _repository.FindBySelectorDigestAsync(TokenHashing.ComputeHashBase64(selector), cancellationToken);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -43,7 +53,7 @@ public sealed class UploadCredentialService(
             return null;
         }
 
-        var now = timeProvider.GetUtcNow();
+        var now = _timeProvider.GetUtcNow();
         var secretMatches = UploadCredentialSecretHashing.Matches(secret, credential);
         var lifecycleValid = credential.RevokedAtUtc is null
                              && (credential.ExpiresAtUtc is null || credential.ExpiresAtUtc.Value > now);
@@ -54,7 +64,7 @@ public sealed class UploadCredentialService(
 
         try
         {
-            await repository.RecordUsageAsync(credential.CredentialId, now, cancellationToken);
+            await _repository.RecordUsageAsync(credential.CredentialId, now, cancellationToken);
         }
         catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
@@ -92,7 +102,7 @@ public sealed class UploadCredentialService(
             throw new UploadCredentialValidationException("The maximum aggregate encrypted share bytes must be positive.");
         }
 
-        var now = NormalizeTimestamp(timeProvider.GetUtcNow());
+        var now = NormalizeTimestamp(_timeProvider.GetUtcNow());
         var expiresAtUtc = request.ExpiresAtUtc is { } expiration ? NormalizeTimestamp(expiration) : (DateTimeOffset?)null;
         if (expiresAtUtc is { } expirationTimestamp && expirationTimestamp <= now)
         {
@@ -118,10 +128,10 @@ public sealed class UploadCredentialService(
                                                     secretHash.Iterations,
                                                     secretHash.Version);
 
-            if (await repository.TryCreateAsync(record, cancellationToken))
+            if (await _repository.TryCreateAsync(record, cancellationToken))
             {
-                logger.LogInformation("Upload credential created. CredentialId: {CredentialId}; Name: {Name}",
-                                      record.CredentialId, record.Name);
+                _logger.LogInformation("Upload credential created. CredentialId: {CredentialId}; Name: {Name}",
+                                       record.CredentialId, record.Name);
                 return new(record, tokenParts.Token);
             }
         }

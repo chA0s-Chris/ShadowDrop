@@ -12,33 +12,51 @@ using System.Text.Json;
 /// actual upload, share creation, and credential delivery to the shared <see cref="UploadCommandHandler"/>
 /// so the orchestration and result format match the non-interactive command exactly.
 /// </summary>
-internal sealed class InteractiveUploadCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    ICliInteractiveSession interactiveSession,
-    TextWriter standardOut,
-    TextWriter standardError,
-    TimeProvider timeProvider,
-    IUploadProgressReporterFactory uploadProgressReporterFactory)
+internal sealed class InteractiveUploadCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly ICliInteractiveSession _interactiveSession;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly TimeProvider _timeProvider;
+    private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
+
+    public InteractiveUploadCommandHandler(CliConfigurationResolver configurationResolver,
+                                           HttpClient httpClient,
+                                           ICliInteractiveSession interactiveSession,
+                                           TextWriter standardOut,
+                                           TextWriter standardError,
+                                           TimeProvider timeProvider,
+                                           IUploadProgressReporterFactory uploadProgressReporterFactory)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _interactiveSession = interactiveSession;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+        _uploadProgressReporterFactory = uploadProgressReporterFactory;
+    }
+
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (!interactiveSession.IsInteractiveSupported)
+        if (!_interactiveSession.IsInteractiveSupported)
         {
-            await standardError.WriteLineAsync(InteractiveModeMessages.TerminalRequired);
+            await _standardError.WriteLineAsync(InteractiveModeMessages.TerminalRequired);
             return 1;
         }
 
         CliResolvedConfiguration configuration;
         try
         {
-            configuration = configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
+            configuration = _configurationResolver.Resolve(options.ServerUrlOverride, options.UploadTokenOverride);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            await standardError.WriteLineAsync("Configuration file invalid or unreadable.");
+            await _standardError.WriteLineAsync("Configuration file invalid or unreadable.");
             return 1;
         }
 
@@ -47,16 +65,16 @@ internal sealed class InteractiveUploadCommandHandler(
         var files = ResolveFiles(options.Files);
         var shareChoices = PromptShareOptions();
 
-        interactiveSession.ShowSummary("Upload plan",
-                                       files.Select(file => ("File", file.FullName))
-                                            .Concat(
-                                            [
-                                                ("Server", serverUrl.AbsoluteUri),
-                                                ("Expiration", shareChoices.ExpirationLabel),
-                                                ("Delivery mode", shareChoices.DirectHttp ? "Direct HTTP" : "Separate key"),
-                                                ("Download bearer token", shareChoices.GenerateDownloadToken ? "Required" : "Not required")
-                                            ])
-                                            .ToArray());
+        _interactiveSession.ShowSummary("Upload plan",
+                                        files.Select(file => ("File", file.FullName))
+                                             .Concat(
+                                             [
+                                                 ("Server", serverUrl.AbsoluteUri),
+                                                 ("Expiration", shareChoices.ExpirationLabel),
+                                                 ("Delivery mode", shareChoices.DirectHttp ? "Direct HTTP" : "Separate key"),
+                                                 ("Download bearer token", shareChoices.GenerateDownloadToken ? "Required" : "Not required")
+                                             ])
+                                             .ToArray());
 
         // Delegate to the shared end-to-end handler so the upload, share creation, and credential delivery
         // (share URL + share key + any bearer token on stdout) behave identically to the non-interactive command.
@@ -74,12 +92,12 @@ internal sealed class InteractiveUploadCommandHandler(
                                                      options.DisplayName,
                                                      options.DisplayNameMappings);
 
-        return await new UploadCommandHandler(configurationResolver,
-                                              httpClient,
-                                              standardOut,
-                                              standardError,
-                                              timeProvider,
-                                              uploadProgressReporterFactory)
+        return await new UploadCommandHandler(_configurationResolver,
+                                              _httpClient,
+                                              _standardOut,
+                                              _standardError,
+                                              _timeProvider,
+                                              _uploadProgressReporterFactory)
             .ExecuteAsync(uploadOptions, cancellationToken);
     }
 
@@ -92,9 +110,9 @@ internal sealed class InteractiveUploadCommandHandler(
             new("7 days", "7d"),
             new("30 days", "30d")
         };
-        var expirationChoice = interactiveSession.PromptSelection("Select the share expiration:", choices, static choice => choice.Label);
-        var directHttp = interactiveSession.PromptConfirmation("Enable direct HTTP downloads?", false);
-        var generateDownloadToken = !directHttp && interactiveSession.PromptConfirmation("Require a download bearer token?", false);
+        var expirationChoice = _interactiveSession.PromptSelection("Select the share expiration:", choices, static choice => choice.Label);
+        var directHttp = _interactiveSession.PromptConfirmation("Enable direct HTTP downloads?", false);
+        var generateDownloadToken = !directHttp && _interactiveSession.PromptConfirmation("Require a download bearer token?", false);
         return new(expirationChoice.ExpiresIn, expirationChoice.Label, directHttp, generateDownloadToken);
     }
 
@@ -108,10 +126,10 @@ internal sealed class InteractiveUploadCommandHandler(
         List<FileInfo> selectedFiles = [];
         do
         {
-            var path = interactiveSession.PromptText("Path to a file to upload:", validate: static value =>
-                                                         String.IsNullOrWhiteSpace(value) ? "Enter a local file path." : null);
-            selectedFiles.Add(new FileInfo(path));
-        } while (interactiveSession.PromptConfirmation("Add another file?", false));
+            var path = _interactiveSession.PromptText("Path to a file to upload:", validate: static value =>
+                                                          String.IsNullOrWhiteSpace(value) ? "Enter a local file path." : null);
+            selectedFiles.Add(new(path));
+        } while (_interactiveSession.PromptConfirmation("Add another file?", false));
 
         return selectedFiles;
     }
@@ -126,7 +144,7 @@ internal sealed class InteractiveUploadCommandHandler(
 
         while (true)
         {
-            var candidate = interactiveSession.PromptText("ShadowDrop server URL:", configuredServerUrl, validate: static value =>
+            var candidate = _interactiveSession.PromptText("ShadowDrop server URL:", configuredServerUrl, validate: static value =>
             {
                 if (Uri.TryCreate(value, UriKind.Absolute, out var uri)
                     && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
@@ -154,8 +172,8 @@ internal sealed class InteractiveUploadCommandHandler(
             return configuredUploadToken;
         }
 
-        return interactiveSession.PromptText("Upload authorization token:", secret: true, validate: static value =>
-                                                 String.IsNullOrWhiteSpace(value) ? "Enter an upload token." : null);
+        return _interactiveSession.PromptText("Upload authorization token:", secret: true, validate: static value =>
+                                                  String.IsNullOrWhiteSpace(value) ? "Enter an upload token." : null);
     }
 
     private sealed record ExpirationChoice(String Label, String ExpiresIn);

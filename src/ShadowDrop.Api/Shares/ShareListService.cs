@@ -7,27 +7,38 @@ using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 using System.Globalization;
 
-public sealed class ShareListService(
-    IShareMetadataRepository shareMetadataRepository,
-    IUploadedFileMetadataRepository uploadedFileMetadataRepository,
-    TimeProvider timeProvider)
+public sealed class ShareListService
 {
+    private readonly IShareMetadataRepository _shareMetadataRepository;
+    private readonly TimeProvider _timeProvider;
+    private readonly IUploadedFileMetadataRepository _uploadedFileMetadataRepository;
+
+    public ShareListService(
+        IShareMetadataRepository shareMetadataRepository,
+        IUploadedFileMetadataRepository uploadedFileMetadataRepository,
+        TimeProvider timeProvider)
+    {
+        _shareMetadataRepository = shareMetadataRepository;
+        _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<ShareListPageContract> GetAsync(
         StringValues statusValues,
         StringValues pageSizeValues,
         StringValues cursorValues,
         CancellationToken cancellationToken)
     {
-        var nowUtc = timeProvider.GetUtcNow();
+        var nowUtc = _timeProvider.GetUtcNow();
         var statuses = NormalizeStatuses(statusValues);
         var pageSize = ParsePageSize(pageSizeValues);
         var cursor = ParseCursor(cursorValues, statuses);
         var query = new ShareListQuery(nowUtc, statuses, pageSize, cursor);
 
-        var page = await shareMetadataRepository.GetListPageAsync(query, cancellationToken);
-        var totalMatching = await shareMetadataRepository.CountMatchingAsync(query, cancellationToken);
+        var page = await _shareMetadataRepository.GetListPageAsync(query, cancellationToken);
+        var totalMatching = await _shareMetadataRepository.CountMatchingAsync(query, cancellationToken);
         var fileIds = page.Shares.SelectMany(share => share.FileIds).Distinct().ToArray();
-        var files = await uploadedFileMetadataRepository.GetListProjectionsAsync(fileIds, cancellationToken);
+        var files = await _uploadedFileMetadataRepository.GetListProjectionsAsync(fileIds, cancellationToken);
         if (files.Count != fileIds.Length)
         {
             throw new InvalidOperationException("The share-list file metadata projection was incomplete.");

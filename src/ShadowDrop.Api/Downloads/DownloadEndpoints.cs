@@ -248,31 +248,38 @@ public static class DownloadEndpoints
             : null;
     }
 
-    private sealed class DownloadStreamResult(DownloadFileResolution resolution) : IResult
+    private sealed class DownloadStreamResult : IResult
     {
+        private readonly DownloadFileResolution _resolution;
+
+        public DownloadStreamResult(DownloadFileResolution resolution)
+        {
+            _resolution = resolution;
+        }
+
         public async Task ExecuteAsync(HttpContext httpContext)
         {
-            var sanitizedFileName = SanitizeFileName(resolution.FileName);
-            httpContext.Response.StatusCode = resolution.Mode == DownloadMode.DirectHttp && resolution.RequestedRange is not null
+            var sanitizedFileName = SanitizeFileName(_resolution.FileName);
+            httpContext.Response.StatusCode = _resolution.Mode == DownloadMode.DirectHttp && _resolution.RequestedRange is not null
                 ? StatusCodes.Status206PartialContent
                 : StatusCodes.Status200OK;
-            httpContext.Response.ContentType = GetResponseContentType(resolution.ResponseContentType);
-            httpContext.Response.ContentLength = resolution.ResponseContentLength;
+            httpContext.Response.ContentType = GetResponseContentType(_resolution.ResponseContentType);
+            httpContext.Response.ContentLength = _resolution.ResponseContentLength;
             httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = sanitizedFileName;
-            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = SanitizeHeaderValue(resolution.FileContentType);
-            httpContext.Response.Headers[DownloadHeaderConstants.ModeHeaderName] = resolution.Mode == DownloadMode.DirectHttp
+            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = SanitizeHeaderValue(_resolution.FileContentType);
+            httpContext.Response.Headers[DownloadHeaderConstants.ModeHeaderName] = _resolution.Mode == DownloadMode.DirectHttp
                 ? "direct-http"
                 : DownloadHeaderConstants.StreamedCliMode;
 
-            if (resolution.Mode == DownloadMode.DirectHttp)
+            if (_resolution.Mode == DownloadMode.DirectHttp)
             {
                 SetNoStoreCacheControl(httpContext);
                 httpContext.Response.Headers.AcceptRanges = "bytes";
-                if (resolution.RequestedRange is not null)
+                if (_resolution.RequestedRange is not null)
                 {
-                    httpContext.Response.Headers.ContentRange = new ContentRangeHeaderValue(resolution.RequestedRange.Start,
-                                                                                            resolution.RequestedRange.End - 1,
-                                                                                            resolution.TotalPlaintextLength).ToString();
+                    httpContext.Response.Headers.ContentRange = new ContentRangeHeaderValue(_resolution.RequestedRange.Start,
+                                                                                            _resolution.RequestedRange.End - 1,
+                                                                                            _resolution.TotalPlaintextLength).ToString();
                 }
 
                 httpContext.Response.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
@@ -280,54 +287,70 @@ public static class DownloadEndpoints
                     FileNameStar = sanitizedFileName
                 }.ToString();
             }
-            else if (resolution.CliMetadata is not null)
+            else if (_resolution.CliMetadata is not null)
             {
                 httpContext.Response.Headers[DownloadHeaderConstants.FirstChunkIndexHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.FirstChunkIndex);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.FirstChunkIndex);
                 httpContext.Response.Headers[DownloadHeaderConstants.LastChunkIndexHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.LastChunkIndex);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.LastChunkIndex);
                 httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeStartHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.RequestedRange.Start);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.RequestedRange.Start);
                 httpContext.Response.Headers[DownloadHeaderConstants.PlaintextRangeEndHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.RequestedRange.End);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.RequestedRange.End);
                 httpContext.Response.Headers[DownloadHeaderConstants.TotalPlaintextSizeHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.TotalPlaintextSize);
-                httpContext.Response.Headers[DownloadHeaderConstants.ChunkSizeHeaderName] = FormatInvariantHeaderValue(resolution.CliMetadata.ChunkSize);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.TotalPlaintextSize);
+                httpContext.Response.Headers[DownloadHeaderConstants.ChunkSizeHeaderName] = FormatInvariantHeaderValue(_resolution.CliMetadata.ChunkSize);
                 httpContext.Response.Headers[DownloadHeaderConstants.FinalChunkPlaintextLengthHeaderName] =
-                    FormatInvariantHeaderValue(resolution.CliMetadata.FinalChunkPlaintextLength);
+                    FormatInvariantHeaderValue(_resolution.CliMetadata.FinalChunkPlaintextLength);
             }
 
-            await using var contentStream = resolution.ContentStream;
+            await using var contentStream = _resolution.ContentStream;
             await contentStream.CopyToAsync(httpContext.Response.Body, httpContext.RequestAborted);
         }
     }
 
-    private sealed class NoStoreResult(IResult innerResult) : IResult
+    private sealed class NoStoreResult : IResult
     {
+        private readonly IResult _innerResult;
+
+        public NoStoreResult(IResult innerResult)
+        {
+            _innerResult = innerResult;
+        }
+
         public async Task ExecuteAsync(HttpContext httpContext)
         {
             SetNoStoreCacheControl(httpContext);
-            await innerResult.ExecuteAsync(httpContext);
+            await _innerResult.ExecuteAsync(httpContext);
         }
     }
 
-    private sealed class StatusDownloadResult(Int32 statusCode, String? body = null) : IResult
+    private sealed class StatusDownloadResult : IResult
     {
+        private readonly String? _body;
+        private readonly Int32 _statusCode;
+
+        public StatusDownloadResult(Int32 statusCode, String? body = null)
+        {
+            _statusCode = statusCode;
+            _body = body;
+        }
+
         public async Task ExecuteAsync(HttpContext httpContext)
         {
-            httpContext.Response.StatusCode = statusCode;
-            if (statusCode != StatusCodes.Status416RangeNotSatisfiable)
+            httpContext.Response.StatusCode = _statusCode;
+            if (_statusCode != StatusCodes.Status416RangeNotSatisfiable)
             {
                 httpContext.Response.Headers.AcceptRanges = "bytes";
             }
 
-            if (body is null)
+            if (_body is null)
             {
                 return;
             }
 
             httpContext.Response.ContentType = "application/json";
-            await httpContext.Response.WriteAsync(body, httpContext.RequestAborted);
+            await httpContext.Response.WriteAsync(_body, httpContext.RequestAborted);
         }
     }
 }

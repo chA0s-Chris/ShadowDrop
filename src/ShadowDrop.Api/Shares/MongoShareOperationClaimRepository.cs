@@ -7,10 +7,17 @@ using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 using System.Text.Json;
 
-public sealed class MongoShareOperationClaimRepository(IMongoHelper mongo) : IShareOperationClaimRepository
+public sealed class MongoShareOperationClaimRepository : IShareOperationClaimRepository
 {
+    private readonly IMongoHelper _mongo;
+
+    public MongoShareOperationClaimRepository(IMongoHelper mongo)
+    {
+        _mongo = mongo;
+    }
+
     private IMongoCollection<MongoShareOperationClaimDocument> Collection =>
-        mongo.GetCollection<MongoShareOperationClaimDocument>();
+        _mongo.GetCollection<MongoShareOperationClaimDocument>();
 
     private static ShareOperationClaim Map(MongoShareOperationClaimDocument document) =>
         new(document.OperationId,

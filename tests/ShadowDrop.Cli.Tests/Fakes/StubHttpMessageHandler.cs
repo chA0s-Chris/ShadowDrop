@@ -10,7 +10,10 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 {
     private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
 
-    public StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) => _responder = responder;
+    public StubHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder)
+    {
+        _responder = responder;
+    }
 
     public StubHttpMessageHandler(HttpResponseMessage response)
         : this(_ => response) { }
@@ -24,9 +27,14 @@ internal sealed class StubHttpMessageHandler : HttpMessageHandler
 /// <summary>
 /// Returns a fixed sequence of responses, one per request, in order. Throws if more requests arrive than configured.
 /// </summary>
-internal sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+internal sealed class SequenceHttpMessageHandler : HttpMessageHandler
 {
-    private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = new(responses);
+    private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses;
+
+    public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
+    {
+        _responses = new(responses);
+    }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {

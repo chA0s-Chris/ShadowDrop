@@ -134,10 +134,7 @@ public sealed class RustFsS3IntegrationTests
     }
 
     [Test]
-    public async Task ProviderContract_ShouldPassAgainstRustFs()
-    {
-        await BlobStorageContract.AssertAsync(_storage);
-    }
+    public async Task ProviderContract_ShouldPassAgainstRustFs() => await BlobStorageContract.AssertAsync(_storage);
 
     [Test]
     public async Task MultipartUpload_ShouldRoundTripNonSeekableContent()
@@ -336,21 +333,37 @@ public sealed class RustFsS3IntegrationTests
         }
     }
 
-    private sealed class NonSeekableReadStream(Byte[] content) : MemoryStream(content, false)
+    private sealed class NonSeekableReadStream : MemoryStream
     {
+        public NonSeekableReadStream(Byte[] content)
+            : base(content, false) { }
+
         public override Boolean CanSeek => false;
 
         public override Int64 Seek(Int64 offset, SeekOrigin loc) => throw new NotSupportedException();
     }
 
-    private sealed class FailAfterStream(Byte[] content, Int32 throwAfter, Exception failure) : Stream
+    private sealed class FailAfterStream : Stream
     {
+        private readonly Byte[] _content;
+        private readonly Exception _failure;
+        private readonly Int32 _throwAfter;
+
         private Int32 _position;
+
+        public FailAfterStream(Byte[] content,
+                               Int32 throwAfter,
+                               Exception failure)
+        {
+            _content = content;
+            _throwAfter = throwAfter;
+            _failure = failure;
+        }
 
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => content.Length;
+        public override Int64 Length => _content.Length;
         public override Int64 Position { get => _position; set => throw new NotSupportedException(); }
         public override void Flush() { }
         public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
@@ -358,13 +371,13 @@ public sealed class RustFsS3IntegrationTests
         public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
             await Task.Yield();
-            if (_position >= throwAfter)
+            if (_position >= _throwAfter)
             {
-                throw failure;
+                throw _failure;
             }
 
-            var count = Math.Min(buffer.Length, Math.Min(throwAfter - _position, content.Length - _position));
-            content.AsMemory(_position, count).CopyTo(buffer);
+            var count = Math.Min(buffer.Length, Math.Min(_throwAfter - _position, _content.Length - _position));
+            _content.AsMemory(_position, count).CopyTo(buffer);
             _position += count;
             return count;
         }
@@ -374,14 +387,27 @@ public sealed class RustFsS3IntegrationTests
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
     }
 
-    private sealed class CancelAfterStream(Byte[] content, Int32 cancelAfter, CancellationTokenSource cancellation) : Stream
+    private sealed class CancelAfterStream : Stream
     {
+        private readonly Int32 _cancelAfter;
+        private readonly CancellationTokenSource _cancellation;
+        private readonly Byte[] _content;
+
         private Int32 _position;
+
+        public CancelAfterStream(Byte[] content,
+                                 Int32 cancelAfter,
+                                 CancellationTokenSource cancellation)
+        {
+            _content = content;
+            _cancelAfter = cancelAfter;
+            _cancellation = cancellation;
+        }
 
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => content.Length;
+        public override Int64 Length => _content.Length;
         public override Int64 Position { get => _position; set => throw new NotSupportedException(); }
         public override void Flush() { }
         public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
@@ -389,14 +415,14 @@ public sealed class RustFsS3IntegrationTests
         public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
             await Task.Yield();
-            if (_position >= cancelAfter)
+            if (_position >= _cancelAfter)
             {
-                await cancellation.CancelAsync();
+                await _cancellation.CancelAsync();
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            var count = Math.Min(buffer.Length, Math.Min(cancelAfter - _position, content.Length - _position));
-            content.AsMemory(_position, count).CopyTo(buffer);
+            var count = Math.Min(buffer.Length, Math.Min(_cancelAfter - _position, _content.Length - _position));
+            _content.AsMemory(_position, count).CopyTo(buffer);
             _position += count;
             return count;
         }

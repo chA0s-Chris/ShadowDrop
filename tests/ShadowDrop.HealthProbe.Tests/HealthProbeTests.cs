@@ -141,10 +141,17 @@ public sealed class HealthProbeTests
         return listener;
     }
 
-    private sealed class StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response)
+    private sealed class StubHttpMessageHandler
         : HttpMessageHandler
     {
+        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _response;
+
+        public StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response)
+        {
+            _response = response;
+        }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            response(request, cancellationToken);
+            _response(request, cancellationToken);
     }
 }

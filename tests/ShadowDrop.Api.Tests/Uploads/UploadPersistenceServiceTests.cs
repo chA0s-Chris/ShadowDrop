@@ -389,11 +389,18 @@ public sealed class UploadPersistenceServiceTests
         return reservedRecord;
     }
 
-    private sealed class AtomicClaimMetadataRepository(Guid reservedFileId) : IUploadedFileMetadataRepository
+    private sealed class AtomicClaimMetadataRepository : IUploadedFileMetadataRepository
     {
+        private readonly Guid _reservedFileId;
+
         private readonly Lock _syncRoot = new();
         private Boolean _claimReleased;
         private Boolean _claimed;
+
+        public AtomicClaimMetadataRepository(Guid reservedFileId)
+        {
+            _reservedFileId = reservedFileId;
+        }
 
         public Boolean IsCompleted { get; private set; }
 
@@ -407,7 +414,7 @@ public sealed class UploadPersistenceServiceTests
         {
             lock (_syncRoot)
             {
-                if (fileId == reservedFileId && _claimed && !IsCompleted)
+                if (fileId == _reservedFileId && _claimed && !IsCompleted)
                 {
                     _claimed = false;
                     _claimReleased = true;
@@ -417,13 +424,13 @@ public sealed class UploadPersistenceServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(reservedFileId);
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => Task.FromResult(_reservedFileId);
 
         public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken)
         {
             lock (_syncRoot)
             {
-                if (fileId != reservedFileId || _claimed || IsCompleted || _claimReleased)
+                if (fileId != _reservedFileId || _claimed || IsCompleted || _claimReleased)
                 {
                     return Task.FromResult(false);
                 }
@@ -437,7 +444,7 @@ public sealed class UploadPersistenceServiceTests
         {
             lock (_syncRoot)
             {
-                if (record.FileId != reservedFileId || !_claimed || _claimReleased)
+                if (record.FileId != _reservedFileId || !_claimed || _claimReleased)
                 {
                     return Task.FromResult(false);
                 }
@@ -469,9 +476,12 @@ public sealed class UploadPersistenceServiceTests
         }
     }
 
-    private sealed class CancelingStream(Byte[] content) : MemoryStream(content, false)
+    private sealed class CancelingStream : MemoryStream
     {
         private Boolean _hasRead;
+
+        public CancelingStream(Byte[] content)
+            : base(content, false) { }
 
         public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {

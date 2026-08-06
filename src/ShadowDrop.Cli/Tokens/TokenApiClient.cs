@@ -9,8 +9,15 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-internal sealed class TokenApiClient(HttpClient httpClient)
+internal sealed class TokenApiClient
 {
+    private readonly HttpClient _httpClient;
+
+    public TokenApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public Task<CreateUploadCredentialCliResult> CreateAsync(Uri serverUrl, String adminToken,
                                                              CreateUploadCredentialCliRequest request,
                                                              CancellationToken cancellationToken)
@@ -72,7 +79,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, deadline.Token);
             if (response.StatusCode is not (HttpStatusCode.NoContent or HttpStatusCode.OK))
             {
                 throw MapError(response.StatusCode, Operation.Revoke);
@@ -124,7 +131,7 @@ internal sealed class TokenApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, deadline.Token);
             if (response.StatusCode != expectedStatusCode)
             {
                 throw MapError(response.StatusCode, operation);

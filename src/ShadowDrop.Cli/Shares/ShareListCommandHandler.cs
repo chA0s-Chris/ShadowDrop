@@ -6,12 +6,24 @@ using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Tokens;
 using ShadowDrop.Contracts;
 
-internal sealed class ShareListCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class ShareListCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public ShareListCommandHandler(CliConfigurationResolver configurationResolver,
+                                   HttpClient httpClient,
+                                   TextWriter standardOut,
+                                   TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(ShareListCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -24,14 +36,14 @@ internal sealed class ShareListCommandHandler(
                                                || status.Contains(',', StringComparison.Ordinal)
                                                || !ShareListStatuses.CanonicalOrder.Contains(status, StringComparer.Ordinal)) == true)
         {
-            await standardError.WriteLineAsync("Share listing failed.");
+            await _standardError.WriteLineAsync("Share listing failed.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver,
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver,
                                                   options.ServerUrlOverride,
                                                   options.AdminTokenOverride,
-                                                  standardError) is not { } configuration)
+                                                  _standardError) is not { } configuration)
         {
             return 1;
         }
@@ -40,18 +52,18 @@ internal sealed class ShareListCommandHandler(
         var statuses = ShareListStatuses.CanonicalOrder.Where(selected.Contains).ToArray();
         try
         {
-            var page = await new ShareListApiClient(httpClient).ListAsync(configuration.ServerUrl,
-                                                                          configuration.AdminToken,
-                                                                          statuses,
-                                                                          options.PageSize,
-                                                                          options.Cursor,
-                                                                          cancellationToken);
-            await ShareListResultWriter.WriteAsync(page, options.Json, standardOut);
+            var page = await new ShareListApiClient(_httpClient).ListAsync(configuration.ServerUrl,
+                                                                           configuration.AdminToken,
+                                                                           statuses,
+                                                                           options.PageSize,
+                                                                           options.Cursor,
+                                                                           cancellationToken);
+            await ShareListResultWriter.WriteAsync(page, options.Json, _standardOut);
             return 0;
         }
         catch (ShareListCommandException)
         {
-            await standardError.WriteLineAsync("Share listing failed.");
+            await _standardError.WriteLineAsync("Share listing failed.");
             return 1;
         }
     }

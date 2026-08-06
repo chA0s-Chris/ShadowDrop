@@ -6,14 +6,27 @@ using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Uploads;
 using System.Text.Json;
 
-internal sealed class TokenCreateCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError,
-    TimeProvider timeProvider)
+internal sealed class TokenCreateCommandHandler
 {
     private const Int32 MaxNameLength = 100;
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly TimeProvider _timeProvider;
+
+    public TokenCreateCommandHandler(CliConfigurationResolver configurationResolver,
+                                     HttpClient httpClient,
+                                     TextWriter standardOut,
+                                     TextWriter standardError,
+                                     TimeProvider timeProvider)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+    }
 
     public async Task<Int32> ExecuteAsync(TokenCreateCommandOptions options, CancellationToken cancellationToken)
     {
@@ -24,7 +37,7 @@ internal sealed class TokenCreateCommandHandler(
         var name = options.Name?.Trim();
         if (String.IsNullOrEmpty(name) || name.Length > MaxNameLength || name.Any(Char.IsControl))
         {
-            await standardError.WriteLineAsync(
+            await _standardError.WriteLineAsync(
                 "Credential name invalid or missing. Provide --name with 1 to 100 characters and no control characters.");
             return 1;
         }
@@ -34,14 +47,14 @@ internal sealed class TokenCreateCommandHandler(
         {
             if (!ShareExpiration.TryParse(options.ExpiresIn, out var duration))
             {
-                await standardError.WriteLineAsync("Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m.");
+                await _standardError.WriteLineAsync("Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m.");
                 return 1;
             }
 
-            var now = timeProvider.GetUtcNow();
+            var now = _timeProvider.GetUtcNow();
             if (duration > DateTimeOffset.MaxValue - now)
             {
-                await standardError.WriteLineAsync("Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m.");
+                await _standardError.WriteLineAsync("Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m.");
                 return 1;
             }
 
@@ -50,17 +63,17 @@ internal sealed class TokenCreateCommandHandler(
 
         if (options.MaxFileBytes is <= 0)
         {
-            await standardError.WriteLineAsync("The --max-file-bytes value must be positive.");
+            await _standardError.WriteLineAsync("The --max-file-bytes value must be positive.");
             return 1;
         }
 
         if (options.MaxShareBytes is <= 0)
         {
-            await standardError.WriteLineAsync("The --max-share-bytes value must be positive.");
+            await _standardError.WriteLineAsync("The --max-share-bytes value must be positive.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -69,31 +82,31 @@ internal sealed class TokenCreateCommandHandler(
         CreateUploadCredentialCliResult result;
         try
         {
-            result = await new TokenApiClient(httpClient).CreateAsync(configuration.ServerUrl,
-                                                                      configuration.AdminToken,
-                                                                      new(name,
-                                                                          expiresAtUtc,
-                                                                          options.MaxFileBytes,
-                                                                          options.MaxShareBytes),
-                                                                      cancellationToken);
+            result = await new TokenApiClient(_httpClient).CreateAsync(configuration.ServerUrl,
+                                                                       configuration.AdminToken,
+                                                                       new(name,
+                                                                           expiresAtUtc,
+                                                                           options.MaxFileBytes,
+                                                                           options.MaxShareBytes),
+                                                                       cancellationToken);
         }
         catch (TokenCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
         // The plaintext token is disclosed exactly once here, on the selected stdout destination only.
         if (options.Json)
         {
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(result,
-                                                                      CliJsonSerializerContext.Default.CreateUploadCredentialCliResult));
+            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(result,
+                                                                       CliJsonSerializerContext.Default.CreateUploadCredentialCliResult));
             return 0;
         }
 
-        await standardOut.WriteLineAsync($"credential-id:{result.Credential.CredentialId}");
-        await standardOut.WriteLineAsync($"token:{result.Token}");
-        await standardError.WriteLineAsync("Store the token now: it is displayed once and cannot be recovered.");
+        await _standardOut.WriteLineAsync($"credential-id:{result.Credential.CredentialId}");
+        await _standardOut.WriteLineAsync($"token:{result.Token}");
+        await _standardError.WriteLineAsync("Store the token now: it is displayed once and cannot be recovered.");
         return 0;
     }
 }

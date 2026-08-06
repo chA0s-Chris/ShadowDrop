@@ -71,14 +71,21 @@ public sealed class HealthEndpointTests
         return app;
     }
 
-    private sealed class ManualReadinessCheck(Boolean isReady) : IReadinessCheck
+    private sealed class ManualReadinessCheck : IReadinessCheck
     {
+        private readonly Boolean _isReady;
+
+        public ManualReadinessCheck(Boolean isReady)
+        {
+            _isReady = isReady;
+        }
+
         public Int32 CallCount { get; private set; }
 
         public Task<Boolean> IsReadyAsync(CancellationToken cancellationToken)
         {
             CallCount++;
-            return Task.FromResult(isReady);
+            return Task.FromResult(_isReady);
         }
     }
 }

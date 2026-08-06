@@ -12,10 +12,7 @@ using ShadowDrop.Api.Uploads;
 public sealed class S3BlobStorageTests
 {
     [Test]
-    public async Task ProviderContract_ShouldPass()
-    {
-        await BlobStorageContract.AssertAsync(CreateStorage(new RecordingS3Client()));
-    }
+    public async Task ProviderContract_ShouldPass() => await BlobStorageContract.AssertAsync(CreateStorage(new()));
 
     [TestCase(0)]
     [TestCase(37)]
@@ -146,21 +143,31 @@ public sealed class S3BlobStorageTests
         return new(options, client, NullLogger<S3BlobStorage>.Instance);
     }
 
-    private class NonSeekableReadStream(Byte[] content) : MemoryStream(content, false)
+    private class NonSeekableReadStream : MemoryStream
     {
+        public NonSeekableReadStream(Byte[] content)
+            : base(content, false) { }
+
         public override Boolean CanSeek => false;
 
         public override Int64 Seek(Int64 offset, SeekOrigin loc) => throw new NotSupportedException();
     }
 
-    private sealed class CancelAfterFirstPartStream(Byte[] content, CancellationTokenSource cancellation)
-        : NonSeekableReadStream(content)
+    private sealed class CancelAfterFirstPartStream : NonSeekableReadStream
     {
+        private readonly CancellationTokenSource _cancellation;
+
+        public CancelAfterFirstPartStream(Byte[] content, CancellationTokenSource cancellation)
+            : base(content)
+        {
+            _cancellation = cancellation;
+        }
+
         public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
             if (Position >= S3BlobStorage.MultipartPartSize)
             {
-                cancellation.Cancel();
+                _cancellation.Cancel();
             }
 
             cancellationToken.ThrowIfCancellationRequested();

@@ -500,9 +500,12 @@ public sealed class UploadSweepServiceTests
         }
     }
 
-    private sealed class FailFirstAccountingRepository(IUploadedFileMetadataRepository inner) : UploadedFileRepositoryDecorator(inner)
+    private sealed class FailFirstAccountingRepository : UploadedFileRepositoryDecorator
     {
         private Int32 _calls;
+
+        public FailFirstAccountingRepository(IUploadedFileMetadataRepository inner)
+            : base(inner) { }
 
         public override Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
             Interlocked.Increment(ref _calls) == 1
@@ -510,9 +513,12 @@ public sealed class UploadSweepServiceTests
                 : base.TryMarkBlobDeletedAsync(fileId, cancellationToken);
     }
 
-    private sealed class FailFirstMetadataDeleteRepository(IUploadedFileMetadataRepository inner) : UploadedFileRepositoryDecorator(inner)
+    private sealed class FailFirstMetadataDeleteRepository : UploadedFileRepositoryDecorator
     {
         private Int32 _calls;
+
+        public FailFirstMetadataDeleteRepository(IUploadedFileMetadataRepository inner)
+            : base(inner) { }
 
         public override Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken) =>
             Interlocked.Increment(ref _calls) == 1
@@ -521,12 +527,22 @@ public sealed class UploadSweepServiceTests
     }
 
     /// <summary>Fails the blob deletion of exactly one file, leaving every other candidate to the real store.</summary>
-    private sealed class FailingBlobStorage(String failingBlobKey, IBlobStorage inner) : IBlobStorage
+    private sealed class FailingBlobStorage : IBlobStorage
     {
+        private readonly String _failingBlobKey;
+        private readonly IBlobStorage _inner;
+
+        public FailingBlobStorage(String failingBlobKey,
+                                  IBlobStorage inner)
+        {
+            _failingBlobKey = failingBlobKey;
+            _inner = inner;
+        }
+
         public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) =>
-            String.Equals(blobKey, failingBlobKey, StringComparison.Ordinal)
+            String.Equals(blobKey, _failingBlobKey, StringComparison.Ordinal)
                 ? throw new IOException("blob store offline")
-                : inner.DeleteIfExistsAsync(blobKey, cancellationToken);
+                : _inner.DeleteIfExistsAsync(blobKey, cancellationToken);
 
         public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -534,9 +550,16 @@ public sealed class UploadSweepServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class FrozenTimeProvider(DateTimeOffset nowUtc) : TimeProvider
+    private sealed class FrozenTimeProvider : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => nowUtc;
+        private readonly DateTimeOffset _nowUtc;
+
+        public FrozenTimeProvider(DateTimeOffset nowUtc)
+        {
+            _nowUtc = nowUtc;
+        }
+
+        public override DateTimeOffset GetUtcNow() => _nowUtc;
     }
 
     private sealed class SweepFixture : IAsyncDisposable
@@ -692,9 +715,16 @@ public sealed class UploadSweepServiceTests
         }
     }
 
-    private sealed class ThrowingBlobStorage(Exception failure) : IBlobStorage
+    private sealed class ThrowingBlobStorage : IBlobStorage
     {
-        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => throw failure;
+        private readonly Exception _failure;
+
+        public ThrowingBlobStorage(Exception failure)
+        {
+            _failure = failure;
+        }
+
+        public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => throw _failure;
 
         public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -703,44 +733,51 @@ public sealed class UploadSweepServiceTests
     }
 
     /// <summary>Forwards everything to a real repository so only the failure under test differs from production.</summary>
-    private abstract class UploadedFileRepositoryDecorator(IUploadedFileMetadataRepository inner) : IUploadedFileMetadataRepository
+    private abstract class UploadedFileRepositoryDecorator : IUploadedFileMetadataRepository
     {
+        private readonly IUploadedFileMetadataRepository _inner;
+
+        protected UploadedFileRepositoryDecorator(IUploadedFileMetadataRepository inner)
+        {
+            _inner = inner;
+        }
+
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) =>
-            inner.GetActivePendingReservationCountAsync(cancellationToken);
+            _inner.GetActivePendingReservationCountAsync(cancellationToken);
 
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
-            inner.GetAsync(fileId, cancellationToken);
+            _inner.GetAsync(fileId, cancellationToken);
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) =>
-            inner.GetStorageStatsAsync(cancellationToken);
+            _inner.GetStorageStatsAsync(cancellationToken);
 
         public Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(
             DateTimeOffset completionCutoffUtc,
             Int32 limit,
             CancellationToken cancellationToken) =>
-            inner.GetSweepCandidatesAsync(completionCutoffUtc, limit, cancellationToken);
+            _inner.GetSweepCandidatesAsync(completionCutoffUtc, limit, cancellationToken);
 
         public Task ReleaseClaimAsync(Guid fileId, CancellationToken cancellationToken) =>
-            inner.ReleaseClaimAsync(fileId, cancellationToken);
+            _inner.ReleaseClaimAsync(fileId, cancellationToken);
 
-        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => inner.ReserveFileIdAsync(cancellationToken);
+        public Task<Guid> ReserveFileIdAsync(CancellationToken cancellationToken) => _inner.ReserveFileIdAsync(cancellationToken);
 
         public Task<Boolean> TryClaimReservationAsync(Guid fileId, CancellationToken cancellationToken) =>
-            inner.TryClaimReservationAsync(fileId, cancellationToken);
+            _inner.TryClaimReservationAsync(fileId, cancellationToken);
 
         public Task<Boolean> TryCompleteReservationAsync(UploadedFileRecord record, CancellationToken cancellationToken) =>
-            inner.TryCompleteReservationAsync(record, cancellationToken);
+            _inner.TryCompleteReservationAsync(record, cancellationToken);
 
         public virtual Task<Boolean> TryDeleteAsync(Guid fileId, CancellationToken cancellationToken) =>
-            inner.TryDeleteAsync(fileId, cancellationToken);
+            _inner.TryDeleteAsync(fileId, cancellationToken);
 
         public virtual Task<Boolean> TryMarkBlobDeletedAsync(Guid fileId, CancellationToken cancellationToken) =>
-            inner.TryMarkBlobDeletedAsync(fileId, cancellationToken);
+            _inner.TryMarkBlobDeletedAsync(fileId, cancellationToken);
 
         public Task<Boolean> TryRecordSweepInspectionAsync(
             Guid fileId,
             DateTimeOffset inspectedAtUtc,
             CancellationToken cancellationToken) =>
-            inner.TryRecordSweepInspectionAsync(fileId, inspectedAtUtc, cancellationToken);
+            _inner.TryRecordSweepInspectionAsync(fileId, inspectedAtUtc, cancellationToken);
     }
 }
