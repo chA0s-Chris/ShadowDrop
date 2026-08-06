@@ -349,7 +349,7 @@ public abstract class MongoPersistenceIntegrationTests
 
         // Losing the run lease is what would let a second instance start cleaning; the durable claim, not the
         // lease, is what keeps a concurrent share creation off a file whose blobs may still be deleted.
-        await runLease!.DisposeAsync();
+        await runLease.DisposeAsync();
 
         (await claims.TryAcquireAsync(Guid.NewGuid(),
                                       ShareOperationClaimKind.CreateShare,

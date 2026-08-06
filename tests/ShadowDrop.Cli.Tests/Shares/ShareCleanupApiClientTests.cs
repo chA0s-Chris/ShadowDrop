@@ -20,7 +20,7 @@ public sealed class ShareCleanupApiClientTests
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/admin/shares/cleanup"));
             request.Headers.Authorization.Should().NotBeNull();
-            request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+            request.Headers.Authorization.Scheme.Should().Be("Bearer");
             request.Headers.Authorization.Parameter.Should().Be("upload-token");
             return JsonResponse("""
                                 {"candidatesScanned":2,"sharesCompleted":1,"blobsDeleted":3,"blobsAlreadyMissing":4,"failures":5,

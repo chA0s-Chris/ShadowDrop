@@ -7,6 +7,9 @@
 - Do not use libraries like Moq or NSubstitute for creating test doubles. Implement test doubles manually.
 - Do not write test methods in nested classes. Test classes can have nested types, typically for types that represent test doubles, but test methods should always be placed in a top-level class residing directly in a C# namespace.
 - Try to avoid code duplication across several test methods. Refactor code by using, for example, data-driven tests, test fixtures, or factory methods. Honor the DRY and the Single Point of Truth principles.
+- Do not add the null-forgiving operator (`!`) after asserting a value with FluentAssertions. `Should()` annotates its subject with `[NotNull]`, so the compiler already treats the expression as non-null afterwards. Assert with `Should().NotBeNull()` and dereference without `!`.
+- Do not initialize test fixture members with `= null!` when they are assigned in `[SetUp]` or `[OneTimeSetUp]`. NUnit.Analyzers suppresses the corresponding warning, so declare them non-nullable and leave them uninitialized.
+- Keep `null!` only where a test deliberately passes an invalid null to exercise argument validation.
 
 ## How to Structure Tests
 

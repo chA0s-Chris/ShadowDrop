@@ -15,7 +15,7 @@ public sealed class CliDownloadRequestFactoryTests
 
         request.Method.Should().Be(HttpMethod.Get);
         request.RequestUri.Should().NotBeNull();
-        request.RequestUri!.Query.Should().Be("?mode=cli");
+        request.RequestUri.Query.Should().Be("?mode=cli");
         request.Headers.Range.Should().BeNull();
     }
 
@@ -26,7 +26,7 @@ public sealed class CliDownloadRequestFactoryTests
                                                                  "download-token");
 
         request.Headers.Authorization.Should().NotBeNull();
-        request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+        request.Headers.Authorization.Scheme.Should().Be("Bearer");
         request.Headers.Authorization.Parameter.Should().Be("download-token");
     }
 
@@ -38,7 +38,7 @@ public sealed class CliDownloadRequestFactoryTests
         var request = CliDownloadRequestFactory.CreateGetRequest(new(downloadUri));
 
         request.RequestUri.Should().NotBeNull();
-        request.RequestUri!.Query.Should().Be(expectedQuery);
+        request.RequestUri.Query.Should().Be(expectedQuery);
         request.Headers.Range.Should().BeNull();
     }
 
@@ -53,9 +53,9 @@ public sealed class CliDownloadRequestFactoryTests
                                                                  });
 
         request.RequestUri.Should().NotBeNull();
-        request.RequestUri!.Query.Should().Be("?download=1&mode=cli");
+        request.RequestUri.Query.Should().Be("?download=1&mode=cli");
         request.Headers.Range.Should().NotBeNull();
-        request.Headers.Range!.Unit.Should().Be("bytes");
+        request.Headers.Range.Unit.Should().Be("bytes");
         request.Headers.Range.Ranges.Should().ContainSingle();
         request.Headers.Range.Ranges.Single().From.Should().Be(64);
         request.Headers.Range.Ranges.Single().To.Should().Be(119);

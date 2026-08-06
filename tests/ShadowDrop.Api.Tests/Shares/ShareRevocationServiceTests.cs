@@ -24,7 +24,7 @@ public sealed class ShareRevocationServiceTests
         var logRecords = collector.GetSnapshot();
         logRecords.Should().ContainSingle();
         logRecords[0].Level.Should().Be(LogLevel.Information);
-        logRecords[0].StructuredState!.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == shareId.ToString());
+        logRecords[0].StructuredState.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == shareId.ToString());
     }
 
     [Test]

@@ -46,9 +46,9 @@ public sealed class CreateShareService
 
         try
         {
-            ValidateRequest(request);
+            var validatedRequest = ValidateRequest(request);
 
-            var fileIds = request.Files!.Select(file => file.FileId).ToArray();
+            var fileIds = validatedRequest.Files.Select(file => file.FileId).ToArray();
             if (fileIds.Distinct().Count() != fileIds.Length)
             {
                 throw new CreateShareValidationException("Duplicate file ids are not allowed.");
@@ -73,9 +73,9 @@ public sealed class CreateShareService
             var commitStarted = false;
             try
             {
-                var files = new List<ShareFileEntryRecord>(request.Files!.Count);
+                var files = new List<ShareFileEntryRecord>(validatedRequest.Files.Count);
                 var aggregateEncryptedBytes = 0L;
-                foreach (var fileRequest in request.Files)
+                foreach (var fileRequest in validatedRequest.Files)
                 {
                     var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(fileRequest.FileId, cancellationToken);
                     if (uploadedFile is null)
@@ -108,6 +108,20 @@ public sealed class CreateShareService
                 }
 
                 var createdAtUtc = _timeProvider.GetUtcNow();
+                DownloadBearerTokenRecord? downloadBearerTokenRecord = null;
+                if (downloadBearerToken is not null)
+                {
+                    // Both the token and the expiration are driven by GenerateDownloadBearerToken, so ValidateRequest
+                    // has proven the expiration is present here. Storing the share without the record while the caller
+                    // receives the token would leave the share downloadable without it, so a broken invariant must fail.
+                    var bearerTokenExpiresAtUtc = validatedRequest.DownloadBearerTokenExpiresAtUtc
+                                                  ?? throw new InvalidOperationException(
+                                                      "A generated download bearer token requires an expiration timestamp.");
+
+                    downloadBearerTokenRecord = new(TokenHashing.ComputeHashBase64(downloadBearerToken),
+                                                    bearerTokenExpiresAtUtc.ToUniversalTime());
+                }
+
                 var record = new ShareRecord(shareId,
                                              TokenHashing.ComputeHashBase64(shareToken),
                                              createdAtUtc,
@@ -115,10 +129,7 @@ public sealed class CreateShareService
                                              null,
                                              ShareCleanupState.Pending,
                                              request.DirectHttpEnabled ?? false,
-                                             downloadBearerToken is null
-                                                 ? null
-                                                 : new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
-                                                                                 request.DownloadBearerTokenExpiresAtUtc!.Value.ToUniversalTime()),
+                                             downloadBearerTokenRecord,
                                              files,
                                              authorizationContext.CredentialId);
 
@@ -172,9 +183,13 @@ public sealed class CreateShareService
                       .TrimEnd('=');
     }
 
-    private static void ValidateRequest(CreateShareRequest request)
+    /// <summary>
+    /// Validates the request and returns the values it proves to be present, so that callers can consume them
+    /// without repeating the null checks the compiler cannot carry across the method boundary.
+    /// </summary>
+    private static ValidatedCreateShareRequest ValidateRequest(CreateShareRequest request)
     {
-        if (request.Files is null || request.Files.Count == 0)
+        if (request.Files is not { Count: > 0 } files)
         {
             throw new CreateShareValidationException("At least one file is required.");
         }
@@ -195,17 +210,22 @@ public sealed class CreateShareService
             throw new CreateShareValidationException("Separate-key mode requires explicit bearer-token configuration.");
         }
 
+        DateTimeOffset? downloadBearerTokenExpiresAtUtc = null;
         if (request.GenerateDownloadBearerToken == true)
         {
-            if (request.DownloadBearerTokenExpiresAtUtc is null || request.DownloadBearerTokenExpiresAtUtc == default)
+            if (request.DownloadBearerTokenExpiresAtUtc is not { } expiresAtUtc || expiresAtUtc == default)
             {
                 throw new CreateShareValidationException("An expiration timestamp is required when generating a download bearer token.");
             }
+
+            downloadBearerTokenExpiresAtUtc = expiresAtUtc;
         }
         else if (request.DownloadBearerTokenExpiresAtUtc is not null)
         {
             throw new CreateShareValidationException("Download bearer token expiration requires token generation.");
         }
+
+        return new(files, downloadBearerTokenExpiresAtUtc);
     }
 
     /// <summary>
@@ -233,4 +253,12 @@ public sealed class CreateShareService
                                operationId);
         }
     }
+
+    /// <summary>
+    /// Carries the values <see cref="ValidateRequest"/> has proven to be present.
+    /// <see cref="DownloadBearerTokenExpiresAtUtc"/> is set exactly when a download bearer token is generated.
+    /// </summary>
+    private sealed record ValidatedCreateShareRequest(
+        IReadOnlyList<CreateShareFileRequest> Files,
+        DateTimeOffset? DownloadBearerTokenExpiresAtUtc);
 }

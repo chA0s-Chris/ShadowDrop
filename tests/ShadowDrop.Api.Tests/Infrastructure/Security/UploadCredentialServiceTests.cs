@@ -124,7 +124,7 @@ public sealed class UploadCredentialServiceTests
         created.Credential.CreatedAtUtc.Should().Be(expectedNow);
         created.Credential.CreatedAtUtc.Offset.Should().Be(TimeSpan.Zero);
         created.Credential.ExpiresAtUtc.Should().Be(expectedExpiration);
-        created.Credential.ExpiresAtUtc!.Value.Offset.Should().Be(TimeSpan.Zero);
+        created.Credential.ExpiresAtUtc.Value.Offset.Should().Be(TimeSpan.Zero);
     }
 
     [Test]

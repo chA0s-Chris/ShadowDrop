@@ -2,12 +2,14 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Status;
 
+using System.Diagnostics.CodeAnalysis;
+
 internal static class ServerStatusUrl
 {
     public static String? GetSafeDisplayValue(String? value) =>
         TryCreate(value, out var uri) ? uri.ToString() : null;
 
-    public static Boolean TryCreate(String? value, out Uri uri)
+    public static Boolean TryCreate(String? value, [NotNullWhen(true)] out Uri? uri)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var parsed)
             && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)
@@ -19,7 +21,7 @@ internal static class ServerStatusUrl
             return true;
         }
 
-        uri = null!;
+        uri = null;
         return false;
     }
 }

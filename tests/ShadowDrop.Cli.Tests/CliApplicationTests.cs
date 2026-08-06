@@ -148,7 +148,7 @@ public sealed class CliApplicationTests
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
-            request.Headers.Authorization!.Parameter.Should().Be("admin-token");
+            request.Headers.Authorization.Parameter.Should().Be("admin-token");
             return new(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),

@@ -110,11 +110,16 @@ internal sealed class UploadCommandHandler(
             return 1;
         }
 
+        // The guard above proves the share secret is present; carrying it in a local hands the proven value to
+        // the helpers below, which receive the upload result as a parameter and cannot see that narrowing.
+        var shareSecretHex = uploadResult.ShareSecretHex;
+
         var expiresAtUtc = timeProvider.GetUtcNow().Add(expiration);
         var shareRequest = new CreateShareCliRequest(
             expiresAtUtc,
-            uploadResult.Files.Select(result => new CreateShareCliFileRequest(result.UploadedFileId!.Value,
-                                                                              ResolveDisplayName(displayNameOverrides, result.File))).ToArray(),
+            uploadResult.Files.Select(result => new CreateShareCliFileRequest(
+                                          result.UploadedFileId ?? throw new InvalidOperationException("A successful upload must report a file id."),
+                                          ResolveDisplayName(displayNameOverrides, result.File))).ToArray(),
             options.DirectHttp,
             options.GenerateDownloadToken,
             options.GenerateDownloadToken ? expiresAtUtc : null);
@@ -151,7 +156,7 @@ internal sealed class UploadCommandHandler(
         // A share without delivered credentials is unusable, so success is reported only after delivery completes.
         if (options.SecretsOut is not null)
         {
-            var document = new CredentialDocument(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
+            var document = new CredentialDocument(shareSecretHex, shareResult.DownloadBearerToken);
             try
             {
                 AtomicFileWriter.WriteAtomic(options.SecretsOut, JsonSerializer.Serialize(document, CliJsonSerializerContext.Default.CredentialDocument),
@@ -181,7 +186,7 @@ internal sealed class UploadCommandHandler(
                 var queueCredentials = options.EmbedSecrets
                     ? new QueueCredentials
                     {
-                        ShareKey = uploadResult.ShareSecretHex!,
+                        ShareKey = shareSecretHex,
                         DownloadBearerToken = shareResult.DownloadBearerToken
                     }
                     : null;
@@ -197,34 +202,38 @@ internal sealed class UploadCommandHandler(
                 await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
-                await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareResult, shareUrl, null,
+                await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareSecretHex, shareResult, shareUrl, null,
                                       displayNameOverrides);
                 return 1;
             }
         }
 
-        await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareResult, shareUrl, queueFilePath,
+        await EmitResultAsync(options, serverUrl, UploadCommandStatus.Succeeded, uploadResult, shareSecretHex, shareResult, shareUrl, queueFilePath,
                               displayNameOverrides);
         return 0;
     }
 
     private static IReadOnlyList<DirectHttpDownload> BuildDirectHttpDownloads(Uri serverUrl,
                                                                               UploadExecutionResult uploadResult,
+                                                                              String shareSecretHex,
                                                                               String shareToken,
                                                                               IReadOnlyDictionary<String, String> displayNameOverrides)
     {
-        return uploadResult.Files
-                           .Where(static result => result.UploadedFileId is not null)
-                           .Select(result =>
-                           {
-                               var fileId = result.UploadedFileId!.Value;
-                               var fileName = ResolveDisplayName(displayNameOverrides, result.File) ?? result.File.Name;
-                               var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!);
-                               var curlCommand = DirectHttpCurlCommandFactory.Create(serverUrl, shareToken, fileId, uploadResult.ShareSecretHex!,
-                                                                                     fileName);
-                               return new DirectHttpDownload(fileId.ToString(), fileName, downloadUrl, curlCommand);
-                           })
-                           .ToArray();
+        List<DirectHttpDownload> downloads = [];
+        foreach (var result in uploadResult.Files)
+        {
+            if (result.UploadedFileId is not { } fileId)
+            {
+                continue;
+            }
+
+            var fileName = ResolveDisplayName(displayNameOverrides, result.File) ?? result.File.Name;
+            var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, shareSecretHex);
+            var curlCommand = DirectHttpCurlCommandFactory.Create(serverUrl, shareToken, fileId, shareSecretHex, fileName);
+            downloads.Add(new(fileId.ToString(), fileName, downloadUrl, curlCommand));
+        }
+
+        return downloads.ToArray();
     }
 
     private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
@@ -254,20 +263,21 @@ internal sealed class UploadCommandHandler(
                                        Uri serverUrl,
                                        String status,
                                        UploadExecutionResult uploadResult,
+                                       String shareSecretHex,
                                        CreateShareCliResult shareResult,
                                        String shareUrl,
                                        String? queueFile,
                                        IReadOnlyDictionary<String, String> displayNameOverrides)
     {
-        var credentialsToFile = options.SecretsOut is not null;
+        var secretsOut = options.SecretsOut;
         var directHttpDownloads = options.DirectHttp
-            ? BuildDirectHttpDownloads(serverUrl, uploadResult, shareResult.ShareToken, displayNameOverrides)
+            ? BuildDirectHttpDownloads(serverUrl, uploadResult, shareSecretHex, shareResult.ShareToken, displayNameOverrides)
             : null;
 
         if (options.Json)
         {
-            var credentials = credentialsToFile ? null : new UploadCredentials(uploadResult.ShareSecretHex!, shareResult.DownloadBearerToken);
-            var secretsFile = credentialsToFile ? options.SecretsOut!.FullName : null;
+            var credentials = secretsOut is not null ? null : new UploadCredentials(shareSecretHex, shareResult.DownloadBearerToken);
+            var secretsFile = secretsOut?.FullName;
             await UploadResultWriter.WriteAsync(standardOut,
                                                 BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
                                                             secretsFile, queueFile, directHttpDownloads));
@@ -279,13 +289,13 @@ internal sealed class UploadCommandHandler(
         {
             await WriteDirectHttpDownloadsAsync(directHttpDownloads);
         }
-        else if (credentialsToFile)
+        else if (secretsOut is not null)
         {
-            await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut!.FullName}");
+            await standardOut.WriteLineAsync($"secrets-file:{secretsOut.FullName}");
         }
         else
         {
-            await standardOut.WriteLineAsync($"share-key:{uploadResult.ShareSecretHex}");
+            await standardOut.WriteLineAsync($"share-key:{shareSecretHex}");
             if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
             {
                 await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");

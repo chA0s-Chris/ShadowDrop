@@ -27,7 +27,7 @@ public sealed class FileMetadataContractTests
         var result = JsonSerializer.Deserialize<FileMetadataContract>(json);
 
         result.Should().NotBeNull();
-        result!.ShareId.Should().Be("share-123");
+        result.ShareId.Should().Be("share-123");
         result.FileId.Should().Be("file-456");
         result.EncryptionFormatVersion.Should().Be(FormatConstants.EncryptionFormatVersion);
         result.AlgorithmId.Should().Be(FormatConstants.Aes256GcmAlgorithmId);
@@ -35,6 +35,17 @@ public sealed class FileMetadataContractTests
         result.ChunkCount.Should().Be(3);
         result.KdfSalt.Should().Be("AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=");
         result.PlaintextSha256.Should().BeNull();
+    }
+
+    [Test]
+    public void SerializeAndDeserialize_ShouldRoundTripAllMetadata()
+    {
+        var metadata = CreateMetadataContract();
+
+        var json = JsonSerializer.Serialize(metadata);
+        var result = JsonSerializer.Deserialize<FileMetadataContract>(json);
+
+        result.Should().BeEquivalentTo(metadata);
     }
 
     [Test]
@@ -54,17 +65,6 @@ public sealed class FileMetadataContractTests
                        "chunkCount",
                        "kdfSalt",
                        "plaintextSha256");
-    }
-
-    [Test]
-    public void SerializeAndDeserialize_ShouldRoundTripAllMetadata()
-    {
-        var metadata = CreateMetadataContract();
-
-        var json = JsonSerializer.Serialize(metadata);
-        var result = JsonSerializer.Deserialize<FileMetadataContract>(json);
-
-        result.Should().BeEquivalentTo(metadata);
     }
 
     private static FileMetadataContract CreateMetadataContract()

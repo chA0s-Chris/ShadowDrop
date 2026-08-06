@@ -214,14 +214,15 @@ internal sealed class InteractiveDownloadCommandHandler(
 
     private IReadOnlyList<ShareManifestFileContract> SelectFiles(ShareManifestContract manifest, String? fileId)
     {
+        var files = DownloadCommandHandler.RequireManifestFiles(manifest);
         if (!String.IsNullOrWhiteSpace(fileId))
         {
-            return [DownloadCommandHandler.SelectFileById(manifest.Files!, DownloadCommandHandler.ParseFileId(fileId))];
+            return [DownloadCommandHandler.SelectFileById(files, DownloadCommandHandler.ParseFileId(fileId))];
         }
 
         while (true)
         {
-            var selectedFiles = interactiveSession.PromptMultiSelection("Select files to download:", manifest.Files!, static file =>
+            var selectedFiles = interactiveSession.PromptMultiSelection("Select files to download:", files, static file =>
                                                                             $"{file.FileName} ({file.Length} bytes)");
             if (selectedFiles.Count > 0)
             {

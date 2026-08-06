@@ -23,7 +23,7 @@ public sealed class QueueFileBuilderTests
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token-abc", manifest, credentials);
 
         queue.Credentials.Should().NotBeNull();
-        queue.Credentials!.ShareKey.Should().Be("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        queue.Credentials.ShareKey.Should().Be("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         queue.Credentials.DownloadBearerToken.Should().Be("bearer-xyz");
     }
 

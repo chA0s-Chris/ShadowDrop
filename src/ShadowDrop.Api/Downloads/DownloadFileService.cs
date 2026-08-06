@@ -99,6 +99,9 @@ public sealed class DownloadFileService
                 return new(DownloadLookupStatus.InvalidRequest);
             }
 
+            // The equality check above rejected both "neither" and "both", so exactly one of the two carries
+            // key material - an invariant across two separate IsNullOrWhiteSpace results that nullable flow
+            // analysis cannot track back to the selected value.
             var presentedKeyMaterial = hasHeaderKey ? request.HeaderKeyMaterial : request.QueryKeyMaterial;
             var directHttpOpenResult = await TryOpenDirectHttpContentAsync(uploadedFile,
                                                                            presentedKeyMaterial!,

@@ -189,7 +189,7 @@ public sealed class DownloadFileServiceTests
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
         result.Resolution.Should().NotBeNull();
-        result.Resolution!.ContentStream.Should().NotBeOfType<MemoryStream>();
+        result.Resolution.ContentStream.Should().NotBeOfType<MemoryStream>();
         encryptedStream.Position.Should().Be(payload.ChunkSize + 16);
 
         var buffer = new Byte[19];
@@ -245,7 +245,7 @@ public sealed class DownloadFileServiceTests
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
         result.Resolution.Should().NotBeNull();
-        await using var plaintextStream = result.Resolution!.ContentStream;
+        await using var plaintextStream = result.Resolution.ContentStream;
         using var plaintext = new MemoryStream();
         await plaintextStream.CopyToAsync(plaintext, CancellationToken.None);
 
@@ -349,7 +349,7 @@ public sealed class DownloadFileServiceTests
         var logRecords = collector.GetSnapshot();
         logRecords.Should().ContainSingle();
         logRecords[0].Level.Should().Be(LogLevel.Warning);
-        logRecords[0].StructuredState!.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == shareId.ToString());
+        logRecords[0].StructuredState.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == shareId.ToString());
         var values = logRecords[0].StructuredState!.Select(pair => pair.Value);
         values.Should().NotContain(value => value != null && value.Contains(wrongBearerToken));
         values.Should().NotContain(value => value != null && value.Contains(correctBearerToken));
@@ -754,14 +754,14 @@ public sealed class DownloadFileServiceTests
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
         result.Resolution.Should().NotBeNull();
-        result.Resolution!.ResponseContentType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
+        result.Resolution.ResponseContentType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
         result.Resolution.FileContentType.Should().Be("application/octet-stream");
         result.Resolution.ContentStream.Should().NotBeOfType<MemoryStream>();
         result.Resolution.CliMetadata.Should().NotBeNull();
 
         using var content = new MemoryStream();
         await result.Resolution.ContentStream.CopyToAsync(content, CancellationToken.None);
-        result.Resolution.CliMetadata!.FirstChunkIndex.Should().Be(1);
+        result.Resolution.CliMetadata.FirstChunkIndex.Should().Be(1);
         result.Resolution.CliMetadata.LastChunkIndex.Should().Be(1);
         result.Resolution.CliMetadata.RequestedRange.Should().BeEquivalentTo(new RequestedPlaintextRangeContract
         {
@@ -818,7 +818,7 @@ public sealed class DownloadFileServiceTests
 
         result.Status.Should().Be(DownloadLookupStatus.Success);
         result.Resolution.Should().NotBeNull();
-        result.Resolution!.ContentStream.Should().NotBeOfType<MemoryStream>();
+        result.Resolution.ContentStream.Should().NotBeOfType<MemoryStream>();
         result.Resolution.ResponseContentLength.Should().Be(ciphertextLength);
         encryptedStream.TotalBytesRead.Should().Be(0);
 
@@ -850,7 +850,7 @@ public sealed class DownloadFileServiceTests
 
         await act.Should().ThrowAsync<CryptographicException>();
         capturedDecodedBytes.Should().NotBeNull();
-        capturedDecodedBytes!.Should().OnlyContain(value => value == 0);
+        capturedDecodedBytes.Should().OnlyContain(value => value == 0);
     }
 
     [Test]
@@ -869,7 +869,7 @@ public sealed class DownloadFileServiceTests
 
         result.Should().Be(7);
         capturedDecodedBytes.Should().NotBeNull();
-        capturedDecodedBytes!.Should().OnlyContain(value => value == 0);
+        capturedDecodedBytes.Should().OnlyContain(value => value == 0);
     }
 
     private static async Task<Stream> CreateDirectHttpDecryptingStreamAsync(Stream encryptedContent,
@@ -881,7 +881,7 @@ public sealed class DownloadFileServiceTests
             .GetNestedType("DirectHttpDecryptingStream", BindingFlags.NonPublic);
         directHttpDecryptingStreamType.Should().NotBeNull();
 
-        var createAsyncMethod = directHttpDecryptingStreamType!
+        var createAsyncMethod = directHttpDecryptingStreamType
             .GetMethod("CreateAsync",
                        BindingFlags.Public | BindingFlags.Static,
                        null,
@@ -889,8 +889,8 @@ public sealed class DownloadFileServiceTests
                        null);
         createAsyncMethod.Should().NotBeNull();
 
-        var createTask = (Task)createAsyncMethod!.Invoke(null,
-                                                         [encryptedContent, uploadedFile, shareSecret, cancellationToken])!;
+        var createTask = (Task)createAsyncMethod.Invoke(null,
+                                                        [encryptedContent, uploadedFile, shareSecret, cancellationToken])!;
         await createTask;
 
         return (Stream)createTask.GetType().GetProperty(nameof(Task<>.Result))!.GetValue(createTask)!;
@@ -952,9 +952,9 @@ public sealed class DownloadFileServiceTests
     {
         var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         field.Should().NotBeNull($"Expected private field '{fieldName}' on {instance.GetType().FullName}.");
-        var value = field!.GetValue(instance);
+        var value = field.GetValue(instance);
         value.Should().BeOfType<T>();
-        return (T)value!;
+        return (T)value;
     }
 
     private sealed record DirectHttpPayload(

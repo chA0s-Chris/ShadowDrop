@@ -42,13 +42,13 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
             return 0;
         }
 
-        await EnsureResponseAsync(cancellationToken);
+        var activeResponse = await EnsureResponseAsync(cancellationToken);
         var remaining = Length - _position;
         var target = buffer[..(Int32)Math.Min(buffer.Length, remaining)];
         Int32 bytesRead;
         try
         {
-            bytesRead = await _activeResponse!.Content.ReadAsync(target, cancellationToken);
+            bytesRead = await activeResponse.Content.ReadAsync(target, cancellationToken);
         }
         catch
         {
@@ -117,9 +117,13 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
         _activeResponse = null;
     }
 
-    private async Task EnsureResponseAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns the active response, opening one at the current position when none is held. Callers must have
+    /// established that the position is short of the declared length, which the single call site guarantees.
+    /// </summary>
+    private async Task<S3ReadResponse> EnsureResponseAsync(CancellationToken cancellationToken)
     {
-        if (_activeResponse is null && _position < Length)
+        if (_activeResponse is null)
         {
             try
             {
@@ -130,5 +134,7 @@ internal sealed class S3SeekableReadStream(IS3Client client, String bucketName, 
                 throw new FileNotFoundException("The requested blob does not exist.", blobKey, exception);
             }
         }
+
+        return _activeResponse;
     }
 }
