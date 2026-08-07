@@ -8,24 +8,24 @@ Give administrators a detailed, deterministic view of one internal share ID with
 
 ## Acceptance Criteria
 
-- [ ] Add admin-authorized `GET /api/admin/shares/{shareId}` and `shadowdrop share inspect <share-id>` surfaces that use the existing admin-token configuration path.
-- [ ] Default the admin API to omitted `includeFilenames`, accept only the exact ordinal values `true` and `false` (rejecting `True`, `1`, and repeated values with `400` and `invalid-request`), and add CLI `--include-filenames` as the only explicit filename opt-in; no public route accepts this control.
-- [ ] Return the shared summary fields plus a `files` array whose entries contain only `fileId`, `ciphertextBytes`, `retentionState`, nullable `originalFilename`, and nullable `displayName`.
-- [ ] Report `retentionState` as `retained` for a file whose ciphertext is still stored, `deleted` for a reclaimed blob, `unknown` for a legacy record whose retention was never recorded, and `missing` for a referenced file whose uploaded-file metadata row is gone, so a zero `ciphertextBytes` is never ambiguous.
-- [ ] Format share and file identifiers as canonical lower-case UUID `D` strings and timestamps as UTC ISO 8601 round-trip strings.
-- [ ] Return both filename fields as `null` by default in API, deterministic human, and JSON output, and populate them only after the explicit API or CLI opt-in.
-- [ ] Document filename exposure as sensitive and never include filenames in audit events, diagnostics, summary output, or default inspection output.
-- [ ] Never return share or download bearer tokens, token hashes or lookup identifiers, encryption material, credential identifiers, blob keys, persistence paths, plaintext hashes, raw configuration, or internal exceptions.
-- [ ] Keep public download resolution token-based so neither an internal share ID nor any inspection response can be used as a download capability.
-- [ ] Reuse the bounded batch uploaded-file metadata projection introduced by #171 and never perform one metadata query per file or scan a blob provider.
-- [ ] Return the share summary with a zero-byte `missing` file entry when a referenced file has no metadata projection, and reserve `operation-failed` for repository, query, and inconsistent-projection failures.
-- [ ] Return `404` with `{ "reason": "not-found" }` for an unknown share and make the CLI return exit code `6` for that outcome, documented as specific to `share inspect`.
-- [ ] Return stable shared operational error contracts for authorization, invalid requests, and provider or inconsistent-projection failures without leaking request or persistence details.
-- [ ] Produce concise deterministic human output and exactly one documented inspection JSON value on stdout on success, with banners, warnings, and diagnostics kept off stdout whenever `--json` is selected.
-- [ ] Emit safe `admin-share-inspect` audit events containing only operation, outcome, HTTP status, elapsed time, and one boolean recording whether filename inclusion was requested, and leave every other operation's audit record unchanged.
-- [ ] Provide equivalent contracts, redaction, not-found behavior, bounded lookups, and failure semantics for LiteDB/filesystem and MongoDB/GridFS deployments.
-- [ ] Add automated authorization, request validation, default-redaction, filename-opt-in, contract serialization asserting the inspection contract is registered on `OperationalStatusJsonSerializerContext` and round-trips through source-generated metadata without reflection fallback, stdout/stderr, not-found and exit-code, batch-lookup, missing-projection degradation, audit-redaction, and provider-parity tests.
-- [ ] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` with routes, options, examples, retention-state values, a `share inspect` exit-code table, and filename-sensitivity guidance.
+- [x] Add admin-authorized `GET /api/admin/shares/{shareId}` and `shadowdrop share inspect <share-id>` surfaces that use the existing admin-token configuration path.
+- [x] Default the admin API to omitted `includeFilenames`, accept only the exact ordinal values `true` and `false` (rejecting `True`, `1`, and repeated values with `400` and `invalid-request`), and add CLI `--include-filenames` as the only explicit filename opt-in; no public route accepts this control.
+- [x] Return the shared summary fields plus a `files` array whose entries contain only `fileId`, `ciphertextBytes`, `retentionState`, nullable `originalFilename`, and nullable `displayName`.
+- [x] Report `retentionState` as `retained` for a file whose ciphertext is still stored, `deleted` for a reclaimed blob, `unknown` for a legacy record whose retention was never recorded, and `missing` for a referenced file whose uploaded-file metadata row is gone, so a zero `ciphertextBytes` is never ambiguous.
+- [x] Format share and file identifiers as canonical lower-case UUID `D` strings and timestamps as UTC ISO 8601 round-trip strings.
+- [x] Return both filename fields as `null` by default in API, deterministic human, and JSON output, and populate them only after the explicit API or CLI opt-in.
+- [x] Document filename exposure as sensitive and never include filenames in audit events, diagnostics, summary output, or default inspection output.
+- [x] Never return share or download bearer tokens, token hashes or lookup identifiers, encryption material, credential identifiers, blob keys, persistence paths, plaintext hashes, raw configuration, or internal exceptions.
+- [x] Keep public download resolution token-based so neither an internal share ID nor any inspection response can be used as a download capability.
+- [x] Reuse the bounded batch uploaded-file metadata projection introduced by #171 and never perform one metadata query per file or scan a blob provider.
+- [x] Return the share summary with a zero-byte `missing` file entry when a referenced file has no metadata projection, and reserve `operation-failed` for repository, query, and inconsistent-projection failures.
+- [x] Return `404` with `{ "reason": "not-found" }` for an unknown share and make the CLI return exit code `6` for that outcome, documented as specific to `share inspect`.
+- [x] Return stable shared operational error contracts for authorization, invalid requests, and provider or inconsistent-projection failures without leaking request or persistence details.
+- [x] Produce concise deterministic human output and exactly one documented inspection JSON value on stdout on success, with banners, warnings, and diagnostics kept off stdout whenever `--json` is selected.
+- [x] Emit safe `admin-share-inspect` audit events containing only operation, outcome, HTTP status, elapsed time, and one boolean recording whether filename inclusion was requested, and leave every other operation's audit record unchanged.
+- [x] Provide equivalent contracts, redaction, not-found behavior, bounded lookups, and failure semantics for LiteDB/filesystem and MongoDB/GridFS deployments.
+- [x] Add automated authorization, request validation, default-redaction, filename-opt-in, contract serialization asserting the inspection contract is registered on `OperationalStatusJsonSerializerContext` and round-trips through source-generated metadata without reflection fallback, stdout/stderr, not-found and exit-code, batch-lookup, missing-projection degradation, audit-redaction, and provider-parity tests.
+- [x] Update `README.md`, `docs/API.md`, `docs/CLI.md`, `docs/DEPLOYMENT.md`, and `docs/SECURITY_TRADEOFFS.md` with routes, options, examples, retention-state values, a `share inspect` exit-code table, and filename-sensitivity guidance.
 
 ## Technical Details
 

@@ -11,6 +11,38 @@ using ShadowDrop.Api.Status;
 
 public sealed class OperationalAuditEndpointFilterTests
 {
+    [TestCase(true)]
+    [TestCase(false)]
+    [TestCase(null)]
+    public async Task InvokeAsync_ShouldAddOnlyFilenameDisclosureBoolean_ForShareInspection(Boolean? included)
+    {
+        var collector = new FakeLogCollector();
+        var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.RouteValues["shareId"] = "sensitive-share-id";
+        httpContext.Request.QueryString = new("?includeFilenames=true&secret=value");
+        if (included is { } value)
+        {
+            httpContext.Items[OperationalAuditEndpointFilter.FilenamesIncludedItemKey] = value;
+        }
+
+        httpContext.SetEndpoint(new(static _ => Task.CompletedTask,
+                                    new(new OperationalAuditMetadata("admin-share-inspect")),
+                                    "inspect"));
+        var context = new DefaultEndpointFilterInvocationContext(httpContext, []);
+
+        _ = await filter.InvokeAsync(context, static _ => ValueTask.FromResult<Object?>(Results.Ok()));
+
+        var records = collector.GetSnapshot();
+        records.Should().ContainSingle();
+        var record = records[0];
+        record.StructuredState.Should().NotBeNull();
+        record.StructuredState.Where(pair => pair.Key != "{OriginalFormat}").Select(pair => pair.Key).Should().BeEquivalentTo(
+            "Operation", "Outcome", "HttpStatus", "ElapsedMilliseconds", "FilenamesIncluded");
+        record.StructuredState.Single(pair => pair.Key == "FilenamesIncluded").Value?.ToString().Should().Be((included ?? false).ToString());
+        record.Message.Should().NotContain("sensitive-share-id").And.NotContain("secret=value");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldAuditCallerCancellation_AndRethrow()
     {

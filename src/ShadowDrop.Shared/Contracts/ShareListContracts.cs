@@ -56,11 +56,12 @@ public static class ShareListPagination
     public const Int32 MaximumPageSize = 200;
 }
 
-/// <summary>Stable operational error reasons used by the administrative share-list endpoint.</summary>
+/// <summary>Stable error reasons used by administrative operational endpoints.</summary>
 public static class OperationalErrorReasons
 {
     public const String InvalidCursor = "invalid-cursor";
     public const String InvalidRequest = "invalid-request";
+    public const String NotFound = "not-found";
     public const String OperationFailed = "operation-failed";
     public const String Unauthorized = "unauthorized";
 }
@@ -84,6 +85,38 @@ public sealed record ShareListPageContract(
     ShareListItemContract[] Items,
     String? NextCursor,
     Int64 TotalMatching);
+
+/// <summary>Stable uploaded-file retention values used by administrative share inspection.</summary>
+public static class ShareFileRetentionStates
+{
+    public const String Deleted = "deleted";
+    public const String Missing = "missing";
+    public const String Retained = "retained";
+    public const String Unknown = "unknown";
+}
+
+/// <summary>Contains one allow-listed file entry from an administrative share inspection.</summary>
+public sealed record ShareInspectionFileContract(
+    String FileId,
+    Int64 CiphertextBytes,
+    String RetentionState,
+    String? OriginalFilename,
+    String? DisplayName);
+
+/// <summary>Contains the operational-protocol-v1 inspection view of one share.</summary>
+public sealed record ShareInspectionContract(
+    Int32 ProtocolVersion,
+    String ShareId,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset ExpiresAtUtc,
+    DateTimeOffset? RevokedAtUtc,
+    String[] Statuses,
+    String CleanupState,
+    DateTimeOffset? LastCleanupAttemptAtUtc,
+    String[] CleanupFailureCategories,
+    Int64 FileCount,
+    Int64 CiphertextBytes,
+    ShareInspectionFileContract[] Files);
 
 /// <summary>Contains a stable reason for an operational request failure.</summary>
 public sealed record OperationalErrorContract(String Reason);

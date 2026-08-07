@@ -117,6 +117,13 @@ metadata even though they are not download capabilities. Share-list audit events
 contain only operation, outcome, HTTP status, and elapsed time; query values,
 cursors, identifiers, results, and exceptions are excluded.
 
+`GET /api/admin/shares/{shareId}` and `shadowdrop share inspect <share-id>` add an ordered, allow-listed per-file retention view. Both
+filename properties remain `null` by default and are disclosed only through the explicit `includeFilenames=true` or
+`--include-filenames` opt-in. Filenames can reveal personal, business, or host information and must be treated as sensitive; inspection
+audits record only whether disclosure was requested, never the filenames, share ID, query, result, token material, cryptographic data,
+storage identifiers, or provider exceptions. Internal share IDs and inspection results never replace the public share token at the
+download boundary and cannot be used as download capabilities.
+
 Expired and revoked shares are hidden at the token-lookup boundary immediately, independent of the cleanup schedule. Cleanup claims every
 file before deleting anything, then removes uploaded-file and share metadata only after all ciphertext is deleted or confirmed absent.
 Failures retain the metadata as `cleanup-failed` so operators can diagnose and retry them; successful cleanup removes filenames, hashes,

@@ -4,7 +4,7 @@ namespace ShadowDrop.Api.Shares;
 
 using ShadowDrop.Contracts;
 
-internal sealed class ShareListUnauthorizedResultFilter : IEndpointFilter
+internal sealed class OperationalUnauthorizedResultFilter : IEndpointFilter
 {
     public async ValueTask<Object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {

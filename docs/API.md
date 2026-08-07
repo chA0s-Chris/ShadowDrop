@@ -132,6 +132,7 @@ the endpoint filter in `AdminBearerTokenEndpointFilterExtensions`)
 |--------|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | `GET`  | `/api/admin/management/ping`                               | Connectivity and credential check for management tooling.                                                  |
 | `GET`  | `/api/admin/shares`                                        | List a bounded, redacted page of share lifecycle and retained-ciphertext state.                            |
+| `GET`  | `/api/admin/shares/{shareId}`                              | Inspect one share and its ordered, filename-redacted file retention state.                                 |
 | `POST` | `/api/admin/shares/cleanup`                                | Trigger a cleanup run for expired and revoked shares and unreferenced uploads; reports the outcome, skipping when a run is already in progress. |
 | `POST` | `/api/admin/shares/{shareId:guid}/revoke`                  | Revoke a share so its download token stops resolving. `404` for unknown shares.                            |
 | `POST` | `/api/admin/upload-credentials`                            | Create a scoped upload credential; the credential token is returned exactly once in the response.          |
@@ -180,3 +181,30 @@ shares no longer appear because their share and uploaded-file metadata is delete
 `401 {"reason":"unauthorized"}`. No response, error, audit, or log projection includes filenames, owner/credential identifiers, token
 hashes, blob keys, download-token data, cryptographic metadata, plaintext hashes, provider details, query values, cursor contents, or
 exception text. Every attempt emits an `admin-share-list` audit event containing only operation, outcome, HTTP status, and elapsed time.
+
+### Administrative share inspection
+
+`GET /api/admin/shares/{shareId}?includeFilenames=<true|false>` returns one operational-protocol-v1 inspection value. The route uses the
+same admin bearer token as share listing. `shareId` must be a non-empty UUID. `includeFilenames` may be omitted and otherwise accepts only
+the exact ordinal values `true` and `false`; repeated values, `True`, `1`, malformed IDs, and empty IDs return
+`400 {"reason":"invalid-request"}`. An unknown share returns `404 {"reason":"not-found"}`, invalid authorization returns
+`401 {"reason":"unauthorized"}`, and repository, query, or inconsistent-projection failures return
+`500 {"reason":"operation-failed"}`.
+
+The result flattens the share-list summary fields beside `protocolVersion` and an ordered `files` array. Each file contains only canonical
+lower-case UUID `fileId`, retained-only `ciphertextBytes`, `retentionState`, nullable `originalFilename`, and nullable `displayName`.
+Retention is `retained` when ciphertext is recorded as stored, `deleted` after reclamation, `unknown` for a legacy row with no recorded
+retention state, and `missing` when the share still references an uploaded-file row that cleanup has already removed. Deleted, unknown,
+and missing entries contribute zero bytes; the explicit state keeps zero-byte files unambiguous. A missing row degrades to a zero-byte
+`missing` entry instead of failing the inspection.
+
+Both filename properties are always present and `null` by default. They are populated only when the authenticated caller explicitly sends
+`includeFilenames=true`; filenames are sensitive operational metadata. The service loads the share once and issues one bounded batch
+uploaded-file projection for all distinct referenced file IDs. It never queries once per file or scans filesystem, GridFS, or S3 storage.
+The response never contains share or download bearer tokens, token hashes or lookup identifiers, encryption material, credential IDs,
+blob keys, persistence paths, plaintext hashes, configuration, or internal exceptions. The internal share ID and inspection response are
+not download capabilities; public downloads continue to resolve only through `/d/{token}`.
+
+Every attempt emits an `admin-share-inspect` audit event containing operation, outcome, HTTP status, elapsed time, and only the Boolean
+`FilenamesIncluded` disclosure flag. It never records the share ID, query value, filenames, response, credentials, provider details, or
+exception text.
