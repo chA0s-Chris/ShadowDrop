@@ -7,9 +7,15 @@ using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 
-internal sealed class UploadCommandExecutor(HttpClient httpClient)
+internal sealed class UploadCommandExecutor
 {
     private const Int32 ChunkSize = 1024 * 1024;
+    private readonly HttpClient _httpClient;
+
+    public UploadCommandExecutor(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
 
     public async Task<UploadExecutionResult> ExecuteAsync(IReadOnlyList<FileInfo> files,
                                                           Uri serverUrl,
@@ -27,7 +33,7 @@ internal sealed class UploadCommandExecutor(HttpClient httpClient)
             return new([], null, false);
         }
 
-        var uploadApiClient = new UploadApiClient(httpClient);
+        var uploadApiClient = new UploadApiClient(_httpClient);
         var preflight = PreflightFiles(files);
         if (preflight.Errors.Count > 0)
         {

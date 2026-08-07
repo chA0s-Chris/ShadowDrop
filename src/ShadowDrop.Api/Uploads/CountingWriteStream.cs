@@ -4,8 +4,15 @@ namespace ShadowDrop.Api.Uploads;
 
 // Deliberately never disposes the inner stream: the caller owns its commit/abort lifecycle
 // (disposing a GridFSUploadStream commits the upload, which must not happen on exception unwind).
-internal sealed class CountingWriteStream(Stream inner) : Stream
+internal sealed class CountingWriteStream : Stream
 {
+    private readonly Stream _inner;
+
+    public CountingWriteStream(Stream inner)
+    {
+        _inner = inner;
+    }
+
     public Int64 BytesWritten { get; private set; }
     public override Boolean CanRead => false;
     public override Boolean CanSeek => false;
@@ -13,21 +20,21 @@ internal sealed class CountingWriteStream(Stream inner) : Stream
     public override Int64 Length => BytesWritten;
     public override Int64 Position { get => BytesWritten; set => throw new NotSupportedException(); }
     public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
-    public override void Flush() => inner.Flush();
-    public override Task FlushAsync(CancellationToken cancellationToken) => inner.FlushAsync(cancellationToken);
+    public override void Flush() => _inner.Flush();
+    public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
     public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
     public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
     public override void SetLength(Int64 value) => throw new NotSupportedException();
 
     public override void Write(Byte[] buffer, Int32 offset, Int32 count)
     {
-        inner.Write(buffer, offset, count);
+        _inner.Write(buffer, offset, count);
         BytesWritten += count;
     }
 
     public override async ValueTask WriteAsync(ReadOnlyMemory<Byte> buffer, CancellationToken cancellationToken = default)
     {
-        await inner.WriteAsync(buffer, cancellationToken);
+        await _inner.WriteAsync(buffer, cancellationToken);
         BytesWritten += buffer.Length;
     }
 

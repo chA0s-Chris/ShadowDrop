@@ -6,11 +6,16 @@ namespace ShadowDrop.Tests;
 /// Deterministic <see cref="TimeProvider"/> whose timers fire only when the test advances time,
 /// so timeout behavior can be exercised without wall-clock waits.
 /// </summary>
-internal sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+internal sealed class ManualTimeProvider : TimeProvider
 {
     private readonly Lock _gate = new();
     private readonly List<ManualTimer> _timers = [];
-    private DateTimeOffset _utcNow = utcNow;
+    private DateTimeOffset _utcNow;
+
+    public ManualTimeProvider(DateTimeOffset utcNow)
+    {
+        _utcNow = utcNow;
+    }
 
     public void Advance(TimeSpan delta)
     {
@@ -57,23 +62,38 @@ internal sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
         }
     }
 
-    private sealed class ManualTimer(ManualTimeProvider provider, TimerCallback callback, Object? state, DateTimeOffset dueAt) : ITimer
+    private sealed class ManualTimer : ITimer
     {
-        public DateTimeOffset DueAt { get; private set; } = dueAt;
+        private readonly TimerCallback _callback;
+        private readonly ManualTimeProvider _provider;
+        private readonly Object? _state;
 
-        public void Fire() => callback(state);
+        public ManualTimer(ManualTimeProvider provider,
+                           TimerCallback callback,
+                           Object? state,
+                           DateTimeOffset dueAt)
+        {
+            _provider = provider;
+            _callback = callback;
+            _state = state;
+            DueAt = dueAt;
+        }
+
+        public DateTimeOffset DueAt { get; private set; }
+
+        public void Fire() => _callback(_state);
 
         public ValueTask DisposeAsync()
         {
-            provider.Remove(this);
+            _provider.Remove(this);
             return ValueTask.CompletedTask;
         }
 
-        public void Dispose() => provider.Remove(this);
+        public void Dispose() => _provider.Remove(this);
 
         public Boolean Change(TimeSpan dueTime, TimeSpan period)
         {
-            DueAt = provider.GetUtcNow() + dueTime;
+            DueAt = _provider.GetUtcNow() + dueTime;
             return true;
         }
     }

@@ -3,12 +3,20 @@
 namespace ShadowDrop.Cli.Downloads.Progress;
 
 /// <summary>
-/// A synchronous <see cref="IProgress{T}"/> that records the latest reported cumulative byte count and optionally forwards it.
+/// A synchronous <see cref="IProgress{T}"/> that records the latest reported cumulative byte count and optionally forwards
+/// it.
 /// </summary>
-internal sealed class TrackingProgress(Action<Int64>? onReport = null) : IProgress<Int64>
+internal sealed class TrackingProgress : IProgress<Int64>
 {
+    private readonly Action<Int64>? _onReport;
+
     private Int64 _startingValue = -1;
     private Int64 _value;
+
+    public TrackingProgress(Action<Int64>? onReport = null)
+    {
+        _onReport = onReport;
+    }
 
     /// <summary>
     /// Gets the byte count transferred since the first reported value, excluding any starting offset from a resumed download.
@@ -25,6 +33,6 @@ internal sealed class TrackingProgress(Action<Int64>? onReport = null) : IProgre
     {
         Interlocked.CompareExchange(ref _startingValue, value, -1);
         Interlocked.Exchange(ref _value, value);
-        onReport?.Invoke(value);
+        _onReport?.Invoke(value);
     }
 }

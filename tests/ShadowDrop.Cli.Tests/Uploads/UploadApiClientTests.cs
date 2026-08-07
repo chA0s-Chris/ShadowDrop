@@ -281,8 +281,18 @@ public sealed class UploadApiClientTests
         document.RootElement.GetProperty("plaintextSha256").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
-    private sealed class StallFirstAttemptHandler(Guid fileId, TaskCompletionSource stallEntered) : HttpMessageHandler
+    private sealed class StallFirstAttemptHandler : HttpMessageHandler
     {
+        private readonly Guid _fileId;
+        private readonly TaskCompletionSource _stallEntered;
+
+        public StallFirstAttemptHandler(Guid fileId,
+                                        TaskCompletionSource stallEntered)
+        {
+            _fileId = fileId;
+            _stallEntered = stallEntered;
+        }
+
         public Int32 RequestCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -290,7 +300,7 @@ public sealed class UploadApiClientTests
             RequestCount++;
             if (RequestCount == 1)
             {
-                stallEntered.SetResult();
+                _stallEntered.SetResult();
                 await Task.Delay(Timeout.Infinite, cancellationToken);
             }
 
@@ -298,15 +308,20 @@ public sealed class UploadApiClientTests
             {
                 Content = JsonContent.Create(new
                 {
-                    fileId
+                    fileId = _fileId
                 })
             };
         }
     }
 
-    private sealed class SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses) : HttpMessageHandler
+    private sealed class SequenceHttpMessageHandler : HttpMessageHandler
     {
-        private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses = new(responses);
+        private readonly Queue<Func<HttpRequestMessage, HttpResponseMessage>> _responses;
+
+        public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
+        {
+            _responses = new(responses);
+        }
 
         public Int32 RequestCount { get; private set; }
 

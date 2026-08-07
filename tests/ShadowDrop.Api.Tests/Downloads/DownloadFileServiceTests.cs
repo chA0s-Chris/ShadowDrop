@@ -977,32 +977,46 @@ public sealed class DownloadFileServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class StubBlobStorage(Stream stream) : IBlobStorage
+    private sealed class StubBlobStorage : IBlobStorage
     {
+        private readonly Stream _stream;
+
+        public StubBlobStorage(Stream stream)
+        {
+            _stream = stream;
+        }
+
         public Task<Boolean> DeleteIfExistsAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult(false);
 
-        public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult<Stream>(stream);
+        public Task<Stream> OpenReadAsync(String blobKey, CancellationToken cancellationToken) => Task.FromResult<Stream>(_stream);
 
         public Task<UploadBlobDescriptor> SaveAsync(Guid fileId, Stream encryptedContent, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 
-    private sealed class StubShareMetadataRepository(ShareRecord record) : IShareMetadataRepository
+    private sealed class StubShareMetadataRepository : IShareMetadataRepository
     {
+        private readonly ShareRecord _record;
+
+        public StubShareMetadataRepository(ShareRecord record)
+        {
+            _record = record;
+        }
+
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task CreateAsync(ShareRecord uploadedFileRecord, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => Task.FromResult<ShareRecord?>(record);
+        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => Task.FromResult<ShareRecord?>(_record);
 
         public Task<ShareRecord?> GetByShareTokenHashAsync(
             String shareTokenHashBase64,
             DateTimeOffset nowUtc,
             CancellationToken cancellationToken) =>
-            Task.FromResult(record.ShareTokenHashBase64 == shareTokenHashBase64
-                            && record.RevokedAtUtc is null
-                            && record.ExpiresAtUtc > nowUtc
-                                ? record
+            Task.FromResult(_record.ShareTokenHashBase64 == shareTokenHashBase64
+                            && _record.RevokedAtUtc is null
+                            && _record.ExpiresAtUtc > nowUtc
+                                ? _record
                                 : null);
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
@@ -1023,12 +1037,19 @@ public sealed class DownloadFileServiceTests
             throw new NotSupportedException();
     }
 
-    private sealed class StubUploadedFileMetadataRepository(UploadedFileRecord record) : IUploadedFileMetadataRepository
+    private sealed class StubUploadedFileMetadataRepository : IUploadedFileMetadataRepository
     {
+        private readonly UploadedFileRecord _record;
+
+        public StubUploadedFileMetadataRepository(UploadedFileRecord record)
+        {
+            _record = record;
+        }
+
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<UploadedFileRecord?> GetAsync(Guid fileId, CancellationToken cancellationToken) =>
-            Task.FromResult<UploadedFileRecord?>(record.FileId == fileId ? record : null);
+            Task.FromResult<UploadedFileRecord?>(_record.FileId == fileId ? _record : null);
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
 
@@ -1150,9 +1171,12 @@ public sealed class DownloadFileServiceTests
         }
     }
 
-    private sealed class TrackingReadStream(Byte[] content) : MemoryStream(content, false)
+    private sealed class TrackingReadStream : MemoryStream
     {
         private Boolean _disposeTracked;
+
+        public TrackingReadStream(Byte[] content)
+            : base(content, false) { }
 
         public Int32 DisposeCount { get; private set; }
 
@@ -1183,15 +1207,20 @@ public sealed class DownloadFileServiceTests
         }
     }
 
-    private sealed class ZeroGeneratingReadStream(Int64 length) : Stream
+    private sealed class ZeroGeneratingReadStream : Stream
     {
-        private readonly Int64 _length = length;
         private Boolean _disposed;
+
+        public ZeroGeneratingReadStream(Int64 length)
+        {
+            Length = length;
+        }
 
         public override Boolean CanRead => !_disposed;
         public override Boolean CanSeek => true;
         public override Boolean CanWrite => false;
-        public override Int64 Length => _length;
+        public override Int64 Length { get; }
+
         public override Int64 Position { get; set; }
 
         public Int64 TotalBytesRead { get; private set; }
@@ -1211,7 +1240,7 @@ public sealed class DownloadFileServiceTests
 
         public override Int32 Read(Span<Byte> buffer)
         {
-            var bytesToRead = (Int32)Math.Min(buffer.Length, _length - Position);
+            var bytesToRead = (Int32)Math.Min(buffer.Length, Length - Position);
             if (bytesToRead <= 0)
             {
                 return 0;
@@ -1228,7 +1257,7 @@ public sealed class DownloadFileServiceTests
 
         public override ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
-            var bytesToRead = (Int32)Math.Min(buffer.Length, _length - Position);
+            var bytesToRead = (Int32)Math.Min(buffer.Length, Length - Position);
             if (bytesToRead <= 0)
             {
                 return ValueTask.FromResult(0);
@@ -1245,7 +1274,7 @@ public sealed class DownloadFileServiceTests
             {
                 SeekOrigin.Begin => offset,
                 SeekOrigin.Current => Position + offset,
-                SeekOrigin.End => _length + offset,
+                SeekOrigin.End => Length + offset,
                 _ => throw new ArgumentOutOfRangeException(nameof(origin))
             };
 

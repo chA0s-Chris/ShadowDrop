@@ -341,15 +341,22 @@ public sealed class CliApplicationTests
             new PlainDownloadProgressReporterFactory(standardOut, standardError, TimeProvider.System),
             FixedTerminalCapabilityProvider.Plain);
 
-    private sealed class BoundaryInteractiveSession(Action assertBoundary) : ICliInteractiveSession
+    private sealed class BoundaryInteractiveSession : ICliInteractiveSession
     {
+        private readonly Action _assertBoundary;
+
+        public BoundaryInteractiveSession(Action assertBoundary)
+        {
+            _assertBoundary = assertBoundary;
+        }
+
         public Int32 PromptCount { get; private set; }
         public Boolean IsInteractiveSupported => true;
 
         private T ObserveBoundary<T>()
         {
             PromptCount++;
-            assertBoundary();
+            _assertBoundary();
             throw new BoundaryObservedException();
         }
 

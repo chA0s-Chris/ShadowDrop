@@ -2,11 +2,22 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Shares;
 
-public sealed class ShareRevocationService(
-    IShareMetadataRepository shareMetadataRepository,
-    TimeProvider timeProvider,
-    ILogger<ShareRevocationService> logger)
+public sealed class ShareRevocationService
 {
+    private readonly ILogger<ShareRevocationService> _logger;
+    private readonly IShareMetadataRepository _shareMetadataRepository;
+    private readonly TimeProvider _timeProvider;
+
+    public ShareRevocationService(
+        IShareMetadataRepository shareMetadataRepository,
+        TimeProvider timeProvider,
+        ILogger<ShareRevocationService> logger)
+    {
+        _shareMetadataRepository = shareMetadataRepository;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
     public async Task<Boolean> RevokeAsync(Guid shareId, CancellationToken cancellationToken)
     {
         if (shareId == Guid.Empty)
@@ -14,14 +25,14 @@ public sealed class ShareRevocationService(
             return false;
         }
 
-        var revoked = await shareMetadataRepository.TryRevokeAsync(shareId, timeProvider.GetUtcNow(), cancellationToken);
+        var revoked = await _shareMetadataRepository.TryRevokeAsync(shareId, _timeProvider.GetUtcNow(), cancellationToken);
         if (revoked)
         {
-            logger.LogInformation("Share revoked. ShareId: {ShareId}", shareId);
+            _logger.LogInformation("Share revoked. ShareId: {ShareId}", shareId);
         }
         else
         {
-            logger.LogWarning("Share revocation rejected because the share was not found. ShareId: {ShareId}", shareId);
+            _logger.LogWarning("Share revocation rejected because the share was not found. ShareId: {ShareId}", shareId);
         }
 
         return revoked;

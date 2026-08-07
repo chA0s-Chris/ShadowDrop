@@ -6,8 +6,15 @@ using ShadowDrop.Cli.Http;
 using System.Net;
 using System.Net.Http.Headers;
 
-internal sealed class RevokeShareApiClient(HttpClient httpClient)
+internal sealed class RevokeShareApiClient
 {
+    private readonly HttpClient _httpClient;
+
+    public RevokeShareApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task RevokeAsync(Uri serverUrl, String adminToken, Guid shareId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
@@ -23,7 +30,7 @@ internal sealed class RevokeShareApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, deadline.Token);
             switch (response.StatusCode)
             {
                 case HttpStatusCode.NoContent:

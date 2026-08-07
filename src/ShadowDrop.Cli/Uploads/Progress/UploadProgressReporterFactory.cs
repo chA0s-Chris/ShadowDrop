@@ -9,14 +9,24 @@ using Spectre.Console;
 /// <summary>
 /// Selects stderr-based upload progress reporting for rich terminals, deterministic plain output, or JSON suppression.
 /// </summary>
-internal sealed class UploadProgressReporterFactory(
-    TextWriter standardError,
-    TimeProvider timeProvider,
-    ITerminalCapabilityProvider capabilityProvider)
+internal sealed class UploadProgressReporterFactory
     : IUploadProgressReporterFactory
 {
+    private readonly ITerminalCapabilityProvider _capabilityProvider;
+    private readonly TextWriter _standardError;
+    private readonly TimeProvider _timeProvider;
+
+    public UploadProgressReporterFactory(TextWriter standardError,
+                                         TimeProvider timeProvider,
+                                         ITerminalCapabilityProvider capabilityProvider)
+    {
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+        _capabilityProvider = capabilityProvider;
+    }
+
     private static IAnsiConsole CreateConsole(TextWriter writer) =>
-        AnsiConsole.Create(new AnsiConsoleSettings
+        AnsiConsole.Create(new()
         {
             Out = new AnsiConsoleOutput(writer)
         });
@@ -28,21 +38,31 @@ internal sealed class UploadProgressReporterFactory(
             return NullUploadProgressReporter.Instance;
         }
 
-        if (DownloadProgressModeSelector.Select(capabilityProvider.DetectForStandardError()) == DownloadProgressMode.Rich)
+        if (DownloadProgressModeSelector.Select(_capabilityProvider.DetectForStandardError()) == DownloadProgressMode.Rich)
         {
-            var console = CreateConsole(standardError);
-            return new SpectreUploadProgressReporter(console, console, timeProvider);
+            var console = CreateConsole(_standardError);
+            return new SpectreUploadProgressReporter(console, console, _timeProvider);
         }
 
-        return new PlainTextUploadProgressReporter(standardError, timeProvider);
+        return new PlainTextUploadProgressReporter(_standardError, _timeProvider);
     }
 }
 
 /// <summary>
 /// Always creates a deterministic plain-text upload reporter, used by tests to avoid terminal-dependent output.
 /// </summary>
-internal sealed class PlainUploadProgressReporterFactory(TextWriter standardError, TimeProvider timeProvider) : IUploadProgressReporterFactory
+internal sealed class PlainUploadProgressReporterFactory : IUploadProgressReporterFactory
 {
+    private readonly TextWriter _standardError;
+    private readonly TimeProvider _timeProvider;
+
+    public PlainUploadProgressReporterFactory(TextWriter standardError,
+                                              TimeProvider timeProvider)
+    {
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+    }
+
     public IUploadProgressReporter Create(Boolean json) =>
-        json ? NullUploadProgressReporter.Instance : new PlainTextUploadProgressReporter(standardError, timeProvider);
+        json ? NullUploadProgressReporter.Instance : new PlainTextUploadProgressReporter(_standardError, _timeProvider);
 }

@@ -7,13 +7,21 @@ using MongoDB.Bson;
 using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 
-public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILogger<MongoUploadedFileMetadataRepository> logger)
-    : IUploadedFileMetadataRepository
+public sealed class MongoUploadedFileMetadataRepository : IUploadedFileMetadataRepository
 {
     private static readonly TimeSpan ReservationRetention = TimeSpan.FromDays(1);
 
+    private readonly ILogger<MongoUploadedFileMetadataRepository> _logger;
+    private readonly IMongoHelper _mongo;
+
+    public MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILogger<MongoUploadedFileMetadataRepository> logger)
+    {
+        _mongo = mongo;
+        _logger = logger;
+    }
+
     private static Int64 Cutoff => DateTimeOffset.UtcNow.Subtract(ReservationRetention).ToUnixTimeMilliseconds();
-    private IMongoCollection<MongoUploadedFileDocument> Collection => mongo.GetCollection<MongoUploadedFileDocument>();
+    private IMongoCollection<MongoUploadedFileDocument> Collection => _mongo.GetCollection<MongoUploadedFileDocument>();
 
     private static UploadedFileRecord Map(MongoUploadedFileDocument document) =>
         new(document.FileId, document.BlobKey, document.OriginalFileName, document.PlaintextLength,
@@ -41,7 +49,7 @@ public sealed class MongoUploadedFileMetadataRepository(IMongoHelper mongo, ILog
             }
             catch (MongoWriteException exception) when (exception.WriteError?.Category == ServerErrorCategory.DuplicateKey)
             {
-                logger.LogDebug("Generated upload reservation id collided. FileId: {FileId}", fileId);
+                _logger.LogDebug("Generated upload reservation id collided. FileId: {FileId}", fileId);
             }
         }
     }

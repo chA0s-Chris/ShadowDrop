@@ -13,7 +13,7 @@ namespace ShadowDrop.Cli.Updates;
 /// emitted instead. Plain <c>iwr … | iex</c> cannot pass parameters, so the directory-pinned Windows
 /// command uses the scriptblock form from the installation guide.
 /// </remarks>
-internal sealed class InstallationGuidanceProvider(Boolean isWindows, String? executableDirectory) : IInstallationGuidanceProvider
+internal sealed class InstallationGuidanceProvider : IInstallationGuidanceProvider
 {
     private const String InstallerBaseUrl = "https://get.shadowdrop.net";
 
@@ -24,6 +24,15 @@ internal sealed class InstallationGuidanceProvider(Boolean isWindows, String? ex
     private const String WindowsDefaultInstallCommand = $"iwr -useb {WindowsInstallScriptUrl} | iex";
 
     private const String WindowsInstallScriptUrl = $"{InstallerBaseUrl}/install.ps1";
+    private readonly String? _executableDirectory;
+    private readonly Boolean _isWindows;
+
+    public InstallationGuidanceProvider(Boolean isWindows,
+                                        String? executableDirectory)
+    {
+        _isWindows = isWindows;
+        _executableDirectory = executableDirectory;
+    }
 
     public InstallationGuidanceProvider()
         : this(OperatingSystem.IsWindows(), Path.GetDirectoryName(Environment.ProcessPath)) { }
@@ -34,13 +43,13 @@ internal sealed class InstallationGuidanceProvider(Boolean isWindows, String? ex
 
     public String GetInstallCommand()
     {
-        if (String.IsNullOrWhiteSpace(executableDirectory))
+        if (String.IsNullOrWhiteSpace(_executableDirectory))
         {
-            return isWindows ? WindowsDefaultInstallCommand : UnixDefaultInstallCommand;
+            return _isWindows ? WindowsDefaultInstallCommand : UnixDefaultInstallCommand;
         }
 
-        return isWindows
-            ? $"& ([scriptblock]::Create((iwr -useb {WindowsInstallScriptUrl}))) -InstallDir {QuotePowerShellArgument(executableDirectory)}"
-            : $"curl -fsSL {UnixInstallScriptUrl} | sh -s -- --install-dir {QuotePosixShellArgument(executableDirectory)}";
+        return _isWindows
+            ? $"& ([scriptblock]::Create((iwr -useb {WindowsInstallScriptUrl}))) -InstallDir {QuotePowerShellArgument(_executableDirectory)}"
+            : $"curl -fsSL {UnixInstallScriptUrl} | sh -s -- --install-dir {QuotePosixShellArgument(_executableDirectory)}";
     }
 }

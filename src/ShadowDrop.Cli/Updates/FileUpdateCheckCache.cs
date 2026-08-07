@@ -10,13 +10,20 @@ using System.Text.Json;
 /// File-backed <see cref="IUpdateCheckCache"/>. Reads tolerate a missing or corrupt cache file and writes
 /// are atomic and best-effort, so cache trouble can never break a command or an update check.
 /// </summary>
-internal sealed class FileUpdateCheckCache(UpdateCheckCachePathResolver pathResolver) : IUpdateCheckCache
+internal sealed class FileUpdateCheckCache : IUpdateCheckCache
 {
+    private readonly UpdateCheckCachePathResolver _pathResolver;
+
+    public FileUpdateCheckCache(UpdateCheckCachePathResolver pathResolver)
+    {
+        _pathResolver = pathResolver;
+    }
+
     public UpdateCheckRecord? Read()
     {
         try
         {
-            var path = pathResolver.GetCacheFilePath();
+            var path = _pathResolver.GetCacheFilePath();
             if (path is null || !File.Exists(path))
             {
                 return null;
@@ -37,7 +44,7 @@ internal sealed class FileUpdateCheckCache(UpdateCheckCachePathResolver pathReso
 
         try
         {
-            var path = pathResolver.GetCacheFilePath();
+            var path = _pathResolver.GetCacheFilePath();
             if (path is null)
             {
                 return;

@@ -5,23 +5,35 @@ namespace ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Configuration;
 using System.Text.Json;
 
-internal sealed class TokenInspectCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError)
+internal sealed class TokenInspectCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+
+    public TokenInspectCommandHandler(CliConfigurationResolver configurationResolver,
+                                      HttpClient httpClient,
+                                      TextWriter standardOut,
+                                      TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(TokenInspectCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (!Guid.TryParse(options.CredentialId, out var credentialId) || credentialId == Guid.Empty)
         {
-            await standardError.WriteLineAsync("Credential id invalid or missing.");
+            await _standardError.WriteLineAsync("Credential id invalid or missing.");
             return 1;
         }
 
-        if (await AdminConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, standardError)
+        if (await AdminConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.AdminTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -30,25 +42,25 @@ internal sealed class TokenInspectCommandHandler(
         UploadCredentialCliProjection credential;
         try
         {
-            credential = await new TokenApiClient(httpClient).InspectAsync(configuration.ServerUrl,
-                                                                           configuration.AdminToken,
-                                                                           credentialId,
-                                                                           cancellationToken);
+            credential = await new TokenApiClient(_httpClient).InspectAsync(configuration.ServerUrl,
+                                                                            configuration.AdminToken,
+                                                                            credentialId,
+                                                                            cancellationToken);
         }
         catch (TokenCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
 
         if (options.Json)
         {
-            await standardOut.WriteLineAsync(JsonSerializer.Serialize(credential,
-                                                                      CliJsonSerializerContext.Default.UploadCredentialCliProjection));
+            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(credential,
+                                                                       CliJsonSerializerContext.Default.UploadCredentialCliProjection));
             return 0;
         }
 
-        await TokenOutput.WriteDetailsAsync(standardOut, credential);
+        await TokenOutput.WriteDetailsAsync(_standardOut, credential);
         return 0;
     }
 }

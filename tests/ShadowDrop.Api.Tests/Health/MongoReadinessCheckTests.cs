@@ -78,11 +78,16 @@ public sealed class MongoReadinessCheckTests
             Timeout = checkTimeout ?? CompositeReadinessCheck.DefaultTimeout
         };
 
-    private sealed class StubMongoHelper(IMongoDatabase database) : IMongoHelper
+    private sealed class StubMongoHelper : IMongoHelper
     {
+        public StubMongoHelper(IMongoDatabase database)
+        {
+            Database = database;
+        }
+
         public IMongoClient Client => throw new NotImplementedException();
 
-        public IMongoDatabase Database => database;
+        public IMongoDatabase Database { get; }
 
         public IMongoCollection<TDocument> GetCollection<TDocument>(MongoCollectionSettings? settings = null) => throw new NotImplementedException();
 
@@ -95,8 +100,15 @@ public sealed class MongoReadinessCheckTests
     /// <see cref="RunCommandAsync{TResult}(Command{TResult}, ReadPreference?, CancellationToken)"/> overload used by
     /// <see cref="MongoOperationalDependencyProbe"/> is functional; every other member throws.
     /// </summary>
-    private sealed class StubMongoDatabase(Func<CancellationToken, Task<BsonDocument>> ping) : IMongoDatabase
+    private sealed class StubMongoDatabase : IMongoDatabase
     {
+        private readonly Func<CancellationToken, Task<BsonDocument>> _ping;
+
+        public StubMongoDatabase(Func<CancellationToken, Task<BsonDocument>> ping)
+        {
+            _ping = ping;
+        }
+
         public IMongoClient Client => throw new NotImplementedException();
 
         public DatabaseNamespace DatabaseNamespace => throw new NotImplementedException();
@@ -228,7 +240,7 @@ public sealed class MongoReadinessCheckTests
 
         public Task<TResult> RunCommandAsync<TResult>(Command<TResult> command, ReadPreference? readPreference = null,
                                                       CancellationToken cancellationToken = default) =>
-            (Task<TResult>)(Object)ping(cancellationToken);
+            (Task<TResult>)(Object)_ping(cancellationToken);
 
         public Task<TResult> RunCommandAsync<TResult>(IClientSessionHandle session, Command<TResult> command, ReadPreference? readPreference = null,
                                                       CancellationToken cancellationToken = default) => throw new NotImplementedException();

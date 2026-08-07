@@ -144,13 +144,20 @@ internal static class CliHttpClientFactory
     /// An <see cref="HttpClientHandler"/> that owns the trusted root certificate loaded for <c>--cacert</c> and
     /// disposes its native resources together with the handler, so the certificate does not leak across invocations.
     /// </summary>
-    private sealed class CertificateOwningHttpClientHandler(X509Certificate2 trustedRoot) : HttpClientHandler
+    private sealed class CertificateOwningHttpClientHandler : HttpClientHandler
     {
+        private readonly X509Certificate2 _trustedRoot;
+
+        public CertificateOwningHttpClientHandler(X509Certificate2 trustedRoot)
+        {
+            _trustedRoot = trustedRoot;
+        }
+
         protected override void Dispose(Boolean disposing)
         {
             if (disposing)
             {
-                trustedRoot.Dispose();
+                _trustedRoot.Dispose();
             }
 
             base.Dispose(disposing);

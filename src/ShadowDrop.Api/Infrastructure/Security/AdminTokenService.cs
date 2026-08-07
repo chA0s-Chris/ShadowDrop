@@ -4,17 +4,25 @@ namespace ShadowDrop.Api.Infrastructure.Security;
 
 using System.Security.Cryptography;
 
-public sealed class AdminTokenService(IAdminTokenCredentialRepository repository, ILogger<AdminTokenService> logger)
+public sealed class AdminTokenService
 {
     private const String BootstrapTokenEnvironmentVariable = "SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN";
     private const Int32 SaltSize = 16;
     private const Int32 TokenHashIterations = 100_000;
     private const Int32 TokenHashSize = 32;
+    private readonly ILogger<AdminTokenService> _logger;
+    private readonly IAdminTokenCredentialRepository _repository;
     private AdminTokenCredential? _credential;
+
+    public AdminTokenService(IAdminTokenCredentialRepository repository, ILogger<AdminTokenService> logger)
+    {
+        _repository = repository;
+        _logger = logger;
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        var credential = await repository.GetAsync(cancellationToken);
+        var credential = await _repository.GetAsync(cancellationToken);
         if (credential is null)
         {
             var bootstrapToken = Environment.GetEnvironmentVariable(BootstrapTokenEnvironmentVariable)?.Trim();
@@ -36,14 +44,14 @@ public sealed class AdminTokenService(IAdminTokenCredentialRepository repository
                 Convert.ToBase64String(HashToken(bootstrapToken, salt, TokenHashIterations)),
                 Convert.ToBase64String(salt),
                 TokenHashIterations);
-            if (await repository.TryCreateAsync(createdCredential, cancellationToken))
+            if (await _repository.TryCreateAsync(createdCredential, cancellationToken))
             {
                 credential = createdCredential;
-                logger.LogInformation("Bootstrap admin token was initialized");
+                _logger.LogInformation("Bootstrap admin token was initialized");
             }
             else
             {
-                credential = await repository.GetAsync(cancellationToken)
+                credential = await _repository.GetAsync(cancellationToken)
                              ?? throw new InvalidOperationException("The admin token credential could not be initialized.");
             }
         }

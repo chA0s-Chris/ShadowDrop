@@ -8,8 +8,15 @@ using ShadowDrop.Contracts;
 using System.Net;
 using System.Text.Json;
 
-internal sealed class ShareManifestClient(HttpClient httpClient)
+internal sealed class ShareManifestClient
 {
+    private readonly HttpClient _httpClient;
+
+    public ShareManifestClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<ShareManifestContract> GetAsync(Uri serverUrl, String shareToken, String? bearerToken, CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareToken));
@@ -21,7 +28,7 @@ internal sealed class ShareManifestClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
             {
                 throw new DownloadCommandException("Share unavailable or unauthorized.");

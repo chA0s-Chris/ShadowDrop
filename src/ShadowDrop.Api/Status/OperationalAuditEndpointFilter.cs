@@ -6,8 +6,15 @@ using System.Diagnostics;
 
 internal sealed record OperationalAuditMetadata(String Operation);
 
-internal sealed class OperationalAuditEndpointFilter(ILogger<OperationalAuditEndpointFilter> logger) : IEndpointFilter
+internal sealed class OperationalAuditEndpointFilter : IEndpointFilter
 {
+    private readonly ILogger<OperationalAuditEndpointFilter> _logger;
+
+    public OperationalAuditEndpointFilter(ILogger<OperationalAuditEndpointFilter> logger)
+    {
+        _logger = logger;
+    }
+
     private static String ResolveOutcome(Int32 statusCode) => statusCode switch
     {
         >= 200 and < 400 => "success",
@@ -21,19 +28,19 @@ internal sealed class OperationalAuditEndpointFilter(ILogger<OperationalAuditEnd
         var elapsedMilliseconds = (Int64)Math.Round(elapsed.TotalMilliseconds, MidpointRounding.AwayFromZero);
         if (outcome is "success" or "cancelled")
         {
-            logger.LogInformation(
+            _logger.LogInformation(
                 "Operational audit: Operation: {Operation}; Outcome: {Outcome}; HttpStatus: {HttpStatus}; ElapsedMilliseconds: {ElapsedMilliseconds}",
                 operation, outcome, statusCode, elapsedMilliseconds);
         }
         else if (outcome is "unauthorized" or "invalid-request")
         {
-            logger.LogWarning(
+            _logger.LogWarning(
                 "Operational audit: Operation: {Operation}; Outcome: {Outcome}; HttpStatus: {HttpStatus}; ElapsedMilliseconds: {ElapsedMilliseconds}",
                 operation, outcome, statusCode, elapsedMilliseconds);
         }
         else
         {
-            logger.LogError(
+            _logger.LogError(
                 "Operational audit: Operation: {Operation}; Outcome: {Outcome}; HttpStatus: {HttpStatus}; ElapsedMilliseconds: {ElapsedMilliseconds}",
                 operation, outcome, statusCode, elapsedMilliseconds);
         }

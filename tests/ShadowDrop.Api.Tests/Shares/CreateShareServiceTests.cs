@@ -292,47 +292,57 @@ public sealed class CreateShareServiceTests
         return reservedFileId;
     }
 
-    private sealed class IndeterminateInsertShareRepository(IShareMetadataRepository inner, Boolean insertLanded)
+    private sealed class IndeterminateInsertShareRepository
         : IShareMetadataRepository
     {
+        private readonly IShareMetadataRepository _inner;
+        private readonly Boolean _insertLanded;
+
         private Int32 _createCalls;
 
+        public IndeterminateInsertShareRepository(IShareMetadataRepository inner,
+                                                  Boolean insertLanded)
+        {
+            _inner = inner;
+            _insertLanded = insertLanded;
+        }
+
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) =>
-            inner.CountMatchingAsync(query, cancellationToken);
+            _inner.CountMatchingAsync(query, cancellationToken);
 
         public async Task CreateAsync(ShareRecord record, CancellationToken cancellationToken)
         {
             if (Interlocked.Increment(ref _createCalls) != 1)
             {
-                await inner.CreateAsync(record, cancellationToken);
+                await _inner.CreateAsync(record, cancellationToken);
                 return;
             }
 
-            if (insertLanded)
+            if (_insertLanded)
             {
-                await inner.CreateAsync(record, cancellationToken);
+                await _inner.CreateAsync(record, cancellationToken);
             }
 
             throw new TimeoutException("insert outcome was indeterminate");
         }
 
         public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) =>
-            inner.GetAsync(shareId, cancellationToken);
+            _inner.GetAsync(shareId, cancellationToken);
 
         public Task<ShareRecord?> GetByShareTokenHashAsync(
             String shareTokenHashBase64,
             DateTimeOffset nowUtc,
             CancellationToken cancellationToken) =>
-            inner.GetByShareTokenHashAsync(shareTokenHashBase64, nowUtc, cancellationToken);
+            _inner.GetByShareTokenHashAsync(shareTokenHashBase64, nowUtc, cancellationToken);
 
         public Task<IReadOnlyList<ShareRecord>> GetCleanupCandidatesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
-            inner.GetCleanupCandidatesAsync(nowUtc, cancellationToken);
+            _inner.GetCleanupCandidatesAsync(nowUtc, cancellationToken);
 
         public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken) =>
-            inner.GetListPageAsync(query, cancellationToken);
+            _inner.GetListPageAsync(query, cancellationToken);
 
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
-            inner.GetStatusCountsAsync(nowUtc, cancellationToken);
+            _inner.GetStatusCountsAsync(nowUtc, cancellationToken);
 
         public Task<Boolean> TryRecordCleanupAttemptAsync(
             Guid shareId,
@@ -340,10 +350,10 @@ public sealed class CreateShareServiceTests
             DateTimeOffset completedAtUtc,
             IReadOnlyCollection<String> failureCategories,
             CancellationToken cancellationToken) =>
-            inner.TryRecordCleanupAttemptAsync(shareId, cleanupState, completedAtUtc, failureCategories, cancellationToken);
+            _inner.TryRecordCleanupAttemptAsync(shareId, cleanupState, completedAtUtc, failureCategories, cancellationToken);
 
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
-            inner.TryRevokeAsync(shareId, revokedAtUtc, cancellationToken);
+            _inner.TryRevokeAsync(shareId, revokedAtUtc, cancellationToken);
     }
 
     private sealed class SharePersistenceFixture : IAsyncDisposable

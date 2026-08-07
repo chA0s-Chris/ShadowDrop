@@ -16,14 +16,30 @@ using System.Text.Json;
 /// Runs the end-to-end upload workflow: encrypt and upload every file under one share key, create exactly
 /// one share when all uploads succeed, and deliver the non-retrievable credentials required to download it.
 /// </summary>
-internal sealed class UploadCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError,
-    TimeProvider timeProvider,
-    IUploadProgressReporterFactory uploadProgressReporterFactory)
+internal sealed class UploadCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly TimeProvider _timeProvider;
+    private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
+
+    public UploadCommandHandler(CliConfigurationResolver configurationResolver,
+                                HttpClient httpClient,
+                                TextWriter standardOut,
+                                TextWriter standardError,
+                                TimeProvider timeProvider,
+                                IUploadProgressReporterFactory uploadProgressReporterFactory)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+        _uploadProgressReporterFactory = uploadProgressReporterFactory;
+    }
+
     public async Task<Int32> ExecuteAsync(UploadCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -33,11 +49,11 @@ internal sealed class UploadCommandHandler(
         if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
                                                      out var displayNameOverrides, out var displayNameError))
         {
-            await standardError.WriteLineAsync(displayNameError);
+            await _standardError.WriteLineAsync(displayNameError);
             return 1;
         }
 
-        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -48,25 +64,25 @@ internal sealed class UploadCommandHandler(
         // Validate share options and the credential sink before any file I/O or network requests begin.
         if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var optionError))
         {
-            await standardError.WriteLineAsync(optionError);
+            await _standardError.WriteLineAsync(optionError);
             return 1;
         }
 
         if (options.DirectHttp && options.QueueOut is not null)
         {
-            await standardError.WriteLineAsync("Direct HTTP shares do not support queue generation (--queue-out).");
+            await _standardError.WriteLineAsync("Direct HTTP shares do not support queue generation (--queue-out).");
             return 1;
         }
 
         if (options.DirectHttp && options.SecretsOut is not null)
         {
-            await standardError.WriteLineAsync("Direct HTTP shares do not support writing secrets to a separate file (--secrets-out).");
+            await _standardError.WriteLineAsync("Direct HTTP shares do not support writing secrets to a separate file (--secrets-out).");
             return 1;
         }
 
         if (options.EmbedSecrets && options.QueueOut is null)
         {
-            await standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
+            await _standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
             return 1;
         }
 
@@ -78,7 +94,7 @@ internal sealed class UploadCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync(exception.Message);
                 return 1;
             }
         }
@@ -91,17 +107,17 @@ internal sealed class UploadCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync(exception.Message);
                 return 1;
             }
         }
 
-        var executor = new UploadCommandExecutor(httpClient);
+        var executor = new UploadCommandExecutor(_httpClient);
         var uploadResult =
             await executor.ExecuteAsync(options.Files,
                                         serverUrl,
                                         configuration.UploadToken,
-                                        uploadProgressReporterFactory.Create(options.Json),
+                                        _uploadProgressReporterFactory.Create(options.Json),
                                         cancellationToken);
 
         if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
@@ -114,7 +130,7 @@ internal sealed class UploadCommandHandler(
         // the helpers below, which receive the upload result as a parameter and cannot see that narrowing.
         var shareSecretHex = uploadResult.ShareSecretHex;
 
-        var expiresAtUtc = timeProvider.GetUtcNow().Add(expiration);
+        var expiresAtUtc = _timeProvider.GetUtcNow().Add(expiration);
         var shareRequest = new CreateShareCliRequest(
             expiresAtUtc,
             uploadResult.Files.Select(result => new CreateShareCliFileRequest(
@@ -127,11 +143,11 @@ internal sealed class UploadCommandHandler(
         CreateShareCliResult shareResult;
         try
         {
-            shareResult = await new CreateShareApiClient(httpClient).CreateAsync(serverUrl, configuration.UploadToken, shareRequest, cancellationToken);
+            shareResult = await new CreateShareApiClient(_httpClient).CreateAsync(serverUrl, configuration.UploadToken, shareRequest, cancellationToken);
         }
         catch (CreateShareCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             await WriteResultIfJsonAsync(options, BuildResult(UploadCommandStatus.ShareCreationFailed, uploadResult, null, null, null, null));
             return 1;
         }
@@ -141,13 +157,13 @@ internal sealed class UploadCommandHandler(
         // A requested download bearer token must be present, otherwise success would be reported without a credential the share requires.
         if (options.GenerateDownloadToken && String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
         {
-            await standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
+            await _standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
             await WriteResultIfJsonAsync(options,
                                          BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
                                                      shareResult.ShareToken, shareUrl, null));
             if (!options.Json)
             {
-                await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+                await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
             }
 
             return 1;
@@ -164,14 +180,14 @@ internal sealed class UploadCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
-                await standardError.WriteLineAsync("The share was created but its credentials could not be delivered.");
+                await _standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync("The share was created but its credentials could not be delivered.");
                 await WriteResultIfJsonAsync(options,
                                              BuildResult(UploadCommandStatus.CredentialDeliveryFailed, uploadResult, shareResult.ShareId,
                                                          shareResult.ShareToken, shareUrl, null));
                 if (!options.Json)
                 {
-                    await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+                    await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
                 }
 
                 return 1;
@@ -190,16 +206,16 @@ internal sealed class UploadCommandHandler(
                         DownloadBearerToken = shareResult.DownloadBearerToken
                     }
                     : null;
-                var manifest = await new ShareManifestClient(httpClient).GetAsync(serverUrl, shareResult.ShareToken, shareResult.DownloadBearerToken,
-                                                                                  cancellationToken);
+                var manifest = await new ShareManifestClient(_httpClient).GetAsync(serverUrl, shareResult.ShareToken, shareResult.DownloadBearerToken,
+                                                                                   cancellationToken);
                 var queue = QueueFileBuilder.Build(serverUrl, shareResult.ShareToken, manifest, queueCredentials);
                 AtomicFileWriter.WriteAtomic(options.QueueOut, QueueFileParser.Serialize(queue), options.Force, options.EmbedSecrets);
                 queueFilePath = options.QueueOut.FullName;
             }
             catch (Exception exception) when (exception is DownloadCommandException or QueueBuildException or AtomicFileException)
             {
-                await standardError.WriteLineAsync(exception.Message);
-                await standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
+                await _standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync("The share was created but the queue file could not be generated.");
 
                 // Still deliver the credentials so they are not lost, but report the failed stage and a non-zero exit.
                 await EmitResultAsync(options, serverUrl, UploadCommandStatus.QueueWriteFailed, uploadResult, shareSecretHex, shareResult, shareUrl, null,
@@ -278,39 +294,39 @@ internal sealed class UploadCommandHandler(
         {
             var credentials = secretsOut is not null ? null : new UploadCredentials(shareSecretHex, shareResult.DownloadBearerToken);
             var secretsFile = secretsOut?.FullName;
-            await UploadResultWriter.WriteAsync(standardOut,
+            await UploadResultWriter.WriteAsync(_standardOut,
                                                 BuildResult(status, uploadResult, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
                                                             secretsFile, queueFile, directHttpDownloads));
             return;
         }
 
-        await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+        await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
         if (directHttpDownloads is not null)
         {
             await WriteDirectHttpDownloadsAsync(directHttpDownloads);
         }
         else if (secretsOut is not null)
         {
-            await standardOut.WriteLineAsync($"secrets-file:{secretsOut.FullName}");
+            await _standardOut.WriteLineAsync($"secrets-file:{secretsOut.FullName}");
         }
         else
         {
-            await standardOut.WriteLineAsync($"share-key:{shareSecretHex}");
+            await _standardOut.WriteLineAsync($"share-key:{shareSecretHex}");
             if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
             {
-                await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
+                await _standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
             }
         }
 
         if (queueFile is not null)
         {
-            await standardOut.WriteLineAsync($"queue-file:{queueFile}");
+            await _standardOut.WriteLineAsync($"queue-file:{queueFile}");
             if (!options.EmbedSecrets)
             {
                 var keySource = options.SecretsOut is not null
                     ? $"the 'shareKey' value from {options.SecretsOut.FullName}"
                     : "the 'share-key:' value shown above";
-                await standardError.WriteLineAsync(
+                await _standardError.WriteLineAsync(
                     $"Note: the queue is secret-free. Keep {keySource} and pass it via --share-key to download the queue, "
                     + "or re-run with --embed-secrets for a self-contained queue.");
             }
@@ -321,19 +337,19 @@ internal sealed class UploadCommandHandler(
     {
         if (directHttpDownloads.Count == 1)
         {
-            await standardOut.WriteLineAsync($"download-url:{directHttpDownloads[0].DownloadUrl}");
-            await standardOut.WriteLineAsync($"curl-command:{directHttpDownloads[0].CurlCommand}");
+            await _standardOut.WriteLineAsync($"download-url:{directHttpDownloads[0].DownloadUrl}");
+            await _standardOut.WriteLineAsync($"curl-command:{directHttpDownloads[0].CurlCommand}");
             return;
         }
 
         foreach (var directHttpDownload in directHttpDownloads)
         {
-            await standardOut.WriteLineAsync($"download-url:{directHttpDownload.FileId}:{directHttpDownload.DownloadUrl}");
+            await _standardOut.WriteLineAsync($"download-url:{directHttpDownload.FileId}:{directHttpDownload.DownloadUrl}");
         }
 
         foreach (var directHttpDownload in directHttpDownloads)
         {
-            await standardOut.WriteLineAsync($"curl-command:{directHttpDownload.FileId}:{directHttpDownload.CurlCommand}");
+            await _standardOut.WriteLineAsync($"curl-command:{directHttpDownload.FileId}:{directHttpDownload.CurlCommand}");
         }
     }
 
@@ -341,7 +357,7 @@ internal sealed class UploadCommandHandler(
     {
         if (options.Json)
         {
-            await UploadResultWriter.WriteAsync(standardOut, result);
+            await UploadResultWriter.WriteAsync(_standardOut, result);
         }
     }
 }

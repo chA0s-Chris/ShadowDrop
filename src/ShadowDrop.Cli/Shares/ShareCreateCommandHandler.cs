@@ -14,13 +14,27 @@ using System.Text.Json;
 /// delivers the public share token/URL plus any generated download bearer token. It never requires the
 /// plaintext share key because the server does not receive it.
 /// </summary>
-internal sealed class ShareCreateCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError,
-    TimeProvider timeProvider)
+internal sealed class ShareCreateCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly TimeProvider _timeProvider;
+
+    public ShareCreateCommandHandler(CliConfigurationResolver configurationResolver,
+                                     HttpClient httpClient,
+                                     TextWriter standardOut,
+                                     TextWriter standardError,
+                                     TimeProvider timeProvider)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _timeProvider = timeProvider;
+    }
+
     public async Task<Int32> ExecuteAsync(ShareCreateCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -30,7 +44,7 @@ internal sealed class ShareCreateCommandHandler(
         {
             if (!Guid.TryParse(fileIdText, out var fileId) || fileId == Guid.Empty)
             {
-                await standardError.WriteLineAsync("File id invalid or missing.");
+                await _standardError.WriteLineAsync("File id invalid or missing.");
                 return 1;
             }
 
@@ -41,13 +55,13 @@ internal sealed class ShareCreateCommandHandler(
         if (!DisplayNameResolver.TryResolveForShareCreate(fileIdList, options.DisplayNameMappings, out var displayNameOverrides,
                                                           out var displayNameError))
         {
-            await standardError.WriteLineAsync(displayNameError);
+            await _standardError.WriteLineAsync(displayNameError);
             return 1;
         }
 
         var files = fileIdList.Select(fileId => new CreateShareCliFileRequest(fileId, displayNameOverrides.GetValueOrDefault(fileId))).ToList();
 
-        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -57,7 +71,7 @@ internal sealed class ShareCreateCommandHandler(
 
         if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var optionError))
         {
-            await standardError.WriteLineAsync(optionError);
+            await _standardError.WriteLineAsync(optionError);
             return 1;
         }
 
@@ -66,7 +80,7 @@ internal sealed class ShareCreateCommandHandler(
             // The only secret this command can deliver is the download bearer token.
             if (!options.GenerateDownloadToken)
             {
-                await standardError.WriteLineAsync("--secrets-out requires --download-token; there are no other secrets to write.");
+                await _standardError.WriteLineAsync("--secrets-out requires --download-token; there are no other secrets to write.");
                 return 1;
             }
 
@@ -76,12 +90,12 @@ internal sealed class ShareCreateCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync(exception.Message);
                 return 1;
             }
         }
 
-        var expiresAtUtc = timeProvider.GetUtcNow().Add(expiration);
+        var expiresAtUtc = _timeProvider.GetUtcNow().Add(expiration);
         var shareRequest = new CreateShareCliRequest(expiresAtUtc,
                                                      files,
                                                      options.DirectHttp,
@@ -94,14 +108,14 @@ internal sealed class ShareCreateCommandHandler(
         CreateShareCliResult shareResult;
         try
         {
-            shareResult = await new CreateShareApiClient(httpClient).CreateAsync(serverUrl, configuration.UploadToken, shareRequest, cancellationToken);
+            shareResult = await new CreateShareApiClient(_httpClient).CreateAsync(serverUrl, configuration.UploadToken, shareRequest, cancellationToken);
         }
         catch (CreateShareCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             if (options.Json)
             {
-                await UploadResultWriter.WriteAsync(standardOut,
+                await UploadResultWriter.WriteAsync(_standardOut,
                                                     new(UploadCommandStatus.ShareCreationFailed, fileIds, null, null, null, null, null, null));
             }
 
@@ -113,17 +127,17 @@ internal sealed class ShareCreateCommandHandler(
         // A requested download bearer token must be present, otherwise success would omit a credential the share requires.
         if (options.GenerateDownloadToken && String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
         {
-            await standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
+            await _standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
             if (options.Json)
             {
-                await UploadResultWriter.WriteAsync(standardOut,
+                await UploadResultWriter.WriteAsync(_standardOut,
                                                     new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
                                                         shareUrl, null, null, null));
             }
             else
             {
                 // The share exists; report its URL so callers can identify it for cleanup/retry. Never the bearer token.
-                await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+                await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
             }
 
             return 1;
@@ -139,17 +153,17 @@ internal sealed class ShareCreateCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
-                await standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
+                await _standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync("The share was created but its download bearer token could not be delivered.");
                 if (options.Json)
                 {
-                    await UploadResultWriter.WriteAsync(standardOut,
+                    await UploadResultWriter.WriteAsync(_standardOut,
                                                         new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
                                                             shareUrl, null, null, null));
                 }
                 else
                 {
-                    await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+                    await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
                 }
 
                 return 1;
@@ -171,22 +185,22 @@ internal sealed class ShareCreateCommandHandler(
                 credentials = new(null, shareResult.DownloadBearerToken);
             }
 
-            await UploadResultWriter.WriteAsync(standardOut,
+            await UploadResultWriter.WriteAsync(_standardOut,
                                                 new(UploadCommandStatus.Succeeded, fileIds, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
                                                     options.SecretsOut?.FullName, null));
             return;
         }
 
-        await standardOut.WriteLineAsync($"share-url:{shareUrl}");
+        await _standardOut.WriteLineAsync($"share-url:{shareUrl}");
         if (options.SecretsOut is not null)
         {
-            await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut.FullName}");
+            await _standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut.FullName}");
             return;
         }
 
         if (!String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
         {
-            await standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
+            await _standardOut.WriteLineAsync($"download-bearer-token:{shareResult.DownloadBearerToken}");
         }
     }
 }

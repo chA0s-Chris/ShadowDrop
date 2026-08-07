@@ -12,6 +12,11 @@ The code style rules are described in the `.editorconfig` file.
 - Use meaningful and descriptive names
 - Keep methods small and focused (ideally < 30 lines)
 
+### Types and Constructors
+- Classes always declare explicit constructors - primary constructors on classes are not permitted
+- Assign constructor dependencies to `private readonly` fields (or to properties where the type exposes them)
+- Positional records and positional record structs remain fine - the rule covers classes only
+
 ### Formatting
 - Use 4 spaces for indentation (no tabs)
 - Use `var` for local variables
@@ -37,6 +42,7 @@ The code style rules are described in the `.editorconfig` file.
   /// <returns>The patient if found; otherwise, null.</returns>
   /// <exception cref="ArgumentException">Thrown when <paramref name="patientId"/> is empty.</exception>
   public async Task<Patient> GetPatientByIdAsync(string patientId)
+  ```
 
 - Use /// comments for non-trivial implementation details
 - Prefer self-documenting code over excessive comments

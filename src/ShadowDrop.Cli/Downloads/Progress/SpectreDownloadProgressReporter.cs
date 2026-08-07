@@ -5,11 +5,25 @@ namespace ShadowDrop.Cli.Downloads.Progress;
 using Spectre.Console;
 
 /// <summary>
-/// Emits rich Spectre.Console live progress for interactive terminals, including an active-file spinner, percentage, speed, and ETA columns.
-/// Progress and summary output goes to <paramref name="console"/> (standard output); per-item failures go to <paramref name="errorConsole"/>.
+/// Emits rich Spectre.Console live progress for interactive terminals, including an active-file spinner, percentage,
+/// speed, and ETA columns.
+/// Progress and summary output goes to the standard-output console; per-item failures go to the error console.
 /// </summary>
-internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAnsiConsole errorConsole, TimeProvider timeProvider) : IDownloadProgressReporter
+internal sealed class SpectreDownloadProgressReporter : IDownloadProgressReporter
 {
+    private readonly IAnsiConsole _console;
+    private readonly IAnsiConsole _errorConsole;
+    private readonly TimeProvider _timeProvider;
+
+    public SpectreDownloadProgressReporter(IAnsiConsole console,
+                                           IAnsiConsole errorConsole,
+                                           TimeProvider timeProvider)
+    {
+        _console = console;
+        _errorConsole = errorConsole;
+        _timeProvider = timeProvider;
+    }
+
     private static void CompleteTask(ProgressTask task, Int64? sizeBytes)
     {
         if (sizeBytes is not null)
@@ -49,15 +63,15 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
         task.Value = value;
 
     private Progress CreateProgress() =>
-        console.Progress()
-               .AutoClear(false)
-               .HideCompleted(false)
-               .Columns(new SpinnerColumn(),
-                        new TaskDescriptionColumn(),
-                        new ProgressBarColumn(),
-                        new PercentageColumn(),
-                        new TransferSpeedColumn(),
-                        new RemainingTimeColumn());
+        _console.Progress()
+                .AutoClear(false)
+                .HideCompleted(false)
+                .Columns(new SpinnerColumn(),
+                         new TaskDescriptionColumn(),
+                         new ProgressBarColumn(),
+                         new PercentageColumn(),
+                         new TransferSpeedColumn(),
+                         new RemainingTimeColumn());
 
     public async Task<DownloadQueueSummary> RunQueueAsync(IReadOnlyList<QueueDownloadItem> items,
                                                           Int64? totalBytes,
@@ -71,13 +85,13 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
         var downloaded = 0;
         var failed = 0;
         Int64 totalDownloadedBytes = 0;
-        var queueStart = timeProvider.GetTimestamp();
+        var queueStart = _timeProvider.GetTimestamp();
 
         await CreateProgress().StartAsync(async context =>
         {
             var overall = totalBytes is null
                 ? null
-                : context.AddTask("Overall queue", new ProgressTaskSettings
+                : context.AddTask("Overall queue", new()
                 {
                     // Floor at 1 so an all-zero-length queue (valid) doesn't produce MaxValue = 0 and broken percentage/ETA columns.
                     MaxValue = totalBytes.Value > 0 ? totalBytes.Value : 1
@@ -91,7 +105,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
                 var fileName = DisplayText.SingleLine(item.FileName);
                 var outputPath = DisplayText.SingleLine(item.OutputPath);
                 var task = CreateTask(context, $"{position}/{total} {fileName}", item.SizeBytes);
-                var fileStart = timeProvider.GetTimestamp();
+                var fileStart = _timeProvider.GetTimestamp();
                 var capturedCompleted = completedBytes;
                 var progress = new TrackingProgress(value =>
                 {
@@ -105,7 +119,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
                 try
                 {
                     await item.DownloadAsync(progress, cancellationToken);
-                    var elapsed = timeProvider.GetElapsedTime(fileStart);
+                    var elapsed = _timeProvider.GetElapsedTime(fileStart);
                     var transferredBytes = progress.TransferredValue;
                     downloaded++;
                     totalDownloadedBytes += transferredBytes;
@@ -116,7 +130,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
                         overall.Value = completedBytes;
                     }
 
-                    console.MarkupLineInterpolated(
+                    _console.MarkupLineInterpolated(
                         $"[green]SUCCESS[/] {position}/{total} {fileName} -> {outputPath} ({FormatStats(transferredBytes, elapsed)})");
                 }
                 catch (Exception exception)
@@ -138,7 +152,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
                         overall.Value = completedBytes;
                     }
 
-                    errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {fileName} -> {outputPath}: {message}");
+                    _errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {position}/{total} {fileName} -> {outputPath}: {message}");
                 }
             }
 
@@ -151,8 +165,8 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
             }
         });
 
-        var totalElapsed = timeProvider.GetElapsedTime(queueStart);
-        console.MarkupLineInterpolated(
+        var totalElapsed = _timeProvider.GetElapsedTime(queueStart);
+        _console.MarkupLineInterpolated(
             $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
         return new(downloaded, failed);
     }
@@ -169,7 +183,7 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
         fileName = DisplayText.SingleLine(fileName);
         Int64 bytes = 0;
         String? failureMessage = null;
-        var start = timeProvider.GetTimestamp();
+        var start = _timeProvider.GetTimestamp();
         await CreateProgress().StartAsync(async context =>
         {
             var task = CreateTask(context, fileName, sizeBytes);
@@ -194,16 +208,16 @@ internal sealed class SpectreDownloadProgressReporter(IAnsiConsole console, IAns
             }
         });
 
-        var elapsed = timeProvider.GetElapsedTime(start);
+        var elapsed = _timeProvider.GetElapsedTime(start);
         if (failureMessage is not null)
         {
-            errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {fileName}: {failureMessage}");
-            console.MarkupLineInterpolated($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(bytes, elapsed)})");
+            _errorConsole.MarkupLineInterpolated($"[red]FAILED[/] {fileName}: {failureMessage}");
+            _console.MarkupLineInterpolated($"SUMMARY downloaded 0 files, failed 1 file ({FormatStats(bytes, elapsed)})");
             return false;
         }
 
-        console.MarkupLineInterpolated($"[green]SUCCESS[/] {fileName} ({FormatStats(bytes, elapsed)})");
-        console.MarkupLineInterpolated($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
+        _console.MarkupLineInterpolated($"[green]SUCCESS[/] {fileName} ({FormatStats(bytes, elapsed)})");
+        _console.MarkupLineInterpolated($"SUMMARY downloaded 1 file ({FormatStats(bytes, elapsed)})");
         return true;
     }
 }

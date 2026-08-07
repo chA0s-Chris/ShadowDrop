@@ -43,8 +43,15 @@ public sealed class ShareRevocationServiceTests
         logRecords[0].Level.Should().Be(LogLevel.Warning);
     }
 
-    private sealed class StubShareMetadataRepository(Boolean revokeResult) : IShareMetadataRepository
+    private sealed class StubShareMetadataRepository : IShareMetadataRepository
     {
+        private readonly Boolean _revokeResult;
+
+        public StubShareMetadataRepository(Boolean revokeResult)
+        {
+            _revokeResult = revokeResult;
+        }
+
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -72,6 +79,6 @@ public sealed class ShareRevocationServiceTests
             throw new NotSupportedException();
 
         public Task<Boolean> TryRevokeAsync(Guid shareId, DateTimeOffset revokedAtUtc, CancellationToken cancellationToken) =>
-            Task.FromResult(revokeResult);
+            Task.FromResult(_revokeResult);
     }
 }

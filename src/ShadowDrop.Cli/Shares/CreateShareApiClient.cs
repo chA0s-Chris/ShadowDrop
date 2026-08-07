@@ -9,8 +9,15 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
-internal sealed class CreateShareApiClient(HttpClient httpClient)
+internal sealed class CreateShareApiClient
 {
+    private readonly HttpClient _httpClient;
+
+    public CreateShareApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<CreateShareCliResult> CreateAsync(Uri serverUrl,
                                                         String uploadToken,
                                                         CreateShareCliRequest request,
@@ -29,7 +36,7 @@ internal sealed class CreateShareApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(httpRequest, deadline.Token);
+            using var response = await _httpClient.SendAsync(httpRequest, deadline.Token);
             return response.StatusCode switch
             {
                 HttpStatusCode.Created => await ReadResultAsync(response, deadline.Token),

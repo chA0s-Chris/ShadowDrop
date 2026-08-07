@@ -2075,8 +2075,15 @@ public sealed class ApiWalkingSkeletonTests
     /// <summary>
     /// Returns exactly one share page entry so the share-list request reaches its batch file projection.
     /// </summary>
-    private sealed class SingleShareMetadataRepository(ShareListRecord share) : IShareMetadataRepository
+    private sealed class SingleShareMetadataRepository : IShareMetadataRepository
     {
+        private readonly ShareListRecord _share;
+
+        public SingleShareMetadataRepository(ShareListRecord share)
+        {
+            _share = share;
+        }
+
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => Task.FromResult(1L);
 
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -2093,7 +2100,7 @@ public sealed class ApiWalkingSkeletonTests
             Task.FromResult<IReadOnlyList<ShareRecord>>([]);
 
         public Task<ShareListRepositoryPage> GetListPageAsync(ShareListQuery query, CancellationToken cancellationToken) =>
-            Task.FromResult(new ShareListRepositoryPage([share], null));
+            Task.FromResult(new ShareListRepositoryPage([_share], null));
 
         public Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Task.FromResult(new ShareStatusCounts(0, 0, 0, 0, 0));
@@ -2110,8 +2117,15 @@ public sealed class ApiWalkingSkeletonTests
     /// Makes the bounded batch file projection unusable, either by failing outright or by returning fewer rows than
     /// the page requires.
     /// </summary>
-    private sealed class UnusableFileProjectionRepository(Boolean throws) : IUploadedFileMetadataRepository
+    private sealed class UnusableFileProjectionRepository : IUploadedFileMetadataRepository
     {
+        private readonly Boolean _throws;
+
+        public UnusableFileProjectionRepository(Boolean throws)
+        {
+            _throws = throws;
+        }
+
         public Int32 ProjectionCalls { get; private set; }
 
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => Task.FromResult(0);
@@ -2122,7 +2136,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                                        CancellationToken cancellationToken)
         {
             ProjectionCalls++;
-            return throws
+            return _throws
                 ? throw new InvalidOperationException("provider-secret")
                 : Task.FromResult<IReadOnlyList<UploadedFileListProjection>>([]);
         }

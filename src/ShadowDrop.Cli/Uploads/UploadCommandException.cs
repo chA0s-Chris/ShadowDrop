@@ -2,4 +2,8 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Uploads;
 
-internal sealed class UploadCommandException(String message) : Exception(message);
+internal sealed class UploadCommandException : Exception
+{
+    public UploadCommandException(String message)
+        : base(message) { }
+}

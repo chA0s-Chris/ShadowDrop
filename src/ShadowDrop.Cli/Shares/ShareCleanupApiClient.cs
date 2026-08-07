@@ -8,8 +8,15 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-internal sealed class ShareCleanupApiClient(HttpClient httpClient)
+internal sealed class ShareCleanupApiClient
 {
+    private readonly HttpClient _httpClient;
+
+    public ShareCleanupApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<ShareCleanupResultContract> CleanupAsync(Uri serverUrl, String adminToken, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
@@ -21,7 +28,7 @@ internal sealed class ShareCleanupApiClient(HttpClient httpClient)
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {
-            using var response = await httpClient.SendAsync(request, deadline.Token);
+            using var response = await _httpClient.SendAsync(request, deadline.Token);
             switch (response.StatusCode)
             {
                 case HttpStatusCode.OK:

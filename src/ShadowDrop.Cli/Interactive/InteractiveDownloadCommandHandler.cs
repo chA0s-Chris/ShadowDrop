@@ -9,36 +9,48 @@ using ShadowDrop.Contracts;
 using System.Security.Cryptography;
 using System.Text.Json;
 
-internal sealed class InteractiveDownloadCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    ICliInteractiveSession interactiveSession,
-    TextWriter standardError)
+internal sealed class InteractiveDownloadCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly ICliInteractiveSession _interactiveSession;
+    private readonly TextWriter _standardError;
+
+    public InteractiveDownloadCommandHandler(CliConfigurationResolver configurationResolver,
+                                             HttpClient httpClient,
+                                             ICliInteractiveSession interactiveSession,
+                                             TextWriter standardError)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _interactiveSession = interactiveSession;
+        _standardError = standardError;
+    }
+
     public async Task<Int32> ExecuteAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (!interactiveSession.IsInteractiveSupported)
+        if (!_interactiveSession.IsInteractiveSupported)
         {
-            await standardError.WriteLineAsync(InteractiveModeMessages.TerminalRequired);
+            await _standardError.WriteLineAsync(InteractiveModeMessages.TerminalRequired);
             return 1;
         }
 
         if (options.QueuePath is not null)
         {
-            await standardError.WriteLineAsync("The --interactive option cannot be combined with --queue.");
+            await _standardError.WriteLineAsync("The --interactive option cannot be combined with --queue.");
             return 1;
         }
 
-        var handler = new DownloadCommandHandler(configurationResolver, httpClient, standardError, NullDownloadProgressReporter.Instance);
+        var handler = new DownloadCommandHandler(_configurationResolver, _httpClient, _standardError, NullDownloadProgressReporter.Instance);
         Byte[]? shareKeyBytes = null;
         try
         {
             shareKeyBytes = await ResolveShareKeyBytesAsync(handler, options, cancellationToken);
             if (shareKeyBytes is null)
             {
-                await standardError.WriteLineAsync("Share key invalid or missing.");
+                await _standardError.WriteLineAsync("Share key invalid or missing.");
                 return 1;
             }
 
@@ -58,24 +70,24 @@ internal sealed class InteractiveDownloadCommandHandler(
                                                   cancellationToken);
             }
 
-            interactiveSession.ShowSummary("Download complete",
-                                           selectedFiles.Select((file, index) => ($"{file.FileName}", outputPaths[index]))
-                                                        .ToArray());
+            _interactiveSession.ShowSummary("Download complete",
+                                            selectedFiles.Select((file, index) => ($"{file.FileName}", outputPaths[index]))
+                                                         .ToArray());
             return 0;
         }
         catch (DownloadCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
         catch (IOException)
         {
-            await standardError.WriteLineAsync("Download failed due to a local I/O error.");
+            await _standardError.WriteLineAsync("Download failed due to a local I/O error.");
             return 1;
         }
         catch (UnauthorizedAccessException)
         {
-            await standardError.WriteLineAsync("Download failed due to a local I/O error.");
+            await _standardError.WriteLineAsync("Download failed due to a local I/O error.");
             return 1;
         }
         finally
@@ -95,7 +107,7 @@ internal sealed class InteractiveDownloadCommandHandler(
     {
         try
         {
-            return configurationResolver.Resolve(serverUrlOverride, null);
+            return _configurationResolver.Resolve(serverUrlOverride, null);
         }
         catch (IOException)
         {
@@ -127,8 +139,8 @@ internal sealed class InteractiveDownloadCommandHandler(
             catch (DownloadCommandException exception) when (String.Equals(exception.Message, "Download authorization failed.", StringComparison.Ordinal)
                                                              && String.IsNullOrWhiteSpace(currentBearerToken))
             {
-                currentBearerToken = interactiveSession.PromptText("Download bearer token:", secret: true, validate: static value =>
-                                                                       String.IsNullOrWhiteSpace(value) ? "Enter the bearer token." : null);
+                currentBearerToken = _interactiveSession.PromptText("Download bearer token:", secret: true, validate: static value =>
+                                                                        String.IsNullOrWhiteSpace(value) ? "Enter the bearer token." : null);
             }
         }
     }
@@ -138,15 +150,15 @@ internal sealed class InteractiveDownloadCommandHandler(
         if (files.Count == 1)
         {
             var outputFileName = ResolveOutputFileName(files[0]);
-            var outputPath = interactiveSession.PromptText("Output file path:", Path.Combine(Environment.CurrentDirectory, outputFileName),
-                                                           validate: static value => String.IsNullOrWhiteSpace(value)
-                                                               ? "Enter an output path."
-                                                               : null);
+            var outputPath = _interactiveSession.PromptText("Output file path:", Path.Combine(Environment.CurrentDirectory, outputFileName),
+                                                            validate: static value => String.IsNullOrWhiteSpace(value)
+                                                                ? "Enter an output path."
+                                                                : null);
             return [outputPath];
         }
 
-        var outputDirectory = interactiveSession.PromptText("Output directory:", Environment.CurrentDirectory, validate: static value =>
-                                                                String.IsNullOrWhiteSpace(value) ? "Enter an output directory." : null);
+        var outputDirectory = _interactiveSession.PromptText("Output directory:", Environment.CurrentDirectory, validate: static value =>
+                                                                 String.IsNullOrWhiteSpace(value) ? "Enter an output directory." : null);
         return files.Select(file => Path.Combine(outputDirectory, ResolveOutputFileName(file))).ToArray();
     }
 
@@ -158,16 +170,16 @@ internal sealed class InteractiveDownloadCommandHandler(
             return shareKeyBytes;
         }
 
-        var shareKey = interactiveSession.PromptText("Share key:", secret: true, validate: static value =>
-                                                         String.IsNullOrWhiteSpace(value) ? "Enter the share key." : null);
+        var shareKey = _interactiveSession.PromptText("Share key:", secret: true, validate: static value =>
+                                                          String.IsNullOrWhiteSpace(value) ? "Enter the share key." : null);
         return DownloadCommandHandler.DecodeShareKey(shareKey);
     }
 
     private InteractiveShareReference ResolveShareReference(String? shareToken, String? serverUrlOverride)
     {
         var enteredShareToken = String.IsNullOrWhiteSpace(shareToken)
-            ? interactiveSession.PromptText("Share URL or share token:", validate: static value =>
-                                                String.IsNullOrWhiteSpace(value) ? "Enter a share URL or share token." : null)
+            ? _interactiveSession.PromptText("Share URL or share token:", validate: static value =>
+                                                 String.IsNullOrWhiteSpace(value) ? "Enter a share URL or share token." : null)
             : shareToken;
 
         // Reuse the same token-or-URL parsing as the non-interactive download and queue commands.
@@ -191,7 +203,7 @@ internal sealed class InteractiveDownloadCommandHandler(
         var configuredServerUrlValue = configuration.ServerUrl;
         while (true)
         {
-            var candidate = interactiveSession.PromptText("ShadowDrop server URL:", configuredServerUrlValue, validate: static value =>
+            var candidate = _interactiveSession.PromptText("ShadowDrop server URL:", configuredServerUrlValue, validate: static value =>
             {
                 if (Uri.TryCreate(value, UriKind.Absolute, out var uri)
                     && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
@@ -222,14 +234,14 @@ internal sealed class InteractiveDownloadCommandHandler(
 
         while (true)
         {
-            var selectedFiles = interactiveSession.PromptMultiSelection("Select files to download:", files, static file =>
-                                                                            $"{file.FileName} ({file.Length} bytes)");
+            var selectedFiles = _interactiveSession.PromptMultiSelection("Select files to download:", files, static file =>
+                                                                             $"{file.FileName} ({file.Length} bytes)");
             if (selectedFiles.Count > 0)
             {
                 return selectedFiles;
             }
 
-            interactiveSession.ShowError("Select at least one file.");
+            _interactiveSession.ShowError("Select at least one file.");
         }
     }
 

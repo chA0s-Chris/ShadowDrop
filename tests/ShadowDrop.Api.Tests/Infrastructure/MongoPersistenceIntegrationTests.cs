@@ -1122,13 +1122,27 @@ public abstract class MongoPersistenceIntegrationTests
                      .Find(x => x.FileId == fileId)
                      .FirstOrDefaultAsync())?.CompletedAtUnixTimeMilliseconds;
 
-    private sealed class FailAfterStream(Byte[] content, Int32 throwAfter, Exception failure) : Stream
+    private sealed class FailAfterStream : Stream
     {
+        private readonly Byte[] _content;
+        private readonly Exception _failure;
+        private readonly Int32 _throwAfter;
+
         private Int32 _position;
+
+        public FailAfterStream(Byte[] content,
+                               Int32 throwAfter,
+                               Exception failure)
+        {
+            _content = content;
+            _throwAfter = throwAfter;
+            _failure = failure;
+        }
+
         public override Boolean CanRead => true;
         public override Boolean CanSeek => false;
         public override Boolean CanWrite => false;
-        public override Int64 Length => content.Length;
+        public override Int64 Length => _content.Length;
         public override Int64 Position { get => _position; set => throw new NotSupportedException(); }
         public override void Flush() { }
         public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
@@ -1136,13 +1150,13 @@ public abstract class MongoPersistenceIntegrationTests
         public override async ValueTask<Int32> ReadAsync(Memory<Byte> buffer, CancellationToken cancellationToken = default)
         {
             await Task.Yield();
-            if (_position >= throwAfter)
+            if (_position >= _throwAfter)
             {
-                throw failure;
+                throw _failure;
             }
 
-            var count = Math.Min(buffer.Length, Math.Min(throwAfter - _position, content.Length - _position));
-            content.AsMemory(_position, count).CopyTo(buffer);
+            var count = Math.Min(buffer.Length, Math.Min(_throwAfter - _position, _content.Length - _position));
+            _content.AsMemory(_position, count).CopyTo(buffer);
             _position += count;
             return count;
         }
@@ -1152,11 +1166,18 @@ public abstract class MongoPersistenceIntegrationTests
         public override void Write(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
     }
 
-    private sealed class IsolatedMongoScope(ServiceProvider services, IMongoHelper mongo) : IAsyncDisposable
+    private sealed class IsolatedMongoScope : IAsyncDisposable
     {
-        public IMongoHelper Mongo { get; } = mongo;
+        public IsolatedMongoScope(ServiceProvider services,
+                                  IMongoHelper mongo)
+        {
+            Services = services;
+            Mongo = mongo;
+        }
 
-        public ServiceProvider Services { get; } = services;
+        public IMongoHelper Mongo { get; }
+
+        public ServiceProvider Services { get; }
 
         public async ValueTask DisposeAsync()
         {

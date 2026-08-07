@@ -13,18 +13,32 @@ using System.Text.Json;
 /// non-retrievable share key, without creating a share. Intended for scripting and recovery composition with
 /// <c>share create</c>.
 /// </summary>
-internal sealed class UploadRawCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardOut,
-    TextWriter standardError,
-    IUploadProgressReporterFactory uploadProgressReporterFactory)
+internal sealed class UploadRawCommandHandler
 {
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly TextWriter _standardError;
+    private readonly TextWriter _standardOut;
+    private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
+
+    public UploadRawCommandHandler(CliConfigurationResolver configurationResolver,
+                                   HttpClient httpClient,
+                                   TextWriter standardOut,
+                                   TextWriter standardError,
+                                   IUploadProgressReporterFactory uploadProgressReporterFactory)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardOut = standardOut;
+        _standardError = standardError;
+        _uploadProgressReporterFactory = uploadProgressReporterFactory;
+    }
+
     public async Task<Int32> ExecuteAsync(UploadRawCommandOptions options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (await UploadConfiguration.ResolveAsync(configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, standardError)
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
             is not { } configuration)
         {
             return 1;
@@ -38,17 +52,17 @@ internal sealed class UploadRawCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync(exception.Message);
                 return 1;
             }
         }
 
-        var executor = new UploadCommandExecutor(httpClient);
+        var executor = new UploadCommandExecutor(_httpClient);
         var uploadResult =
             await executor.ExecuteAsync(options.Files,
                                         configuration.ServerUrl,
                                         configuration.UploadToken,
-                                        uploadProgressReporterFactory.Create(options.Json),
+                                        _uploadProgressReporterFactory.Create(options.Json),
                                         cancellationToken);
 
         var uploadedFileIds = uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray();
@@ -57,7 +71,7 @@ internal sealed class UploadRawCommandHandler(
         {
             if (options.Json)
             {
-                await UploadResultWriter.WriteAsync(standardOut,
+                await UploadResultWriter.WriteAsync(_standardOut,
                                                     new(UploadCommandStatus.UploadFailed,
                                                         uploadedFileIds,
                                                         null,
@@ -74,7 +88,7 @@ internal sealed class UploadRawCommandHandler(
                 // Report the file IDs that did upload so scripts can still capture/recover them; never the share key on failure.
                 foreach (var fileId in uploadedFileIds)
                 {
-                    await standardOut.WriteLineAsync($"file-id:{fileId}");
+                    await _standardOut.WriteLineAsync($"file-id:{fileId}");
                 }
             }
 
@@ -92,11 +106,11 @@ internal sealed class UploadRawCommandHandler(
             }
             catch (AtomicFileException exception)
             {
-                await standardError.WriteLineAsync(exception.Message);
-                await standardError.WriteLineAsync("The files were uploaded but the share key could not be delivered.");
+                await _standardError.WriteLineAsync(exception.Message);
+                await _standardError.WriteLineAsync("The files were uploaded but the share key could not be delivered.");
                 if (options.Json)
                 {
-                    await UploadResultWriter.WriteAsync(standardOut,
+                    await UploadResultWriter.WriteAsync(_standardOut,
                                                         new(UploadCommandStatus.CredentialDeliveryFailed, uploadedFileIds, null, null, null, null, null, null));
                 }
                 else
@@ -104,7 +118,7 @@ internal sealed class UploadRawCommandHandler(
                     // The uploads already happened; report their IDs so callers can recover/clean them up. Never the share key.
                     foreach (var fileId in uploadedFileIds)
                     {
-                        await standardOut.WriteLineAsync($"file-id:{fileId}");
+                        await _standardOut.WriteLineAsync($"file-id:{fileId}");
                     }
                 }
 
@@ -122,7 +136,7 @@ internal sealed class UploadRawCommandHandler(
         if (options.Json)
         {
             var credentials = options.SecretsOut is null ? new UploadCredentials(shareKey, null) : null;
-            await UploadResultWriter.WriteAsync(standardOut,
+            await UploadResultWriter.WriteAsync(_standardOut,
                                                 new(UploadCommandStatus.Succeeded, uploadedFileIds, null, null, null, credentials, options.SecretsOut?.FullName,
                                                     null));
             return;
@@ -130,15 +144,15 @@ internal sealed class UploadRawCommandHandler(
 
         foreach (var fileId in uploadedFileIds)
         {
-            await standardOut.WriteLineAsync($"file-id:{fileId}");
+            await _standardOut.WriteLineAsync($"file-id:{fileId}");
         }
 
         if (options.SecretsOut is not null)
         {
-            await standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut.FullName}");
+            await _standardOut.WriteLineAsync($"secrets-file:{options.SecretsOut.FullName}");
             return;
         }
 
-        await standardOut.WriteLineAsync($"share-key:{shareKey}");
+        await _standardOut.WriteLineAsync($"share-key:{shareKey}");
     }
 }

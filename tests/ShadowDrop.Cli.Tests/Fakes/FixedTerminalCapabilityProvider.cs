@@ -8,11 +8,18 @@ using ShadowDrop.Cli.Terminals;
 /// Returns the same, test-supplied <see cref="TerminalCapabilities"/> for both streams, so banner and download
 /// progress rendering can be asserted deterministically without depending on the real process terminal.
 /// </summary>
-internal sealed class FixedTerminalCapabilityProvider(TerminalCapabilities capabilities) : ITerminalCapabilityProvider
+internal sealed class FixedTerminalCapabilityProvider : ITerminalCapabilityProvider
 {
+    private readonly TerminalCapabilities _capabilities;
+
+    public FixedTerminalCapabilityProvider(TerminalCapabilities capabilities)
+    {
+        _capabilities = capabilities;
+    }
+
     public static FixedTerminalCapabilityProvider Plain { get; } = new(new(IsRedirected: true, IsCiEnvironment: false, SupportsRichOutput: false));
 
-    public TerminalCapabilities DetectForStandardError() => capabilities;
+    public TerminalCapabilities DetectForStandardError() => _capabilities;
 
-    public TerminalCapabilities DetectForStandardOutput() => capabilities;
+    public TerminalCapabilities DetectForStandardOutput() => _capabilities;
 }

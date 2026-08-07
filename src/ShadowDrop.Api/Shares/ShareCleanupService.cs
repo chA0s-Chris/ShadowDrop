@@ -7,14 +7,31 @@ using MongoDB.Driver;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 
-public sealed class ShareCleanupService(
-    IShareMetadataRepository shareMetadataRepository,
-    IUploadedFileMetadataRepository uploadedFileMetadataRepository,
-    IShareOperationClaimRepository operationClaimRepository,
-    IBlobStorage blobStorage,
-    TimeProvider timeProvider,
-    ILogger<ShareCleanupService> logger)
+public sealed class ShareCleanupService
 {
+    private readonly IBlobStorage _blobStorage;
+    private readonly ILogger<ShareCleanupService> _logger;
+    private readonly IShareOperationClaimRepository _operationClaimRepository;
+    private readonly IShareMetadataRepository _shareMetadataRepository;
+    private readonly TimeProvider _timeProvider;
+    private readonly IUploadedFileMetadataRepository _uploadedFileMetadataRepository;
+
+    public ShareCleanupService(
+        IShareMetadataRepository shareMetadataRepository,
+        IUploadedFileMetadataRepository uploadedFileMetadataRepository,
+        IShareOperationClaimRepository operationClaimRepository,
+        IBlobStorage blobStorage,
+        TimeProvider timeProvider,
+        ILogger<ShareCleanupService> logger)
+    {
+        _shareMetadataRepository = shareMetadataRepository;
+        _uploadedFileMetadataRepository = uploadedFileMetadataRepository;
+        _operationClaimRepository = operationClaimRepository;
+        _blobStorage = blobStorage;
+        _timeProvider = timeProvider;
+        _logger = logger;
+    }
+
     public Task<ShareCleanupResult> RunAsync(CancellationToken cancellationToken) =>
         RunAsync(static () => true, cancellationToken);
 
@@ -22,7 +39,7 @@ public sealed class ShareCleanupService(
         Func<Boolean> mayStartWork,
         CancellationToken cancellationToken)
     {
-        var candidates = await shareMetadataRepository.GetCleanupCandidatesAsync(timeProvider.GetUtcNow(), cancellationToken);
+        var candidates = await _shareMetadataRepository.GetCleanupCandidatesAsync(_timeProvider.GetUtcNow(), cancellationToken);
         var candidatesScanned = 0;
         var sharesCompleted = 0;
         var blobsDeleted = 0;
@@ -65,10 +82,10 @@ public sealed class ShareCleanupService(
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    logger.LogWarning(exception,
-                                      "Share cleanup failed for an unclassified reason. ShareId: {ShareId}; FileId: {FileId}",
-                                      share.ShareId,
-                                      file.FileId);
+                    _logger.LogWarning(exception,
+                                       "Share cleanup failed for an unclassified reason. ShareId: {ShareId}; FileId: {FileId}",
+                                       share.ShareId,
+                                       file.FileId);
                     failureCategories.Add(ShareCleanupFailureCategories.Unknown);
                     continue;
                 }
@@ -107,16 +124,16 @@ public sealed class ShareCleanupService(
             {
                 try
                 {
-                    if (!await operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken))
+                    if (!await _operationClaimRepository.TryReleaseAsync(claim.OperationId, cancellationToken))
                     {
                         failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
                     }
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    logger.LogWarning(exception,
-                                      "Share cleanup could not release its operation claim. ShareId: {ShareId}",
-                                      share.ShareId);
+                    _logger.LogWarning(exception,
+                                       "Share cleanup could not release its operation claim. ShareId: {ShareId}",
+                                       share.ShareId);
                     failureCategories.Add(FailureCategory(exception));
                 }
             }
@@ -125,16 +142,16 @@ public sealed class ShareCleanupService(
             {
                 try
                 {
-                    if (!await shareMetadataRepository.TryDeleteAsync(share.ShareId, cancellationToken))
+                    if (!await _shareMetadataRepository.TryDeleteAsync(share.ShareId, cancellationToken))
                     {
                         failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
                     }
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    logger.LogWarning(exception,
-                                      "Share cleanup could not delete share metadata. ShareId: {ShareId}",
-                                      share.ShareId);
+                    _logger.LogWarning(exception,
+                                       "Share cleanup could not delete share metadata. ShareId: {ShareId}",
+                                       share.ShareId);
                     failureCategories.Add(FailureCategory(exception));
                 }
             }
@@ -176,7 +193,7 @@ public sealed class ShareCleanupService(
         {
             try
             {
-                if (!await uploadedFileMetadataRepository.TryDeleteAsync(file.FileId, cancellationToken))
+                if (!await _uploadedFileMetadataRepository.TryDeleteAsync(file.FileId, cancellationToken))
                 {
                     failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
                     return;
@@ -184,10 +201,10 @@ public sealed class ShareCleanupService(
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                logger.LogWarning(exception,
-                                  "Share cleanup could not delete uploaded-file metadata. ShareId: {ShareId}; FileId: {FileId}",
-                                  share.ShareId,
-                                  file.FileId);
+                _logger.LogWarning(exception,
+                                   "Share cleanup could not delete uploaded-file metadata. ShareId: {ShareId}; FileId: {FileId}",
+                                   share.ShareId,
+                                   file.FileId);
                 failureCategories.Add(FailureCategory(exception));
                 return;
             }
@@ -198,7 +215,7 @@ public sealed class ShareCleanupService(
     {
         if (result.Failures > 0)
         {
-            logger.LogWarning(
+            _logger.LogWarning(
                 "Share cleanup completed with failures. CandidatesScanned: {CandidatesScanned}; SharesCompleted: {SharesCompleted}; BlobsDeleted: {BlobsDeleted}; BlobsAlreadyMissing: {BlobsAlreadyMissing}; Failures: {Failures}",
                 result.CandidatesScanned,
                 result.SharesCompleted,
@@ -208,7 +225,7 @@ public sealed class ShareCleanupService(
         }
         else
         {
-            logger.LogInformation(
+            _logger.LogInformation(
                 "Share cleanup completed. CandidatesScanned: {CandidatesScanned}; SharesCompleted: {SharesCompleted}; BlobsDeleted: {BlobsDeleted}; BlobsAlreadyMissing: {BlobsAlreadyMissing}; Failures: {Failures}",
                 result.CandidatesScanned,
                 result.SharesCompleted,
@@ -225,21 +242,21 @@ public sealed class ShareCleanupService(
     {
         try
         {
-            if (!await shareMetadataRepository.TryRecordCleanupAttemptAsync(shareId,
-                                                                            ShareCleanupState.Failed,
-                                                                            timeProvider.GetUtcNow(),
-                                                                            failureCategories,
-                                                                            cancellationToken))
+            if (!await _shareMetadataRepository.TryRecordCleanupAttemptAsync(shareId,
+                                                                             ShareCleanupState.Failed,
+                                                                             _timeProvider.GetUtcNow(),
+                                                                             failureCategories,
+                                                                             cancellationToken))
             {
-                logger.LogWarning("Share cleanup could not record its failure because the share was missing. ShareId: {ShareId}",
-                                  shareId);
+                _logger.LogWarning("Share cleanup could not record its failure because the share was missing. ShareId: {ShareId}",
+                                   shareId);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogWarning(exception,
-                              "Share cleanup could not record its failure because metadata was unavailable. ShareId: {ShareId}",
-                              shareId);
+            _logger.LogWarning(exception,
+                               "Share cleanup could not record its failure because metadata was unavailable. ShareId: {ShareId}",
+                               shareId);
         }
     }
 
@@ -255,37 +272,37 @@ public sealed class ShareCleanupService(
         CancellationToken cancellationToken)
     {
         var fileIds = share.Files.Select(file => file.FileId).ToArray();
-        var claim = await operationClaimRepository.TryAcquireAsync(share.ShareId,
-                                                                   ShareOperationClaimKind.CleanupShare,
-                                                                   share.ShareId,
-                                                                   fileIds,
-                                                                   cancellationToken);
+        var claim = await _operationClaimRepository.TryAcquireAsync(share.ShareId,
+                                                                    ShareOperationClaimKind.CleanupShare,
+                                                                    share.ShareId,
+                                                                    fileIds,
+                                                                    cancellationToken);
         if (claim is not null)
         {
             return claim;
         }
 
         var released = false;
-        foreach (var abandoned in await operationClaimRepository.GetUnfinishedShareCreationsAsync(fileIds, cancellationToken))
+        foreach (var abandoned in await _operationClaimRepository.GetUnfinishedShareCreationsAsync(fileIds, cancellationToken))
         {
             if (abandoned.ShareId != share.ShareId || abandoned.Lifecycle != ShareOperationClaimLifecycle.Committing)
             {
                 continue;
             }
 
-            logger.LogWarning(
+            _logger.LogWarning(
                 "Share cleanup released an abandoned share-creation claim for a share that already exists. ShareId: {ShareId}; OperationId: {OperationId}",
                 share.ShareId,
                 abandoned.OperationId);
-            released |= await operationClaimRepository.TryReleaseAsync(abandoned.OperationId, cancellationToken);
+            released |= await _operationClaimRepository.TryReleaseAsync(abandoned.OperationId, cancellationToken);
         }
 
         return released
-            ? await operationClaimRepository.TryAcquireAsync(share.ShareId,
-                                                             ShareOperationClaimKind.CleanupShare,
-                                                             share.ShareId,
-                                                             fileIds,
-                                                             cancellationToken)
+            ? await _operationClaimRepository.TryAcquireAsync(share.ShareId,
+                                                              ShareOperationClaimKind.CleanupShare,
+                                                              share.ShareId,
+                                                              fileIds,
+                                                              cancellationToken)
             : null;
     }
 
@@ -298,11 +315,11 @@ public sealed class ShareCleanupService(
         UploadedFileRecord? uploadedFile;
         try
         {
-            uploadedFile = await uploadedFileMetadataRepository.GetAsync(file.FileId, cancellationToken);
+            uploadedFile = await _uploadedFileMetadataRepository.GetAsync(file.FileId, cancellationToken);
         }
         catch (Exception exception) when (IsExpectedMetadataFailure(exception))
         {
-            logger.LogWarning(exception, "Share cleanup failed because upload metadata was unavailable.");
+            _logger.LogWarning(exception, "Share cleanup failed because upload metadata was unavailable.");
             failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
             return null;
         }
@@ -315,29 +332,29 @@ public sealed class ShareCleanupService(
         Boolean blobDeleted;
         try
         {
-            blobDeleted = await blobStorage.DeleteIfExistsAsync(uploadedFile.BlobKey, cancellationToken);
+            blobDeleted = await _blobStorage.DeleteIfExistsAsync(uploadedFile.BlobKey, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            logger.LogWarning(exception,
-                              "Share cleanup failed while deleting a blob. ShareId: {ShareId}; FileId: {FileId}",
-                              share.ShareId,
-                              file.FileId);
+            _logger.LogWarning(exception,
+                               "Share cleanup failed while deleting a blob. ShareId: {ShareId}; FileId: {FileId}",
+                               share.ShareId,
+                               file.FileId);
             failureCategories.Add(ShareCleanupFailureCategories.BlobDeleteFailed);
             return null;
         }
 
         try
         {
-            if (!await uploadedFileMetadataRepository.TryMarkBlobDeletedAsync(file.FileId, cancellationToken))
+            if (!await _uploadedFileMetadataRepository.TryMarkBlobDeletedAsync(file.FileId, cancellationToken))
             {
-                logger.LogWarning("Share cleanup failed because retained-blob accounting could not be updated.");
+                _logger.LogWarning("Share cleanup failed because retained-blob accounting could not be updated.");
                 failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
             }
         }
         catch (Exception exception) when (IsExpectedMetadataFailure(exception))
         {
-            logger.LogWarning(exception, "Share cleanup failed because retained-blob accounting was unavailable.");
+            _logger.LogWarning(exception, "Share cleanup failed because retained-blob accounting was unavailable.");
             failureCategories.Add(ShareCleanupFailureCategories.MetadataUnavailable);
         }
 

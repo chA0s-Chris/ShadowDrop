@@ -4,17 +4,31 @@ namespace ShadowDrop.Tests.Fakes;
 
 using ShadowDrop.Cli.Configuration;
 
-internal sealed class FakeConfigPathResolver(String? configFilePath) : CliConfigPathResolver
+internal sealed class FakeConfigPathResolver : CliConfigPathResolver
 {
-    public override String? GetConfigFilePath() => configFilePath;
+    private readonly String? _configFilePath;
+
+    public FakeConfigPathResolver(String? configFilePath)
+    {
+        _configFilePath = configFilePath;
+    }
+
+    public override String? GetConfigFilePath() => _configFilePath;
 }
 
-internal sealed class FakeEnvironmentReader(IReadOnlyDictionary<String, String?> values) : IEnvironmentReader
+internal sealed class FakeEnvironmentReader : IEnvironmentReader
 {
+    private readonly IReadOnlyDictionary<String, String?> _values;
+
+    public FakeEnvironmentReader(IReadOnlyDictionary<String, String?> values)
+    {
+        _values = values;
+    }
+
     public FakeEnvironmentReader()
         : this(new Dictionary<String, String?>()) { }
 
-    public String? GetEnvironmentVariable(String variableName) => values.TryGetValue(variableName, out var value) ? value : null;
+    public String? GetEnvironmentVariable(String variableName) => _values.TryGetValue(variableName, out var value) ? value : null;
 }
 
 internal static class FakeConfiguration

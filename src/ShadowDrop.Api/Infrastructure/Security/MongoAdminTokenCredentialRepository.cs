@@ -6,12 +6,19 @@ using Chaos.Mongo;
 using MongoDB.Driver;
 using ShadowDrop.Api.Infrastructure.Mongo;
 
-public sealed class MongoAdminTokenCredentialRepository(IMongoHelper mongo) : IAdminTokenCredentialRepository
+public sealed class MongoAdminTokenCredentialRepository : IAdminTokenCredentialRepository
 {
     private const Int32 CredentialId = 1;
 
+    private readonly IMongoHelper _mongo;
+
+    public MongoAdminTokenCredentialRepository(IMongoHelper mongo)
+    {
+        _mongo = mongo;
+    }
+
     private IMongoCollection<MongoAdminTokenCredentialDocument> Collection =>
-        mongo.GetCollection<MongoAdminTokenCredentialDocument>();
+        _mongo.GetCollection<MongoAdminTokenCredentialDocument>();
 
     public async Task<AdminTokenCredential?> GetAsync(CancellationToken cancellationToken)
     {

@@ -8,9 +8,18 @@ using System.Text.Json;
 
 internal sealed record ServerStatusApiResponse(HttpStatusCode StatusCode, Object? Status, Int32? ProtocolVersion = null);
 
-internal sealed class ServerStatusApiClient(HttpClient httpClient, TimeProvider timeProvider)
+internal sealed class ServerStatusApiClient
 {
     internal static readonly TimeSpan TotalTimeout = TimeSpan.FromSeconds(12);
+    private readonly HttpClient _httpClient;
+    private readonly TimeProvider _timeProvider;
+
+    public ServerStatusApiClient(HttpClient httpClient,
+                                 TimeProvider timeProvider)
+    {
+        _httpClient = httpClient;
+        _timeProvider = timeProvider;
+    }
 
     public async Task<ServerStatusApiResponse> GetAsync(
         Uri serverUrl,
@@ -18,7 +27,7 @@ internal sealed class ServerStatusApiClient(HttpClient httpClient, TimeProvider 
         String? bearerToken,
         CancellationToken cancellationToken)
     {
-        using var deadlineCancellation = new CancellationTokenSource(TotalTimeout, timeProvider);
+        using var deadlineCancellation = new CancellationTokenSource(TotalTimeout, _timeProvider);
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadlineCancellation.Token);
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUrl, ResolvePath(mode)));
         if (!String.IsNullOrEmpty(bearerToken))
@@ -26,7 +35,7 @@ internal sealed class ServerStatusApiClient(HttpClient httpClient, TimeProvider 
             request.Headers.Authorization = new("Bearer", bearerToken);
         }
 
-        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedCancellation.Token);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedCancellation.Token);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
         {
             return new(response.StatusCode, null);

@@ -11,18 +11,31 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-internal sealed class DownloadCommandHandler(
-    CliConfigurationResolver configurationResolver,
-    HttpClient httpClient,
-    TextWriter standardError,
-    IDownloadProgressReporter progressReporter)
+internal sealed class DownloadCommandHandler
 {
     private const Int32 ResumeMarkerVersion = 1;
+
     private const String SecretFreeQueueKeyMissingMessage =
         "The queue is secret-free and contains no credentials. Provide the share key with --share-key or --share-key-file. "
         + "The key is printed by 'upload' as 'share-key:', or stored as the 'shareKey' value in its --secrets-out file. "
         + "Alternatively, recreate the queue with --embed-secrets.";
+
     private const String SecretPrefix = "secret:";
+    private readonly CliConfigurationResolver _configurationResolver;
+    private readonly HttpClient _httpClient;
+    private readonly IDownloadProgressReporter _progressReporter;
+    private readonly TextWriter _standardError;
+
+    public DownloadCommandHandler(CliConfigurationResolver configurationResolver,
+                                  HttpClient httpClient,
+                                  TextWriter standardError,
+                                  IDownloadProgressReporter progressReporter)
+    {
+        _configurationResolver = configurationResolver;
+        _httpClient = httpClient;
+        _standardError = standardError;
+        _progressReporter = progressReporter;
+    }
 
     public async Task<Int32> ExecuteAsync(DownloadCommandOptions options, CancellationToken cancellationToken)
     {
@@ -36,7 +49,7 @@ internal sealed class DownloadCommandHandler(
                     || !String.IsNullOrWhiteSpace(options.FileId)
                     || !String.IsNullOrWhiteSpace(options.ServerUrlOverride))
                 {
-                    await standardError.WriteLineAsync("The --queue option cannot be combined with a share token, --file, or --server-url.");
+                    await _standardError.WriteLineAsync("The --queue option cannot be combined with a share token, --file, or --server-url.");
                     return 1;
                 }
 
@@ -46,7 +59,7 @@ internal sealed class DownloadCommandHandler(
             var shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
             if (shareKeyBytes is null)
             {
-                await standardError.WriteLineAsync("Share key invalid or missing.");
+                await _standardError.WriteLineAsync("Share key invalid or missing.");
                 return 1;
             }
 
@@ -54,17 +67,17 @@ internal sealed class DownloadCommandHandler(
             {
                 if (String.IsNullOrWhiteSpace(options.ShareToken))
                 {
-                    await standardError.WriteLineAsync("Specify either a share token or --queue.");
+                    await _standardError.WriteLineAsync("Specify either a share token or --queue.");
                     return 1;
                 }
 
                 var shareReference = ResolveShareReference(options.ShareToken, options.ServerUrlOverride);
-                var manifestClient = new ShareManifestClient(httpClient);
+                var manifestClient = new ShareManifestClient(_httpClient);
                 var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, options.BearerToken, cancellationToken);
                 var file = SelectDirectDownloadFile(manifest, options.FileId);
                 var outputPath = DownloadDestinationResolver.Resolve(options.Out, file);
 
-                var succeeded = await progressReporter.RunSingleAsync(
+                var succeeded = await _progressReporter.RunSingleAsync(
                     Path.GetFileName(outputPath),
                     file.Length,
                     (progress, token) => DownloadToFileAsync(shareReference.ServerUrl, shareReference.ShareToken, file, shareKeyBytes, options.BearerToken,
@@ -80,17 +93,17 @@ internal sealed class DownloadCommandHandler(
         }
         catch (DownloadCommandException exception)
         {
-            await standardError.WriteLineAsync(exception.Message);
+            await _standardError.WriteLineAsync(exception.Message);
             return 1;
         }
         catch (IOException)
         {
-            await standardError.WriteLineAsync("Download failed due to a local I/O error.");
+            await _standardError.WriteLineAsync("Download failed due to a local I/O error.");
             return 1;
         }
         catch (UnauthorizedAccessException)
         {
-            await standardError.WriteLineAsync("Download failed due to a local I/O error.");
+            await _standardError.WriteLineAsync("Download failed due to a local I/O error.");
             return 1;
         }
     }
@@ -246,7 +259,7 @@ internal sealed class DownloadCommandHandler(
 
     internal async Task<ShareManifestContract> GetManifestAsync(Uri serverUrl, String shareToken, String? bearerToken, CancellationToken cancellationToken)
     {
-        var manifestClient = new ShareManifestClient(httpClient);
+        var manifestClient = new ShareManifestClient(_httpClient);
         return await manifestClient.GetAsync(serverUrl, shareToken, bearerToken, cancellationToken);
     }
 
@@ -657,7 +670,7 @@ internal sealed class DownloadCommandHandler(
         {
             kdfSalt = DecodeBase64(file.KdfSalt, "Share metadata invalid or missing.");
             using var shareSecret = ShareSecret.FromBytes(shareKeyBytes);
-            using var session = new CliDownloadSession(httpClient,
+            using var session = new CliDownloadSession(_httpClient,
                                                        downloadUri,
                                                        destination,
                                                        shareSecret,
@@ -715,7 +728,7 @@ internal sealed class DownloadCommandHandler(
                 // A self-contained queue carries its own credentials; mixing them with explicit inputs is ambiguous.
                 if (HasExplicitCredentials(options))
                 {
-                    await standardError.WriteLineAsync(
+                    await _standardError.WriteLineAsync(
                         "The queue already contains credentials; do not also pass --share-key, --share-key-file, or --bearer-token.");
                     return 1;
                 }
@@ -728,14 +741,14 @@ internal sealed class DownloadCommandHandler(
                 shareKeyBytes = await ResolveShareKeyBytesAsync(options, cancellationToken);
                 if (shareKeyBytes is null)
                 {
-                    await standardError.WriteLineAsync(SecretFreeQueueKeyMissingMessage);
+                    await _standardError.WriteLineAsync(SecretFreeQueueKeyMissingMessage);
                     return 1;
                 }
 
                 bearerToken = options.BearerToken;
             }
 
-            var manifestClient = new ShareManifestClient(httpClient);
+            var manifestClient = new ShareManifestClient(_httpClient);
             Dictionary<String, ShareManifestContract> manifestCache = [];
             var outputRoot = ResolveOutputRoot(options.OutputRoot);
             var capturedShareKeyBytes = shareKeyBytes;
@@ -774,7 +787,7 @@ internal sealed class DownloadCommandHandler(
 
             var totalBytes = SumQueueBytes(queueFiles);
 
-            var summary = await progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
+            var summary = await _progressReporter.RunQueueAsync(items, totalBytes, ClassifyDownloadError, cancellationToken);
             return summary.Failed == 0 ? 0 : 1;
         }
         finally
@@ -814,7 +827,7 @@ internal sealed class DownloadCommandHandler(
         {
             foreach (var error in exception.Errors)
             {
-                await standardError.WriteLineAsync($"{error.Path}: {error.Message}");
+                await _standardError.WriteLineAsync($"{error.Path}: {error.Message}");
             }
 
             throw new DownloadCommandException("The queue file is invalid.");
@@ -841,7 +854,7 @@ internal sealed class DownloadCommandHandler(
     {
         try
         {
-            return configurationResolver.Resolve(serverUrlOverride, null);
+            return _configurationResolver.Resolve(serverUrlOverride, null);
         }
         catch (IOException)
         {

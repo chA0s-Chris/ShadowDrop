@@ -78,10 +78,15 @@ public sealed class MongoShareCleanupCoordinationLeaseTests
         }
     }
 
-    private sealed class ScriptedMongoLock(IReadOnlyCollection<Object> outcomes) : IMongoLock
+    private sealed class ScriptedMongoLock : IMongoLock
     {
         public static readonly Object ExpireWithException = new();
-        private readonly Queue<Object> _outcomes = new(outcomes);
+        private readonly Queue<Object> _outcomes;
+
+        public ScriptedMongoLock(IReadOnlyCollection<Object> outcomes)
+        {
+            _outcomes = new(outcomes);
+        }
 
         public Int32 ExtensionCalls { get; private set; }
 

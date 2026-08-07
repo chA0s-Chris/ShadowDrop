@@ -10,14 +10,23 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
-internal sealed class UploadApiClient(
-    HttpClient httpClient,
-    Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
-    TimeProvider? timeProvider = null)
+internal sealed class UploadApiClient
 {
     private const Int32 MaxAttempts = 3;
-    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync = delayAsync ?? Task.Delay;
-    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
+    private readonly Func<TimeSpan, CancellationToken, Task> _delayAsync;
+    private readonly HttpClient _httpClient;
+    private readonly TimeProvider _timeProvider;
+
+    public UploadApiClient(
+        HttpClient httpClient,
+        Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
+        TimeProvider? timeProvider = null)
+    {
+        _httpClient = httpClient;
+        _delayAsync = delayAsync ?? Task.Delay;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
@@ -212,8 +221,8 @@ internal sealed class UploadApiClient(
             using var request = requestFactory(effectiveCancellation, reportActivity);
             try
             {
-                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, effectiveCancellation);
-                if ((attempt < MaxAttempts) && IsTransientStatus(response.StatusCode))
+                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, effectiveCancellation);
+                if (attempt < MaxAttempts && IsTransientStatus(response.StatusCode))
                 {
                     await ReportRetryAsync(progressSink, attempt + 1, cancellationToken);
                     await _delayAsync(GetDelay(attempt), cancellationToken);
