@@ -97,13 +97,16 @@ docker run -d --name shadowdrop \
   chaos/shadowdrop:latest
 ```
 
-### Port `19423`
+### Ports `19423` and `19424`
 
 The image serves plain HTTP on port `19423` (`ASPNETCORE_HTTP_PORTS=19423` is
-baked into the image, and the port is `EXPOSE`d). The container does not
-terminate TLS itself — see [TLS and reverse proxies](#tls-and-reverse-proxies).
-The `docker run` example publishes on all host interfaces; use
-`-p 127.0.0.1:19423:19423` when only a host-local reverse proxy should connect.
+baked into the image, and the port remains `EXPOSE`d). It also advertises port
+`19424` for optional [app-managed HTTPS](#app-managed-https). `EXPOSE` is image
+metadata: it neither starts an HTTPS listener nor publishes either port. With
+no HTTPS configuration, ShadowDrop continues to bind only plain HTTP on
+`19423`. The `docker run` example publishes on all host interfaces; use
+`-p 127.0.0.1:19423:19423` when only a host-local reverse proxy or health probe
+should connect.
 
 ### `/app/data` persistence
 
@@ -465,16 +468,122 @@ relying on a backup.
 
 ## TLS and reverse proxies
 
-Run a reverse proxy (Caddy, nginx, Traefik, an ingress controller, …) in front
-of the container and terminate TLS there; forward traffic to the container's
-port `19423` over the internal network. Never expose plain HTTP publicly —
-share URLs and download credentials travel in requests and responses.
+A reverse proxy (Caddy, nginx, Traefik, an ingress controller, …) remains the
+recommended Internet-facing topology because it can automate certificate
+issuance and renewal, isolate routes, and enforce request limits. Terminate TLS
+there and forward traffic to the container's port `19423` over the internal
+network. Never expose plain HTTP publicly — share URLs and download credentials
+travel in requests and responses.
 
 The reverse proxy must enforce the route restrictions described in
 [Deployment Hardening](DEPLOYMENT_HARDENING.md#reverse-proxy-controls).
 Untrusted uploaders may be allowed to reach `/api/uploads/*` and `/api/shares`
 without being allowed to reach `/api/admin/*`; administrative clients should
 remain on a trusted, rate-limited boundary.
+
+### App-managed HTTPS
+
+Deployments without a reverse proxy can ask Kestrel to terminate TLS with its
+standard ASP.NET Core configuration. ShadowDrop does not load certificates in
+application code, issue certificates, renew them, redirect HTTP to HTTPS, or
+enable HSTS automatically. Kestrel fails the complete application startup when
+an HTTPS listener is requested without a readable certificate and matching
+private key, or when its password is wrong; it does not silently fall back to
+the HTTP listener.
+
+The image's optional HTTPS port is `19424`. The following override augments
+either bundled Compose file while preserving its loopback-only port `19423` and
+unchanged HTTP healthcheck:
+
+```yaml
+# compose.https.yaml
+services:
+  shadowdrop:
+    environment:
+      ASPNETCORE_HTTP_PORTS: "19423"
+      ASPNETCORE_HTTPS_PORTS: "19424"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: /run/secrets/shadowdrop-tls/server.pfx
+      ASPNETCORE_Kestrel__Certificates__Default__Password: ${SHADOWDROP_TLS_CERTIFICATE_PASSWORD:?Set SHADOWDROP_TLS_CERTIFICATE_PASSWORD}
+    ports:
+      - "19424:19424"
+    volumes:
+      - /srv/shadowdrop/certificates:/run/secrets/shadowdrop-tls:ro
+```
+
+Keep the password in a secret manager or protected environment source and
+export `SHADOWDROP_TLS_CERTIFICATE_PASSWORD` only for the Compose invocation;
+never put its literal value in the override, an image layer, source control, or
+shell history. Environment values remain visible to principals that can inspect
+the container, so access to the Docker host is a secret boundary. Start the
+deployment with, for example:
+
+```bash
+docker compose -f docker/compose.local.yaml -f compose.https.yaml up -d
+```
+
+The certificate directory is mounted read-only and is not part of the image.
+The example uses an absolute host path on purpose: Compose resolves a relative
+bind path against the project directory — the directory of the *first* `-f`
+file, `docker/` in the command above — not against the location of the override
+file itself. The directory, certificate, and private-key permissions must allow
+the image's non-root user to read them without granting unnecessary host users
+access. The base Compose files publish `19423` on `127.0.0.1`; do not override
+that binding to a public address. Only `19424` should be the public application
+port in this topology.
+
+For a PEM certificate and separate private key, replace the PFX variables with:
+
+```text
+ASPNETCORE_Kestrel__Certificates__Default__Path=/run/secrets/shadowdrop-tls/fullchain.pem
+ASPNETCORE_Kestrel__Certificates__Default__KeyPath=/run/secrets/shadowdrop-tls/privkey.pem
+ASPNETCORE_Kestrel__Certificates__Default__Password=<encrypted-private-key-password>
+```
+
+Omit `Password` only when the PEM key is intentionally unencrypted and its file
+permissions provide the required protection. A JSON configuration file can use
+the equivalent unprefixed settings (shown here for PFX):
+
+```json
+{
+  "HTTPS_PORTS": "19424",
+  "Kestrel": {
+    "Certificates": {
+      "Default": {
+        "Path": "/run/secrets/shadowdrop-tls/server.pfx",
+        "Password": "<inject-at-deployment-time>"
+      }
+    }
+  }
+}
+```
+
+Do not commit a configuration file containing the real password. Environment
+variables use the `ASPNETCORE_` prefix and double underscores; configuration
+files use `HTTPS_PORTS` and the `Kestrel:Certificates:Default` hierarchy.
+
+The bundled healthcheck deliberately continues to call
+`http://127.0.0.1:19423/health/ready`. `ShadowDrop.HealthProbe` uses the system's
+default certificate trust and has no custom-CA option, so it cannot validate a
+private or self-signed server certificate. Keep the loopback HTTP listener
+bound for that probe even though only HTTPS is published publicly.
+
+Operators own certificate creation, hostname/SAN correctness, trust
+distribution, expiry monitoring, renewal, and safe replacement. Replace the
+mounted files atomically and restart the container to make the new certificate
+effective. Clients must trust the issuing public or private CA and connect with
+a hostname present in the certificate. The ShadowDrop CLI can add a private CA
+or self-signed certificate with `--cacert <pem>` or `SHADOWDROP_CACERT`; avoid
+`--insecure`.
+
+Direct Kestrel HTTPS provides transport encryption, but not a reverse proxy's
+route isolation, throttling, or certificate automation. Configure the
+`ShadowDrop__ApiExposure__EnableAdminOperations`,
+`ShadowDrop__ApiExposure__EnableUploads`, and
+`ShadowDrop__ApiExposure__EnablePublicDownloads` toggles so only required API
+surfaces are mapped. The health routes are always mapped, so keeping port
+`19423` on loopback is the only application-free boundary for the bundled
+probe. See [Deployment Hardening](DEPLOYMENT_HARDENING.md#direct-kestrel-https)
+before exposing `19424`.
 
 ### Public hostname and generated URLs
 

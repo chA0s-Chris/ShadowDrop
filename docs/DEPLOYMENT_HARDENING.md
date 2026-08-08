@@ -80,6 +80,38 @@ Credential revocation and expiration stop new authenticated operations but do
 not remove uploaded data or revoke existing shares. Plan explicit share
 revocation and cleanup separately when responding to an incident.
 
+## Direct Kestrel HTTPS
+
+App-managed HTTPS encrypts traffic directly to Kestrel, but TLS termination is
+not an authorization or request-control boundary. Kestrel does not reproduce a
+reverse proxy's source-network restrictions, per-route throttling, request
+filtering, or certificate automation. A reverse proxy remains preferred for an
+Internet-facing deployment whenever those controls are required.
+
+If direct Kestrel HTTPS is appropriate, publish only container port `19424` to
+untrusted networks. Keep port `19423` bound to host loopback for the bundled
+HTTP healthcheck; never publish it on all interfaces. Explicitly configure all
+three application exposure toggles for the intended role:
+
+```text
+ShadowDrop__ApiExposure__EnableAdminOperations=false
+ShadowDrop__ApiExposure__EnableUploads=true
+ShadowDrop__ApiExposure__EnablePublicDownloads=true
+```
+
+The values above are only an example for a public upload-and-download node.
+Disable uploads or public downloads when they are not required. Do not enable
+admin operations on a public direct-Kestrel edge: valid-looking tokens still
+reach expensive PBKDF2 verification and the application has no in-process rate
+limiter. Use a VPN, private network, loopback-only access, or a rate-limiting
+reverse proxy for administration.
+
+`/health/live` and `/health/ready` are mapped regardless of the exposure
+toggles. The application cannot hide those routes from clients that can reach
+`19424`; a reverse proxy is required when public HTTPS clients must be denied
+health-route access. Certificate mounting, client trust, and renewal guidance
+is in [App-managed HTTPS](DEPLOYMENT.md#app-managed-https).
+
 ## Reverse Proxy Controls
 
 ShadowDrop currently relies on the deployment layer for admin request limiting.
