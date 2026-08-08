@@ -10,13 +10,13 @@ The `--flatten` option is a deliberate addition beyond issue #189, which asks on
 
 ## Acceptance Criteria
 
-- [ ] Queue format version 2 stores required `serverUrl` and `shareToken` values at the queue root, keeps optional embedded credentials queue-scoped, and removes the repeated share values from file entries.
-- [ ] Version 2 file entries require `fileId`, `fileName`, and `length`, retain optional `plaintextSha256`, and treat an omitted `outputPath` as `fileName`.
-- [ ] Queue serialization writes only the canonical version 2 shape and omits `outputPath` when it equals `fileName`.
-- [ ] Version 1 and other unsupported queue versions are rejected by shared queue validation with a `queueVersion` error that tells the user to recreate the queue; no legacy reader or migration path is introduced.
-- [ ] Version 2 queue validation requires `/` for directory separators in explicit `outputPath` values and rejects `\` in every effective output path; a `fileName` containing separators is valid only when a safe explicit `outputPath` is present.
-- [ ] Queue validation rejects unsafe effective output paths, including empty segments, traversal, absolute, drive-qualified, and UNC paths, and rejects both duplicate and ancestor/descendant file-directory conflicts at case-insensitive path-segment boundaries.
-- [ ] Queue downloads resolve one share and retrieve one manifest per queue while preserving per-file selection, progress, resume, integrity verification, failure reporting, and output-root containment.
+- [x] Queue format version 2 stores required `serverUrl` and `shareToken` values at the queue root, keeps optional embedded credentials queue-scoped, and removes the repeated share values from file entries.
+- [x] Version 2 file entries require `fileId`, `fileName`, and `length`, retain optional `plaintextSha256`, and treat an omitted `outputPath` as `fileName`.
+- [x] Queue serialization writes only the canonical version 2 shape and omits `outputPath` when it equals `fileName`.
+- [x] Version 1 and other unsupported queue versions are rejected by shared queue validation with a `queueVersion` error that tells the user to recreate the queue; no legacy reader or migration path is introduced.
+- [x] Version 2 queue validation requires `/` for directory separators in explicit `outputPath` values and rejects `\` in every effective output path; a `fileName` containing separators is valid only when a safe explicit `outputPath` is present.
+- [x] Queue validation rejects unsafe effective output paths, including empty segments, traversal, absolute, drive-qualified, and UNC paths, and rejects both duplicate and ancestor/descendant file-directory conflicts at case-insensitive path-segment boundaries.
+- [x] Queue downloads resolve one share and retrieve one manifest per queue while preserving per-file selection, progress, resume, integrity verification, failure reporting, and output-root containment.
 - [ ] `upload --queue-out` preserves paths relative to the command's initial working directory by default and supports `--input-root <directory>` for files under another root; a relative input-root value is resolved against the captured initial working directory.
 - [ ] In default preserve mode, a selected file outside the effective input root fails before any upload or share-creation request with an error naming the offending file and pointing to `--input-root` or `--flatten`.
 - [ ] `upload --queue-out --flatten` discards source directories and produces a flat, collision-safe set of queue destinations from the display-name override when present and the manifest-selected file name otherwise.

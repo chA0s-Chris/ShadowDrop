@@ -32,8 +32,6 @@ internal static class QueueFileBuilder
             throw new QueueBuildException("The share manifest contains no files.");
         }
 
-        var serverUrlText = serverUrl.AbsoluteUri;
-
         // Compare case-insensitively so names differing only by case do not collide at write time on
         // case-insensitive file systems (Windows and many macOS setups).
         HashSet<String> usedNames = new(StringComparer.OrdinalIgnoreCase);
@@ -44,12 +42,10 @@ internal static class QueueFileBuilder
             var outputPath = ResolveCollisionSafeName(file.FileName, usedNames);
             entries.Add(new()
             {
-                ServerUrl = serverUrlText,
-                ShareToken = shareToken,
                 FileId = file.FileId,
                 FileName = file.FileName,
                 Length = file.Length,
-                OutputPath = outputPath,
+                OutputPath = ToCanonicalOutputPath(outputPath, file.FileName),
                 PlaintextSha256 = file.PlaintextSha256
             });
         }
@@ -58,10 +54,17 @@ internal static class QueueFileBuilder
         {
             ShadowDrop = FormatConstants.ShadowDropVersion,
             QueueVersion = FormatConstants.QueueVersion,
+            ServerUrl = serverUrl.AbsoluteUri,
+            ShareToken = shareToken,
             Credentials = credentials,
             Files = entries
         };
     }
+
+    // Version 2 treats an omitted outputPath as the file name, so the canonical form carries the value only when
+    // sanitization, collision handling, or a nested destination made it differ.
+    private static String? ToCanonicalOutputPath(String outputPath, String? fileName) =>
+        String.Equals(outputPath, fileName, StringComparison.Ordinal) ? null : outputPath;
 
     private static String ResolveCollisionSafeName(String? fileName, HashSet<String> usedNames)
     {

@@ -18,9 +18,10 @@ public static class FormatConstants
     public const String EncryptionFormatVersion = "1.0";
 
     /// <summary>
-    /// The current queue file format version.
+    /// The current queue file format version. Version 2 describes exactly one share at the queue root; earlier
+    /// versions are rejected rather than migrated.
     /// </summary>
-    public const String QueueVersion = "1.0";
+    public const String QueueVersion = "2.0";
 
     /// <summary>
     /// The current ShadowDrop queue file marker version.
