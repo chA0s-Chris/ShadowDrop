@@ -17,14 +17,17 @@ and the file system). Each scenario then:
 - runs the real CLI as a child process;
 - byte-compares every downloaded file against the original input.
 
-Three scenarios are covered:
+Four scenarios are covered:
 
-1. **Queue download** — uploads three files with explicit `--server-url`, `--upload-token`, and `--queue-out`,
-   parses the printed `share-key:`, downloads the generated queue with `--queue`, `--output-root`, and
-   `--share-key`, and verifies every file.
-2. **Single-file download** — uploads one file, then downloads the share with neither `--queue` nor `--out` and
+1. **Queue download (upload-relative paths)** — uploads three files, one of them nested, with explicit
+   `--server-url`, `--upload-token`, and `--queue-out`, parses the printed `share-key:`, downloads the generated
+   queue with `--queue`, `--output-root`, and `--share-key`, and verifies every file was recreated at the same
+   path relative to the output root that it had relative to the upload working directory.
+2. **Queue download (flattened)** — the same upload with `--flatten`, verifying that source directories are
+   dropped and every file lands directly under the output root.
+3. **Single-file download** — uploads one file, then downloads the share with neither `--queue` nor `--out` and
    verifies the file landed at `./<original-filename>` in the CLI's working directory.
-3. **Direct HTTP download** — uploads one file with `--direct-http`, configured through the
+4. **Direct HTTP download** — uploads one file with `--direct-http`, configured through the
    `SHADOWDROP_SERVER_URL` and `SHADOWDROP_UPLOAD_TOKEN` environment variables, parses the printed
    `download-url:`, downloads it with `curl`, and verifies the bytes.
 

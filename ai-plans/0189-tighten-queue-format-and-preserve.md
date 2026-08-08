@@ -25,8 +25,8 @@ The `--flatten` option is a deliberate addition beyond issue #189, which asks on
 - [x] Recipient-facing display-name overrides replace the destination leaf while preserving its derived relative directory in the default mode and remain the flat destination leaf in `--flatten` mode.
 - [x] Interactive uploads preserve `--input-root` and `--flatten` when delegating to the shared upload workflow and generate the same queue destinations as equivalent non-interactive uploads.
 - [x] `queue create` continues to generate flat, collision-safe destinations from manifest data, and uploads without `--queue-out` retain their existing filename and manifest behavior.
-- [ ] Automated tests cover versioned parsing and Native AOT serialization, single-share enforcement, optional and nested output paths, portable path validation, input-root and flatten option handling, renames and collisions in both path modes, existing-share queue creation, and nested queue downloads.
-- [ ] CLI and security documentation describe the version 2 queue format, the intentional breaking change and queue-recreation guidance, relative-path, input-root, and `--flatten` behavior, and embedded-credential sensitivity.
+- [x] Automated tests cover versioned parsing and Native AOT serialization, single-share enforcement, optional and nested output paths, portable path validation, input-root and flatten option handling, renames and collisions in both path modes, existing-share queue creation, and nested queue downloads.
+- [x] CLI and security documentation describe the version 2 queue format, the intentional breaking change and queue-recreation guidance, relative-path, input-root, and `--flatten` behavior, and embedded-credential sensitivity.
 
 ## Technical Details
 
