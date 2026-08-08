@@ -8,15 +8,15 @@ Allow deployments that cannot or do not want to place a reverse proxy in front o
 
 ## Acceptance Criteria
 
-- [ ] Support an optional HTTPS listener through standard ASP.NET Core configuration supplied by environment variables or a configuration file, while retaining plain HTTP on port `19423` as the default when HTTPS is not configured.
-- [ ] Allow the HTTPS listener to use an operator-provisioned certificate mounted into the container, with no certificate or private-key material committed to the repository or baked into the image.
-- [ ] Keep certificate passwords and private-key material out of the application's startup logs, verified by a test that starts the host with a password-protected certificate and asserts the captured log output contains neither the password nor the key.
-- [ ] Fail startup when an HTTPS listener is requested without a usable certificate or private key rather than silently falling back to an insecure endpoint.
-- [ ] Make the container image advertise optional HTTPS port `19424` without binding it by default and without changing the existing `EXPOSE 19423` behavior or the Compose healthcheck commands.
-- [ ] Keep the loopback HTTP listener and the existing Compose healthcheck working in the documented app-managed HTTPS example, and document that the bundled health probe uses default certificate trust and cannot validate private or self-signed certificates.
-- [ ] Add automated tests that complete a real TLS request against the configured Kestrel endpoint, reject invalid or incomplete certificate configuration, and preserve the default HTTP endpoint behavior.
-- [ ] Document certificate provisioning and renewal responsibilities, read-only Docker volume mounting, secret handling, port publication, and client trust for private or self-signed certificates.
-- [ ] Update `README.md`, `docs/DEPLOYMENT.md`, and `docs/DEPLOYMENT_HARDENING.md` with an app-managed HTTPS example, the continued reverse-proxy recommendation, and guidance that names the `ShadowDrop__ApiExposure__*` toggles and loopback-only publication of port `19423` as the replacement for the route restrictions a reverse proxy would otherwise enforce.
+- [x] Support an optional HTTPS listener through standard ASP.NET Core configuration supplied by environment variables or a configuration file, while retaining plain HTTP on port `19423` as the default when HTTPS is not configured.
+- [x] Allow the HTTPS listener to use an operator-provisioned certificate mounted into the container, with no certificate or private-key material committed to the repository or baked into the image.
+- [x] Keep certificate passwords and private-key material out of the application's startup logs, verified by a test that starts the host with a password-protected certificate and asserts the captured log output contains neither the password nor the key.
+- [x] Fail startup when an HTTPS listener is requested without a usable certificate or private key rather than silently falling back to an insecure endpoint.
+- [x] Make the container image advertise optional HTTPS port `19424` without binding it by default and without changing the existing `EXPOSE 19423` behavior or the Compose healthcheck commands.
+- [x] Keep the loopback HTTP listener and the existing Compose healthcheck working in the documented app-managed HTTPS example, and document that the bundled health probe uses default certificate trust and cannot validate private or self-signed certificates.
+- [x] Add automated tests that complete a real TLS request against the configured Kestrel endpoint, reject invalid or incomplete certificate configuration, and preserve the default HTTP endpoint behavior.
+- [x] Document certificate provisioning and renewal responsibilities, read-only Docker volume mounting, secret handling, port publication, and client trust for private or self-signed certificates.
+- [x] Update `README.md`, `docs/DEPLOYMENT.md`, and `docs/DEPLOYMENT_HARDENING.md` with an app-managed HTTPS example, the continued reverse-proxy recommendation, and guidance that names the `ShadowDrop__ApiExposure__*` toggles and loopback-only publication of port `19423` as the replacement for the route restrictions a reverse proxy would otherwise enforce.
 
 ## Technical Details
 

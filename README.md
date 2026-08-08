@@ -64,13 +64,15 @@ docker run -d --name shadowdrop \
   chaos/shadowdrop:latest
 ```
 
-The container listens on plain HTTP port `19423` and expects TLS to be
-terminated by a reverse proxy in front of it. All state (metadata database and
+The container listens on plain HTTP port `19423` by default. A reverse proxy is
+still the recommended TLS boundary, but operators can instead configure
+[app-managed HTTPS](docs/DEPLOYMENT.md#app-managed-https) on optional port
+`19424` with a mounted PFX or PEM certificate. All state (metadata database and
 encrypted blobs) lives under `/app/data` — keep it on a persistent volume.
 `SHADOWDROP_BOOTSTRAP_ADMIN_TOKEN` is required on the first start and becomes
 the admin bearer token; see the [deployment guide](docs/DEPLOYMENT.md) for
 details, both Compose options, the Docker Hub tagging scheme, backup/restore,
-and reverse-proxy guidance.
+and TLS guidance.
 
 Do not expose `/api/admin/*` to the public Internet without an upstream
 control — read [deployment hardening](docs/DEPLOYMENT_HARDENING.md) before going live.
