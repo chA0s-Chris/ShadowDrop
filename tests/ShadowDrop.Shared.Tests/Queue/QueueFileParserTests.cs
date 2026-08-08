@@ -91,6 +91,24 @@ public sealed class QueueFileParserTests
         QueueOutputPath.Resolve(queueFile.Files!.Single()).Should().Be("sub/report.txt");
     }
 
+    [TestCase("ftp://example.com/upload")]
+    [TestCase("file:///tmp/report.txt")]
+    public void Parse_ShouldRejectAbsoluteServerUrlWithNonHttpScheme(String serverUrl)
+    {
+        var json = QueueFileParser.Serialize(CreateValidQueueFile() with
+        {
+            ServerUrl = serverUrl
+        });
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "serverUrl" &&
+                                                    error.Message == "The serverUrl value must be an absolute HTTP or HTTPS URL.");
+    }
+
     [Test]
     public void Parse_ShouldRejectAncestorConflictBetweenFileAndDirectory()
     {
@@ -113,21 +131,6 @@ public sealed class QueueFileParserTests
         errors.Should().ContainSingle(error =>
                                           error.Path == "files[1].outputPath" &&
                                           error.Message == "The output path 'DOCS' is also used as a directory by another file entry.");
-    }
-
-    [TestCase("ftp://example.com/upload")]
-    [TestCase("file:///tmp/report.txt")]
-    public void Parse_ShouldRejectAbsoluteServerUrlWithNonHttpScheme(String serverUrl)
-    {
-        var json = QueueFileParser.Serialize(CreateValidQueueFile() with { ServerUrl = serverUrl });
-
-        var act = () => QueueFileParser.Parse(json);
-
-        act.Should()
-           .Throw<QueueFileValidationException>()
-           .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "serverUrl" &&
-                                                    error.Message == "The serverUrl value must be an absolute HTTP or HTTPS URL.");
     }
 
     [Test]
@@ -160,24 +163,6 @@ public sealed class QueueFileParserTests
            .Which.Errors.Should().ContainSingle(error =>
                                                     error.Path == "files[0].length" &&
                                                     error.Message == "The length value is required.");
-    }
-
-    // The queue format break is not migrated, so both the superseded version and an unknown one must say the same
-    // recreate-the-queue thing instead of failing with a bare structural mismatch.
-    [TestCase("1.0")]
-    [TestCase("3.0")]
-    [TestCase("2")]
-    public void Parse_ShouldRejectUnsupportedQueueVersionWithRecreationGuidance(String queueVersion)
-    {
-        var json = QueueFileParser.Serialize(CreateValidQueueFile() with { QueueVersion = queueVersion });
-
-        var act = () => QueueFileParser.Parse(json);
-
-        act.Should()
-           .Throw<QueueFileValidationException>()
-           .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "queueVersion" &&
-                                                    error.Message == UnsupportedQueueVersionMessage);
     }
 
     [Test]
@@ -244,6 +229,68 @@ public sealed class QueueFileParserTests
                                                     error.Message == "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.");
     }
 
+    [TestCase("https://example.com/upload?sd-key=secret")]
+    [TestCase("https://example.com/upload?foo=bar")]
+    [TestCase("https://example.com/upload#fragment")]
+    public void Parse_ShouldRejectServerUrlWithQueryOrFragment(String serverUrl)
+    {
+        var json = QueueFileParser.Serialize(CreateValidQueueFile() with
+        {
+            ServerUrl = serverUrl
+        });
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "serverUrl" &&
+                                                    error.Message == "The serverUrl value must not include query string or fragment components.");
+    }
+
+    [Test]
+    public void Parse_ShouldRejectServerUrlWithUserInfo()
+    {
+        var json = QueueFileParser.Serialize(CreateValidQueueFile() with
+        {
+            ServerUrl = "https://user:pass@example.com/upload"
+        });
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error =>
+                                                    error.Path == "serverUrl" &&
+                                                    error.Message == "The serverUrl value must not include user information.");
+    }
+
+    // A server-announced name is metadata, not a destination, so it may not carry path semantics on its own.
+    [TestCase("sub/report.txt", "The fileName value must not contain directory separators; carry a nested destination in outputPath instead.")]
+    [TestCase(@"sub\report.txt", "The fileName value must use '/' as its directory separator.")]
+    [TestCase("/report.txt", "The fileName value must be a relative path.")]
+    public void Parse_ShouldRejectUnsafeFileName_WhenOutputPathIsOmitted(String fileName, String expectedMessage)
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    FileName = fileName,
+                    OutputPath = null
+                }
+            ]
+        };
+        var json = QueueFileParser.Serialize(queueFile);
+
+        var act = () => QueueFileParser.Parse(json);
+
+        act.Should()
+           .Throw<QueueFileValidationException>()
+           .Which.Errors.Should().ContainSingle(error => error.Path == "files[0].fileName" && error.Message == expectedMessage);
+    }
+
     // Both Windows and POSIX path forms are rejected regardless of the host the tests run on, so a queue written on
     // one platform cannot smuggle an unsafe destination onto another.
     [TestCase("/x", "The outputPath value must be a relative path.")]
@@ -263,7 +310,13 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Files = [CreateValidQueueFile().Files!.Single() with { OutputPath = outputPath }]
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    OutputPath = outputPath
+                }
+            ]
         };
         var json = QueueFileParser.Serialize(queueFile);
 
@@ -274,53 +327,25 @@ public sealed class QueueFileParserTests
            .Which.Errors.Should().ContainSingle(error => error.Path == "files[0].outputPath" && error.Message == expectedMessage);
     }
 
-    // A server-announced name is metadata, not a destination, so it may not carry path semantics on its own.
-    [TestCase("sub/report.txt", "The fileName value must not contain directory separators; carry a nested destination in outputPath instead.")]
-    [TestCase(@"sub\report.txt", "The fileName value must use '/' as its directory separator.")]
-    [TestCase("/report.txt", "The fileName value must be a relative path.")]
-    public void Parse_ShouldRejectUnsafeFileName_WhenOutputPathIsOmitted(String fileName, String expectedMessage)
+    // The queue format break is not migrated, so both the superseded version and an unknown one must say the same
+    // recreate-the-queue thing instead of failing with a bare structural mismatch.
+    [TestCase("1.0")]
+    [TestCase("3.0")]
+    [TestCase("2")]
+    public void Parse_ShouldRejectUnsupportedQueueVersionWithRecreationGuidance(String queueVersion)
     {
-        var queueFile = CreateValidQueueFile() with
+        var json = QueueFileParser.Serialize(CreateValidQueueFile() with
         {
-            Files = [CreateValidQueueFile().Files!.Single() with { FileName = fileName, OutputPath = null }]
-        };
-        var json = QueueFileParser.Serialize(queueFile);
-
-        var act = () => QueueFileParser.Parse(json);
-
-        act.Should()
-           .Throw<QueueFileValidationException>()
-           .Which.Errors.Should().ContainSingle(error => error.Path == "files[0].fileName" && error.Message == expectedMessage);
-    }
-
-    [TestCase("https://example.com/upload?sd-key=secret")]
-    [TestCase("https://example.com/upload?foo=bar")]
-    [TestCase("https://example.com/upload#fragment")]
-    public void Parse_ShouldRejectServerUrlWithQueryOrFragment(String serverUrl)
-    {
-        var json = QueueFileParser.Serialize(CreateValidQueueFile() with { ServerUrl = serverUrl });
+            QueueVersion = queueVersion
+        });
 
         var act = () => QueueFileParser.Parse(json);
 
         act.Should()
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "serverUrl" &&
-                                                    error.Message == "The serverUrl value must not include query string or fragment components.");
-    }
-
-    [Test]
-    public void Parse_ShouldRejectServerUrlWithUserInfo()
-    {
-        var json = QueueFileParser.Serialize(CreateValidQueueFile() with { ServerUrl = "https://user:pass@example.com/upload" });
-
-        var act = () => QueueFileParser.Parse(json);
-
-        act.Should()
-           .Throw<QueueFileValidationException>()
-           .Which.Errors.Should().ContainSingle(error =>
-                                                    error.Path == "serverUrl" &&
-                                                    error.Message == "The serverUrl value must not include user information.");
+                                                    error.Path == "queueVersion" &&
+                                                    error.Message == UnsupportedQueueVersionMessage);
     }
 
     [Test]
@@ -330,20 +355,6 @@ public sealed class QueueFileParserTests
 
         using var document = JsonDocument.Parse(json);
         document.RootElement.TryGetProperty("credentials", out _).Should().BeFalse();
-    }
-
-    [Test]
-    public void Serialize_ShouldOmitOutputPath_WhenItIsNull()
-    {
-        var queueFile = CreateValidQueueFile() with
-        {
-            Files = [CreateValidQueueFile().Files!.Single() with { OutputPath = null }]
-        };
-
-        var json = QueueFileParser.Serialize(queueFile);
-        using var document = JsonDocument.Parse(json);
-
-        document.RootElement.GetProperty("files")[0].TryGetProperty("outputPath", out _).Should().BeFalse();
     }
 
     [Test]
@@ -371,11 +382,31 @@ public sealed class QueueFileParserTests
     }
 
     [Test]
+    public void Serialize_ShouldOmitOutputPath_WhenItIsNull()
+    {
+        var queueFile = CreateValidQueueFile() with
+        {
+            Files =
+            [
+                CreateValidQueueFile().Files!.Single() with
+                {
+                    OutputPath = null
+                }
+            ]
+        };
+
+        var json = QueueFileParser.Serialize(queueFile);
+        using var document = JsonDocument.Parse(json);
+
+        document.RootElement.GetProperty("files")[0].TryGetProperty("outputPath", out _).Should().BeFalse();
+    }
+
+    [Test]
     public void Serialize_ShouldRoundTripEmbeddedCredentials()
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new QueueCredentials
+            Credentials = new()
             {
                 ShareKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 DownloadBearerToken = "bearer"
@@ -411,7 +442,7 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new QueueCredentials
+            Credentials = new()
             {
                 ShareKey = "not-a-valid-hex-key"
             }
@@ -428,7 +459,7 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new QueueCredentials
+            Credentials = new()
             {
                 ShareKey = null
             }

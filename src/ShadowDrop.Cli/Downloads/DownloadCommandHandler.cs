@@ -678,7 +678,7 @@ internal sealed class DownloadCommandHandler
                                                        bearerToken,
                                                        durablePlaintextLength,
                                                        totalPlaintextSize,
-                                                       progress: progress);
+                                                       progress);
             await session.DownloadAsync(cancellationToken);
             await destination.FlushAsync(cancellationToken);
         }

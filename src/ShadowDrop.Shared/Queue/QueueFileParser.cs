@@ -118,6 +118,33 @@ public static partial class QueueFileParser
     [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, -1)]
     private static partial Regex Sha256Regex();
 
+    // An omitted outputPath makes the server-announced fileName the destination, so it is held to the same rules
+    // and may not carry path segments of its own; a nested destination needs an explicit, validated outputPath.
+    private static void ValidateEffectiveOutputPath(QueueFileEntry entry,
+                                                    String prefix,
+                                                    List<ValidatedOutputPath> outputPaths,
+                                                    List<QueueFileValidationError> errors)
+    {
+        var hasExplicitOutputPath = entry.OutputPath is not null;
+        var valueName = hasExplicitOutputPath ? "outputPath" : "fileName";
+        var path = $"{prefix}.{valueName}";
+
+        if (!hasExplicitOutputPath && String.IsNullOrWhiteSpace(entry.FileName))
+        {
+            // The missing fileName was already reported; nothing further can be validated for this entry.
+            return;
+        }
+
+        var effectiveOutputPath = QueueOutputPath.Resolve(entry);
+        if (!QueueOutputPath.TryValidate(effectiveOutputPath, valueName, hasExplicitOutputPath, out var error))
+        {
+            errors.Add(new(path, error));
+            return;
+        }
+
+        outputPaths.Add(new(path, effectiveOutputPath));
+    }
+
     private static void ValidateEntry(QueueFileEntry? entry,
                                       Int32 index,
                                       List<ValidatedOutputPath> outputPaths,
@@ -147,43 +174,6 @@ public static partial class QueueFileParser
         ValidateEffectiveOutputPath(entry, prefix, outputPaths, errors);
     }
 
-    // An omitted outputPath makes the server-announced fileName the destination, so it is held to the same rules
-    // and may not carry path segments of its own; a nested destination needs an explicit, validated outputPath.
-    private static void ValidateEffectiveOutputPath(QueueFileEntry entry,
-                                                    String prefix,
-                                                    List<ValidatedOutputPath> outputPaths,
-                                                    List<QueueFileValidationError> errors)
-    {
-        var hasExplicitOutputPath = entry.OutputPath is not null;
-        var valueName = hasExplicitOutputPath ? "outputPath" : "fileName";
-        var path = $"{prefix}.{valueName}";
-
-        if (!hasExplicitOutputPath && String.IsNullOrWhiteSpace(entry.FileName))
-        {
-            // The missing fileName was already reported; nothing further can be validated for this entry.
-            return;
-        }
-
-        var effectiveOutputPath = QueueOutputPath.Resolve(entry);
-        if (!QueueOutputPath.TryValidate(effectiveOutputPath, valueName, hasExplicitOutputPath, out var error))
-        {
-            errors.Add(new(path, error));
-            return;
-        }
-
-        outputPaths.Add(new(path, effectiveOutputPath));
-    }
-
-    private static void ValidateOutputPathConflicts(List<ValidatedOutputPath> outputPaths, List<QueueFileValidationError> errors)
-    {
-        if (!QueueOutputPath.TryFindConflict(outputPaths.Select(static outputPath => outputPath.Value).ToArray(), out var index, out var error))
-        {
-            return;
-        }
-
-        errors.Add(new(outputPaths[index].Path, error));
-    }
-
     private static void ValidateOptionalSha256(String? value, String path, List<QueueFileValidationError> errors)
     {
         if (value is null)
@@ -196,6 +186,16 @@ public static partial class QueueFileParser
         {
             errors.Add(new(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
         }
+    }
+
+    private static void ValidateOutputPathConflicts(List<ValidatedOutputPath> outputPaths, List<QueueFileValidationError> errors)
+    {
+        if (!QueueOutputPath.TryFindConflict(outputPaths.Select(static outputPath => outputPath.Value).ToArray(), out var index, out var error))
+        {
+            return;
+        }
+
+        errors.Add(new(outputPaths[index].Path, error));
     }
 
     private static void ValidateRequiredString(String? value, String path, List<QueueFileValidationError> errors)

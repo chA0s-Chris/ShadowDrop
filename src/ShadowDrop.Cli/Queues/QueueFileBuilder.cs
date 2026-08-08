@@ -18,7 +18,10 @@ internal static class QueueFileBuilder
     /// <param name="serverUrl">The base URL of the server hosting the share.</param>
     /// <param name="shareToken">The public share token used to download the share.</param>
     /// <param name="manifest">The share manifest describing the downloadable files.</param>
-    /// <param name="credentials">Optional embedded credentials for a self-contained queue; <see langword="null"/> for a secret-free queue.</param>
+    /// <param name="credentials">
+    /// Optional embedded credentials for a self-contained queue; <see langword="null"/> for a
+    /// secret-free queue.
+    /// </param>
     /// <returns>The assembled queue file.</returns>
     /// <exception cref="QueueBuildException">Thrown when the manifest is empty or an entry cannot produce a safe output path.</exception>
     public static QueueFile Build(Uri serverUrl, String shareToken, ShareManifestContract manifest, QueueCredentials? credentials)
@@ -61,11 +64,6 @@ internal static class QueueFileBuilder
         };
     }
 
-    // Version 2 treats an omitted outputPath as the file name, so the canonical form carries the value only when
-    // sanitization, collision handling, or a nested destination made it differ.
-    private static String? ToCanonicalOutputPath(String outputPath, String? fileName) =>
-        String.Equals(outputPath, fileName, StringComparison.Ordinal) ? null : outputPath;
-
     private static String ResolveCollisionSafeName(String? fileName, HashSet<String> usedNames)
     {
         var safeName = Sanitize(fileName);
@@ -85,6 +83,11 @@ internal static class QueueFileBuilder
         SafeFileName.TrySanitize(fileName, out var safeFileName)
             ? safeFileName
             : throw new QueueBuildException("A queued file name cannot be sanitized into a safe output path.");
+
+    // Version 2 treats an omitted outputPath as the file name, so the canonical form carries the value only when
+    // sanitization, collision handling, or a nested destination made it differ.
+    private static String? ToCanonicalOutputPath(String outputPath, String? fileName) =>
+        String.Equals(outputPath, fileName, StringComparison.Ordinal) ? null : outputPath;
 }
 
 /// <summary>

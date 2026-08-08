@@ -25,7 +25,7 @@ public static class QueueOutputPath
     private static readonly HashSet<Char> PortableInvalidSegmentChars =
     [
         '<', '>', ':', '"', '|', '?', '*',
-        ..Enumerable.Range(0, 32).Select(static value => (Char)value)
+        .. Enumerable.Range(0, 32).Select(static value => (Char)value)
     ];
 
     /// <summary>
@@ -90,7 +90,7 @@ public static class QueueOutputPath
                 return true;
             }
 
-            if (directoryOwners.TryGetValue(path, out var owner) && (owner != pathIndex))
+            if (directoryOwners.TryGetValue(path, out var owner) && owner != pathIndex)
             {
                 index = pathIndex;
                 error = $"The output path '{path}' is also used as a directory by another file entry.";
@@ -113,7 +113,10 @@ public static class QueueOutputPath
     /// <see langword="false"/> for a value that must be a single path segment, such as a server-announced file name.
     /// </param>
     /// <param name="error">The validation error when this method returns <see langword="false"/>.</param>
-    /// <returns><see langword="true"/> when the value is a valid portable relative destination; otherwise <see langword="false"/>.</returns>
+    /// <returns>
+    /// <see langword="true"/> when the value is a valid portable relative destination; otherwise
+    /// <see langword="false"/>.
+    /// </returns>
     public static Boolean TryValidate([NotNullWhen(true)] String? value,
                                       String valueName,
                                       Boolean allowDirectorySeparators,
@@ -138,7 +141,7 @@ public static class QueueOutputPath
         }
 
         var segments = SplitSegments(value);
-        if (!allowDirectorySeparators && (segments.Count > 1))
+        if (!allowDirectorySeparators && segments.Count > 1)
         {
             error = $"The {valueName} value must not contain directory separators; carry a nested destination in outputPath instead.";
             return false;

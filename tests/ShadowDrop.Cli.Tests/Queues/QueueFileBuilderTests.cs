@@ -48,16 +48,6 @@ public sealed class QueueFileBuilderTests
         QueueOutputPath.Resolve(entry).Should().Be("report.txt");
     }
 
-    [Test]
-    public void Build_ShouldSetOutputPath_WhenSanitizationChangesTheDestination()
-    {
-        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b.txt", 1));
-
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
-
-        queue.Files!.Single().OutputPath.Should().Be("a_b.txt");
-    }
-
     [TestCase("con.txt", "_con.txt")]
     [TestCase("NUL", "_NUL")]
     [TestCase("file.", "file")]
@@ -92,6 +82,16 @@ public sealed class QueueFileBuilderTests
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("a_b_c_.txt");
+    }
+
+    [Test]
+    public void Build_ShouldSetOutputPath_WhenSanitizationChangesTheDestination()
+    {
+        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b.txt", 1));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Single().OutputPath.Should().Be("a_b.txt");
     }
 
     [Test]
