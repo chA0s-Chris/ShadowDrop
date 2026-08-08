@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Admin;
 
+using Microsoft.Extensions.Primitives;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 using ShadowDrop.Api.Shares;
@@ -24,7 +25,14 @@ public static class AdminEndpoints
                .WithName("AdminShareList")
                .WithMetadata(new OperationalAuditMetadata("admin-share-list"))
                .AddEndpointFilter<OperationalAuditEndpointFilter>()
-               .AddEndpointFilter<ShareListUnauthorizedResultFilter>()
+               .AddEndpointFilter<OperationalUnauthorizedResultFilter>()
+               .AddEndpointFilter<AdminBearerTokenEndpointFilter>();
+
+            app.MapGet("/api/admin/shares/{shareId}", InspectShareAsync)
+               .WithName("AdminShareInspect")
+               .WithMetadata(new OperationalAuditMetadata(OperationalAuditEndpointFilter.ShareInspectionOperation))
+               .AddEndpointFilter<OperationalAuditEndpointFilter>()
+               .AddEndpointFilter<OperationalUnauthorizedResultFilter>()
                .AddEndpointFilter<AdminBearerTokenEndpointFilter>();
 
             var adminRoutes = app.MapGroup("/api/admin")
@@ -61,6 +69,40 @@ public static class AdminEndpoints
     private static async Task<IResult> GetStatusAsync(OperationalStatusService service, CancellationToken cancellationToken) =>
         StatusEndpoints.ToResult(await service.GetAdminAsync(cancellationToken));
 
+    private static async Task<IResult> InspectShareAsync(
+        HttpContext context,
+        ShareInspectionService service,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var includeFilenames = ParseIncludeFilenames(context.Request.Query["includeFilenames"]);
+            context.Items[OperationalAuditEndpointFilter.FilenamesIncludedItemKey] = includeFilenames;
+            if (!Guid.TryParse(context.Request.RouteValues["shareId"]?.ToString(), out var shareId)
+                || shareId == Guid.Empty)
+            {
+                return Error(OperationalErrorReasons.InvalidRequest, StatusCodes.Status400BadRequest);
+            }
+
+            var inspection = await service.GetAsync(shareId, includeFilenames, cancellationToken);
+            return inspection is null
+                ? Error(OperationalErrorReasons.NotFound, StatusCodes.Status404NotFound)
+                : Results.Json(inspection, OperationalStatusJsonSerializerContext.Default.ShareInspectionContract);
+        }
+        catch (OperationalValidationException exception)
+        {
+            return Error(exception.Reason, StatusCodes.Status400BadRequest);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return Error(OperationalErrorReasons.OperationFailed, StatusCodes.Status500InternalServerError);
+        }
+    }
+
     private static async Task<IResult> ListSharesAsync(
         HttpRequest request,
         ShareListService service,
@@ -74,7 +116,7 @@ public static class AdminEndpoints
                                               cancellationToken);
             return Results.Json(page, OperationalStatusJsonSerializerContext.Default.ShareListPageContract);
         }
-        catch (ShareListValidationException exception)
+        catch (OperationalValidationException exception)
         {
             return Error(exception.Reason, StatusCodes.Status400BadRequest);
         }
@@ -86,6 +128,26 @@ public static class AdminEndpoints
         {
             return Error(OperationalErrorReasons.OperationFailed, StatusCodes.Status500InternalServerError);
         }
+    }
+
+    private static Boolean ParseIncludeFilenames(StringValues values)
+    {
+        if (values.Count == 0)
+        {
+            return false;
+        }
+
+        if (values.Count != 1)
+        {
+            throw new OperationalValidationException(OperationalErrorReasons.InvalidRequest);
+        }
+
+        return values[0] switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => throw new OperationalValidationException(OperationalErrorReasons.InvalidRequest)
+        };
     }
 
     private static async Task<IResult> RevokeShareAsync(Guid shareId,

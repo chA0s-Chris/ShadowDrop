@@ -13,5 +13,6 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(UploadServerStatusContract))]
 [JsonSerializable(typeof(AdminServerStatusContract))]
 [JsonSerializable(typeof(ShareListPageContract))]
+[JsonSerializable(typeof(ShareInspectionContract))]
 [JsonSerializable(typeof(OperationalErrorContract))]
 public sealed partial class OperationalStatusJsonSerializerContext : JsonSerializerContext;

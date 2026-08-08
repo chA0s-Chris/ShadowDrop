@@ -38,7 +38,7 @@ public sealed class ShareListServiceTests
         var mismatch = () => service.GetAsync(new(ShareListStatuses.Expired), new("200"), new(cursor), CancellationToken.None);
 
         shares.Query!.PageSize.Should().Be(ShareListPagination.DefaultPageSize);
-        (await mismatch.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidCursor);
+        (await mismatch.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidCursor);
     }
 
     [Test]
@@ -97,9 +97,9 @@ public sealed class ShareListServiceTests
         var removedStatus = () => service.GetAsync(new("cleanup-completed"), StringValues.Empty, StringValues.Empty, CancellationToken.None);
         var tooLarge = () => service.GetAsync(StringValues.Empty, new("201"), StringValues.Empty, CancellationToken.None);
 
-        (await invalid.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
-        (await removedStatus.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
-        (await tooLarge.Should().ThrowAsync<ShareListValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
+        (await invalid.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
+        (await removedStatus.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
+        (await tooLarge.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
 
         var fileId = Guid.NewGuid();
         var share = new ShareListRecord(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1), null,

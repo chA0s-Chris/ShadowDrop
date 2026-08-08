@@ -119,6 +119,7 @@ stable release is known. This is designed to stay out of the way:
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete blobs and metadata for expired and revoked shares, and reclaim unreferenced uploads. |
 | `share list`                   | List bounded share lifecycle and retained-ciphertext metadata. |
+| `share inspect <share-id>`     | Inspect one share and its ordered, filename-redacted file retention state. |
 | `token create`                 | Create a scoped upload credential and display its token once.  |
 | `token list`                   | List bounded upload-credential lifecycle metadata.             |
 | `token inspect <credential-id>` | Inspect one upload credential by management ID.               |
@@ -256,6 +257,35 @@ credential identifiers, token material or hashes, blob keys, cryptographic metad
 
 The share-list controls deliberately differ from `token list`: share listing names the size option `--page-size` and rejects values above
 `200`, while upload-credential listing uses `--limit` and its API clamps values above that endpoint's maximum.
+
+## Inspecting a share
+
+Use the dedicated admin credential and a share's internal ID:
+
+```bash
+shadowdrop share inspect 80000000-0000-0000-0000-000000000001
+shadowdrop share inspect 80000000-0000-0000-0000-000000000001 --json
+shadowdrop share inspect 80000000-0000-0000-0000-000000000001 --include-filenames
+```
+
+The command prints the same lifecycle and cleanup summary as `share list`, followed by files in the share's recorded order. Each file has a
+canonical lower-case UUID, retained ciphertext bytes, and one of `retained`, `deleted`, `unknown`, or `missing`. `missing` means the share
+still references a file whose uploaded-file metadata row has already been reclaimed; it is reported with zero bytes instead of failing the
+inspection. `--json` writes exactly one protocol-v1 inspection value on stdout. Human output uses a fixed field order and renders both
+filename fields explicitly as `null` when redacted.
+
+Filenames are sensitive. They remain `null` in human and JSON output unless `--include-filenames` is explicitly supplied; that option sends
+the only filename-disclosure control accepted by the admin API. Banners, warnings, and diagnostics remain on stderr in JSON mode. The
+inspection exposes no token, token hash, encryption key, credential identifier, blob key, storage path, plaintext hash, configuration, or
+provider exception, and the share ID is not a download capability.
+
+| Exit code | Meaning for `share inspect` |
+|---:|---|
+| `0` | The inspection completed successfully. |
+| `6` | The share was not found (`404 {"reason":"not-found"}`). |
+| `1` | Usage, configuration, authorization, connectivity, protocol, malformed-response, or operation failure. |
+
+Exit code `6` is specific to `share inspect`; missing `token inspect` and `share revoke` resources continue to return `1`.
 
 ## Provisioning upload credentials
 

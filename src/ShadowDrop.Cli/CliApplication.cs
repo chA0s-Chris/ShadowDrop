@@ -355,11 +355,29 @@ internal static class CliApplication
         shareListCommand.Options.Add(shareListCursorOption);
         shareListCommand.Options.Add(jsonOption);
 
+        var shareInspectIdArgument = new Argument<String?>("share-id")
+        {
+            Description = "Internal share ID to inspect."
+        };
+        var shareInspectIncludeFilenamesOption = new Option<Boolean>("--include-filenames")
+        {
+            Description = "Include sensitive original and display filenames in the inspection result."
+        };
+        var shareInspectCommand = new Command("inspect", "Inspect one share and its retained ciphertext state.");
+        shareInspectCommand.Arguments.Add(shareInspectIdArgument);
+        shareInspectCommand.Options.Add(serverOption);
+        shareInspectCommand.Options.Add(caCertOption);
+        shareInspectCommand.Options.Add(insecureOption);
+        shareInspectCommand.Options.Add(adminTokenOption);
+        shareInspectCommand.Options.Add(shareInspectIncludeFilenamesOption);
+        shareInspectCommand.Options.Add(jsonOption);
+
         var shareCommand = new Command("share", "Create and manage shares.");
         shareCommand.Subcommands.Add(shareCreateCommand);
         shareCommand.Subcommands.Add(shareRevokeCommand);
         shareCommand.Subcommands.Add(shareCleanupCommand);
         shareCommand.Subcommands.Add(shareListCommand);
+        shareCommand.Subcommands.Add(shareInspectCommand);
 
         var tokenNameOption = new Option<String?>("--name")
         {
@@ -538,6 +556,9 @@ internal static class CliApplication
                    shareListStatusOption,
                    shareListPageSizeOption,
                    shareListCursorOption,
+                   shareInspectCommand,
+                   shareInspectIdArgument,
+                   shareInspectIncludeFilenamesOption,
                    adminTokenOption,
                    tokenNameOption,
                    tokenExpiresInOption,
@@ -750,6 +771,19 @@ internal static class CliApplication
                                                      httpClient,
                                                      services.StandardOut,
                                                      services.StandardError).ExecuteAsync(listOptions, cancellationToken);
+        }
+
+        if (parseResult.CommandResult.Command == commandModel.ShareInspectCommand)
+        {
+            var inspectOptions = new ShareInspectCommandOptions(parseResult.GetValue(commandModel.ShareInspectIdArgument),
+                                                                parseResult.GetValue(commandModel.ServerOption),
+                                                                parseResult.GetValue(commandModel.AdminTokenOption),
+                                                                parseResult.GetValue(commandModel.ShareInspectIncludeFilenamesOption),
+                                                                parseResult.GetValue(commandModel.JsonOption));
+            return await new ShareInspectCommandHandler(services.ConfigurationResolver,
+                                                        httpClient,
+                                                        services.StandardOut,
+                                                        services.StandardError).ExecuteAsync(inspectOptions, cancellationToken);
         }
 
         if (parseResult.CommandResult.Command == commandModel.TokenCreateCommand)
@@ -1011,6 +1045,9 @@ internal static class CliApplication
         Option<String[]> ShareListStatusOption,
         Option<Int32?> ShareListPageSizeOption,
         Option<String?> ShareListCursorOption,
+        Command ShareInspectCommand,
+        Argument<String?> ShareInspectIdArgument,
+        Option<Boolean> ShareInspectIncludeFilenamesOption,
         Option<String?> AdminTokenOption,
         Option<String?> TokenNameOption,
         Option<String?> TokenExpiresInOption,

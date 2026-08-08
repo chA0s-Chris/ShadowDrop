@@ -43,25 +43,29 @@ internal static class ShareLifecycle
         });
     }
 
-    public static String[] Statuses(ShareListRecord share, DateTimeOffset nowUtc)
+    public static String[] Statuses(
+        DateTimeOffset expiresAtUtc,
+        DateTimeOffset? revokedAtUtc,
+        ShareCleanupState cleanupState,
+        DateTimeOffset nowUtc)
     {
         var statuses = new List<String>(4);
-        if (IsActive(share.ExpiresAtUtc, share.RevokedAtUtc, nowUtc))
+        if (IsActive(expiresAtUtc, revokedAtUtc, nowUtc))
         {
             statuses.Add(ShareListStatuses.Active);
         }
 
-        if (IsExpired(share.ExpiresAtUtc, nowUtc))
+        if (IsExpired(expiresAtUtc, nowUtc))
         {
             statuses.Add(ShareListStatuses.Expired);
         }
 
-        if (IsRevoked(share.RevokedAtUtc))
+        if (IsRevoked(revokedAtUtc))
         {
             statuses.Add(ShareListStatuses.Revoked);
         }
 
-        statuses.Add(share.CleanupState switch
+        statuses.Add(cleanupState switch
         {
             ShareCleanupState.Failed => ShareListStatuses.CleanupFailed,
             _ => ShareListStatuses.CleanupPending

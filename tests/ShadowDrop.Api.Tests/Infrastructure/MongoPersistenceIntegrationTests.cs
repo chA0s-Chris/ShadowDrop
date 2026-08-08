@@ -102,8 +102,17 @@ public abstract class MongoPersistenceIntegrationTests
                     var descriptor = await blobs.SaveAsync(fileId, new MemoryStream([1, 2, 3, 4]), CancellationToken.None);
                     (await uploads.TryCompleteReservationAsync(CreateUploadedFile(fileId, descriptor.BlobKey, 4), CancellationToken.None))
                         .Should().BeTrue();
-                    await shares.CreateAsync(CreateShare(Guid.NewGuid(), $"matrix-{Guid.NewGuid():N}", fileId), CancellationToken.None);
+                    var share = CreateShare(Guid.NewGuid(), $"matrix-{Guid.NewGuid():N}", fileId);
+                    await shares.CreateAsync(share, CancellationToken.None);
                     (await uploads.GetAsync(fileId, CancellationToken.None)).Should().NotBeNull();
+                    var inspection = await new ShareInspectionService(shares, uploads, TimeProvider.System)
+                        .GetAsync(share.ShareId, false, CancellationToken.None);
+                    inspection.Should().NotBeNull();
+                    inspection.Files.Should().ContainSingle();
+                    inspection.Files[0].RetentionState.Should().Be(ShareFileRetentionStates.Retained);
+                    inspection.Files[0].CiphertextBytes.Should().Be(4);
+                    inspection.Files[0].OriginalFilename.Should().BeNull();
+                    inspection.Files[0].DisplayName.Should().BeNull();
                     _ = await blobs.DeleteIfExistsAsync(descriptor.BlobKey, CancellationToken.None);
                 }
                 finally

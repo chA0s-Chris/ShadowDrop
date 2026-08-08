@@ -137,14 +137,16 @@ public sealed class ApiWalkingSkeletonTests
             : null;
 
     [Test]
-    public async Task AdminShareList_ShouldNotBeMapped_WhenAdministrativeOperationsAreDisabled()
+    public async Task AdministrativeShareQueries_ShouldNotBeMapped_WhenAdministrativeOperationsAreDisabled()
     {
         await using var fixture = new TestApiFactory(false);
         using var client = fixture.CreateClient();
 
-        var response = await client.GetAsync("/api/admin/shares");
+        var listResponse = await client.GetAsync("/api/admin/shares");
+        var inspectionResponse = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}");
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        listResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        inspectionResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Test]
@@ -162,7 +164,9 @@ public sealed class ApiWalkingSkeletonTests
 
         // Either the batch provider fails outright or it silently returns fewer rows than were asked for. Neither may
         // produce a partial page or an inferred ciphertext total, so both have to fail the whole request identically.
-        var files = new UnusableFileProjectionRepository(projectionThrows);
+        var files = projectionThrows
+            ? UnusableFileProjectionRepository.Throwing()
+            : UnusableFileProjectionRepository.Incomplete();
         await using var fixture = new TestApiFactory();
         using var host = fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
@@ -194,6 +198,166 @@ public sealed class ApiWalkingSkeletonTests
         audits.Select(logEvent => logEvent.RenderMessage())
               .Should().OnlyContain(message => !message.Contains("provider-secret", StringComparison.Ordinal)
                                                && !message.Contains("80000000-0000-0000-0000-000000000001", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public async Task AdminShareInspect_ShouldAuthorizeBeforeBinding_AndReturnStableValidationAndNotFoundErrors()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+
+        var unauthorized = await client.GetAsync("/api/admin/shares/not-a-guid?includeFilenames=True");
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var invalidId = await client.GetAsync("/api/admin/shares/not-a-guid");
+        var uppercaseBoolean = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=True");
+        var numericBoolean = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=1");
+        var repeatedBoolean = await client.GetAsync(
+            $"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=true&includeFilenames=false");
+        var explicitFalse = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=false");
+        var notFound = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}");
+
+        unauthorized.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await AssertOperationalReasonAsync(unauthorized, OperationalErrorReasons.Unauthorized);
+        foreach (var invalid in new[]
+                 {
+                     invalidId,
+                     uppercaseBoolean,
+                     numericBoolean,
+                     repeatedBoolean
+                 })
+        {
+            invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            await AssertOperationalReasonAsync(invalid, OperationalErrorReasons.InvalidRequest);
+        }
+
+        notFound.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await AssertOperationalReasonAsync(notFound, OperationalErrorReasons.NotFound);
+        explicitFalse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await AssertOperationalReasonAsync(explicitFalse, OperationalErrorReasons.NotFound);
+    }
+
+    [Test]
+    public async Task AdminShareInspect_ShouldRedactByDefault_AndOptInExplicitly()
+    {
+        await using var fixture = new TestApiFactory();
+        using var client = fixture.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        var uploadedFiles = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
+        var shares = fixture.Services.GetRequiredService<IShareMetadataRepository>();
+        var fileId = await uploadedFiles.ReserveFileIdAsync(CancellationToken.None);
+        var uploadedFile = new UploadedFileRecord(fileId,
+                                                  "sensitive-blob-key",
+                                                  "sensitive-upload-name.txt",
+                                                  21,
+                                                  42,
+                                                  "application/octet-stream",
+                                                  "v1",
+                                                  "AES-256-GCM",
+                                                  1024,
+                                                  1,
+                                                  "sensitive-kdf-salt",
+                                                  "sensitive-plaintext-hash");
+        (await uploadedFiles.TryClaimReservationAsync(fileId, CancellationToken.None)).Should().BeTrue();
+        (await uploadedFiles.TryCompleteReservationAsync(uploadedFile, CancellationToken.None)).Should().BeTrue();
+        var share = new ShareRecord(Guid.Parse("80000000-0000-0000-0000-000000000001"),
+                                    "sensitive-share-token-hash",
+                                    DateTimeOffset.Parse("2026-08-07T10:00:00Z"),
+                                    DateTimeOffset.Parse("2026-08-08T10:00:00Z"),
+                                    null,
+                                    ShareCleanupState.Pending,
+                                    false,
+                                    null,
+                                    [new(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
+        await shares.CreateAsync(share, CancellationToken.None);
+
+        var redactedResponse = await client.GetAsync($"/api/admin/shares/{share.ShareId:D}");
+        var disclosedResponse = await client.GetAsync($"/api/admin/shares/{share.ShareId:D}?includeFilenames=true");
+        var redacted = await redactedResponse.Content.ReadFromJsonAsync<ShareInspectionContract>();
+        var disclosed = await disclosedResponse.Content.ReadFromJsonAsync<ShareInspectionContract>();
+
+        redactedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        disclosedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        redacted.Should().NotBeNull();
+        disclosed.Should().NotBeNull();
+        redacted.Files.Should().ContainSingle();
+        redacted.Files[0].OriginalFilename.Should().BeNull();
+        redacted.Files[0].DisplayName.Should().BeNull();
+        disclosed.Files[0].OriginalFilename.Should().Be("sensitive-original.txt");
+        disclosed.Files[0].DisplayName.Should().Be("sensitive-display.txt");
+    }
+
+    [Test]
+    public async Task AdminShareInspect_ShouldFailWholeRequest_WhenBatchFileProjectionIsUnusable([Values] Boolean projectionThrows)
+    {
+        var sink = new CapturingLogSink();
+        var fileId = Guid.NewGuid();
+        var listRecord = new ShareListRecord(Guid.Parse("80000000-0000-0000-0000-000000000001"),
+                                             DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
+                                             DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
+                                             null,
+                                             ShareCleanupState.Pending,
+                                             null,
+                                             [],
+                                             [fileId]);
+        var share = new ShareRecord(listRecord.ShareId,
+                                    "sensitive-share-token-hash",
+                                    listRecord.CreatedAtUtc,
+                                    listRecord.ExpiresAtUtc,
+                                    null,
+                                    ShareCleanupState.Pending,
+                                    false,
+                                    null,
+                                    [new(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
+
+        // A projection that simply omits rows is a legitimate `missing` degradation for inspection, so the non-throwing arm
+        // has to be one the service cannot reconcile at all rather than one that merely returns too few rows.
+        var files = projectionThrows
+            ? UnusableFileProjectionRepository.Throwing()
+            : UnusableFileProjectionRepository.Duplicating();
+        await using var fixture = new TestApiFactory();
+        using var host = fixture.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<ILogEventSink>(sink);
+            services.AddSingleton<IShareMetadataRepository>(new SingleShareMetadataRepository(listRecord, share));
+            services.AddSingleton<IUploadedFileMetadataRepository>(files);
+        }));
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+
+        // Opting into filename disclosure proves the failure path neither discloses filenames nor loses the audit flag.
+        var response = await client.GetAsync($"/api/admin/shares/{share.ShareId:D}?includeFilenames=true");
+        var body = await response.Content.ReadAsStringAsync();
+
+        files.ProjectionCalls.Should().Be(1);
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        JsonSerializer.Deserialize<OperationalErrorContract>(body, JsonOptions)!.Reason.Should().Be(OperationalErrorReasons.OperationFailed);
+        body.Should().NotContain("provider-secret", "provider detail must never reach the caller")
+            .And.NotContain("sensitive-original.txt")
+            .And.NotContain("sensitive-display.txt")
+            .And.NotContain("sensitive-share-token-hash")
+            .And.NotContain(share.ShareId.ToString("D", CultureInfo.InvariantCulture));
+
+        var audits = sink.Events
+                         .Where(logEvent => Scalar(logEvent, "Operation") == "admin-share-inspect")
+                         .ToArray();
+
+        audits.Select(logEvent => Scalar(logEvent, "Outcome")).Should().Equal("failure");
+        audits.Select(logEvent => Scalar(logEvent, "HttpStatus")).Should().Equal("500");
+
+        // The disclosure Boolean is the only property inspection adds, and a failed request must still record it.
+        audits.Select(logEvent => Scalar(logEvent, "FilenamesIncluded")).Should().Equal("True");
+        audits.Should().OnlyContain(logEvent => logEvent.Exception == null);
+        audits.Select(logEvent => logEvent.RenderMessage())
+              .Should().OnlyContain(message => !message.Contains("provider-secret", StringComparison.Ordinal)
+                                               && !message.Contains("sensitive-original.txt", StringComparison.Ordinal)
+                                               && !message.Contains("80000000-0000-0000-0000-000000000001", StringComparison.Ordinal));
+    }
+
+    private static async Task AssertOperationalReasonAsync(HttpResponseMessage response, String expectedReason)
+    {
+        var error = await response.Content.ReadFromJsonAsync<OperationalErrorContract>();
+        error.Should().NotBeNull();
+        error.Reason.Should().Be(expectedReason);
     }
 
     [Test]
@@ -2073,22 +2237,33 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     /// <summary>
-    /// Returns exactly one share page entry so the share-list request reaches its batch file projection.
+    /// Returns exactly one share page entry so the share-list request reaches its batch file projection, and optionally the
+    /// matching full record so a share inspection reaches the same projection.
     /// </summary>
     private sealed class SingleShareMetadataRepository : IShareMetadataRepository
     {
+        private readonly ShareRecord? _record;
         private readonly ShareListRecord _share;
 
-        public SingleShareMetadataRepository(ShareListRecord share)
+        public SingleShareMetadataRepository(ShareListRecord share, ShareRecord? record = null)
         {
             _share = share;
+            _record = record;
         }
 
         public Task<Int64> CountMatchingAsync(ShareListQuery query, CancellationToken cancellationToken) => Task.FromResult(1L);
 
         public Task CreateAsync(ShareRecord record, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<ShareRecord?> GetAsync(Guid shareId, CancellationToken cancellationToken)
+        {
+            if (_record is null)
+            {
+                throw new NotSupportedException();
+            }
+
+            return Task.FromResult(_record.ShareId == shareId ? _record : null);
+        }
 
         public Task<ShareRecord?> GetByShareTokenHashAsync(
             String shareTokenHashBase64,
@@ -2114,19 +2289,41 @@ public sealed class ApiWalkingSkeletonTests
     }
 
     /// <summary>
-    /// Makes the bounded batch file projection unusable, either by failing outright or by returning fewer rows than
-    /// the page requires.
+    /// Makes the bounded batch file projection unusable, either by failing outright, by returning fewer rows than were
+    /// requested, or by returning irreconcilable duplicate rows for the same file.
     /// </summary>
     private sealed class UnusableFileProjectionRepository : IUploadedFileMetadataRepository
     {
-        private readonly Boolean _throws;
+        private readonly Func<IReadOnlyCollection<Guid>, IReadOnlyList<UploadedFileListProjection>> _projection;
 
-        public UnusableFileProjectionRepository(Boolean throws)
+        private UnusableFileProjectionRepository(
+            Func<IReadOnlyCollection<Guid>, IReadOnlyList<UploadedFileListProjection>> projection)
         {
-            _throws = throws;
+            _projection = projection;
         }
 
         public Int32 ProjectionCalls { get; private set; }
+
+        /// <summary>
+        /// Returns two rows per requested file that disagree on both length and retention, so no caller may reconcile them
+        /// into one projection and no silent tie-break can produce a stable answer.
+        /// </summary>
+        public static UnusableFileProjectionRepository Duplicating() =>
+            new(fileIds =>
+            [
+                .. fileIds.SelectMany(fileId => new UploadedFileListProjection[]
+                {
+                    new(fileId, 1, BlobRetentionState.Retained),
+                    new(fileId, 2, BlobRetentionState.Deleted)
+                })
+            ]);
+
+        /// <summary>Returns no rows at all, so a caller that requires one row per requested file cannot complete.</summary>
+        public static UnusableFileProjectionRepository Incomplete() => new(_ => []);
+
+        /// <summary>Fails the batch projection outright, carrying a provider detail that must never reach the caller.</summary>
+        public static UnusableFileProjectionRepository Throwing() =>
+            new(_ => throw new InvalidOperationException("provider-secret"));
 
         public Task<Int32> GetActivePendingReservationCountAsync(CancellationToken cancellationToken) => Task.FromResult(0);
 
@@ -2136,9 +2333,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                                        CancellationToken cancellationToken)
         {
             ProjectionCalls++;
-            return _throws
-                ? throw new InvalidOperationException("provider-secret")
-                : Task.FromResult<IReadOnlyList<UploadedFileListProjection>>([]);
+            return Task.FromResult(_projection(fileIds));
         }
 
         public Task<UploadedFileStorageStats> GetStorageStatsAsync(CancellationToken cancellationToken) =>

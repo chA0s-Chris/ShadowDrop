@@ -134,7 +134,12 @@ emits exactly one protocol-v1 page value:
 ```bash
 shadowdrop share list --status expired --status cleanup-failed --page-size 50
 shadowdrop share list --cursor '<next-cursor>' --json
+shadowdrop share inspect <share-id>
+shadowdrop share inspect <share-id> --include-filenames --json
 ```
+
+Share inspection shows one share's ordered file retention state without creating a download capability. Filenames are sensitive and remain
+`null` unless `--include-filenames` is explicitly selected.
 
 Expired and revoked shares stop resolving through their public token immediately. A successful cleanup deletes their encrypted blobs,
 uploaded-file metadata, and share metadata; a failed cleanup keeps the share in the administrative inventory as `cleanup-failed` for

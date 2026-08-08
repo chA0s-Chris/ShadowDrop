@@ -77,16 +77,16 @@ public sealed class ShareListService
             }
         }
 
-        return new(share.ShareId.ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant(),
-                   share.CreatedAtUtc.ToUniversalTime(),
-                   share.ExpiresAtUtc.ToUniversalTime(),
-                   share.RevokedAtUtc?.ToUniversalTime(),
-                   ShareLifecycle.Statuses(share, nowUtc),
-                   ShareLifecycle.CleanupState(share.CleanupState),
-                   share.LastCleanupAttemptAtUtc?.ToUniversalTime(),
-                   ShareLifecycle.FailureCategories(share.CleanupFailureCategories),
-                   share.FileIds.Count,
-                   retainedBytes);
+        return ShareSummaryMapper.Map(share.ShareId,
+                                      share.CreatedAtUtc,
+                                      share.ExpiresAtUtc,
+                                      share.RevokedAtUtc,
+                                      share.CleanupState,
+                                      share.LastCleanupAttemptAtUtc,
+                                      share.CleanupFailureCategories,
+                                      share.FileIds.Count,
+                                      retainedBytes,
+                                      nowUtc);
     }
 
     private static String[] NormalizeStatuses(StringValues supplied)
@@ -101,7 +101,7 @@ public sealed class ShareListService
                                 || value.Contains(',', StringComparison.Ordinal)
                                 || !ShareListStatuses.CanonicalOrder.Contains(value, StringComparer.Ordinal)))
         {
-            throw new ShareListValidationException(OperationalErrorReasons.InvalidRequest);
+            throw new OperationalValidationException(OperationalErrorReasons.InvalidRequest);
         }
 
         var distinct = values.ToHashSet(StringComparer.Ordinal);
@@ -120,7 +120,7 @@ public sealed class ShareListService
             || cursor is null
             || !cursor.Statuses.SequenceEqual(statuses, StringComparer.Ordinal))
         {
-            throw new ShareListValidationException(OperationalErrorReasons.InvalidCursor);
+            throw new OperationalValidationException(OperationalErrorReasons.InvalidCursor);
         }
 
         return cursor;
@@ -137,7 +137,7 @@ public sealed class ShareListService
             || !Int32.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out var pageSize)
             || pageSize is <= 0 or > ShareListPagination.MaximumPageSize)
         {
-            throw new ShareListValidationException(OperationalErrorReasons.InvalidRequest);
+            throw new OperationalValidationException(OperationalErrorReasons.InvalidRequest);
         }
 
         return pageSize;

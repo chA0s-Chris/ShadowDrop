@@ -154,6 +154,7 @@ public static class DependencyInjection
             builder.Services.AddSingleton<AdminTokenService>();
             builder.Services.AddSingleton<ShareRevocationService>();
             builder.Services.AddSingleton<ShareListService>();
+            builder.Services.AddSingleton<ShareInspectionService>();
         }
 
         if (shadowDropOptions.ApiExposure.EnablePublicDownloads)

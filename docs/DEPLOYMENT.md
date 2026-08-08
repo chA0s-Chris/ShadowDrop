@@ -181,10 +181,17 @@ blobs. Successfully cleaned shares disappear from the inventory because both the
 The exact `totalMatching` can change between page requests as shares expire, are revoked, or are deleted. Share-list audits contain only operation, outcome, HTTP status, and elapsed
 time. Keep this endpoint on the same protected management boundary as every other `/api/admin/*` route.
 
-Operational audit records for `/api/admin/status` and `/api/admin/shares` are now written by one shared filter, so both use the log source
-context `ShadowDrop.Api.Status.OperationalAuditEndpointFilter`. Log pipelines that selected status audits by the previous
-`ShadowDrop.Api.Status.AdminStatusAuditEndpointFilter` context need updating; the `Operation` property
-(`admin-status-view` or `admin-share-list`) is the stable way to tell the two apart.
+Operational audit records for `/api/admin/status`, `/api/admin/shares`, and `/api/admin/shares/{shareId}` are all written by one shared
+filter, so they use the log source context `ShadowDrop.Api.Status.OperationalAuditEndpointFilter`. Log pipelines that selected status
+audits by the previous `ShadowDrop.Api.Status.AdminStatusAuditEndpointFilter` context need updating; the `Operation` property
+(`admin-status-view`, `admin-share-list`, or `admin-share-inspect`) is the stable way to tell them apart.
+
+For one-share diagnosis, use authenticated `GET /api/admin/shares/{shareId}` or `shadowdrop share inspect <share-id>`. Inspection loads the
+share once and performs one bounded batch uploaded-file projection, including on LiteDB/filesystem and MongoDB/GridFS deployments; it does
+not enumerate a blob provider. Missing uploaded-file metadata is represented by a zero-byte `missing` entry so a partially completed
+cleanup remains diagnosable. Filenames are sensitive and remain `null` unless the caller explicitly selects `includeFilenames=true` or
+`--include-filenames`. The `admin-share-inspect` audit record adds only a `FilenamesIncluded` Boolean to the shared operation, outcome,
+HTTP-status, and elapsed-time fields. Keep inspection on the protected management boundary and restrict access to its output accordingly.
 
 LiteDB assembles each share-list page by walking equal-creation-time groups, because it orders by a single field. A page therefore costs one
 indexed ordering query plus one lookup per distinct creation timestamp it spans. With a lifecycle filter that pushes the query planner off
