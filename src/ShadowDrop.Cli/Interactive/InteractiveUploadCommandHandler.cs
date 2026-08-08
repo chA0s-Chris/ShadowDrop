@@ -90,7 +90,12 @@ internal sealed class InteractiveUploadCommandHandler
                                                      options.Json,
                                                      options.Force,
                                                      options.DisplayName,
-                                                     options.DisplayNameMappings);
+                                                     options.DisplayNameMappings,
+                                                     // Carried through so an interactive upload validates and generates
+                                                     // exactly the same queue destinations as the equivalent command line.
+                                                     options.InputRoot,
+                                                     options.Flatten,
+                                                     options.WorkingDirectory);
 
         return await new UploadCommandHandler(_configurationResolver,
                                               _httpClient,

@@ -15,4 +15,7 @@ internal sealed record UploadCommandOptions(
     Boolean Json,
     Boolean Force,
     String? DisplayName,
-    String[] DisplayNameMappings);
+    String[] DisplayNameMappings,
+    String? InputRoot = null,
+    Boolean Flatten = false,
+    String? WorkingDirectory = null);

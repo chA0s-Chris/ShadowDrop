@@ -22,9 +22,21 @@ internal static class QueueFileBuilder
     /// Optional embedded credentials for a self-contained queue; <see langword="null"/> for a
     /// secret-free queue.
     /// </param>
+    /// <param name="preparedDestinations">
+    /// Destinations computed from the uploader's local paths before the upload, keyed by uploaded file id. Supplied
+    /// by the end-to-end <c>upload --queue-out</c> workflow; <see langword="null"/> for <c>queue create</c>, which
+    /// has no source paths and builds flat destinations from the manifest alone.
+    /// </param>
     /// <returns>The assembled queue file.</returns>
-    /// <exception cref="QueueBuildException">Thrown when the manifest is empty or an entry cannot produce a safe output path.</exception>
-    public static QueueFile Build(Uri serverUrl, String shareToken, ShareManifestContract manifest, QueueCredentials? credentials)
+    /// <exception cref="QueueBuildException">
+    /// Thrown when the manifest is empty, an entry cannot produce a safe output path, or the manifest disagrees with
+    /// the prepared destinations.
+    /// </exception>
+    public static QueueFile Build(Uri serverUrl,
+                                  String shareToken,
+                                  ShareManifestContract manifest,
+                                  QueueCredentials? credentials,
+                                  IReadOnlyDictionary<Guid, QueueDestination>? preparedDestinations = null)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(shareToken);
@@ -43,7 +55,9 @@ internal static class QueueFileBuilder
 
         foreach (var file in manifest.Files)
         {
-            var outputPath = ResolveCollisionSafeName(file.FileName, usedNames);
+            var outputPath = preparedDestinations is null
+                ? ResolveCollisionSafeName(file.FileName, usedNames)
+                : ResolvePreparedDestination(file, preparedDestinations);
             outputPaths.Add(outputPath);
             entries.Add(new()
             {
@@ -69,6 +83,26 @@ internal static class QueueFileBuilder
             Credentials = credentials,
             Files = entries
         };
+    }
+
+    // The destination was already decided from local input, so a disagreement with what the share announces is a
+    // remote consistency failure rather than something to silently recompute after the share exists.
+    private static String ResolvePreparedDestination(ShareManifestFileContract file,
+                                                     IReadOnlyDictionary<Guid, QueueDestination> preparedDestinations)
+    {
+        if (!Guid.TryParse(file.FileId, out var fileId) || !preparedDestinations.TryGetValue(fileId, out var prepared))
+        {
+            throw new QueueBuildException($"The share manifest announced file id '{file.FileId}', which was not part of this upload.");
+        }
+
+        var announcedName = Sanitize(file.FileName);
+        if (!String.Equals(announcedName, prepared.ExpectedFileName, StringComparison.Ordinal))
+        {
+            throw new QueueBuildException(
+                $"The share manifest announced '{file.FileName}' for a file queued as '{prepared.ExpectedFileName}'.");
+        }
+
+        return prepared.Path;
     }
 
     private static String ResolveCollisionSafeName(String? fileName, HashSet<String> usedNames)

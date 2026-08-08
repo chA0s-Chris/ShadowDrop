@@ -166,7 +166,9 @@ public sealed class UploadCommandHandlerTests
         var plaintext = await File.ReadAllBytesAsync(filePath);
         var queuePath = Path.Combine(fixture.RootDirectory, "selfcontained.queue.json");
 
-        var uploadExit = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--embed-secrets"], services, CancellationToken.None);
+        var uploadExit = await CliApplication.InvokeAsync(
+            ["upload", filePath, "--queue-out", queuePath, "--embed-secrets", "--input-root", fixture.RootDirectory],
+            services, CancellationToken.None);
         uploadExit.Should().Be(0);
 
         var outputDirectory = Path.Combine(fixture.RootDirectory, "downloads");
@@ -1379,7 +1381,8 @@ public sealed class UploadCommandHandlerTests
         var filePath = fixture.CreateInputFile("queued.bin", 96);
         var queuePath = Path.Combine(fixture.RootDirectory, "out.queue.json");
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath], services, CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(["upload", filePath, "--queue-out", queuePath, "--input-root", fixture.RootDirectory],
+                                                        services, CancellationToken.None);
 
         exitCode.Should().Be(0);
         FindLine(standardOut.ToString(), "share-key:").Should().NotBeNull();
@@ -1391,6 +1394,201 @@ public sealed class UploadCommandHandlerTests
         queue.ServerUrl.Should().NotBeNullOrWhiteSpace();
         var entry = queue.Files.Should().ContainSingle().Subject;
         QueueOutputPath.Resolve(entry).Should().Be("queued.bin");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveRelativePathsInGeneratedQueue()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var flatFile = fixture.CreateInputFile("file1.bin", 32);
+        var nestedFile = fixture.CreateInputFile(Path.Combine("sub", "file3.bin"), 48);
+        var deeplyNestedFile = fixture.CreateInputFile(Path.Combine("docs", "reports", "doc1.bin"), 64);
+        var queuePath = Path.Combine(fixture.RootDirectory, "preserved.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", flatFile, nestedFile, deeplyNestedFile, "--queue-out", queuePath, "--input-root", fixture.RootDirectory],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Files.Should().NotBeNull();
+        queue.Files.Select(QueueOutputPath.Resolve).Should().BeEquivalentTo(["file1.bin", "sub/file3.bin", "docs/reports/doc1.bin"]);
+
+        // The destination equals the file name for the unnested file, so version 2 omits it entirely.
+        queue.Files.Single(entry => entry.FileName == "file1.bin").OutputPath.Should().BeNull();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldPreserveDerivedDirectory_WhenDisplayNameOverridesTheLeaf()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var nestedFile = fixture.CreateInputFile(Path.Combine("sub", "file3.bin"), 48);
+        var queuePath = Path.Combine(fixture.RootDirectory, "renamed.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", nestedFile, "--queue-out", queuePath, "--input-root", fixture.RootDirectory, "--name", "renamed.bin"],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        QueueOutputPath.Resolve(queue.Files.Should().ContainSingle().Subject).Should().Be("sub/renamed.bin");
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldFlattenUnrelatedInputs_WhenFlattenRequested()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var nestedFile = fixture.CreateInputFile(Path.Combine("sub", "file3.bin"), 48);
+
+        // Deliberately outside the input root that preserve mode would derive, which is what --flatten allows.
+        var unrelatedDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-flatten-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(unrelatedDirectory);
+        var queuePath = Path.Combine(fixture.RootDirectory, "flat.queue.json");
+
+        try
+        {
+            var unrelatedFile = Path.Combine(unrelatedDirectory, "file4.bin");
+            await File.WriteAllBytesAsync(unrelatedFile, [1, 2, 3, 4]);
+
+            var exitCode = await CliApplication.InvokeAsync(
+                ["upload", nestedFile, unrelatedFile, "--queue-out", queuePath, "--flatten"],
+                services, CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+            queue.Files.Should().NotBeNull();
+            queue.Files.Select(QueueOutputPath.Resolve).Should().BeEquivalentTo(["file3.bin", "file4.bin"]);
+        }
+        finally
+        {
+            Directory.Delete(unrelatedDirectory, true);
+        }
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectInputOutsideTheInputRootBeforeUploading()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var insideFile = fixture.CreateInputFile(Path.Combine("inputs", "inside.bin"), 32);
+        var outsideFile = fixture.CreateInputFile("outside.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "rejected.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", insideFile, outsideFile, "--queue-out", queuePath, "--input-root", Path.Combine(fixture.RootDirectory, "inputs")],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("outside.bin")
+                     .And.Contain("--input-root")
+                     .And.Contain("--flatten");
+
+        // The whole point of resolving destinations up front: nothing reached the server and no queue was written.
+        fixture.GetStoredUploads().Should().BeEmpty();
+        File.Exists(queuePath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectMissingInputRootDirectory()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("queued.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "missing-root.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", filePath, "--queue-out", queuePath, "--input-root", Path.Combine(fixture.RootDirectory, "does-not-exist")],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("does-not-exist").And.Contain("does not exist");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [TestCase("--input-root", "The --input-root option requires --queue-out.")]
+    [TestCase("--flatten", "The --flatten option requires --queue-out.")]
+    public async Task InvokeAsync_ShouldRejectQueueDestinationOptionsWithoutQueueOut(String option, String expectedMessage)
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("noqueue.bin", 32);
+        String[] arguments = option == "--flatten"
+            ? ["upload", filePath, option]
+            : ["upload", filePath, option, fixture.RootDirectory];
+
+        var exitCode = await CliApplication.InvokeAsync(arguments, services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(expectedMessage);
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectInputRootCombinedWithFlatten()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("queued.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "conflict.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", filePath, "--queue-out", queuePath, "--input-root", fixture.RootDirectory, "--flatten"],
+            services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --input-root and --flatten options cannot be combined.");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    // A relative --input-root is resolved against the working directory captured when the command started.
+    [Test]
+    public async Task InvokeAsync_ShouldResolveRelativeInputRootAgainstTheWorkingDirectory()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new StringWriter(), new StringWriter(), fixture.ConfigFilePath, httpClient: httpClient);
+        var nestedFile = fixture.CreateInputFile(Path.Combine("inputs", "sub", "file3.bin"), 48);
+        var queuePath = Path.Combine(fixture.RootDirectory, "relative-root.queue.json");
+
+        var previousDirectory = Directory.GetCurrentDirectory();
+        Directory.SetCurrentDirectory(fixture.RootDirectory);
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(
+                ["upload", nestedFile, "--queue-out", queuePath, "--input-root", "inputs"],
+                services, CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+            QueueOutputPath.Resolve(queue.Files.Should().ContainSingle().Subject).Should().Be("sub/file3.bin");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(previousDirectory);
+        }
     }
 
     [Test]

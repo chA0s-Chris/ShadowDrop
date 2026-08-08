@@ -10,6 +10,7 @@ using ShadowDrop.Cli.Results;
 using ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Queue;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 /// <summary>
@@ -83,6 +84,12 @@ internal sealed class UploadCommandHandler
         if (options.EmbedSecrets && options.QueueOut is null)
         {
             await _standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
+            return 1;
+        }
+
+        if (!TryResolveQueueDestinationPlan(options, displayNameOverrides, out var queueDestinations, out var queueOptionError))
+        {
+            await _standardError.WriteLineAsync(queueOptionError);
             return 1;
         }
 
@@ -208,7 +215,8 @@ internal sealed class UploadCommandHandler
                     : null;
                 var manifest = await new ShareManifestClient(_httpClient).GetAsync(serverUrl, shareResult.ShareToken, shareResult.DownloadBearerToken,
                                                                                    cancellationToken);
-                var queue = QueueFileBuilder.Build(serverUrl, shareResult.ShareToken, manifest, queueCredentials);
+                var queue = QueueFileBuilder.Build(serverUrl, shareResult.ShareToken, manifest, queueCredentials,
+                                                   MapDestinationsToFileIds(queueDestinations, uploadResult));
                 AtomicFileWriter.WriteAtomic(options.QueueOut, QueueFileParser.Serialize(queue), options.Force, options.EmbedSecrets);
                 queueFilePath = options.QueueOut.FullName;
             }
@@ -254,6 +262,88 @@ internal sealed class UploadCommandHandler
 
     private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
         displayNameOverrides.GetValueOrDefault(file.FullName);
+
+    // Associates each prepared destination with the id the server assigned to that file, so queue building works
+    // from ids alone and never re-derives a destination from mutable process state after the share exists.
+    private static IReadOnlyDictionary<Guid, QueueDestination>? MapDestinationsToFileIds(
+        IReadOnlyDictionary<String, QueueDestination>? destinations,
+        UploadExecutionResult uploadResult)
+    {
+        if (destinations is null)
+        {
+            return null;
+        }
+
+        Dictionary<Guid, QueueDestination> destinationsByFileId = [];
+        foreach (var result in uploadResult.Files)
+        {
+            if ((result.UploadedFileId is { } fileId) &&
+                destinations.TryGetValue(Path.GetFullPath(result.File.FullName), out var destination))
+            {
+                destinationsByFileId[fileId] = destination;
+            }
+        }
+
+        return destinationsByFileId;
+    }
+
+    // The queue option contract and every destination knowable from local input are resolved before any upload or
+    // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
+    private static Boolean TryResolveQueueDestinationPlan(UploadCommandOptions options,
+                                                          IReadOnlyDictionary<String, String> displayNameOverrides,
+                                                          out IReadOnlyDictionary<String, QueueDestination>? destinations,
+                                                          [NotNullWhen(false)] out String? error)
+    {
+        destinations = null;
+
+        if (options.QueueOut is null)
+        {
+            if (options.InputRoot is not null)
+            {
+                error = "The --input-root option requires --queue-out.";
+                return false;
+            }
+
+            if (options.Flatten)
+            {
+                error = "The --flatten option requires --queue-out.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
+        if ((options.InputRoot is not null) && options.Flatten)
+        {
+            error = "The --input-root and --flatten options cannot be combined.";
+            return false;
+        }
+
+        // Captured once by the command entry point so path resolution cannot be affected by a working directory
+        // that changes while the upload runs.
+        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+
+        // Flatten derives no source root at all, which is what allows inputs from unrelated locations.
+        if (options.Flatten)
+        {
+            return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Flatten,
+                                                       workingDirectory, out destinations, out error);
+        }
+
+        var inputRoot = options.InputRoot is null
+            ? Path.GetFullPath(workingDirectory)
+            : Path.GetFullPath(options.InputRoot, workingDirectory);
+
+        if (!Directory.Exists(inputRoot))
+        {
+            error = $"The --input-root directory '{inputRoot}' does not exist.";
+            return false;
+        }
+
+        return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Preserve,
+                                                   inputRoot, out destinations, out error);
+    }
 
     private UploadCommandResult BuildResult(String status,
                                             UploadExecutionResult uploadResult,

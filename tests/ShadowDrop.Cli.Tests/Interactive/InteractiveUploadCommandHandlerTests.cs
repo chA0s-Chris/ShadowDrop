@@ -111,6 +111,64 @@ public sealed class InteractiveUploadCommandHandlerTests
         session.TextPrompts.Count(prompt => prompt.Prompt == "ShadowDrop server URL:").Should().Be(2);
     }
 
+    // The guided flow rebuilds UploadCommandOptions before delegating, so the queue destination options have to be
+    // carried across or an interactive upload would silently generate different destinations than the command line.
+    [TestCase(true, false, "The --flatten option requires --queue-out.")]
+    [TestCase(false, true, "The --input-root option requires --queue-out.")]
+    public async Task ExecuteAsync_ShouldCarryQueueDestinationOptions_IntoTheSharedUploadWorkflow(Boolean flatten,
+                                                                                                  Boolean withInputRoot,
+                                                                                                  String expectedMessage)
+    {
+        var standardError = new StringWriter();
+        var session = new FakeInteractiveSession();
+        session.EnqueueTextResponse(MissingFilePath());
+        session.EnqueueConfirmation(false); // Add another file?
+        session.EnqueueSelection(2); // Expiration: 7 days
+        session.EnqueueConfirmation(false); // Enable direct HTTP downloads?
+        session.EnqueueConfirmation(false); // Require a download bearer token?
+        var handler = CreateHandler(session, new NeverCalledHandler(),
+                                    FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"), standardError);
+        var options = Options() with
+        {
+            Flatten = flatten,
+            InputRoot = withInputRoot ? Path.GetTempPath() : null
+        };
+
+        var exitCode = await handler.ExecuteAsync(options, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(expectedMessage);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ShouldCarryTheCapturedWorkingDirectory_IntoTheSharedUploadWorkflow()
+    {
+        var standardError = new StringWriter();
+        var session = new FakeInteractiveSession();
+        session.EnqueueTextResponse(MissingFilePath());
+        session.EnqueueConfirmation(false);
+        session.EnqueueSelection(2);
+        session.EnqueueConfirmation(false);
+        session.EnqueueConfirmation(false);
+        var handler = CreateHandler(session, new NeverCalledHandler(),
+                                    FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"), standardError);
+        var workingDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-interactive-{Guid.NewGuid():N}");
+        var options = Options() with
+        {
+            QueueOut = new(Path.Combine(Path.GetTempPath(), $"interactive-{Guid.NewGuid():N}.queue.json")),
+
+            // Relative to the captured working directory, which does not exist: the error proves both values were
+            // carried through and combined by the shared handler.
+            InputRoot = "inputs",
+            WorkingDirectory = workingDirectory
+        };
+
+        var exitCode = await handler.ExecuteAsync(options, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(Path.Combine(workingDirectory, "inputs")).And.Contain("does not exist");
+    }
+
     private static InteractiveUploadCommandHandler CreateHandler(FakeInteractiveSession session,
                                                                  HttpMessageHandler handler,
                                                                  CliConfigurationResolver? resolver = null,
