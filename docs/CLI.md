@@ -434,7 +434,7 @@ leaf name and can never introduce directories of its own.
 If the destination file already exists and matches the shared file, the command
 reports it as already downloaded and exits zero; if it exists but differs, the
 command fails and leaves the file untouched. Interrupted downloads resume from
-the `.partial` file left next to the destination.
+the `.shadowdrop-partial` file left next to the destination.
 
 `--share-key-file <path>` reads the key from a file instead. If the share
 holds multiple files, pick one with `--file <file-id>` — or use a queue to
@@ -547,20 +547,25 @@ the original uploader paths are not part of the share.
 | --- | --- | --- |
 | `shadowDrop` | yes | Product marker version, currently `1.0`. |
 | `queueVersion` | yes | Queue format version, currently `2.0`. |
-| `serverUrl` | yes | Base URL of the server hosting the share. |
+| `serverUrl` | yes | Absolute HTTP or HTTPS base URL of the server hosting the share, without user information, query string, or fragment. |
 | `shareToken` | yes | Public share token. One queue describes exactly one share. |
 | `credentials` | no | Embedded `shareKey` and optional `downloadBearerToken` (see `--embed-secrets`). |
 | `files` | yes | Non-empty list of files from the queue's share. |
 | `files[].fileId` | yes | File identifier within the share. |
 | `files[].fileName` | yes | Server-announced file name. When `outputPath` is omitted, this is also the destination and must be one portable path segment; with a safe explicit `outputPath`, it may contain separators. |
-| `files[].length` | yes | Plaintext size in bytes. |
+| `files[].length` | yes | Plaintext size in bytes; zero or greater. |
 | `files[].outputPath` | no | Destination relative to `--output-root`. Omitted when it equals `fileName`. |
 | `files[].plaintextSha256` | no | Lowercase hex SHA-256 of the plaintext, verified after decryption. |
 
 Destinations are portable and validated on read: `/` is the only directory
 separator, and absolute, drive-qualified, UNC, `.`/`..`, and empty-segment paths
-are rejected, as are two entries that collide case-insensitively or where one
-would have to be both a file and another's directory.
+are rejected, as are segments ending in a dot or a space and segments named
+after a Windows reserved device (`CON`, `NUL`, `LPT1`, …). Two entries are
+rejected when they collide case-insensitively or when one would have to be both
+a file and another's directory. Downloading also reserves
+`<destination>.shadowdrop-partial` and `<destination>.shadowdrop-partial.json`
+next to every destination for resume state, so a queue whose entries claim those
+paths is rejected as well.
 
 > **Breaking change (pre-v1):** version 1 queues placed `serverUrl` and
 > `shareToken` on every file entry and required `outputPath`. They are rejected
