@@ -52,12 +52,15 @@ internal static class QueueFileBuilder
         HashSet<String> usedNames = new(StringComparer.OrdinalIgnoreCase);
         List<QueueFileEntry> entries = [];
         List<String> outputPaths = [];
+        var unmatchedPreparedFileIds = preparedDestinations is null
+            ? []
+            : new HashSet<Guid>(preparedDestinations.Keys);
 
         foreach (var file in manifest.Files)
         {
             var outputPath = preparedDestinations is null
                 ? ResolveCollisionSafeName(file.FileName, usedNames)
-                : ResolvePreparedDestination(file, preparedDestinations);
+                : ResolvePreparedDestination(file, preparedDestinations, unmatchedPreparedFileIds);
             outputPaths.Add(outputPath);
             entries.Add(new()
             {
@@ -67,6 +70,12 @@ internal static class QueueFileBuilder
                 OutputPath = ToCanonicalOutputPath(outputPath, file.FileName),
                 PlaintextSha256 = file.PlaintextSha256
             });
+        }
+
+        if (preparedDestinations is not null && unmatchedPreparedFileIds.Count > 0)
+        {
+            var omittedFileId = unmatchedPreparedFileIds.OrderBy(static fileId => fileId).First();
+            throw new QueueBuildException($"The share manifest omitted uploaded file id '{omittedFileId}'.");
         }
 
         if (QueueOutputPath.TryFindConflict(outputPaths, out _, out var conflictError))
@@ -85,26 +94,6 @@ internal static class QueueFileBuilder
         };
     }
 
-    // The destination was already decided from local input, so a disagreement with what the share announces is a
-    // remote consistency failure rather than something to silently recompute after the share exists.
-    private static String ResolvePreparedDestination(ShareManifestFileContract file,
-                                                     IReadOnlyDictionary<Guid, QueueDestination> preparedDestinations)
-    {
-        if (!Guid.TryParse(file.FileId, out var fileId) || !preparedDestinations.TryGetValue(fileId, out var prepared))
-        {
-            throw new QueueBuildException($"The share manifest announced file id '{file.FileId}', which was not part of this upload.");
-        }
-
-        var announcedName = Sanitize(file.FileName);
-        if (!String.Equals(announcedName, prepared.ExpectedFileName, StringComparison.Ordinal))
-        {
-            throw new QueueBuildException(
-                $"The share manifest announced '{file.FileName}' for a file queued as '{prepared.ExpectedFileName}'.");
-        }
-
-        return prepared.Path;
-    }
-
     private static String ResolveCollisionSafeName(String? fileName, HashSet<String> usedNames)
     {
         var safeName = Sanitize(fileName);
@@ -118,6 +107,29 @@ internal static class QueueFileBuilder
         }
 
         return candidate;
+    }
+
+    // The destination was already decided from local input, so a disagreement with what the share announces is a
+    // remote consistency failure rather than something to silently recompute after the share exists.
+    private static String ResolvePreparedDestination(ShareManifestFileContract file,
+                                                     IReadOnlyDictionary<Guid, QueueDestination> preparedDestinations,
+                                                     HashSet<Guid> unmatchedPreparedFileIds)
+    {
+        if (!Guid.TryParse(file.FileId, out var fileId) ||
+            !preparedDestinations.TryGetValue(fileId, out var prepared) ||
+            !unmatchedPreparedFileIds.Remove(fileId))
+        {
+            throw new QueueBuildException($"The share manifest announced file id '{file.FileId}', which was not part of this upload.");
+        }
+
+        var announcedName = Sanitize(file.FileName);
+        if (!String.Equals(announcedName, prepared.ExpectedFileName, StringComparison.Ordinal))
+        {
+            throw new QueueBuildException(
+                $"The share manifest announced '{file.FileName}' for a file queued as '{prepared.ExpectedFileName}'.");
+        }
+
+        return prepared.Path;
     }
 
     private static String Sanitize(String? fileName) =>

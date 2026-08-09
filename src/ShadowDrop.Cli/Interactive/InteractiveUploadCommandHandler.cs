@@ -49,6 +49,12 @@ internal sealed class InteractiveUploadCommandHandler
             return 1;
         }
 
+        if (!UploadCommandOptionsValidator.TryValidateQueueDestinationOptions(options, out var queueOptionError))
+        {
+            await _standardError.WriteLineAsync(queueOptionError);
+            return 1;
+        }
+
         CliResolvedConfiguration configuration;
         try
         {

@@ -2,6 +2,8 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Uploads;
 
+using System.Diagnostics.CodeAnalysis;
+
 internal sealed record UploadCommandOptions(
     FileInfo[] Files,
     String? ServerUrlOverride,
@@ -19,3 +21,36 @@ internal sealed record UploadCommandOptions(
     String? InputRoot = null,
     Boolean Flatten = false,
     String? WorkingDirectory = null);
+
+internal static class UploadCommandOptionsValidator
+{
+    public static Boolean TryValidateQueueDestinationOptions(UploadCommandOptions options,
+                                                             [NotNullWhen(false)] out String? error)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (options.QueueOut is null)
+        {
+            if (options.InputRoot is not null)
+            {
+                error = "The --input-root option requires --queue-out.";
+                return false;
+            }
+
+            if (options.Flatten)
+            {
+                error = "The --flatten option requires --queue-out.";
+                return false;
+            }
+        }
+
+        if (options.InputRoot is not null && options.Flatten)
+        {
+            error = "The --input-root and --flatten options cannot be combined.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+}

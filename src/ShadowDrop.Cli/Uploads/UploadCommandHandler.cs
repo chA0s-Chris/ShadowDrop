@@ -45,6 +45,12 @@ internal sealed class UploadCommandHandler
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        if (!UploadCommandOptionsValidator.TryValidateQueueDestinationOptions(options, out var queueOptionError))
+        {
+            await _standardError.WriteLineAsync(queueOptionError);
+            return 1;
+        }
+
         // Resolve recipient-facing display names before any file I/O or network requests so malformed or ambiguous
         // input fails fast with a clear error.
         if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
@@ -87,9 +93,9 @@ internal sealed class UploadCommandHandler
             return 1;
         }
 
-        if (!TryResolveQueueDestinationPlan(options, displayNameOverrides, out var queueDestinations, out var queueOptionError))
+        if (!TryResolveQueueDestinationPlan(options, displayNameOverrides, out var queueDestinations, out var queueDestinationError))
         {
-            await _standardError.WriteLineAsync(queueOptionError);
+            await _standardError.WriteLineAsync(queueDestinationError);
             return 1;
         }
 
@@ -260,9 +266,6 @@ internal sealed class UploadCommandHandler
         return downloads.ToArray();
     }
 
-    private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
-        displayNameOverrides.GetValueOrDefault(file.FullName);
-
     // Associates each prepared destination with the id the server assigned to that file, so queue building works
     // from ids alone and never re-derives a destination from mutable process state after the share exists.
     private static IReadOnlyDictionary<Guid, QueueDestination>? MapDestinationsToFileIds(
@@ -277,7 +280,7 @@ internal sealed class UploadCommandHandler
         Dictionary<Guid, QueueDestination> destinationsByFileId = [];
         foreach (var result in uploadResult.Files)
         {
-            if ((result.UploadedFileId is { } fileId) &&
+            if (result.UploadedFileId is { } fileId &&
                 destinations.TryGetValue(Path.GetFullPath(result.File.FullName), out var destination))
             {
                 destinationsByFileId[fileId] = destination;
@@ -286,6 +289,9 @@ internal sealed class UploadCommandHandler
 
         return destinationsByFileId;
     }
+
+    private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
+        displayNameOverrides.GetValueOrDefault(file.FullName);
 
     // The queue option contract and every destination knowable from local input are resolved before any upload or
     // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
@@ -298,26 +304,8 @@ internal sealed class UploadCommandHandler
 
         if (options.QueueOut is null)
         {
-            if (options.InputRoot is not null)
-            {
-                error = "The --input-root option requires --queue-out.";
-                return false;
-            }
-
-            if (options.Flatten)
-            {
-                error = "The --flatten option requires --queue-out.";
-                return false;
-            }
-
             error = null;
             return true;
-        }
-
-        if ((options.InputRoot is not null) && options.Flatten)
-        {
-            error = "The --input-root and --flatten options cannot be combined.";
-            return false;
         }
 
         // Captured once by the command entry point so path resolution cannot be affected by a working directory
