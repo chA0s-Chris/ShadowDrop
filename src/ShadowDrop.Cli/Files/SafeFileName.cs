@@ -2,6 +2,7 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Cli.Files;
 
+using ShadowDrop.Queue;
 using System.Diagnostics.CodeAnalysis;
 
 /// <summary>
@@ -16,35 +17,8 @@ internal static class SafeFileName
     private static readonly HashSet<Char> PortableInvalidFileNameChars =
     [
         '<', '>', ':', '"', '/', '\\', '|', '?', '*',
-        ..Enumerable.Range(0, 32).Select(static value => (Char)value)
+        .. Enumerable.Range(0, 32).Select(static value => (Char)value)
     ];
-
-    // Windows reserved device names cannot be used as file names there (with or without an extension).
-    private static readonly HashSet<String> ReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "CON",
-        "PRN",
-        "AUX",
-        "NUL",
-        "COM1",
-        "COM2",
-        "COM3",
-        "COM4",
-        "COM5",
-        "COM6",
-        "COM7",
-        "COM8",
-        "COM9",
-        "LPT1",
-        "LPT2",
-        "LPT3",
-        "LPT4",
-        "LPT5",
-        "LPT6",
-        "LPT7",
-        "LPT8",
-        "LPT9"
-    };
 
     /// <summary>
     /// Reduces <paramref name="fileName"/> to its leaf, replaces characters that are invalid on any supported
@@ -79,7 +53,7 @@ internal static class SafeFileName
         }
 
         // Reserved device names are unusable as files on Windows; prefix them so the name stays writable everywhere.
-        if (ReservedDeviceNames.Contains(Path.GetFileNameWithoutExtension(sanitized)))
+        if (QueueOutputPath.IsWindowsReservedDeviceName(sanitized))
         {
             sanitized = $"_{sanitized}";
         }

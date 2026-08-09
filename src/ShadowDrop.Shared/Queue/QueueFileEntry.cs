@@ -5,7 +5,8 @@ namespace ShadowDrop.Queue;
 using System.Text.Json.Serialization;
 
 /// <summary>
-/// Represents one file entry in a ShadowDrop queue file.
+/// Represents one file entry in a ShadowDrop queue file. The share the entry belongs to is described once by the
+/// owning <see cref="QueueFile"/>.
 /// </summary>
 public sealed record QueueFileEntry
 {
@@ -13,48 +14,39 @@ public sealed record QueueFileEntry
     /// Gets or sets the file identifier.
     /// </summary>
     [JsonPropertyName("fileId")]
-    [JsonPropertyOrder(2)]
+    [JsonPropertyOrder(0)]
     public String? FileId { get; init; }
 
     /// <summary>
-    /// Gets or sets the file name.
+    /// Gets or sets the server-announced file name.
     /// </summary>
     [JsonPropertyName("fileName")]
-    [JsonPropertyOrder(3)]
+    [JsonPropertyOrder(1)]
     public String? FileName { get; init; }
 
     /// <summary>
     /// Gets or sets the file length in bytes.
     /// </summary>
     [JsonPropertyName("length")]
-    [JsonPropertyOrder(4)]
+    [JsonPropertyOrder(2)]
     public Int64? Length { get; init; }
 
     /// <summary>
-    /// Gets or sets the local output path for the decrypted file.
+    /// Gets or sets the optional local output path for the decrypted file, relative to the download output root
+    /// and using <c>/</c> as its directory separator.
     /// </summary>
+    /// <remarks>
+    /// Omitted when the destination is exactly <see cref="FileName"/>; use <see cref="QueueOutputPath.Resolve"/>
+    /// to obtain the effective destination of an entry.
+    /// </remarks>
     [JsonPropertyName("outputPath")]
-    [JsonPropertyOrder(5)]
+    [JsonPropertyOrder(3)]
     public String? OutputPath { get; init; }
 
     /// <summary>
     /// Gets or sets the optional lowercase hexadecimal plaintext SHA-256 digest.
     /// </summary>
     [JsonPropertyName("plaintextSha256")]
-    [JsonPropertyOrder(6)]
+    [JsonPropertyOrder(4)]
     public String? PlaintextSha256 { get; init; }
-
-    /// <summary>
-    /// Gets or sets the base URL of the ShadowDrop server hosting the share.
-    /// </summary>
-    [JsonPropertyName("serverUrl")]
-    [JsonPropertyOrder(0)]
-    public String? ServerUrl { get; init; }
-
-    /// <summary>
-    /// Gets or sets the public share token used to download the share. The server base URL is stored separately in <see cref="ServerUrl"/>.
-    /// </summary>
-    [JsonPropertyName("shareToken")]
-    [JsonPropertyOrder(1)]
-    public String? ShareToken { get; init; }
 }

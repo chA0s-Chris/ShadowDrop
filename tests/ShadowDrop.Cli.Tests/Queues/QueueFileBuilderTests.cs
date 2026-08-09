@@ -36,17 +36,22 @@ public sealed class QueueFileBuilderTests
 
         queue.Credentials.Should().BeNull();
         queue.QueueVersion.Should().Be(FormatConstants.QueueVersion);
+        queue.ShareToken.Should().Be("token-abc");
+        queue.ServerUrl.Should().Be("https://shadowdrop.test/");
         var entry = queue.Files.Should().ContainSingle().Subject;
-        entry.ShareToken.Should().Be("token-abc");
-        entry.ServerUrl.Should().Be("https://shadowdrop.test/");
         entry.FileId.Should().Be("11111111-1111-1111-1111-111111111111");
         entry.FileName.Should().Be("report.txt");
         entry.Length.Should().Be(4096);
-        entry.OutputPath.Should().Be("report.txt");
+
+        // Version 2 carries the destination only when it differs from the file name.
+        entry.OutputPath.Should().BeNull();
+        QueueOutputPath.Resolve(entry).Should().Be("report.txt");
     }
 
     [TestCase("con.txt", "_con.txt")]
     [TestCase("NUL", "_NUL")]
+    [TestCase("COM¹.txt", "_COM¹.txt")]
+    [TestCase("lpt³", "_lpt³")]
     [TestCase("file.", "file")]
     [TestCase("trailing. ", "trailing")]
     public void Build_ShouldNormalizeWindowsUnsafeNames(String fileName, String expected)
@@ -55,7 +60,22 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Single().OutputPath.Should().Be(expected);
+        QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be(expected);
+    }
+
+    [Test]
+    public void Build_ShouldRejectNamesThatConflictWithResumeArtifacts()
+    {
+        var manifest = Manifest(
+            ("11111111-1111-1111-1111-111111111111", "payload.bin.shadowdrop-partial", 1),
+            ("22222222-2222-2222-2222-222222222222", "payload.bin", 2));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        act.Should()
+           .Throw<QueueBuildException>()
+           .WithMessage("The output path 'payload.bin' conflicts with the reserved download resume path "
+                        + "'payload.bin.shadowdrop-partial' of another file entry.");
     }
 
     [Test]
@@ -68,7 +88,7 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Select(entry => entry.OutputPath).Should().Equal("report.txt", "report (2).txt", "report (3).txt");
+        queue.Files!.Select(QueueOutputPath.Resolve).Should().Equal("report.txt", "report (2).txt", "report (3).txt");
     }
 
     [Test]
@@ -78,7 +98,17 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Single().OutputPath.Should().Be("a_b_c_.txt");
+        QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("a_b_c_.txt");
+    }
+
+    [Test]
+    public void Build_ShouldSetOutputPath_WhenSanitizationChangesTheDestination()
+    {
+        var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b.txt", 1));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        queue.Files!.Single().OutputPath.Should().Be("a_b.txt");
     }
 
     [Test]
@@ -88,7 +118,7 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Single().OutputPath.Should().Be("file.txt");
+        QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("file.txt");
     }
 
     [Test]
@@ -98,7 +128,7 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Single().OutputPath.Should().Be("passwd");
+        QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("passwd");
     }
 
     [Test]
@@ -133,7 +163,7 @@ public sealed class QueueFileBuilderTests
 
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
-        queue.Files!.Select(entry => entry.OutputPath).Should().Equal("Report.txt", "report (2).txt");
+        queue.Files!.Select(QueueOutputPath.Resolve).Should().Equal("Report.txt", "report (2).txt");
     }
 
     private static ShareManifestContract Manifest(params (String FileId, String FileName, Int64 Length)[] files) =>

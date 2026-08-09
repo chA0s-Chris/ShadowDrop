@@ -145,88 +145,10 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldContinueQueueProcessingAfterManifestFetchFailure()
-    {
-        var fixture = DownloadHttpFixture.Create();
-        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(rootDirectory);
-
-        try
-        {
-            var firstOutputPath = Path.Combine(rootDirectory, "broken.bin");
-            var secondOutputPath = Path.Combine(rootDirectory, "good.bin");
-            var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
-            {
-                ShadowDrop = "1.0",
-                QueueVersion = "1.0",
-                Files =
-                [
-                    new()
-                    {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "broken-share",
-                        FileId = fixture.FileId.ToString(),
-                        FileName = "broken.bin",
-                        Length = fixture.Plaintext.LongLength,
-                        OutputPath = "broken.bin"
-                    },
-                    new()
-                    {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "good-share",
-                        FileId = fixture.FileId.ToString(),
-                        FileName = fixture.FileName,
-                        Length = fixture.Plaintext.LongLength,
-                        OutputPath = "good.bin"
-                    }
-                ]
-            });
-            await File.WriteAllTextAsync(queuePath, queueJson);
-
-            using var handler = new SequenceHttpMessageHandler(
-                request =>
-                {
-                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/broken-share"));
-                    throw new HttpRequestException("Simulated manifest fetch failure.");
-                },
-                request =>
-                {
-                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/good-share"));
-                    return fixture.CreateManifestResponse();
-                },
-                request =>
-                {
-                    request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/good-share/files/{fixture.FileId:D}?mode=cli"));
-                    return fixture.CreateDownloadResponse();
-                });
-            using var httpClient = new HttpClient(handler);
-            var standardOut = new StringWriter();
-            var standardError = new StringWriter();
-
-            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
-                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
-                                                            CancellationToken.None);
-
-            exitCode.Should().Be(1);
-            File.Exists(firstOutputPath).Should().BeFalse();
-            (await File.ReadAllBytesAsync(secondOutputPath)).Should().Equal(fixture.Plaintext);
-            standardOut.ToString().Should().Contain($"SUCCESS 2/2 {fixture.FileName} -> good.bin");
-            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Server connection failed.");
-        }
-        finally
-        {
-            if (Directory.Exists(rootDirectory))
-            {
-                Directory.Delete(rootDirectory, true);
-            }
-        }
-    }
-
-    [Test]
     public async Task InvokeAsync_ShouldContinueQueueProcessingWhenManifestContainsDuplicateFileIds()
     {
         var fixture = DownloadHttpFixture.Create();
+        var duplicatedFileId = Guid.NewGuid();
         var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(rootDirectory);
 
@@ -238,22 +160,20 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "broken-share",
-                        FileId = fixture.FileId.ToString(),
+                        FileId = duplicatedFileId.ToString(),
                         FileName = "broken.bin",
                         Length = fixture.Plaintext.LongLength,
                         OutputPath = "broken.bin"
                     },
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "good-share",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -266,19 +186,21 @@ public sealed class DownloadCommandHandlerTests
             using var handler = new SequenceHttpMessageHandler(
                 request =>
                 {
-                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/broken-share"));
+                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/shared-token"));
                     return fixture.CreateManifestResponseWithFiles(
-                        fixture.CreateManifestFile("broken.bin"),
-                        fixture.CreateManifestFile("duplicate.bin"));
+                        fixture.CreateManifestFile("broken.bin") with
+                        {
+                            FileId = duplicatedFileId.ToString()
+                        },
+                        fixture.CreateManifestFile("duplicate.bin") with
+                        {
+                            FileId = duplicatedFileId.ToString()
+                        },
+                        fixture.CreateManifestFile());
                 },
                 request =>
                 {
-                    request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/good-share"));
-                    return fixture.CreateManifestResponse();
-                },
-                request =>
-                {
-                    request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/good-share/files/{fixture.FileId:D}?mode=cli"));
+                    request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/base-path/d/shared-token/files/{fixture.FileId:D}?mode=cli"));
                     return fixture.CreateDownloadResponse();
                 });
             using var httpClient = new HttpClient(handler);
@@ -326,6 +248,39 @@ public sealed class DownloadCommandHandlerTests
 
         exitCode.Should().Be(0);
         (await File.ReadAllBytesAsync(Path.Combine(missingDirectory, fixture.FileName))).Should().Equal(fixture.Plaintext);
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldCreateNestedDirectories_ForQueueEntriesWithNestedOutputPaths()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var queuePath = CreateQueueFile(rootDirectory, fixture, null, "nested/dir/payload.bin");
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                _ => fixture.CreateDownloadResponse());
+            using var httpClient = new HttpClient(handler);
+            var standardOut = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(standardOut, new StringWriter(), httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(Path.Combine(rootDirectory, "nested", "dir", "payload.bin"))).Should().Equal(fixture.Plaintext);
+            standardOut.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> nested/dir/payload.bin");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -484,6 +439,58 @@ public sealed class DownloadCommandHandlerTests
                    .And.Contain("SUMMARY downloaded 1 file");
     }
 
+    // An omitted outputPath makes the file name the destination, so the download must land there without the queue
+    // carrying the value at all.
+    [Test]
+    public async Task InvokeAsync_ShouldDownloadToFileName_WhenQueueEntryOmitsOutputPath()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var queuePath = Path.Combine(rootDirectory, "queue.json");
+            await File.WriteAllTextAsync(queuePath,
+                                         QueueFileParser.Serialize(new()
+                                         {
+                                             ShadowDrop = "1.0",
+                                             QueueVersion = "2.0",
+                                             ServerUrl = "https://shadowdrop.test/base-path/",
+                                             ShareToken = "shared-token",
+                                             Files =
+                                             [
+                                                 new()
+                                                 {
+                                                     FileId = fixture.FileId.ToString(),
+                                                     FileName = fixture.FileName,
+                                                     Length = fixture.Plaintext.LongLength
+                                                 }
+                                             ]
+                                         }));
+            using var handler = new SequenceHttpMessageHandler(
+                _ => fixture.CreateManifestResponse(),
+                _ => fixture.CreateDownloadResponse());
+            using var httpClient = new HttpClient(handler);
+            var standardOut = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(standardOut, new StringWriter(), httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(0);
+            (await File.ReadAllBytesAsync(Path.Combine(rootDirectory, fixture.FileName))).Should().Equal(fixture.Plaintext);
+            standardOut.ToString().Should().Contain($"SUCCESS 1/1 {fixture.FileName} -> {fixture.FileName}");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldExplainSecretFreeQueue_WhenShareKeyMissing()
     {
@@ -496,15 +503,14 @@ public sealed class DownloadCommandHandlerTests
                                      """
                                      {
                                        "shadowDrop": "1.0",
-                                       "queueVersion": "1.0",
+                                       "queueVersion": "2.0",
+                                       "serverUrl": "https://shadowdrop.test",
+                                       "shareToken": "share-123",
                                        "files": [
                                          {
-                                           "serverUrl": "https://shadowdrop.test",
-                                           "shareToken": "share-123",
                                            "fileId": "file-1",
                                            "fileName": "report.txt",
-                                           "length": 4096,
-                                           "outputPath": "report.txt"
+                                           "length": 4096
                                          }
                                        ]
                                      }
@@ -540,6 +546,73 @@ public sealed class DownloadCommandHandlerTests
         exitCode.Should().Be(1);
         (await File.ReadAllTextAsync(outputPath)).Should().Be("pre-existing content");
         standardError.ToString().Should().Contain("Existing output file does not match the shared file.");
+    }
+
+    // A version 2 queue describes exactly one share, so its single manifest request is shared by every entry:
+    // one failure fails the whole queue, and the queue must not retry the request per file.
+    [Test]
+    public async Task InvokeAsync_ShouldFailEveryQueueEntry_WhenTheSharedManifestRequestFails()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var queuePath = Path.Combine(rootDirectory, "queue.json");
+            var queueJson = QueueFileParser.Serialize(new()
+            {
+                ShadowDrop = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
+                Files =
+                [
+                    new()
+                    {
+                        FileId = fixture.FileId.ToString(),
+                        FileName = "broken.bin",
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = "broken.bin"
+                    },
+                    new()
+                    {
+                        FileId = fixture.FileId.ToString(),
+                        FileName = fixture.FileName,
+                        Length = fixture.Plaintext.LongLength,
+                        OutputPath = "good.bin"
+                    }
+                ]
+            });
+            await File.WriteAllTextAsync(queuePath, queueJson);
+
+            // Only one responder is registered, so a second manifest request would fail the test outright.
+            using var handler = new SequenceHttpMessageHandler(request =>
+            {
+                request.RequestUri.Should().Be(new Uri("https://shadowdrop.test/base-path/d/shared-token"));
+                throw new HttpRequestException("Simulated manifest fetch failure.");
+            });
+            using var httpClient = new HttpClient(handler);
+            var standardOut = new StringWriter();
+            var standardError = new StringWriter();
+
+            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+                                                            CreateServices(standardOut, standardError, httpClient: httpClient),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            File.Exists(Path.Combine(rootDirectory, "broken.bin")).Should().BeFalse();
+            File.Exists(Path.Combine(rootDirectory, "good.bin")).Should().BeFalse();
+            standardError.ToString().Should().Contain("FAILED 1/2 broken.bin -> broken.bin: Server connection failed.")
+                         .And.Contain($"FAILED 2/2 {fixture.FileName} -> good.bin: Server connection failed.");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
     }
 
     [Test]
@@ -888,13 +961,13 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1329,13 +1402,13 @@ public sealed class DownloadCommandHandlerTests
                                      """
                                      {
                                        "shadowDrop": "1.0",
-                                       "queueVersion": "1.0",
+                                       "queueVersion": "2.0",
+                                       "serverUrl": "https://shadowdrop.test",
+                                       "shareToken": "share-123",
                                        "files": [
                                          {
-                                           "serverUrl": "https://shadowdrop.test",
-                                           "shareToken": "share-123",
                                            "fileId": "file-1",
-                                           "fileName": "report.txt",
+                                           "fileName": "sub/report.txt",
                                            "length": 4096
                                          }
                                        ]
@@ -1348,7 +1421,9 @@ public sealed class DownloadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("files[0].outputPath: The outputPath value is required.")
+        standardError.ToString()
+                     .Should().Contain(
+                         "files[0].fileName: The fileName value must not contain directory separators; carry a nested destination in outputPath instead.")
                      .And.Contain("The queue file is invalid.");
     }
 
@@ -1373,57 +1448,73 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldRejectQueueOutputPathEscapingIntoSiblingDirectorySharingRootPrefix()
+    public async Task InvokeAsync_ShouldRejectQueueBeforeProcessing_WhenOutputCollidesWithResumeArtifact()
     {
-        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
-        var outputRoot = Path.Combine(rootDirectory, "downloads");
-        Directory.CreateDirectory(outputRoot);
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = CreateScratchDirectory();
+        var existingOutputPath = Path.Combine(rootDirectory, "payload.bin.shadowdrop-partial");
+        await File.WriteAllTextAsync(existingOutputPath, "completed output");
+        var queuePath = CreateQueueFile(rootDirectory,
+                                        fixture,
+                                        null,
+                                        "payload.bin.shadowdrop-partial",
+                                        "payload.bin");
+        var standardError = new StringWriter();
 
-        try
-        {
-            var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
-            {
-                ShadowDrop = "1.0",
-                QueueVersion = "1.0",
-                Files =
-                [
-                    new()
-                    {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
-                        FileId = Guid.NewGuid().ToString(),
-                        FileName = "report.txt",
-                        Length = 4096,
-                        OutputPath = "../downloads-evil/report.txt"
-                    }
-                ]
-            });
-            await File.WriteAllTextAsync(queuePath, queueJson);
-            var standardOut = new StringWriter();
-            var standardError = new StringWriter();
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+            CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
-            var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
-                                                            CreateServices(standardOut,
-                                                                           standardError,
-                                                                           httpClient: new(new NeverCalledHandler())),
-                                                            CancellationToken.None);
-
-            exitCode.Should().Be(1);
-            File.Exists(Path.Combine(rootDirectory, "downloads-evil", "report.txt")).Should().BeFalse();
-            standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../downloads-evil/report.txt: Queue output path escapes the output root.");
-        }
-        finally
-        {
-            if (Directory.Exists(rootDirectory))
-            {
-                Directory.Delete(rootDirectory, true);
-            }
-        }
+        exitCode.Should().Be(1);
+        (await File.ReadAllTextAsync(existingOutputPath)).Should().Be("completed output");
+        standardError.ToString().Should()
+                     .Contain("files[1].outputPath: The output path 'payload.bin' conflicts with the reserved download resume path "
+                              + "'payload.bin.shadowdrop-partial' of another file entry.");
     }
 
     [Test]
-    public async Task InvokeAsync_ShouldRejectQueueOutputPathEscapingOutputRootBeforeDownloading()
+    public async Task InvokeAsync_ShouldRejectQueueFromAnUnsupportedVersionWithRecreationGuidance()
+    {
+        await using var fixture = new CliDownloadApiFactory();
+        using var httpClient = new HttpClient(new NeverCalledHandler());
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        var queuePath = Path.Combine(fixture.RootDirectory, "legacy.queue.json");
+
+        // A version 1 queue, exactly as an earlier ShadowDrop CLI wrote it.
+        await File.WriteAllTextAsync(queuePath,
+                                     """
+                                     {
+                                       "shadowDrop": "1.0",
+                                       "queueVersion": "1.0",
+                                       "files": [
+                                         {
+                                           "serverUrl": "https://shadowdrop.test",
+                                           "shareToken": "share-123",
+                                           "fileId": "file-1",
+                                           "fileName": "report.txt",
+                                           "length": 4096,
+                                           "outputPath": "report.txt"
+                                         }
+                                       ]
+                                     }
+                                     """);
+
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new('a', 64)],
+                                                        CreateServices(standardOut, standardError, httpClient: httpClient),
+                                                        CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardOut.ToString().Should().BeEmpty();
+        standardError.ToString().Should().Contain("queueVersion: The queueVersion value must be '2.0'.")
+                     .And.Contain("recreate the queue with 'shadowdrop queue create' or 'shadowdrop upload --queue-out'.");
+    }
+
+    // Traversal is rejected while the queue is parsed, so neither form reaches the download stage. The output-root
+    // containment check in the downloader is retained as defense in depth behind this.
+    [TestCase("../outside.bin", "outside.bin")]
+    [TestCase("../downloads-evil/report.txt", "downloads-evil/report.txt")]
+    public async Task InvokeAsync_ShouldRejectQueueOutputPathEscapingOutputRootBeforeDownloading(String outputPath, String escapedRelativePath)
     {
         var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "download-command-handler-tests", Guid.NewGuid().ToString("N"));
         var outputRoot = Path.Combine(rootDirectory, "downloads");
@@ -1435,17 +1526,17 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = Guid.NewGuid().ToString(),
                         FileName = "report.txt",
                         Length = 4096,
-                        OutputPath = "../outside.bin"
+                        OutputPath = outputPath
                     }
                 ]
             });
@@ -1460,8 +1551,9 @@ public sealed class DownloadCommandHandlerTests
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
-            File.Exists(Path.Combine(rootDirectory, "outside.bin")).Should().BeFalse();
-            standardError.ToString().Should().Contain("FAILED 1/1 report.txt -> ../outside.bin: Queue output path escapes the output root.");
+            File.Exists(Path.Combine(rootDirectory, escapedRelativePath.Replace('/', Path.DirectorySeparatorChar))).Should().BeFalse();
+            standardError.ToString().Should().Contain("files[0].outputPath: The outputPath value must not contain '.' or '..' path segments.")
+                         .And.Contain("The queue file is invalid.");
         }
         finally
         {
@@ -1568,13 +1660,13 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1796,13 +1888,13 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString().ToUpperInvariant(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1810,8 +1902,6 @@ public sealed class DownloadCommandHandlerTests
                     },
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1967,13 +2057,13 @@ public sealed class DownloadCommandHandlerTests
             var queueJson = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = "https://shadowdrop.test/base-path/",
+                ShareToken = "shared-token",
                 Files =
                 [
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -1981,8 +2071,6 @@ public sealed class DownloadCommandHandlerTests
                     },
                     new()
                     {
-                        ServerUrl = "https://shadowdrop.test/base-path/",
-                        ShareToken = "shared-token",
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
@@ -2195,11 +2283,11 @@ public sealed class DownloadCommandHandlerTests
         var queueJson = QueueFileParser.Serialize(new()
         {
             ShadowDrop = "1.0",
-            QueueVersion = "1.0",
+            QueueVersion = "2.0",
+            ServerUrl = serverUrl,
+            ShareToken = "shared-token",
             Files = paths.Select(path => new QueueFileEntry
             {
-                ServerUrl = serverUrl,
-                ShareToken = "shared-token",
                 FileId = fixture.FileId.ToString(),
                 FileName = fixture.FileName,
                 Length = fixture.Plaintext.LongLength,
@@ -2392,11 +2480,11 @@ public sealed class DownloadCommandHandlerTests
             var json = QueueFileParser.Serialize(new()
             {
                 ShadowDrop = "1.0",
-                QueueVersion = "1.0",
+                QueueVersion = "2.0",
+                ServerUrl = fixture.ServerUrl,
+                ShareToken = fixture.ShareToken,
                 Files = fixture.Entries.Select(entry => new QueueFileEntry
                 {
-                    ServerUrl = fixture.ServerUrl,
-                    ShareToken = fixture.ShareToken,
                     FileId = entry.FileId,
                     FileName = entry.FileName,
                     Length = entry.Length,

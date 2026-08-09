@@ -81,8 +81,16 @@ public static partial class QueueFileParser
         if (!String.IsNullOrWhiteSpace(queueFile.QueueVersion) &&
             !String.Equals(queueFile.QueueVersion, FormatConstants.QueueVersion, StringComparison.Ordinal))
         {
-            errors.Add(new("queueVersion", $"The queueVersion value must be '{FormatConstants.QueueVersion}'."));
+            // The queue format break is deliberate and unmigrated, so the guidance to recreate the queue belongs
+            // here rather than in one command: every caller of this parser surfaces the same actionable message.
+            errors.Add(new("queueVersion",
+                           $"The queueVersion value must be '{FormatConstants.QueueVersion}'. Queue files created by earlier "
+                           + "ShadowDrop versions are not supported; recreate the queue with 'shadowdrop queue create' or "
+                           + "'shadowdrop upload --queue-out'."));
         }
+
+        ValidateServerUrl(queueFile.ServerUrl, "serverUrl", errors);
+        ValidateRequiredString(queueFile.ShareToken, "shareToken", errors);
 
         if (queueFile.Credentials is not null)
         {
@@ -96,28 +104,51 @@ public static partial class QueueFileParser
             return errors;
         }
 
+        List<ValidatedOutputPath> outputPaths = [];
         for (var index = 0; index < queueFile.Files.Count; index++)
         {
-            ValidateEntry(queueFile.Files[index], index, errors);
+            ValidateEntry(queueFile.Files[index], index, outputPaths, errors);
         }
+
+        ValidateOutputPathConflicts(outputPaths, errors);
 
         return errors;
     }
 
-    private static Boolean IsAsciiLetter(Char value) =>
-        (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z');
-
-    private static Boolean IsPortableAbsolutePath(String outputPath) =>
-        outputPath.StartsWith('/') ||
-        outputPath.StartsWith('\\') ||
-        (outputPath.Length >= 2 &&
-         IsAsciiLetter(outputPath[0]) &&
-         outputPath[1] == ':');
-
     [GeneratedRegex("[a-f0-9]{64}", RegexOptions.CultureInvariant, -1)]
     private static partial Regex Sha256Regex();
 
-    private static void ValidateEntry(QueueFileEntry? entry, Int32 index, List<QueueFileValidationError> errors)
+    // An omitted outputPath makes the server-announced fileName the destination, so it is held to the same rules
+    // and may not carry path segments of its own; a nested destination needs an explicit, validated outputPath.
+    private static void ValidateEffectiveOutputPath(QueueFileEntry entry,
+                                                    String prefix,
+                                                    List<ValidatedOutputPath> outputPaths,
+                                                    List<QueueFileValidationError> errors)
+    {
+        var hasExplicitOutputPath = entry.OutputPath is not null;
+        var valueName = hasExplicitOutputPath ? "outputPath" : "fileName";
+        var path = $"{prefix}.{valueName}";
+
+        if (!hasExplicitOutputPath && String.IsNullOrWhiteSpace(entry.FileName))
+        {
+            // The missing fileName was already reported; nothing further can be validated for this entry.
+            return;
+        }
+
+        var effectiveOutputPath = QueueOutputPath.Resolve(entry);
+        if (!QueueOutputPath.TryValidate(effectiveOutputPath, valueName, hasExplicitOutputPath, out var error))
+        {
+            errors.Add(new(path, error));
+            return;
+        }
+
+        outputPaths.Add(new(path, effectiveOutputPath));
+    }
+
+    private static void ValidateEntry(QueueFileEntry? entry,
+                                      Int32 index,
+                                      List<ValidatedOutputPath> outputPaths,
+                                      List<QueueFileValidationError> errors)
     {
         var prefix = $"files[{index}]";
 
@@ -129,10 +160,6 @@ public static partial class QueueFileParser
 
         ValidateRequiredString(entry.FileId, $"{prefix}.fileId", errors);
         ValidateRequiredString(entry.FileName, $"{prefix}.fileName", errors);
-        ValidateRequiredString(entry.OutputPath, $"{prefix}.outputPath", errors);
-        ValidateOutputPath(entry.OutputPath, $"{prefix}.outputPath", errors);
-        ValidateRequiredString(entry.ShareToken, $"{prefix}.shareToken", errors);
-        ValidateServerUrl(entry.ServerUrl, $"{prefix}.serverUrl", errors);
 
         if (entry.Length is null)
         {
@@ -144,6 +171,7 @@ public static partial class QueueFileParser
         }
 
         ValidateOptionalSha256(entry.PlaintextSha256, $"{prefix}.plaintextSha256", errors);
+        ValidateEffectiveOutputPath(entry, prefix, outputPaths, errors);
     }
 
     private static void ValidateOptionalSha256(String? value, String path, List<QueueFileValidationError> errors)
@@ -160,17 +188,14 @@ public static partial class QueueFileParser
         }
     }
 
-    private static void ValidateOutputPath(String? outputPath, String path, List<QueueFileValidationError> errors)
+    private static void ValidateOutputPathConflicts(List<ValidatedOutputPath> outputPaths, List<QueueFileValidationError> errors)
     {
-        if (String.IsNullOrWhiteSpace(outputPath))
+        if (!QueueOutputPath.TryFindConflict(outputPaths.Select(static outputPath => outputPath.Value).ToArray(), out var index, out var error))
         {
             return;
         }
 
-        if (IsPortableAbsolutePath(outputPath))
-        {
-            errors.Add(new(path, "The outputPath value must be a relative path."));
-        }
+        errors.Add(new(outputPaths[index].Path, error));
     }
 
     private static void ValidateRequiredString(String? value, String path, List<QueueFileValidationError> errors)
@@ -221,4 +246,10 @@ public static partial class QueueFileParser
             errors.Add(new("credentials.shareKey", "The shareKey value must be 64-character lowercase hexadecimal share-key material."));
         }
     }
+
+    /// <summary>
+    /// An effective destination that passed per-entry validation, paired with the field it came from so a
+    /// cross-entry conflict is reported against the value the queue actually carries.
+    /// </summary>
+    private readonly record struct ValidatedOutputPath(String Path, String Value);
 }

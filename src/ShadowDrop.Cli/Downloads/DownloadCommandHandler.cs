@@ -530,11 +530,8 @@ internal sealed class DownloadCommandHandler
         return Path.GetFullPath(root);
     }
 
-    private static (String PartialPath, String MarkerPath) ResolvePartialPaths(String outputPath)
-    {
-        var partialPath = $"{outputPath}.shadowdrop-partial";
-        return (partialPath, $"{partialPath}.json");
-    }
+    private static (String PartialPath, String MarkerPath) ResolvePartialPaths(String outputPath) =>
+        QueueOutputPath.ResolveResumePaths(outputPath);
 
     private static String ResolveQueueOutputPath(String outputRoot, String outputPath)
     {
@@ -547,15 +544,15 @@ internal sealed class DownloadCommandHandler
         return resolvedPath;
     }
 
-    private static ShareReference ResolveQueueShareReference(QueueFileEntry entry)
+    private static ShareReference ResolveQueueShareReference(QueueFile queue)
     {
-        if (!Uri.TryCreate(entry.ServerUrl, UriKind.Absolute, out var serverUrl)
+        if (!Uri.TryCreate(queue.ServerUrl, UriKind.Absolute, out var serverUrl)
             || (serverUrl.Scheme != Uri.UriSchemeHttp && serverUrl.Scheme != Uri.UriSchemeHttps))
         {
             throw new DownloadCommandException("Server URL invalid or missing.");
         }
 
-        return new(serverUrl, RequireQueueValue(entry.ShareToken));
+        return new(serverUrl, RequireQueueValue(queue.ShareToken));
     }
 
     private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
@@ -678,7 +675,7 @@ internal sealed class DownloadCommandHandler
                                                        bearerToken,
                                                        durablePlaintextLength,
                                                        totalPlaintextSize,
-                                                       progress: progress);
+                                                       progress);
             await session.DownloadAsync(cancellationToken);
             await destination.FlushAsync(cancellationToken);
         }
@@ -748,15 +745,20 @@ internal sealed class DownloadCommandHandler
                 bearerToken = options.BearerToken;
             }
 
+            // A version 2 queue describes exactly one share, so the share reference is resolved once and every entry
+            // awaits the same manifest request instead of issuing one per file. Loading stays lazy so a queue whose
+            // outputs are all already complete still contacts the server for nothing.
+            var shareReference = ResolveQueueShareReference(queue);
             var manifestClient = new ShareManifestClient(_httpClient);
-            Dictionary<String, ShareManifestContract> manifestCache = [];
+            Lazy<Task<ShareManifestContract>> manifest =
+                new(() => manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, bearerToken, cancellationToken));
             var outputRoot = ResolveOutputRoot(options.OutputRoot);
             var capturedShareKeyBytes = shareKeyBytes;
 
             var queueFiles = RequireQueueFiles(queue);
             var items = queueFiles.Select(entry =>
                                   {
-                                      var entryOutputPath = RequireQueueValue(entry.OutputPath);
+                                      var entryOutputPath = RequireQueueValue(QueueOutputPath.Resolve(entry));
                                       return new QueueDownloadItem(
                                           entry.FileName ?? entry.FileId ?? "unknown",
                                           entry.Length,
@@ -769,9 +771,7 @@ internal sealed class DownloadCommandHandler
                                                   return;
                                               }
 
-                                              var shareReference = ResolveQueueShareReference(entry);
-                                              var manifest = await GetManifestAsync(manifestClient, manifestCache, shareReference, bearerToken, token);
-                                              var file = SelectQueuedFile(manifest, entry);
+                                              var file = SelectQueuedFile(await manifest.Value, entry);
                                               await DownloadToFileAsync(shareReference.ServerUrl,
                                                                         shareReference.ShareToken,
                                                                         file,
@@ -797,23 +797,6 @@ internal sealed class DownloadCommandHandler
                 CryptographicOperations.ZeroMemory(shareKeyBytes);
             }
         }
-    }
-
-    private async Task<ShareManifestContract> GetManifestAsync(ShareManifestClient manifestClient,
-                                                               IDictionary<String, ShareManifestContract> manifestCache,
-                                                               ShareReference shareReference,
-                                                               String? bearerToken,
-                                                               CancellationToken cancellationToken)
-    {
-        var cacheKey = ShareDownloadUriFactory.CreateManifestUri(shareReference.ServerUrl, shareReference.ShareToken).AbsoluteUri;
-        if (manifestCache.TryGetValue(cacheKey, out var cachedManifest))
-        {
-            return cachedManifest;
-        }
-
-        var manifest = await manifestClient.GetAsync(shareReference.ServerUrl, shareReference.ShareToken, bearerToken, cancellationToken);
-        manifestCache[cacheKey] = manifest;
-        return manifest;
     }
 
     private async Task<QueueFile> LoadQueueAsync(FileInfo queuePath, CancellationToken cancellationToken)

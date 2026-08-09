@@ -1387,9 +1387,10 @@ public sealed class UploadCommandHandlerTests
         standardError.ToString().Should().Contain("secret-free").And.Contain("shown above").And.Contain("--embed-secrets");
         var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
         queue.Credentials.Should().BeNull();
+        queue.ShareToken.Should().NotBeNullOrWhiteSpace();
+        queue.ServerUrl.Should().NotBeNullOrWhiteSpace();
         var entry = queue.Files.Should().ContainSingle().Subject;
-        entry.OutputPath.Should().Be("queued.bin");
-        entry.ShareToken.Should().NotBeNullOrWhiteSpace();
+        QueueOutputPath.Resolve(entry).Should().Be("queued.bin");
     }
 
     [Test]
@@ -1578,7 +1579,7 @@ public sealed class UploadCommandHandlerTests
         createOut.ToString().Should().Contain($"queue-file:{queuePath}");
         var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
         queue.Credentials.Should().BeNull();
-        queue.Files.Should().ContainSingle(entry => entry.OutputPath == "share-me.bin");
+        queue.Files.Should().ContainSingle(entry => QueueOutputPath.Resolve(entry) == "share-me.bin");
     }
 
     [Test]
