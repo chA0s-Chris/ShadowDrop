@@ -342,7 +342,10 @@ Send the recipient the `share-url`; deliver the `share-key` over a different
 channel. Shares expire after 7 days by default; use `--expires-in` (e.g.
 `--expires-in 12h`, `30m`, `14d`) to change that. Add `--download-token` to
 additionally require a download bearer token, `--name`/`--display-name` to set
-recipient-facing file names, and `--json` for machine-readable output.
+recipient-facing file names, and `--json` for machine-readable output. Add
+`--queue-out` to also write a download queue, optionally with `--input-root` or
+`--flatten` to control the destinations it records (see
+[Preserving upload paths in a queue](#preserving-upload-paths-in-a-queue---input-root-and---flatten)).
 
 ### Direct-HTTP upload (no CLI needed to download)
 
@@ -431,7 +434,7 @@ leaf name and can never introduce directories of its own.
 If the destination file already exists and matches the shared file, the command
 reports it as already downloaded and exits zero; if it exists but differs, the
 command fails and leaves the file untouched. Interrupted downloads resume from
-the `.partial` file left next to the destination.
+the `.shadowdrop-partial` file left next to the destination.
 
 `--share-key-file <path>` reads the key from a file instead. If the share
 holds multiple files, pick one with `--file <file-id>` — or use a queue to
@@ -470,7 +473,8 @@ shadowdrop download --queue queue.json \
 ```
 
 Files land under `--output-root` (default: the current directory) at each
-entry's `outputPath`. Interrupted downloads resume where they left off.
+entry's effective destination, creating directories as needed. Interrupted
+downloads resume where they left off.
 
 With `--embed-secrets` (on `upload`, or on `queue create`) the credentials are
 embedded in the queue file itself, making it self-contained — and as sensitive
@@ -481,6 +485,93 @@ shadowdrop queue create "https://drop.example.com/d/8UeBnPkose…" \
   --embed-secrets --out queue.json
 shadowdrop download --queue queue.json --output-root incoming
 ```
+
+### Preserving upload paths in a queue: `--input-root` and `--flatten`
+
+`upload --queue-out` preserves each file's path **relative to the directory the
+command ran in**, so the recipient's download reproduces your layout:
+
+```bash
+cd ~/project
+shadowdrop upload --queue-out ~/my.queue file1 sub/file3 docs/*
+# queue destinations: file1, sub/file3, docs/doc1, …
+```
+
+Use `--input-root <directory>` when the files live under a different root; a
+relative value is resolved against the current directory:
+
+```bash
+shadowdrop upload --queue-out ~/my.queue --input-root ~/project ~/project/sub/file3
+# queue destination: sub/file3
+```
+
+A selected file **outside the effective root is rejected before anything is
+uploaded**, naming the file. Use `--flatten` for files collected from unrelated
+locations — it derives no source root at all and keeps only each leaf name:
+
+```bash
+shadowdrop upload --queue-out ~/my.queue --flatten ~/a/report.pdf /tmp/notes.txt
+# queue destinations: report.pdf, notes.txt
+```
+
+Both options require `--queue-out` and cannot be combined. Every destination is
+computed and validated *before* the first byte is uploaded, so the command fails
+without creating a share when a path component cannot be sanitized into a usable
+name, when the same file is selected more than once, or when one destination
+would have to be both a file and another entry's directory. Everything else is
+normalized rather than rejected: characters that are not portable become `_`,
+and two files whose destinations would otherwise be identical get a
+deterministic ` (2)`, ` (3)`, … suffix. `--name` and
+`--display-name` replace the destination's leaf while keeping its directory;
+under `--flatten` the display name simply is the destination.
+
+`queue create` for an existing share still produces flat destinations, because
+the original uploader paths are not part of the share.
+
+### Queue file format (version 2)
+
+```json
+{
+  "shadowDrop": "1.0",
+  "queueVersion": "2.0",
+  "serverUrl": "https://drop.example.com/",
+  "shareToken": "8UeBnPkose…",
+  "files": [
+    { "fileId": "…", "fileName": "file1", "length": 100 },
+    { "fileId": "…", "fileName": "file3", "length": 300, "outputPath": "sub/file3" }
+  ]
+}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `shadowDrop` | yes | Product marker version, currently `1.0`. |
+| `queueVersion` | yes | Queue format version, currently `2.0`. |
+| `serverUrl` | yes | Absolute HTTP or HTTPS base URL of the server hosting the share, without user information, query string, or fragment. |
+| `shareToken` | yes | Public share token. One queue describes exactly one share. |
+| `credentials` | no | Embedded `shareKey` and optional `downloadBearerToken` (see `--embed-secrets`). |
+| `files` | yes | Non-empty list of files from the queue's share. |
+| `files[].fileId` | yes | File identifier within the share. |
+| `files[].fileName` | yes | Server-announced file name. When `outputPath` is omitted, this is also the destination and must be one portable path segment; with a safe explicit `outputPath`, it may contain separators. |
+| `files[].length` | yes | Plaintext size in bytes; zero or greater. |
+| `files[].outputPath` | no | Destination relative to `--output-root`. Omitted when it equals `fileName`. |
+| `files[].plaintextSha256` | no | Lowercase hex SHA-256 of the plaintext, verified after decryption. |
+
+Destinations are portable and validated on read: `/` is the only directory
+separator, and absolute, drive-qualified, UNC, `.`/`..`, and empty-segment paths
+are rejected, as are segments ending in a dot or a space and segments named
+after a Windows reserved device (`CON`, `NUL`, `LPT1`, …). Two entries are
+rejected when they collide case-insensitively or when one would have to be both
+a file and another's directory. Downloading also reserves
+`<destination>.shadowdrop-partial` and `<destination>.shadowdrop-partial.json`
+next to every destination for resume state, so a queue whose entries claim those
+paths is rejected as well.
+
+> **Breaking change (pre-v1):** version 1 queues placed `serverUrl` and
+> `shareToken` on every file entry and required `outputPath`. They are rejected
+> rather than migrated — the CLI tells you to recreate the queue with
+> `shadowdrop queue create` or `shadowdrop upload --queue-out`. Queue files are
+> short-lived, so recreating one is cheaper than carrying a legacy reader.
 
 ## Share administration
 

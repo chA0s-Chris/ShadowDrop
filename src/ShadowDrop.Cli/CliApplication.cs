@@ -142,6 +142,18 @@ internal static class CliApplication
             Description = "Embed download credentials into the generated queue (self-contained and sensitive)."
         };
 
+        var inputRootOption = new Option<String?>("--input-root")
+        {
+            Description = "Directory that generated queue destinations are relative to. Requires --queue-out. "
+                          + "Defaults to the current directory; a relative value is resolved against it."
+        };
+
+        var flattenOption = new Option<Boolean>("--flatten")
+        {
+            Description = "Drop source directories from generated queue destinations, allowing files from unrelated "
+                          + "locations. Requires --queue-out and cannot be combined with --input-root."
+        };
+
         var nameOption = new Option<String?>("--name")
         {
             Description = "Recipient-facing display name for the uploaded file. Requires exactly one file; "
@@ -239,6 +251,8 @@ internal static class CliApplication
         uploadCommand.Options.Add(secretsOutOption);
         uploadCommand.Options.Add(queueOutOption);
         uploadCommand.Options.Add(embedSecretsOption);
+        uploadCommand.Options.Add(inputRootOption);
+        uploadCommand.Options.Add(flattenOption);
         uploadCommand.Options.Add(nameOption);
         uploadCommand.Options.Add(uploadDisplayNameOption);
         uploadCommand.Options.Add(jsonOption);
@@ -535,6 +549,8 @@ internal static class CliApplication
                    secretsOutOption,
                    queueOutOption,
                    embedSecretsOption,
+                   inputRootOption,
+                   flattenOption,
                    nameOption,
                    uploadDisplayNameOption,
                    shareDisplayNameOption,
@@ -925,7 +941,12 @@ internal static class CliApplication
                                                      parseResult.GetValue(commandModel.JsonOption),
                                                      parseResult.GetValue(commandModel.ForceOption),
                                                      parseResult.GetValue(commandModel.NameOption),
-                                                     parseResult.GetValue(commandModel.UploadDisplayNameOption) ?? []);
+                                                     parseResult.GetValue(commandModel.UploadDisplayNameOption) ?? [],
+                                                     parseResult.GetValue(commandModel.InputRootOption),
+                                                     parseResult.GetValue(commandModel.FlattenOption),
+                                                     // Captured once here so queue destination resolution is not affected by a
+                                                     // working directory that changes while the upload runs.
+                                                     Directory.GetCurrentDirectory());
 
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
@@ -1024,6 +1045,8 @@ internal static class CliApplication
         Option<FileInfo?> SecretsOutOption,
         Option<FileInfo?> QueueOutOption,
         Option<Boolean> EmbedSecretsOption,
+        Option<String?> InputRootOption,
+        Option<Boolean> FlattenOption,
         Option<String?> NameOption,
         Option<String[]> UploadDisplayNameOption,
         Option<String[]> ShareDisplayNameOption,

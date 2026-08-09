@@ -22,9 +22,21 @@ internal static class QueueFileBuilder
     /// Optional embedded credentials for a self-contained queue; <see langword="null"/> for a
     /// secret-free queue.
     /// </param>
+    /// <param name="preparedDestinations">
+    /// Destinations computed from the uploader's local paths before the upload, keyed by uploaded file id. Supplied
+    /// by the end-to-end <c>upload --queue-out</c> workflow; <see langword="null"/> for <c>queue create</c>, which
+    /// has no source paths and builds flat destinations from the manifest alone.
+    /// </param>
     /// <returns>The assembled queue file.</returns>
-    /// <exception cref="QueueBuildException">Thrown when the manifest is empty or an entry cannot produce a safe output path.</exception>
-    public static QueueFile Build(Uri serverUrl, String shareToken, ShareManifestContract manifest, QueueCredentials? credentials)
+    /// <exception cref="QueueBuildException">
+    /// Thrown when the manifest is empty, an entry cannot produce a safe output path, or the manifest disagrees with
+    /// the prepared destinations.
+    /// </exception>
+    public static QueueFile Build(Uri serverUrl,
+                                  String shareToken,
+                                  ShareManifestContract manifest,
+                                  QueueCredentials? credentials,
+                                  IReadOnlyDictionary<Guid, QueueDestination>? preparedDestinations = null)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(shareToken);
@@ -40,10 +52,15 @@ internal static class QueueFileBuilder
         HashSet<String> usedNames = new(StringComparer.OrdinalIgnoreCase);
         List<QueueFileEntry> entries = [];
         List<String> outputPaths = [];
+        var unmatchedPreparedFileIds = preparedDestinations is null
+            ? []
+            : new HashSet<Guid>(preparedDestinations.Keys);
 
         foreach (var file in manifest.Files)
         {
-            var outputPath = ResolveCollisionSafeName(file.FileName, usedNames);
+            var outputPath = preparedDestinations is null
+                ? ResolveCollisionSafeName(file.FileName, usedNames)
+                : ResolvePreparedDestination(file, preparedDestinations, unmatchedPreparedFileIds);
             outputPaths.Add(outputPath);
             entries.Add(new()
             {
@@ -53,6 +70,12 @@ internal static class QueueFileBuilder
                 OutputPath = ToCanonicalOutputPath(outputPath, file.FileName),
                 PlaintextSha256 = file.PlaintextSha256
             });
+        }
+
+        if (preparedDestinations is not null && unmatchedPreparedFileIds.Count > 0)
+        {
+            var omittedFileId = unmatchedPreparedFileIds.OrderBy(static fileId => fileId).First();
+            throw new QueueBuildException($"The share manifest omitted uploaded file id '{omittedFileId}'.");
         }
 
         if (QueueOutputPath.TryFindConflict(outputPaths, out _, out var conflictError))
@@ -84,6 +107,33 @@ internal static class QueueFileBuilder
         }
 
         return candidate;
+    }
+
+    // The destination was already decided from local input, so a disagreement with what the share announces is a
+    // remote consistency failure rather than something to silently recompute after the share exists.
+    private static String ResolvePreparedDestination(ShareManifestFileContract file,
+                                                     IReadOnlyDictionary<Guid, QueueDestination> preparedDestinations,
+                                                     HashSet<Guid> unmatchedPreparedFileIds)
+    {
+        if (!Guid.TryParse(file.FileId, out var fileId) ||
+            !preparedDestinations.TryGetValue(fileId, out var prepared))
+        {
+            throw new QueueBuildException($"The share manifest announced file id '{file.FileId}', which was not part of this upload.");
+        }
+
+        if (!unmatchedPreparedFileIds.Remove(fileId))
+        {
+            throw new QueueBuildException($"The share manifest announced duplicate file id '{file.FileId}'.");
+        }
+
+        var announcedName = Sanitize(file.FileName);
+        if (!String.Equals(announcedName, prepared.ExpectedFileName, StringComparison.Ordinal))
+        {
+            throw new QueueBuildException(
+                $"The share manifest announced '{file.FileName}' for a file queued as '{prepared.ExpectedFileName}'.");
+        }
+
+        return prepared.Path;
     }
 
     private static String Sanitize(String? fileName) =>

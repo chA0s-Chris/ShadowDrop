@@ -64,6 +64,62 @@ public sealed class QueueFileBuilderTests
     }
 
     [Test]
+    public void Build_ShouldRejectDuplicateManifestFileId()
+    {
+        const String fileId = "11111111-1111-1111-1111-111111111111";
+        var manifest = Manifest((fileId, "report.txt", 4096), (fileId, "report.txt", 4096));
+        var prepared = Prepared((fileId, "report.txt", "report.txt"));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+
+        act.Should().Throw<QueueBuildException>()
+           .WithMessage($"The share manifest announced duplicate file id '{fileId}'.");
+    }
+
+    [Test]
+    public void Build_ShouldRejectManifestFileNameMismatch()
+    {
+        const String fileId = "11111111-1111-1111-1111-111111111111";
+        var manifest = Manifest((fileId, "renamed.txt", 4096));
+        var prepared = Prepared((fileId, "report.txt", "report.txt"));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+
+        act.Should().Throw<QueueBuildException>()
+           .WithMessage("The share manifest announced 'renamed.txt' for a file queued as 'report.txt'.");
+    }
+
+    [Test]
+    public void Build_ShouldRejectManifestThatOmitsPreparedUpload()
+    {
+        const String includedFileId = "11111111-1111-1111-1111-111111111111";
+        const String omittedFileId = "22222222-2222-2222-2222-222222222222";
+        var manifest = Manifest((includedFileId, "report.txt", 4096));
+        var prepared = Prepared(
+            (includedFileId, "reports/report.txt", "report.txt"),
+            (omittedFileId, "data.bin", "data.bin"));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+
+        act.Should().Throw<QueueBuildException>()
+           .WithMessage($"The share manifest omitted uploaded file id '{omittedFileId}'.");
+    }
+
+    [Test]
+    public void Build_ShouldRejectManifestWithUnexpectedFileId()
+    {
+        const String preparedFileId = "11111111-1111-1111-1111-111111111111";
+        const String unexpectedFileId = "22222222-2222-2222-2222-222222222222";
+        var manifest = Manifest((unexpectedFileId, "report.txt", 4096));
+        var prepared = Prepared((preparedFileId, "report.txt", "report.txt"));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+
+        act.Should().Throw<QueueBuildException>()
+           .WithMessage($"The share manifest announced file id '{unexpectedFileId}', which was not part of this upload.");
+    }
+
+    [Test]
     public void Build_ShouldRejectNamesThatConflictWithResumeArtifacts()
     {
         var manifest = Manifest(
@@ -166,6 +222,18 @@ public sealed class QueueFileBuilderTests
         queue.Files!.Select(QueueOutputPath.Resolve).Should().Equal("Report.txt", "report (2).txt");
     }
 
+    [Test]
+    public void Build_ShouldUsePreparedDestination_WhenManifestMatchesUpload()
+    {
+        const String fileId = "11111111-1111-1111-1111-111111111111";
+        var manifest = Manifest((fileId, "report.txt", 4096));
+        var prepared = Prepared((fileId, "reports/report.txt", "report.txt"));
+
+        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+
+        QueueOutputPath.Resolve(queue.Files.Should().ContainSingle().Subject).Should().Be("reports/report.txt");
+    }
+
     private static ShareManifestContract Manifest(params (String FileId, String FileName, Int64 Length)[] files) =>
         new()
         {
@@ -181,4 +249,9 @@ public sealed class QueueFileBuilderTests
                 ChunkCount = 1
             }).ToArray()
         };
+
+    private static IReadOnlyDictionary<Guid, QueueDestination> Prepared(
+        params (String FileId, String Path, String ExpectedFileName)[] destinations) =>
+        destinations.ToDictionary(destination => Guid.Parse(destination.FileId),
+                                  static destination => new QueueDestination(destination.Path, destination.ExpectedFileName));
 }
