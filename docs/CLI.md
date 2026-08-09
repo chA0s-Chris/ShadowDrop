@@ -546,8 +546,9 @@ the original uploader paths are not part of the share.
 | `serverUrl` | yes | Base URL of the server hosting the share. |
 | `shareToken` | yes | Public share token. One queue describes exactly one share. |
 | `credentials` | no | Embedded `shareKey` and optional `downloadBearerToken` (see `--embed-secrets`). |
+| `files` | yes | Non-empty list of files from the queue's share. |
 | `files[].fileId` | yes | File identifier within the share. |
-| `files[].fileName` | yes | Server-announced file name. A single path segment. |
+| `files[].fileName` | yes | Server-announced file name. When `outputPath` is omitted, this is also the destination and must be one portable path segment; with a safe explicit `outputPath`, it may contain separators. |
 | `files[].length` | yes | Plaintext size in bytes. |
 | `files[].outputPath` | no | Destination relative to `--output-root`. Omitted when it equals `fileName`. |
 | `files[].plaintextSha256` | no | Lowercase hex SHA-256 of the plaintext, verified after decryption. |

@@ -17,7 +17,7 @@ and the file system). Each scenario then:
 - runs the real CLI as a child process;
 - byte-compares every downloaded file against the original input.
 
-Four scenarios are covered:
+Seven scenarios are covered:
 
 1. **Queue download (upload-relative paths)** — uploads three files, one of them nested, with explicit
    `--server-url`, `--upload-token`, and `--queue-out`, parses the printed `share-key:`, downloads the generated
@@ -30,6 +30,9 @@ Four scenarios are covered:
 4. **Direct HTTP download** — uploads one file with `--direct-http`, configured through the
    `SHADOWDROP_SERVER_URL` and `SHADOWDROP_UPLOAD_TOKEN` environment variables, parses the printed
    `download-url:`, downloads it with `curl`, and verifies the bytes.
+5. **Scoped upload credential lifecycle** — creates a scoped credential, uploads and shares with it, revokes it, verifies new uploads are rejected, and confirms the share created before revocation still downloads correctly.
+6. **Untrusted self-signed TLS** — connects to a self-signed HTTPS listener without a custom CA and verifies the CLI rejects the certificate before sending an HTTP request.
+7. **Trusted self-signed TLS** — supplies the listener certificate through `--cacert` and verifies the CLI completes the TLS handshake and reaches the HTTP endpoint.
 
 Each test is isolated, `[NonParallelizable]`, deterministic, and cleans up its temporary files, directories,
 and child processes even when it fails.

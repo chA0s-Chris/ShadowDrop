@@ -31,7 +31,10 @@ A generated queue also records the uploader's **directory layout** relative to
 the upload root: destinations such as `clients/acme/contract.pdf` reveal folder
 names even though the file contents stay encrypted until the recipient decrypts
 them. When the layout itself is sensitive, upload with `--flatten` so only leaf
-names are recorded, or set recipient-facing names with `--name`/`--display-name`.
+names are recorded, or choose a narrower `--input-root` so higher-level
+directories are excluded. Recipient-facing names set with `--name` or
+`--display-name` replace only the destination leaf and do not hide preserved
+directory segments.
 
 ## Direct-HTTP mode (`--direct-http`)
 
