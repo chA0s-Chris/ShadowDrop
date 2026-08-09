@@ -1448,6 +1448,31 @@ public sealed class DownloadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRejectQueueBeforeProcessing_WhenOutputCollidesWithResumeArtifact()
+    {
+        var fixture = DownloadHttpFixture.Create();
+        var rootDirectory = CreateScratchDirectory();
+        var existingOutputPath = Path.Combine(rootDirectory, "payload.bin.shadowdrop-partial");
+        await File.WriteAllTextAsync(existingOutputPath, "completed output");
+        var queuePath = CreateQueueFile(rootDirectory,
+                                        fixture,
+                                        null,
+                                        "payload.bin.shadowdrop-partial",
+                                        "payload.bin");
+        var standardError = new StringWriter();
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["download", "--queue", queuePath, "--output-root", rootDirectory, "--share-key", fixture.ShareKey],
+            CreateServices(new StringWriter(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        (await File.ReadAllTextAsync(existingOutputPath)).Should().Be("completed output");
+        standardError.ToString().Should()
+                     .Contain("files[1].outputPath: The output path 'payload.bin' conflicts with the reserved download resume path "
+                              + "'payload.bin.shadowdrop-partial' of another file entry.");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectQueueFromAnUnsupportedVersionWithRecreationGuidance()
     {
         await using var fixture = new CliDownloadApiFactory();

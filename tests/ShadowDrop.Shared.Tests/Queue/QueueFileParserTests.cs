@@ -205,6 +205,26 @@ public sealed class QueueFileParserTests
                options => options.WithoutStrictOrdering());
     }
 
+    [TestCase("payload.bin.shadowdrop-partial", "payload.bin", "payload.bin.shadowdrop-partial")]
+    [TestCase("payload.bin", "PAYLOAD.BIN.shadowdrop-partial", "payload.bin.shadowdrop-partial")]
+    [TestCase("payload.bin.shadowdrop-partial.json", "payload.bin", "payload.bin.shadowdrop-partial.json")]
+    [TestCase("payload.bin", "payload.bin.shadowdrop-partial.json", "payload.bin.shadowdrop-partial.json")]
+    [TestCase("payload.bin.shadowdrop-partial/child.bin", "payload.bin", "payload.bin.shadowdrop-partial")]
+    [TestCase("payload.bin", "payload.bin.shadowdrop-partial/child.bin", "payload.bin.shadowdrop-partial")]
+    public void Parse_ShouldRejectOutputPathsThatConflictWithResumeArtifacts(String firstOutputPath,
+                                                                             String secondOutputPath,
+                                                                             String reservedPath)
+    {
+        var queueFile = CreateQueueFileWithOutputPaths(firstOutputPath, secondOutputPath);
+
+        var errors = QueueFileParser.Validate(queueFile);
+
+        errors.Should().ContainSingle(error =>
+                                          error.Path == "files[1].outputPath" &&
+                                          error.Message ==
+                                          $"The output path '{secondOutputPath}' conflicts with the reserved download resume path '{reservedPath}' of another file entry.");
+    }
+
     [Test]
     public void Parse_ShouldRejectPlaintextSha256WithTrailingNewline()
     {
@@ -270,6 +290,7 @@ public sealed class QueueFileParserTests
     [TestCase(@"sub\report.txt", "The fileName value must use '/' as its directory separator.")]
     [TestCase("/report.txt", "The fileName value must be a relative path.")]
     [TestCase("CON.txt", "The fileName value must not contain Windows reserved device-name segments.")]
+    [TestCase("COM¹.txt", "The fileName value must not contain Windows reserved device-name segments.")]
     [TestCase("report.", "The fileName value must not contain path segments ending in a dot or space.")]
     [TestCase("report ", "The fileName value must not contain path segments ending in a dot or space.")]
     public void Parse_ShouldRejectUnsafeFileName_WhenOutputPathIsOmitted(String fileName, String expectedMessage)
@@ -310,6 +331,7 @@ public sealed class QueueFileParserTests
     [TestCase("docs//report.txt", "The outputPath value must not contain empty path segments.")]
     [TestCase("docs/report.txt/", "The outputPath value must not contain empty path segments.")]
     [TestCase("docs/NUL.archive.txt", "The outputPath value must not contain Windows reserved device-name segments.")]
+    [TestCase("docs/LPT³.archive.txt", "The outputPath value must not contain Windows reserved device-name segments.")]
     [TestCase("docs/report.", "The outputPath value must not contain path segments ending in a dot or space.")]
     [TestCase("docs/report ", "The outputPath value must not contain path segments ending in a dot or space.")]
     public void Parse_ShouldRejectUnsafeOutputPathForms(String outputPath, String expectedMessage)

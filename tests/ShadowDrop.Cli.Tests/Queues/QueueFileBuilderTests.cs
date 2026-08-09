@@ -50,6 +50,8 @@ public sealed class QueueFileBuilderTests
 
     [TestCase("con.txt", "_con.txt")]
     [TestCase("NUL", "_NUL")]
+    [TestCase("COM¹.txt", "_COM¹.txt")]
+    [TestCase("lpt³", "_lpt³")]
     [TestCase("file.", "file")]
     [TestCase("trailing. ", "trailing")]
     public void Build_ShouldNormalizeWindowsUnsafeNames(String fileName, String expected)
@@ -59,6 +61,21 @@ public sealed class QueueFileBuilderTests
         var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be(expected);
+    }
+
+    [Test]
+    public void Build_ShouldRejectNamesThatConflictWithResumeArtifacts()
+    {
+        var manifest = Manifest(
+            ("11111111-1111-1111-1111-111111111111", "payload.bin.shadowdrop-partial", 1),
+            ("22222222-2222-2222-2222-222222222222", "payload.bin", 2));
+
+        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+
+        act.Should()
+           .Throw<QueueBuildException>()
+           .WithMessage("The output path 'payload.bin' conflicts with the reserved download resume path "
+                        + "'payload.bin.shadowdrop-partial' of another file entry.");
     }
 
     [Test]

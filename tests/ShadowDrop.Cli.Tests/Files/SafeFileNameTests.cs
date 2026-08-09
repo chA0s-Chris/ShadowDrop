@@ -18,6 +18,12 @@ public sealed class SafeFileNameTests
     [TestCase("CON", "_CON")]
     [TestCase("nul.txt", "_nul.txt")]
     [TestCase("CON.archive.txt", "_CON.archive.txt")]
+    [TestCase("COM¹", "_COM¹")]
+    [TestCase("com².txt", "_com².txt")]
+    [TestCase("COM³.archive.txt", "_COM³.archive.txt")]
+    [TestCase("LPT¹", "_LPT¹")]
+    [TestCase("lpt².txt", "_lpt².txt")]
+    [TestCase("LPT³.archive.txt", "_LPT³.archive.txt")]
     public void TrySanitize_ShouldReduceNameToPortableLeaf(String fileName, String expected)
     {
         SafeFileName.TrySanitize(fileName, out var safeFileName).Should().BeTrue();

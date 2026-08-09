@@ -39,10 +39,12 @@ internal static class QueueFileBuilder
         // case-insensitive file systems (Windows and many macOS setups).
         HashSet<String> usedNames = new(StringComparer.OrdinalIgnoreCase);
         List<QueueFileEntry> entries = [];
+        List<String> outputPaths = [];
 
         foreach (var file in manifest.Files)
         {
             var outputPath = ResolveCollisionSafeName(file.FileName, usedNames);
+            outputPaths.Add(outputPath);
             entries.Add(new()
             {
                 FileId = file.FileId,
@@ -51,6 +53,11 @@ internal static class QueueFileBuilder
                 OutputPath = ToCanonicalOutputPath(outputPath, file.FileName),
                 PlaintextSha256 = file.PlaintextSha256
             });
+        }
+
+        if (QueueOutputPath.TryFindConflict(outputPaths, out _, out var conflictError))
+        {
+            throw new QueueBuildException(conflictError);
         }
 
         return new()

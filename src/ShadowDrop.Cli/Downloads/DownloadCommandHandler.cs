@@ -530,11 +530,8 @@ internal sealed class DownloadCommandHandler
         return Path.GetFullPath(root);
     }
 
-    private static (String PartialPath, String MarkerPath) ResolvePartialPaths(String outputPath)
-    {
-        var partialPath = $"{outputPath}.shadowdrop-partial";
-        return (partialPath, $"{partialPath}.json");
-    }
+    private static (String PartialPath, String MarkerPath) ResolvePartialPaths(String outputPath) =>
+        QueueOutputPath.ResolveResumePaths(outputPath);
 
     private static String ResolveQueueOutputPath(String outputRoot, String outputPath)
     {
