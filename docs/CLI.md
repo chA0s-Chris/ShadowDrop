@@ -515,9 +515,13 @@ shadowdrop upload --queue-out ~/my.queue --flatten ~/a/report.pdf /tmp/notes.txt
 ```
 
 Both options require `--queue-out` and cannot be combined. Every destination is
-computed and validated *before* the first byte is uploaded, so an unsafe name, a
-duplicate, or a file/directory conflict fails without creating a share. Names
-that collide get a deterministic ` (2)`, ` (3)`, … suffix. `--name` and
+computed and validated *before* the first byte is uploaded, so the command fails
+without creating a share when a path component cannot be sanitized into a usable
+name, when the same file is selected more than once, or when one destination
+would have to be both a file and another entry's directory. Everything else is
+normalized rather than rejected: characters that are not portable become `_`,
+and two files whose destinations would otherwise be identical get a
+deterministic ` (2)`, ` (3)`, … suffix. `--name` and
 `--display-name` replace the destination's leaf while keeping its directory;
 under `--flatten` the display name simply is the destination.
 
