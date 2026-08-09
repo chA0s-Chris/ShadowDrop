@@ -28,6 +28,32 @@ public static class QueueOutputPath
         .. Enumerable.Range(0, 32).Select(static value => (Char)value)
     ];
 
+    private static readonly HashSet<String> WindowsReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9"
+    };
+
     /// <summary>
     /// Resolves the effective destination of a queue entry, which is its explicit output path when present and its
     /// file name otherwise.
@@ -161,14 +187,35 @@ public static class QueueOutputPath
                 return false;
             }
 
+            if (segment.EndsWith('.') || segment.EndsWith(' '))
+            {
+                error = $"The {valueName} value must not contain path segments ending in a dot or space.";
+                return false;
+            }
+
             if (segment.Any(PortableInvalidSegmentChars.Contains))
             {
                 error = $"The {valueName} value must not contain the characters <>:\"|?* or control characters.";
+                return false;
+            }
+
+            if (IsWindowsReservedDeviceName(segment))
+            {
+                error = $"The {valueName} value must not contain Windows reserved device-name segments.";
                 return false;
             }
         }
 
         error = null;
         return true;
+    }
+
+    internal static Boolean IsWindowsReservedDeviceName(String segment)
+    {
+        ArgumentNullException.ThrowIfNull(segment);
+
+        var extensionSeparatorIndex = segment.IndexOf('.');
+        var deviceName = extensionSeparatorIndex < 0 ? segment : segment[..extensionSeparatorIndex];
+        return WindowsReservedDeviceNames.Contains(deviceName);
     }
 }

@@ -17,6 +17,7 @@ public sealed class SafeFileNameTests
     [TestCase("  report.pdf  ", "report.pdf")]
     [TestCase("CON", "_CON")]
     [TestCase("nul.txt", "_nul.txt")]
+    [TestCase("CON.archive.txt", "_CON.archive.txt")]
     public void TrySanitize_ShouldReduceNameToPortableLeaf(String fileName, String expected)
     {
         SafeFileName.TrySanitize(fileName, out var safeFileName).Should().BeTrue();

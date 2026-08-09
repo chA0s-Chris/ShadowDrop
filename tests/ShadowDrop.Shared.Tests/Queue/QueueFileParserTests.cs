@@ -269,6 +269,9 @@ public sealed class QueueFileParserTests
     [TestCase("sub/report.txt", "The fileName value must not contain directory separators; carry a nested destination in outputPath instead.")]
     [TestCase(@"sub\report.txt", "The fileName value must use '/' as its directory separator.")]
     [TestCase("/report.txt", "The fileName value must be a relative path.")]
+    [TestCase("CON.txt", "The fileName value must not contain Windows reserved device-name segments.")]
+    [TestCase("report.", "The fileName value must not contain path segments ending in a dot or space.")]
+    [TestCase("report ", "The fileName value must not contain path segments ending in a dot or space.")]
     public void Parse_ShouldRejectUnsafeFileName_WhenOutputPathIsOmitted(String fileName, String expectedMessage)
     {
         var queueFile = CreateValidQueueFile() with
@@ -306,6 +309,9 @@ public sealed class QueueFileParserTests
     [TestCase("./report.txt", "The outputPath value must not contain '.' or '..' path segments.")]
     [TestCase("docs//report.txt", "The outputPath value must not contain empty path segments.")]
     [TestCase("docs/report.txt/", "The outputPath value must not contain empty path segments.")]
+    [TestCase("docs/NUL.archive.txt", "The outputPath value must not contain Windows reserved device-name segments.")]
+    [TestCase("docs/report.", "The outputPath value must not contain path segments ending in a dot or space.")]
+    [TestCase("docs/report ", "The outputPath value must not contain path segments ending in a dot or space.")]
     public void Parse_ShouldRejectUnsafeOutputPathForms(String outputPath, String expectedMessage)
     {
         var queueFile = CreateValidQueueFile() with
