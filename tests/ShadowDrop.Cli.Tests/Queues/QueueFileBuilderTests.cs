@@ -73,7 +73,7 @@ public sealed class QueueFileBuilderTests
         var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         act.Should().Throw<QueueBuildException>()
-           .WithMessage($"The share manifest announced file id '{fileId}', which was not part of this upload.");
+           .WithMessage($"The share manifest announced duplicate file id '{fileId}'.");
     }
 
     [Test]

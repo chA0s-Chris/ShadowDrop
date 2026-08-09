@@ -1063,6 +1063,26 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRejectMalformedInputRootBeforeUploading()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var filePath = fixture.CreateInputFile("queued.bin", 32);
+        var queuePath = Path.Combine(fixture.RootDirectory, "invalid-root.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", filePath, "--queue-out", queuePath, "--input-root", "invalid\0root"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("The --input-root path is invalid.");
+        fixture.GetStoredUploads().Should().BeEmpty();
+        File.Exists(queuePath).Should().BeFalse();
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectMissingInputRootDirectory()
     {
         await using var fixture = new CliUploadApiFactory();

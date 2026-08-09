@@ -116,10 +116,14 @@ internal static class QueueFileBuilder
                                                      HashSet<Guid> unmatchedPreparedFileIds)
     {
         if (!Guid.TryParse(file.FileId, out var fileId) ||
-            !preparedDestinations.TryGetValue(fileId, out var prepared) ||
-            !unmatchedPreparedFileIds.Remove(fileId))
+            !preparedDestinations.TryGetValue(fileId, out var prepared))
         {
             throw new QueueBuildException($"The share manifest announced file id '{file.FileId}', which was not part of this upload.");
+        }
+
+        if (!unmatchedPreparedFileIds.Remove(fileId))
+        {
+            throw new QueueBuildException($"The share manifest announced duplicate file id '{file.FileId}'.");
         }
 
         var announcedName = Sanitize(file.FileName);

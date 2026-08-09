@@ -18,7 +18,11 @@ public sealed class QueueDestinationResolverTests
     [Test]
     public void TryResolve_ShouldAcceptUnrelatedLocations_InFlattenMode()
     {
-        var files = new[] { InputFile(InputRoot, "sub", "file3"), InputFile(UnrelatedRoot, "deep", "file4") };
+        var files = new[]
+        {
+            InputFile(InputRoot, "sub", "file3"),
+            InputFile(UnrelatedRoot, "deep", "file4")
+        };
 
         var succeeded = QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Flatten, InputRoot,
                                                             out var destinations, out var error);
@@ -31,7 +35,11 @@ public sealed class QueueDestinationResolverTests
     [Test]
     public void TryResolve_ShouldCarryThePreCollisionLeafAsTheExpectedFileName()
     {
-        var files = new[] { InputFile(InputRoot, "a", "report.txt"), InputFile(InputRoot, "b", "report.txt") };
+        var files = new[]
+        {
+            InputFile(InputRoot, "a", "report.txt"),
+            InputFile(InputRoot, "b", "report.txt")
+        };
 
         QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Flatten, InputRoot,
                                             out var destinations, out _)
@@ -65,7 +73,11 @@ public sealed class QueueDestinationResolverTests
     [Test]
     public void TryResolve_ShouldRejectAncestorDescendantConflict()
     {
-        var files = new[] { InputFile(InputRoot, "docs"), InputFile(InputRoot, "docs", "report.txt") };
+        var files = new[]
+        {
+            InputFile(InputRoot, "docs"),
+            InputFile(InputRoot, "docs", "report.txt")
+        };
 
         var succeeded = QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Preserve, InputRoot,
                                                             out var destinations, out var error);
@@ -78,7 +90,11 @@ public sealed class QueueDestinationResolverTests
     [Test]
     public void TryResolve_ShouldRejectFileOutsideInputRoot()
     {
-        var files = new[] { InputFile(InputRoot, "inside.bin"), InputFile(UnrelatedRoot, "outside.bin") };
+        var files = new[]
+        {
+            InputFile(InputRoot, "inside.bin"),
+            InputFile(UnrelatedRoot, "outside.bin")
+        };
 
         var succeeded = QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Preserve, InputRoot,
                                                             out var destinations, out var error);
@@ -122,13 +138,61 @@ public sealed class QueueDestinationResolverTests
     [Test]
     public void TryResolve_ShouldSuffixCaseOnlyDuplicatesWithinTheSameDirectory()
     {
-        var files = new[] { InputFile(InputRoot, "sub", "Report.txt"), InputFile(InputRoot, "sub", "report.txt") };
+        var files = new[]
+        {
+            InputFile(InputRoot, "sub", "Report.txt"),
+            InputFile(InputRoot, "sub", "report.txt")
+        };
 
         QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Preserve, InputRoot,
                                             out var destinations, out _)
                                 .Should().BeTrue();
 
         Paths(destinations, files).Should().Equal("sub/Report.txt", "sub/report (2).txt");
+    }
+
+    // Files in different source directories still collide once flattened, and the collision is resolved
+    // deterministically rather than rejected.
+    [Test]
+    public void TryResolve_ShouldSuffixFlattenedCollisions()
+    {
+        var files = new[]
+        {
+            InputFile(InputRoot, "a", "report.txt"),
+            InputFile(InputRoot, "b", "report.txt")
+        };
+
+        QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Flatten, InputRoot,
+                                            out var destinations, out _)
+                                .Should().BeTrue();
+
+        Paths(destinations, files).Should().Equal("report.txt", "report (2).txt");
+    }
+
+    [Test]
+    public void TryResolve_ShouldUseOperatingSystemPathComparisonForDuplicateSources()
+    {
+        var files = new[]
+        {
+            InputFile(InputRoot, "Report.txt"),
+            InputFile(InputRoot, "report.txt")
+        };
+
+        var succeeded = QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Preserve, InputRoot,
+                                                            out var destinations, out var error);
+
+        if (OperatingSystem.IsWindows())
+        {
+            succeeded.Should().BeFalse();
+            destinations.Should().BeNull();
+            error.Should().Contain("selected more than once");
+        }
+        else
+        {
+            succeeded.Should().BeTrue();
+            error.Should().BeNull();
+            Paths(destinations, files).Should().Equal("Report.txt", "report (2).txt");
+        }
     }
 
     [Test]
@@ -147,21 +211,7 @@ public sealed class QueueDestinationResolverTests
         Paths(destinations, [file]).Should().Equal("renamed.txt");
     }
 
-    // Files in different source directories still collide once flattened, and the collision is resolved
-    // deterministically rather than rejected.
-    [Test]
-    public void TryResolve_ShouldSuffixFlattenedCollisions()
-    {
-        var files = new[] { InputFile(InputRoot, "a", "report.txt"), InputFile(InputRoot, "b", "report.txt") };
-
-        QueueDestinationResolver.TryResolve(files, NoDisplayNames(), QueueDestinationMode.Flatten, InputRoot,
-                                            out var destinations, out _)
-                                .Should().BeTrue();
-
-        Paths(destinations, files).Should().Equal("report.txt", "report (2).txt");
-    }
-
-    private static FileInfo InputFile(String root, params String[] segments) => new(Path.Combine([root, ..segments]));
+    private static FileInfo InputFile(String root, params String[] segments) => new(Path.Combine([root, .. segments]));
 
     private static IReadOnlyDictionary<String, String> NoDisplayNames() => new Dictionary<String, String>();
 

@@ -42,6 +42,10 @@ internal sealed record QueueDestination(String Path, String ExpectedFileName);
 /// </remarks>
 internal static class QueueDestinationResolver
 {
+    private static readonly StringComparer SourcePathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
     /// <summary>
     /// Resolves the queue destination of every selected file.
     /// </summary>
@@ -72,7 +76,7 @@ internal static class QueueDestinationResolver
         // are deliberately not resolved: the comparison stays predictable and testable without touching the disk.
         var normalizedRoot = Path.GetFullPath(inputRoot);
         HashSet<String> usedDestinations = new(StringComparer.OrdinalIgnoreCase);
-        Dictionary<String, QueueDestination> resolved = new(StringComparer.Ordinal);
+        Dictionary<String, QueueDestination> resolved = new(SourcePathComparer);
         List<String> plannedFiles = [];
         List<String> plannedDestinations = [];
 
@@ -117,6 +121,15 @@ internal static class QueueDestinationResolver
         destinations = resolved;
         error = null;
         return true;
+    }
+
+    private static Boolean IsInsideRoot(String path, String root)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)
+            ? root
+            : root + Path.DirectorySeparatorChar;
+        return path.StartsWith(rootPrefix, comparison);
     }
 
     private static String ResolveCollisionSafeDestination(IReadOnlyList<String> segments, HashSet<String> usedDestinations)
@@ -210,14 +223,5 @@ internal static class QueueDestinationResolver
         segment = sanitized;
         error = null;
         return true;
-    }
-
-    private static Boolean IsInsideRoot(String path, String root)
-    {
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) || root.EndsWith(Path.AltDirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-        return path.StartsWith(rootPrefix, comparison);
     }
 }

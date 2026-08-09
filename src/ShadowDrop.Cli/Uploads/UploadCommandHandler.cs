@@ -319,9 +319,18 @@ internal sealed class UploadCommandHandler
                                                        workingDirectory, out destinations, out error);
         }
 
-        var inputRoot = options.InputRoot is null
-            ? Path.GetFullPath(workingDirectory)
-            : Path.GetFullPath(options.InputRoot, workingDirectory);
+        String inputRoot;
+        try
+        {
+            inputRoot = options.InputRoot is null
+                ? Path.GetFullPath(workingDirectory)
+                : Path.GetFullPath(options.InputRoot, workingDirectory);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            error = "The --input-root path is invalid.";
+            return false;
+        }
 
         if (!Directory.Exists(inputRoot))
         {
