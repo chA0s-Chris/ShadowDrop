@@ -36,6 +36,9 @@ jobs:
       - name: Validate release metadata script
         run: bash scripts/test-calculate-docker-tags.sh
 
+      - name: Validate inspection script
+        run: bash scripts/test-inspect-code.sh
+
       - name: Validate GitHub Actions workflows
         uses: raven-actions/actionlint@v2
 
