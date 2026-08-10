@@ -91,17 +91,25 @@ jobs:
             runtime: linux-musl-arm64
             target: PublishCliLinuxMuslArm64
     runs-on: ${{ matrix.runner }}
-    container: mcr.microsoft.com/dotnet/sdk:10.0-alpine
     steps:
-      - name: Install Native AOT prerequisites
-        run: apk add --no-cache bash git clang lld build-base zlib-dev
-
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Publish Linux musl CLI
-        run: bash build.sh ${{ matrix.target }} --release-version "${{ inputs.version }}"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env RELEASE_VERSION \
+            mcr.microsoft.com/dotnet/sdk:10.0-alpine \
+            sh -lc '
+              apk add --no-cache bash git clang lld build-base zlib-dev &&
+              git config --global --add safe.directory /workspace &&
+              bash build.sh ${{ matrix.target }} --release-version "$RELEASE_VERSION"
+            '
 
       - name: Upload Linux musl CLI artifact
         uses: actions/upload-artifact@v7
