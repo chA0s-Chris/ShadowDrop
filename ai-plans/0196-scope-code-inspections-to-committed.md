@@ -10,13 +10,13 @@ Add a committed-diff mode so branch and stack review can inspect the relevant co
 
 ## Acceptance Criteria
 
-- [ ] `./inspect_code.sh --base <revision>` inspects C# files added, copied, modified, or renamed in `<revision>...HEAD`, combined with current staged, unstaged, and untracked C# files.
-- [ ] Unrelated source files are excluded from base-aware inspection.
-- [ ] Missing, duplicate, or unresolvable `--base` arguments, and `--base` combined with `--all`, exit non-zero with an actionable diagnostic before ReSharper is invoked.
-- [ ] Default working-tree mode and explicit `--all` mode retain their current behavior, including forwarding remaining ReSharper arguments.
-- [ ] An empty scoped file set reports `No matching files to process.` without widening the inspection.
-- [ ] Automated shell coverage verifies selection, argument forwarding, invalid inputs, and mode behavior, and CI runs that coverage.
-- [ ] Root `AGENTS.md` documents default, base-aware, and whole-solution usage, including that no changed C# files means inspection is not applicable.
+- [x] `./inspect_code.sh --base <revision>` inspects C# files added, copied, modified, or renamed in `<revision>...HEAD`, combined with current staged, unstaged, and untracked C# files.
+- [x] Unrelated source files are excluded from base-aware inspection.
+- [x] Missing, duplicate, or unresolvable `--base` arguments, and `--base` combined with `--all`, exit non-zero with an actionable diagnostic before ReSharper is invoked.
+- [x] Default working-tree mode and explicit `--all` mode retain their current behavior, including forwarding remaining ReSharper arguments.
+- [x] An empty scoped file set reports `No matching files to process.` without widening the inspection.
+- [x] Automated shell coverage verifies selection, argument forwarding, invalid inputs, and mode behavior, and CI runs that coverage.
+- [x] Root `AGENTS.md` documents default, base-aware, and whole-solution usage, including that no changed C# files means inspection is not applicable.
 
 ## Technical Details
 

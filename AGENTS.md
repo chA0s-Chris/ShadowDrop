@@ -23,6 +23,7 @@ Run these from the repository root. The scripts and the coverage recipe use the 
 |---------------------------------|----------------------------------------------------------------------|
 | Apply the code style            | `./cleanup_code.sh`                                                  |
 | Find code issues                | `./inspect_code.sh`                                                  |
+| Find code issues in a branch    | `./inspect_code.sh --base <revision>`                                |
 | Complete test suite             | `dotnet test ShadowDrop.slnx`                                        |
 | Unit and integration tests only | `dotnet test ShadowDrop.slnx --filter "TestCategory!=E2E"`           |
 | End-to-end tests only           | `dotnet test tests/ShadowDrop.E2E.Tests/ShadowDrop.E2E.Tests.csproj` |
@@ -32,9 +33,17 @@ Run these from the repository root. The scripts and the coverage recipe use the 
 
 Run `./cleanup_code.sh` when you are finished with a change. It applies ReSharper's `Zorn` profile to the files Git reports as changed, staged, or untracked.
 
-`./inspect_code.sh` runs ReSharper's inspections over the same files and reports semantic findings. Only C# files are inspected, because `inspectcode` has no rules for the other file types `cleanup_code.sh` formats. Pass `--all` to inspect the whole solution; any further arguments are forwarded to `dotnet jb inspectcode`, so `-e=WARNING` narrows the report to warnings and above. Both scripts print `No matching files to process.` and do nothing when no file of a relevant type is affected.
+`./inspect_code.sh` runs ReSharper's inspections and reports semantic findings. Only C# files are inspected, because `inspectcode` has no rules for the other file types `cleanup_code.sh` formats. Every argument the script does not own itself is forwarded to `dotnet jb inspectcode`, so `-e=WARNING` narrows the report to warnings and above. Both scripts print `No matching files to process.` and do nothing when no file of a relevant type is affected.
 
-Findings are advisory: the script reports them and exits 0 either way. A non-zero exit means the inspection itself could not run.
+Match the scope to what you are checking:
+
+- **No arguments** — the changed, staged, and untracked files, like `cleanup_code.sh`. Use this while implementing, after `cleanup_code.sh` and before committing.
+- **`--base <revision>`** — the C# files added, modified, or renamed in `<revision>...HEAD`, plus the current working-tree changes. Use this to review a committed branch or stack layer, with the trunk or the layer below as the base. `--base=<revision>` works as well.
+- **`--all`** — the whole solution. Reserve this for explicit whole-solution audits, analyzer or configuration changes, and broad refactors. It is slow and reports pre-existing findings that have nothing to do with the change under review.
+
+`--base` and `--all` are mutually exclusive. A scoped run that selects no C# files means the inspection is not applicable to that change; it is not a reason to fall back to `--all`.
+
+Findings are advisory: the script reports them and exits 0 either way. A non-zero exit means the inspection itself could not run, for example because an argument was invalid, or because the `--base` revision could not be resolved or shares no history with `HEAD`, as in a shallow clone.
 
 **Formatting is `cleanup_code.sh`'s responsibility.** `inspect_code.sh` does not report formatting deviations, because `inspectcode` ships nearly all of its formatting rules disabled and enabling them would mean changing the shared `ShadowDrop.slnx.DotSettings` for everyone working in the solution. Do not reach for the inspection script expecting whitespace, indentation, or brace findings.
 
