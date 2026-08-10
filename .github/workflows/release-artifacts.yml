@@ -80,6 +80,44 @@ jobs:
           path: artifacts/publish/cli/*/shadowdrop-*-linux-*
           if-no-files-found: error
 
+  publish-cli-linux-musl:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            runtime: linux-musl-x64
+            target: PublishCliLinuxMuslX64
+          - runner: ubuntu-24.04-arm
+            runtime: linux-musl-arm64
+            target: PublishCliLinuxMuslArm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publish Linux musl CLI
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env RELEASE_VERSION \
+            mcr.microsoft.com/dotnet/sdk:10.0-alpine \
+            sh -lc '
+              apk add --no-cache bash git clang lld build-base zlib-dev &&
+              git config --global --add safe.directory /workspace &&
+              bash build.sh ${{ matrix.target }} --release-version "$RELEASE_VERSION"
+            '
+
+      - name: Upload Linux musl CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: shadowdrop-cli-${{ matrix.runtime }}
+          path: artifacts/publish/cli/*/shadowdrop-*-${{ matrix.runtime }}
+          if-no-files-found: error
+
   publish-cli-macos:
     runs-on: macos-latest
     steps:
@@ -129,6 +167,7 @@ jobs:
     needs:
       - publish-api
       - publish-cli-linux
+      - publish-cli-linux-musl
       - publish-cli-macos
       - publish-cli-windows
     steps:
@@ -147,7 +186,7 @@ jobs:
           cp -R artifacts/downloaded/shadowdrop-health-probe/. artifacts/release/health-probe/
           find artifacts/downloaded -type f -name 'shadowdrop-*' -exec cp {} artifacts/release/cli/ \;
 
-          expected_count=6
+          expected_count=8
           actual_count="$(find artifacts/release/cli -maxdepth 1 -type f -name 'shadowdrop-*' | wc -l)"
           if [ "$actual_count" -ne "$expected_count" ]; then
             echo "Expected $expected_count CLI artifacts but found $actual_count."

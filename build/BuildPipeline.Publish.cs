@@ -40,6 +40,16 @@ internal partial class BuildPipeline
         "linux-arm64"
     ];
 
+    private static readonly String[] LinuxMuslArm64CliRuntimeIdentifiers =
+    [
+        "linux-musl-arm64"
+    ];
+
+    private static readonly String[] LinuxMuslX64CliRuntimeIdentifiers =
+    [
+        "linux-musl-x64"
+    ];
+
     private static readonly String[] MacOsCliRuntimeIdentifiers =
     [
         "osx-x64",
@@ -148,6 +158,26 @@ internal partial class BuildPipeline
                   PublishCliArtifacts(LinuxCliRuntimeIdentifiers);
               });
 
+    private Target PublishCliLinuxMuslArm64 => target =>
+        target.DependsOn(Restore)
+              .After(Clean, RestoreTools)
+              .Executes(() =>
+              {
+                  Log.Information("Publishing Linux musl arm64 CLI artifact...");
+
+                  PublishCliArtifacts(LinuxMuslArm64CliRuntimeIdentifiers);
+              });
+
+    private Target PublishCliLinuxMuslX64 => target =>
+        target.DependsOn(Restore)
+              .After(Clean, RestoreTools)
+              .Executes(() =>
+              {
+                  Log.Information("Publishing Linux musl x64 CLI artifact...");
+
+                  PublishCliArtifacts(LinuxMuslX64CliRuntimeIdentifiers);
+              });
+
     private Target PublishCliMacOs => target =>
         target.DependsOn(Restore)
               .After(Clean, RestoreTools)
@@ -252,7 +282,9 @@ internal partial class BuildPipeline
     private static String? GetCurrentRuntimeIdentifier()
     {
         var platform = OperatingSystem.IsLinux()
-            ? "linux"
+            ? RuntimeInformation.RuntimeIdentifier.StartsWith("linux-musl-", StringComparison.Ordinal)
+                ? "linux-musl"
+                : "linux"
             : OperatingSystem.IsMacOS()
                 ? "osx"
                 : OperatingSystem.IsWindows()

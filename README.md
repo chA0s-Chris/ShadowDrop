@@ -103,6 +103,11 @@ curl -fsSL https://get.shadowdrop.net/install.sh | sh -s -- --install-dir "$HOME
 & ([scriptblock]::Create((iwr -useb https://get.shadowdrop.net/install.ps1))) -InstallDir "$env:USERPROFILE\Tools\ShadowDrop"
 ```
 
+Linux releases provide primary glibc binaries for x64 and arm64 plus matching
+`linux-musl-*` binaries for Alpine and other musl-based distributions. The Unix
+installer detects the Linux libc automatically; set `SHADOWDROP_INSTALLER_LIBC`
+to `glibc` or `musl` only when an explicit Linux override is needed.
+
 See the [CLI installation guide](docs/CLI.md#installation) for supported
 platforms, manual checksum verification, and `PATH` guidance.
 

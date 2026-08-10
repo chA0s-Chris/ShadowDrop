@@ -60,6 +60,18 @@ arch=${SHADOWDROP_INSTALLER_ARCH:-$(uname -m)}
 case "$os" in
     Linux)
         platform=linux
+        if [ "${SHADOWDROP_INSTALLER_LIBC+x}" = x ]; then
+            case "$SHADOWDROP_INSTALLER_LIBC" in
+                glibc) ;;
+                musl) platform=linux-musl ;;
+                *) fail "unsupported SHADOWDROP_INSTALLER_LIBC value: ${SHADOWDROP_INSTALLER_LIBC:-<empty>} (expected glibc or musl)" ;;
+            esac
+        elif command -v ldd >/dev/null 2>&1; then
+            ldd_output=$(ldd --version 2>&1 || :)
+            case "$ldd_output" in
+                *musl*) platform=linux-musl ;;
+            esac
+        fi
         ;;
     Darwin)
         platform=osx
