@@ -12,11 +12,11 @@ The change will use two stacked review layers: release production first, followe
 
 ### Layer 1: Release Assets
 
-- [ ] Releases include dynamically linked Native AOT binaries named `shadowdrop-<version>-linux-musl-x64` and `shadowdrop-<version>-linux-musl-arm64`, in addition to the existing six CLI binaries.
-- [ ] The release-artifact workflow builds each musl binary natively in the .NET 10 Alpine SDK container, using x64 and arm64 GitHub-hosted runners respectively.
-- [ ] Each musl binary is smoke-tested on its native architecture during publication, so an asset that cannot execute fails the build.
-- [ ] Artifact collection requires exactly eight CLI binaries and generates checksums for all of them.
-- [ ] GitHub release publication requires the eight CLI binaries plus `CHECKSUMS.sha256`.
+- [x] Releases include dynamically linked Native AOT binaries named `shadowdrop-<version>-linux-musl-x64` and `shadowdrop-<version>-linux-musl-arm64`, in addition to the existing six CLI binaries.
+- [x] The release-artifact workflow builds each musl binary natively in the .NET 10 Alpine SDK container, using x64 and arm64 GitHub-hosted runners respectively.
+- [x] Each musl binary is smoke-tested on its native architecture during publication, so an asset that cannot execute fails the build.
+- [x] Artifact collection requires exactly eight CLI binaries and generates checksums for all of them.
+- [x] GitHub release publication requires the eight CLI binaries plus `CHECKSUMS.sha256`.
 
 ### Layer 2: Installer and Documentation
 
