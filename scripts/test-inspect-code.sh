@@ -207,6 +207,20 @@ assert_status 2
 assert_not_invoked
 assert_output_contains "--base needs a revision"
 
+# A flag after --base is an option, not a revision. Reading it as one would bypass the mode checks
+# and report an unresolvable revision instead of the missing one.
+current_case="--base followed by another mode flag"
+run_subject --base --all
+assert_status 2
+assert_not_invoked
+assert_output_contains "--base needs a revision"
+
+current_case="--base followed by a forwarded argument"
+run_subject --base -e=WARNING
+assert_status 2
+assert_not_invoked
+assert_output_contains "--base needs a revision"
+
 current_case="duplicate --base"
 run_subject --base main --base HEAD
 assert_status 2

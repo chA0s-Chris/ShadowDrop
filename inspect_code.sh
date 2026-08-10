@@ -24,9 +24,16 @@ AWAITING_BASE_REVISION=0
 # solution, and a forwarded --base=<revision> would silently inspect the working tree.
 for argument in "$@"; do
     if [ "${AWAITING_BASE_REVISION}" -eq 1 ]; then
-        BASE_REVISION="${argument}"
-        AWAITING_BASE_REVISION=0
-        continue
+        # A leading dash is an option, not a revision: `--base --all` must report the missing
+        # revision rather than fail later trying to resolve `--all` as a commit.
+        case "${argument}" in
+            -*) ;;
+            *)
+                BASE_REVISION="${argument}"
+                AWAITING_BASE_REVISION=0
+                continue
+                ;;
+        esac
     fi
 
     case "${argument}" in
