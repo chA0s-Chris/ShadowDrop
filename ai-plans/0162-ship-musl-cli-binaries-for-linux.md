@@ -20,10 +20,10 @@ The change will use two stacked review layers: release production first, followe
 
 ### Layer 2: Installer and Documentation
 
-- [ ] On Linux, `install.sh` selects the matching glibc or musl asset for both x64 and arm64 while preserving existing macOS selection.
-- [ ] `SHADOWDROP_INSTALLER_LIBC` provides deterministic glibc/musl selection for testing, applies to Linux selection only and is ignored on macOS, and fails unsupported override values with an actionable diagnostic before downloading release files.
-- [ ] Installer tests cover automatic musl and glibc detection through a stubbed detection command, explicit libc overrides, both supported Linux architectures, and exact checksum-manifest matching without changing Windows selection.
-- [ ] `README.md` and `docs/CLI.md` document the additional musl assets while retaining the glibc binaries as the primary Linux downloads.
+- [x] On Linux, `install.sh` selects the matching glibc or musl asset for both x64 and arm64 while preserving existing macOS selection.
+- [x] `SHADOWDROP_INSTALLER_LIBC` provides deterministic glibc/musl selection for testing, applies to Linux selection only and is ignored on macOS, and fails unsupported override values with an actionable diagnostic before downloading release files.
+- [x] Installer tests cover automatic musl and glibc detection through a stubbed detection command, explicit libc overrides, both supported Linux architectures, and exact checksum-manifest matching without changing Windows selection.
+- [x] `README.md` and `docs/CLI.md` document the additional musl assets while retaining the glibc binaries as the primary Linux downloads.
 
 ## Technical Details
 

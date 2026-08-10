@@ -26,9 +26,11 @@ setup() {
     export SHADOWDROP_INSTALLER_DOWNLOAD_URL="$DOWNLOAD_BASE"
     export SHADOWDROP_INSTALLER_OS=Linux
     export SHADOWDROP_INSTALLER_ARCH=x86_64
+    unset SHADOWDROP_INSTALLER_LIBC
     PATH="$FAKE_BIN:$ORIGINAL_PATH"
     export PATH
     write_fake_curl
+    write_fake_ldd glibc
     write_release_fixtures
 }
 
@@ -95,14 +97,32 @@ EOF
     chmod 755 "$FAKE_BIN/curl"
 }
 
+write_fake_ldd() {
+    FAKE_LDD_LIBC=$1
+    export FAKE_LDD_LIBC
+    cat > "$FAKE_BIN/ldd" <<'EOF'
+#!/bin/sh
+if [ "${FAKE_LDD_LIBC:-glibc}" = musl ]; then
+    printf '%s\n' 'musl libc (x86_64)' >&2
+    exit 1
+fi
+printf '%s\n' 'ldd (GNU libc) 2.40'
+EOF
+    chmod 755 "$FAKE_BIN/ldd"
+}
+
 write_release_fixtures() {
     write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-linux-x64" "ShadowDrop stable linux-x64"
     write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-linux-arm64" "ShadowDrop stable linux-arm64"
+    write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-linux-musl-x64" "ShadowDrop stable linux-musl-x64"
+    write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-linux-musl-arm64" "ShadowDrop stable linux-musl-arm64"
     write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-osx-x64" "ShadowDrop stable osx-x64"
     write_binary "$FIXTURES/assets/shadowdrop-v9.8.7-osx-arm64" "ShadowDrop stable osx-arm64"
     {
         printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-linux-x64")" shadowdrop-v9.8.7-linux-x64
         printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-linux-arm64")" shadowdrop-v9.8.7-linux-arm64
+        printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-linux-musl-x64")" shadowdrop-v9.8.7-linux-musl-x64
+        printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-linux-musl-arm64")" shadowdrop-v9.8.7-linux-musl-arm64
         printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-osx-x64")" shadowdrop-v9.8.7-osx-x64
         printf '%s  %s\n' "$(hash_file "$FIXTURES/assets/shadowdrop-v9.8.7-osx-arm64")" shadowdrop-v9.8.7-osx-arm64
         printf '%064d  %s\n' 0 shadowdrop-v9.8.7-win-x64.exe
@@ -161,6 +181,47 @@ EOF
         [[ "$output" == *"ShadowDrop stable $3"* ]]
         [ -x "$destination/shadowdrop" ]
     done
+}
+
+@test "automatic Linux libc detection selects matching glibc and musl assets" {
+    for mapping in "glibc linux-x64" "musl linux-musl-x64"; do
+        set -- $mapping
+        write_fake_ldd "$1"
+        destination="$TEST_ROOT/auto-$1"
+        run /bin/sh "$INSTALLER_SOURCE" --install-dir "$destination"
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"ShadowDrop stable $2"* ]]
+        [ -x "$destination/shadowdrop" ]
+    done
+}
+
+@test "Linux libc override selects glibc and musl assets for both architectures" {
+    for mapping in "glibc x86_64 linux-x64" "glibc aarch64 linux-arm64" "musl x86_64 linux-musl-x64" "musl aarch64 linux-musl-arm64"; do
+        set -- $mapping
+        export SHADOWDROP_INSTALLER_LIBC=$1
+        export SHADOWDROP_INSTALLER_ARCH=$2
+        destination="$TEST_ROOT/override-$1-$2"
+        run /bin/sh "$INSTALLER_SOURCE" --install-dir "$destination"
+        [ "$status" -eq 0 ]
+        [[ "$output" == *"ShadowDrop stable $3"* ]]
+        [ -x "$destination/shadowdrop" ]
+    done
+}
+
+@test "macOS ignores the Linux libc override" {
+    export SHADOWDROP_INSTALLER_OS=Darwin
+    export SHADOWDROP_INSTALLER_LIBC=unsupported
+    run /bin/sh "$INSTALLER_SOURCE" --install-dir "$TEST_ROOT/macos-libc-override"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ShadowDrop stable osx-x64"* ]]
+}
+
+@test "unsupported Linux libc override fails before downloading release files" {
+    export SHADOWDROP_INSTALLER_LIBC=unsupported
+    run /bin/sh "$INSTALLER_SOURCE" --install-dir "$TEST_ROOT/unsupported-libc"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"unsupported SHADOWDROP_INSTALLER_LIBC value: unsupported (expected glibc or musl)"* ]]
+    [ ! -s "$REQUEST_LOG" ]
 }
 
 @test "checksum mismatch fails without replacing an existing installation and cleans staging" {

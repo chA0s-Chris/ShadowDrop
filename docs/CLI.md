@@ -9,8 +9,11 @@ workflows.
 ## Installation
 
 The supported installers detect the operating system and CPU architecture,
-download the matching release binary, verify it against `CHECKSUMS.sha256`,
-and replace an existing user-scoped installation.
+and, on Linux, the system libc. They download the matching release binary,
+verify it against `CHECKSUMS.sha256`, and replace an existing user-scoped
+installation. Linux defaults to the primary glibc assets unless musl is
+positively detected. Set `SHADOWDROP_INSTALLER_LIBC` to `glibc` or `musl` to
+override Linux detection; the setting is ignored on macOS.
 
 On Linux and macOS, install the latest stable release to `~/.local/bin`:
 
@@ -46,7 +49,9 @@ the Unix default for the current shell with
 For manual installation, download the binary for your platform from the
 [GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases). Each
 release ships single-file native binaries named
-`shadowdrop-<version>-<platform>` for `linux-x64`, `linux-arm64`,
+`shadowdrop-<version>-<platform>`. The primary Linux downloads are
+`linux-x64` and `linux-arm64` for glibc distributions; `linux-musl-x64` and
+`linux-musl-arm64` support musl distributions. Releases also include
 `osx-x64`, `osx-arm64`, `win-x64`, and `win-arm64` (Windows binaries end in
 `.exe`), plus a `CHECKSUMS.sha256` file. Verify the exact binary against its
 manifest entry before installing it as `shadowdrop` or `shadowdrop.exe`:

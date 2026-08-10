@@ -30,7 +30,7 @@ function New-TextFixture([string]$Content) {
         $script:X64AssetName = "shadowdrop-v9.8.7-win-x64.exe"
         $script:Arm64AssetName = "shadowdrop-v9.8.7-win-arm64.exe"
         $script:UnixAssetHash = "0" * 64
-        $script:ValidManifest = "$script:FixtureHash  $script:X64AssetName`r`n$script:FixtureHash  $script:Arm64AssetName`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-linux-x64`r`n"
+        $script:ValidManifest = "$script:FixtureHash  $script:X64AssetName`r`n$script:FixtureHash  $script:Arm64AssetName`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-linux-x64`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-linux-arm64`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-linux-musl-x64`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-linux-musl-arm64`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-osx-x64`r`n$script:UnixAssetHash  shadowdrop-v9.8.7-osx-arm64`r`n"
         $script:OriginalEnvironment = @{
             LOCALAPPDATA = [Environment]::GetEnvironmentVariable("LOCALAPPDATA")
             PATH = [Environment]::GetEnvironmentVariable("PATH")
