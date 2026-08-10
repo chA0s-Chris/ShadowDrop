@@ -32,6 +32,11 @@ internal partial class BuildPipeline
         target.DependsOn(BuildTests, RestoreTools)
               .Executes(() =>
               {
+                  // Only Clean wipes the artifacts tree, so without this the merge below would fold coverage
+                  // fragments left behind by every earlier local run into the reported figure. CI always starts
+                  // from a fresh checkout and is unaffected either way.
+                  CoverageDirectory.CreateOrCleanDirectory();
+
                   // The fast unit/integration loop excludes the real end-to-end smoke tests (Category=E2E):
                   // the filter keeps the category out, and the E2E project is left out of the glob so its
                   // zero-match run never trips `dotnet test`. The dedicated TestEndToEnd target runs them.
