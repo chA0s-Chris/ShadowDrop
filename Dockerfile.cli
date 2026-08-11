@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.10-noble-chiseled
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.11-noble-chiseled
 
 # runtime-deps rather than the API's aspnet base: the CLI is self-contained Native AOT and needs no
 # .NET runtime, only a matching libc and loader, the OpenSSL 3 libraries it dlopens, and CA certificates.
