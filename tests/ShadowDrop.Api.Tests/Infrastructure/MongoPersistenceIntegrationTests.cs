@@ -948,12 +948,31 @@ public abstract class MongoPersistenceIntegrationTests
         listed.Shares.Where(share => tiedIds.Contains(share.ShareId)).Select(share => share.ShareId).Should().Equal(expectedOrder);
 
         // Continuation must resume strictly after the last (CreatedAtUtc, ShareId) pair, including part-way through
-        // an equal-timestamp group, and must not repeat or skip a share.
+        // an equal-timestamp group larger than one page, and must not repeat or skip a share. The group is three
+        // shares wide against a page size of two, so it also straddles the page-size-plus-one lookahead boundary.
+        async Task<IReadOnlyList<Guid>> WalkTiedGroupAsync(String[] statuses)
+        {
+            var walked = new List<Guid>();
+            ShareListCursor? cursor = null;
+            do
+            {
+                var page = await repository.GetListPageAsync(new(now, statuses, 2, cursor), CancellationToken.None);
+                walked.AddRange(page.Shares.Select(share => share.ShareId));
+                cursor = page.NextCursor;
+            } while (cursor is not null && !tiedIds.All(walked.Contains));
+
+            walked.Should().OnlyHaveUniqueItems();
+            return walked.Where(tiedIds.Contains).ToList();
+        }
+
         var firstPage = await repository.GetListPageAsync(new(now, [], 2, null), CancellationToken.None);
-        var secondPage = await repository.GetListPageAsync(new(now, [], 2, firstPage.NextCursor), CancellationToken.None);
         firstPage.Shares.Select(share => share.ShareId).Should().Equal(expectedOrder[..2]);
         firstPage.NextCursor.Should().NotBeNull();
-        secondPage.Shares.Select(share => share.ShareId).First().Should().Be(expectedOrder[2]);
+
+        // Unfiltered and filtered walks take different query plans on both providers, so both have to reproduce
+        // the canonical order across the group.
+        (await WalkTiedGroupAsync([])).Should().Equal(expectedOrder);
+        (await WalkTiedGroupAsync([ShareListStatuses.Active])).Should().Equal(expectedOrder);
 
         // Every tied share matches both filters, so an OR-combined query has to count each of them exactly once.
         (await repository.CountMatchingAsync(new(now, overlappingFilters, 1, null), CancellationToken.None))

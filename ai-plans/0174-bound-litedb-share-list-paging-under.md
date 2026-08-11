@@ -10,16 +10,16 @@ Make the per-page work a bounded number of provider queries on the default metad
 
 ## Acceptance Criteria
 
-- [ ] Return the same shares in the same order as canonical descending `(CreatedAtUtc, ShareId)` ordering for every combination of lifecycle filter, page size, and cursor position, identically on LiteDB and MongoDB.
-- [ ] Serve a LiteDB page with at most three provider queries, a count that grows with neither page size nor the number of distinct creation timestamps the page spans, under every filter combination.
-- [ ] Cover that query bound with automated assertions for page sizes `1`, `50`, and `200`, unfiltered and under `active`, on a first page, a cursored page, and a page whose cursor sits inside an equal-creation-timestamp group.
-- [ ] Hold at most `pageSize + 1` share documents at once and request at most `pageSize + 1` per provider query, and keep
+- [x] Return the same shares in the same order as canonical descending `(CreatedAtUtc, ShareId)` ordering for every combination of lifecycle filter, page size, and cursor position, identically on LiteDB and MongoDB.
+- [x] Serve a LiteDB page with at most three provider queries, a count that grows with neither page size nor the number of distinct creation timestamps the page spans, under every filter combination.
+- [x] Cover that query bound with automated assertions for page sizes `1`, `50`, and `200`, unfiltered and under `active`, on a first page, a cursored page, and a page whose cursor sits inside an equal-creation-timestamp group.
+- [x] Hold at most `pageSize + 1` share documents at once and request at most `pageSize + 1` per provider query, and keep
   `CountMatchingAsync` materializing none.
-- [ ] Cover paging across an equal-creation-timestamp group larger than one page, including a cursor positioned inside such a group, for both LiteDB and MongoDB.
-- [ ] Cover a tie group straddling the `pageSize + 1` window boundary, filtered and unfiltered, so a truncated trailing group can neither drop nor duplicate a share.
-- [ ] Keep `GET /api/admin/status` counts and share-list totals in agreement for one `nowUtc`.
-- [ ] Update the LiteDB paging note in `docs/DEPLOYMENT.md` to describe the bounded per-page query cost and the residual per-query scan under a lifecycle filter.
-- [ ] Report before/after `--status active` timings at `pageSize=200` in the pull request description.
+- [x] Cover paging across an equal-creation-timestamp group larger than one page, including a cursor positioned inside such a group, for both LiteDB and MongoDB.
+- [x] Cover a tie group straddling the `pageSize + 1` window boundary, filtered and unfiltered, so a truncated trailing group can neither drop nor duplicate a share.
+- [x] Keep `GET /api/admin/status` counts and share-list totals in agreement for one `nowUtc`.
+- [x] Update the LiteDB paging note in `docs/DEPLOYMENT.md` to describe the bounded per-page query cost and the residual per-query scan under a lifecycle filter.
+- [x] Report before/after `--status active` timings at `pageSize=200` in the pull request description.
 
 ## Technical Details
 
