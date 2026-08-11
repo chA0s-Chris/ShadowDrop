@@ -374,6 +374,20 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             }
         }
 
+        // A window holding nothing but its truncated trailing group leaves no share to continue from once that
+        // group is deleted before the re-read. The cursor cannot express "strictly older than T" on its own -
+        // its identifier bound would have to be an empty Guid, which the cursor contract rejects - so read the
+        // next window below the vanished group instead of reporting the listing as exhausted. Only its complete
+        // groups are kept: re-reading this window's own trailing group would buy a full page at the cost of a
+        // fifth query, while a short page plus a cursor already lets the caller continue.
+        if (fetched.Count == 0 && truncatedGroup is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var replacement = ReadWindow(query, truncatedGroup, wanted);
+            truncatedGroup = replacement.TruncatedGroup;
+            fetched.AddRange(replacement.Shares);
+        }
+
         var shares = fetched.Count > query.PageSize ? fetched.Take(query.PageSize).ToList() : fetched;
 
         // A truncated trailing group means the window stopped at its limit, so older shares can still exist even

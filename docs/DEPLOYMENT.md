@@ -196,9 +196,10 @@ cleanup remains diagnosable. Filenames are sensitive and remain `null` unless th
 `--include-filenames`. The `admin-share-inspect` audit record adds only a `FilenamesIncluded` Boolean to the shared operation, outcome,
 HTTP-status, and elapsed-time fields. Keep inspection on the protected management boundary and restrict access to its output accordingly.
 
-LiteDB orders by a single field, so it assembles each share-list page from at most three provider queries: one bounded window ordered by
+LiteDB orders by a single field, so it assembles each share-list page from at most four provider queries: one bounded window ordered by
 creation time, plus targeted reads of the equal-creation-time group a cursor resumes inside and of the group the window boundary cuts in
-half. That bound holds regardless of page size, lifecycle filter, and how many distinct creation timestamps the page spans. Under a
+half, plus one further window read in the rare case where a concurrent cleanup deletes the entire window between those reads. That bound
+holds regardless of page size, lifecycle filter, and how many distinct creation timestamps the page spans. Under a
 lifecycle filter that pushes the query planner off the creation-time index, those two group reads still evaluate their predicate without it,
 so page cost remains sensitive to collection size — with a small constant rather than one lookup per row of the page. Prefer MongoDB for
 installations that page through very large share inventories regularly.

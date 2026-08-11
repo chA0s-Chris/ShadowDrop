@@ -112,7 +112,7 @@ public sealed class ShareListRepositoryTests
                                                                        CancellationToken.None);
 
                         limits.Should().NotBeEmpty(because);
-                        limits.Count.Should().BeLessThanOrEqualTo(3, because);
+                        limits.Count.Should().BeLessThanOrEqualTo(4, because);
                         limits.Should().OnlyContain(limit => limit <= pageSize + 1, because);
                         result.Shares.Should().NotBeEmpty(because);
                         cursor = result.NextCursor;
@@ -163,6 +163,57 @@ public sealed class ShareListRepositoryTests
         // re-read in identifier order; otherwise the boundary silently drops, duplicates, or reorders a share.
         (await WalkAsync([])).Should().Equal(expected);
         (await WalkAsync([ShareListStatuses.Active])).Should().Equal(expected);
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldContinuePaging_WhenTheWholeWindowDisappearsBetweenQueries()
+    {
+        await using var fixture = new RepositoryFixture();
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var doomed = now.AddHours(-1);
+        var survivors = now.AddHours(-2);
+        var doomedIds = Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToArray();
+        var survivorIds = Enumerable.Range(0, 2).Select(_ => Guid.NewGuid()).ToArray();
+        var queries = 0;
+        LiteDbShareMetadataRepository? subject = null;
+
+        void DeleteWindowBeforeTrailingRead(Int32 limit)
+        {
+            queries++;
+            if (queries != 2 || subject is null)
+            {
+                return;
+            }
+
+            foreach (var id in doomedIds)
+            {
+                subject.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+            }
+        }
+
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options,
+                                                                 null,
+                                                                 null,
+                                                                 DeleteWindowBeforeTrailingRead);
+        subject = repository;
+
+        foreach (var id in doomedIds)
+        {
+            await repository.CreateAsync(CreateShare(id, doomed, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        foreach (var id in survivorIds)
+        {
+            await repository.CreateAsync(CreateShare(id, survivors, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        // The four-row window is nothing but the newest tie group, and that whole group is deleted before its
+        // re-read. There is no returned share to continue from, so the older group stays reachable only if the
+        // window is read again below the vanished timestamp.
+        var page = await repository.GetListPageAsync(new(now, [], 3, null), CancellationToken.None);
+        page.Shares.Select(share => share.ShareId)
+            .Should().Equal(survivorIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
+        page.NextCursor.Should().BeNull();
     }
 
     [Test]
