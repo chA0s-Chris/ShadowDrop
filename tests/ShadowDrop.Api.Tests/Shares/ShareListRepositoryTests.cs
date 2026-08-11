@@ -50,6 +50,237 @@ public sealed class ShareListRepositoryTests
     }
 
     [Test]
+    public async Task LiteDb_ShouldBoundListPageQueries_ForEveryPageSizeAndCursorPosition()
+    {
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+
+        // Distinct creation timestamps are the shape the per-group walk degraded on: a 200-share page spanned about
+        // 200 groups and issued one lookup for each. Equal timestamps are the opposite shape, where a continuation
+        // has to resume inside a single group and the window boundary cuts another one in half.
+        var tieTimestamps = new[]
+        {
+            now.AddHours(-1),
+            now.AddHours(-2)
+        };
+        await AssertBoundedPagingAsync(index => now.AddSeconds(-index), 410, null);
+        await AssertBoundedPagingAsync(index => tieTimestamps[index / 220],
+                                       440,
+                                       tieTimestamps.Select(timestamp => timestamp.ToUnixTimeMilliseconds()).ToArray());
+
+        async Task AssertBoundedPagingAsync(Func<Int32, DateTimeOffset> createdAt, Int32 count, Int64[]? tieGroups)
+        {
+            await using var fixture = new RepositoryFixture();
+            var limits = new List<Int32>();
+            using var repository = new LiteDbShareMetadataRepository(fixture.Options, null, null, limits.Add);
+            for (var index = 0; index < count; index++)
+            {
+                await repository.CreateAsync(CreateShare(Guid.NewGuid(), createdAt(index), now.AddDays(1), null),
+                                             CancellationToken.None);
+            }
+
+            foreach (var pageSize in new[]
+                     {
+                         1,
+                         50,
+                         200
+                     })
+            {
+                foreach (var statuses in new[]
+                         {
+                             Array.Empty<String>(),
+                             new[] { ShareListStatuses.Active }
+                         })
+                {
+                    ShareListCursor? cursor = null;
+                    for (var page = 1; page <= 3; page++)
+                    {
+                        var because = $"page {page} of size {pageSize} with {statuses.Length} filter(s)";
+                        if (page > 1)
+                        {
+                            cursor.Should().NotBeNull(because);
+
+                            // Both seeded groups exceed the largest page, so on this shape every continuation
+                            // resumes strictly inside a tie group - the position needing the cursor-group query.
+                            if (tieGroups is not null)
+                            {
+                                cursor.CreatedAtUnixTimeMilliseconds.Should().BeOneOf(tieGroups, because);
+                            }
+                        }
+
+                        limits.Clear();
+                        var result = await repository.GetListPageAsync(new(now, statuses, pageSize, cursor),
+                                                                       CancellationToken.None);
+
+                        limits.Should().NotBeEmpty(because);
+                        limits.Count.Should().BeLessThanOrEqualTo(4, because);
+                        limits.Should().OnlyContain(limit => limit <= pageSize + 1, because);
+                        result.Shares.Should().NotBeEmpty(because);
+                        cursor = result.NextCursor;
+                    }
+                }
+            }
+        }
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldCompleteTruncatedTrailingGroup_AtWindowBoundary()
+    {
+        await using var fixture = new RepositoryFixture();
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options);
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var newer = now.AddHours(-1);
+        var older = now.AddHours(-2);
+
+        // A page size of three reads a four-row window, so the two newer shares fill it only part way and the
+        // five-share group behind them is cut in half by the window boundary on the very first page.
+        var newerIds = Enumerable.Range(0, 2).Select(_ => Guid.NewGuid()).ToArray();
+        var olderIds = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
+        foreach (var id in newerIds.Concat(olderIds))
+        {
+            await repository.CreateAsync(CreateShare(id, newerIds.Contains(id) ? newer : older, now.AddDays(1), null),
+                                         CancellationToken.None);
+        }
+
+        var expected = newerIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal)
+                               .Concat(olderIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal))
+                               .ToArray();
+
+        async Task<IReadOnlyList<Guid>> WalkAsync(String[] statuses)
+        {
+            var walked = new List<Guid>();
+            ShareListCursor? cursor = null;
+            do
+            {
+                var page = await repository.GetListPageAsync(new(now, statuses, 3, cursor), CancellationToken.None);
+                walked.AddRange(page.Shares.Select(share => share.ShareId));
+                cursor = page.NextCursor;
+            } while (cursor is not null);
+
+            return walked;
+        }
+
+        // The window returns an arbitrary subset of the group it truncates, so those rows must be discarded and
+        // re-read in identifier order; otherwise the boundary silently drops, duplicates, or reorders a share.
+        (await WalkAsync([])).Should().Equal(expected);
+        (await WalkAsync([ShareListStatuses.Active])).Should().Equal(expected);
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldContinuePaging_WhenTheWholeWindowDisappearsBetweenQueries()
+    {
+        await using var fixture = new RepositoryFixture();
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var doomed = now.AddHours(-1);
+        var survivors = now.AddHours(-2);
+        var doomedIds = Enumerable.Range(0, 4).Select(_ => Guid.NewGuid()).ToArray();
+        var survivorIds = Enumerable.Range(0, 2).Select(_ => Guid.NewGuid()).ToArray();
+        var queries = 0;
+        LiteDbShareMetadataRepository? subject = null;
+
+        void DeleteWindowBeforeTrailingRead(Int32 limit)
+        {
+            queries++;
+            if (queries != 2 || subject is null)
+            {
+                return;
+            }
+
+            foreach (var id in doomedIds)
+            {
+                subject.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+            }
+        }
+
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options,
+                                                                 null,
+                                                                 null,
+                                                                 DeleteWindowBeforeTrailingRead);
+        subject = repository;
+
+        foreach (var id in doomedIds)
+        {
+            await repository.CreateAsync(CreateShare(id, doomed, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        foreach (var id in survivorIds)
+        {
+            await repository.CreateAsync(CreateShare(id, survivors, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        // The four-row window is nothing but the newest tie group, and that whole group is deleted before its
+        // re-read. There is no returned share to continue from, so the older group stays reachable only if the
+        // window is read again below the vanished timestamp.
+        var page = await repository.GetListPageAsync(new(now, [], 3, null), CancellationToken.None);
+        page.Shares.Select(share => share.ShareId)
+            .Should().Equal(survivorIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
+        page.NextCursor.Should().BeNull();
+    }
+
+    [Test]
+    public async Task LiteDb_ShouldContinuePaging_WhenTrailingGroupDisappearsBetweenQueries()
+    {
+        await using var fixture = new RepositoryFixture();
+        var now = DateTimeOffset.Parse("2026-08-03T12:00:00Z");
+        var newest = now.AddHours(-1);
+        var doomed = now.AddHours(-2);
+        var oldest = now.AddHours(-3);
+        var newestIds = Enumerable.Range(0, 2).Select(_ => Guid.NewGuid()).ToArray();
+        var doomedIds = Enumerable.Range(0, 3).Select(_ => Guid.NewGuid()).ToArray();
+        var oldestIds = Enumerable.Range(0, 2).Select(_ => Guid.NewGuid()).ToArray();
+        var queries = 0;
+        LiteDbShareMetadataRepository? subject = null;
+
+        // The hook runs immediately before each provider query, so deleting the trailing group before its re-read
+        // reproduces exactly the interleaving a concurrent cleanup run produces, without any timing dependence.
+        void DeleteDoomedBeforeTrailingRead(Int32 limit)
+        {
+            queries++;
+            if (queries != 2 || subject is null)
+            {
+                return;
+            }
+
+            foreach (var id in doomedIds)
+            {
+                subject.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+            }
+        }
+
+        using var repository = new LiteDbShareMetadataRepository(fixture.Options,
+                                                                 null,
+                                                                 null,
+                                                                 DeleteDoomedBeforeTrailingRead);
+        subject = repository;
+
+        foreach (var id in newestIds)
+        {
+            await repository.CreateAsync(CreateShare(id, newest, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        foreach (var id in doomedIds)
+        {
+            await repository.CreateAsync(CreateShare(id, doomed, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        foreach (var id in oldestIds)
+        {
+            await repository.CreateAsync(CreateShare(id, oldest, now.AddDays(1), null), CancellationToken.None);
+        }
+
+        // The four-row window ends inside the middle group, which vanishes before its re-read: the page comes back
+        // short, but the oldest group is still there and must stay reachable.
+        var page = await repository.GetListPageAsync(new(now, [], 3, null), CancellationToken.None);
+        page.Shares.Select(share => share.ShareId)
+            .Should().Equal(newestIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
+        page.NextCursor.Should().NotBeNull();
+
+        var next = await repository.GetListPageAsync(new(now, [], 3, page.NextCursor), CancellationToken.None);
+        next.Shares.Select(share => share.ShareId)
+            .Should().Equal(oldestIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
+        next.NextCursor.Should().BeNull();
+    }
+
+    [Test]
     public async Task LiteDb_ShouldHideExpiredAndRevokedSharesOnlyFromTokenLookup()
     {
         await using var fixture = new RepositoryFixture();
@@ -188,7 +419,7 @@ public sealed class ShareListRepositoryTests
                }))
         {
             var collection = database.GetCollection("shares");
-            var document = collection.FindById(new BsonValue(shareId));
+            var document = collection.FindById(new(shareId));
             document.Remove("LastCleanupAttemptAtUnixTimeMilliseconds");
             document.Remove("CleanupFailureCategories");
             document["CleanupState"] = "ARCHIVED";

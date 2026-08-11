@@ -13,6 +13,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     private readonly ILiteCollection<ShareDocument> _collection;
     private readonly LiteDatabase _database;
     private readonly String _databasePath;
+    private readonly Action<Int32>? _listQueryTestHook;
     private readonly Action? _statusStatsIterationTestHook;
     private readonly Lock _syncRoot = new();
 
@@ -23,10 +24,12 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     internal LiteDbShareMetadataRepository(
         ShadowDropOptions options,
         Action? afterInsertTestHook,
-        Action? statusStatsIterationTestHook)
+        Action? statusStatsIterationTestHook,
+        Action<Int32>? listQueryTestHook = null)
     {
         _afterInsertTestHook = afterInsertTestHook;
         _statusStatsIterationTestHook = statusStatsIterationTestHook;
+        _listQueryTestHook = listQueryTestHook;
         _databasePath = options.Metadata.LiteDbPath;
         var databaseDirectory = Path.GetDirectoryName(_databasePath)
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
@@ -148,7 +151,6 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         ShareListQuery query,
         Int64? exactCreatedAt = null,
         Int64? createdBefore = null,
-        Int64? createdAtOrBefore = null,
         Guid? shareIdBefore = null)
     {
         var parameters = new List<BsonValue>();
@@ -187,11 +189,6 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             clauses.Add($"$.CreatedAtUnixTimeMilliseconds < {Parameter(createdBefore.Value)}");
         }
 
-        if (createdAtOrBefore is not null)
-        {
-            clauses.Add($"$.CreatedAtUnixTimeMilliseconds <= {Parameter(createdAtOrBefore.Value)}");
-        }
-
         if (shareIdBefore is not null)
         {
             clauses.Add($"$._id < {Parameter(shareIdBefore.Value)}");
@@ -204,25 +201,57 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     }
 
     /// <summary>
-    /// Reads the next descending run of matching creation timestamps in one indexed query.
+    /// Reads one equal-creation-timestamp group in identifier order, optionally continuing strictly after a cursor
+    /// identifier. The tie-break stays inside LiteDB so the identifier index orders the group.
     /// </summary>
-    /// <remarks>
-    /// LiteDB orders by a single field, so the page is still assembled one equal-timestamp group at a time. Fetching
-    /// the timestamps as one bounded batch keeps that to a single ordering query per page instead of one per group:
-    /// with a status filter the optimizer drops off the creation-time index, which made the per-group form cost a
-    /// full collection scan for every row of the page.
-    /// </remarks>
-    private List<Int64> FindCreatedAtBatch(ShareListQuery query, Int64? bound, Boolean inclusive, Int32 limit) =>
-        CreateListQuery(query,
-                        createdBefore: inclusive ? null : bound,
-                        createdAtOrBefore: inclusive ? bound : null)
-            .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)
-            .Select(document => document.CreatedAtUnixTimeMilliseconds)
-            .Limit(limit)
-            .ToList();
+    private List<ShareDocument> FindGroup(ShareListQuery query, Int64 createdAt, Guid? shareIdBefore, Int32 limit)
+    {
+        _listQueryTestHook?.Invoke(limit);
+        return CreateListQuery(query, createdAt, shareIdBefore: shareIdBefore)
+               .OrderByDescending(document => document.ShareId)
+               .Limit(limit)
+               .ToList();
+    }
+
+    /// <summary>
+    /// Reads the next descending run of matching shares in one bounded ordering query.
+    /// </summary>
+    private List<ShareDocument> FindWindow(ShareListQuery query, Int64? createdBefore, Int32 limit)
+    {
+        _listQueryTestHook?.Invoke(limit);
+        return CreateListQuery(query, createdBefore: createdBefore)
+               .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)
+               .Limit(limit)
+               .ToList();
+    }
 
     private Boolean IsFileReferenced(Guid fileId) =>
         _collection.Exists(document => document.Files.Select(file => file.FileId).Any(value => value == fileId));
+
+    /// <summary>
+    /// Reads a bounded window of shares and returns the ones whose equal-timestamp group it holds completely,
+    /// together with the creation timestamp of a trailing group the window may have cut in half.
+    /// </summary>
+    /// <remarks>
+    /// The window is a total sort on the creation timestamp, so no row of an older timestamp can precede a row of a
+    /// newer one: every group except the oldest is therefore complete and orders in memory. The oldest group is
+    /// truncated exactly when the window reached its limit, and the rows it contributed are an arbitrary subset of
+    /// the group, so they are discarded here and re-read in identifier order instead.
+    /// </remarks>
+    private (List<ShareListRecord> Shares, Int64? TruncatedGroup) ReadWindow(
+        ShareListQuery query,
+        Int64? createdBefore,
+        Int32 limit)
+    {
+        var window = FindWindow(query, createdBefore, limit);
+        var truncatedGroup = window.Count == limit ? window[^1].CreatedAtUnixTimeMilliseconds : (Int64?)null;
+        var shares = window.Where(document => document.CreatedAtUnixTimeMilliseconds != truncatedGroup)
+                           .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)
+                           .ThenByDescending(document => document.ShareId.ToString("D"), StringComparer.Ordinal)
+                           .Select(MapList)
+                           .ToList();
+        return (shares, truncatedGroup);
+    }
 
     public void Dispose() => _database.Dispose();
 
@@ -318,59 +347,57 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
 
         var wanted = query.PageSize + 1;
         var fetched = new List<ShareListRecord>(wanted);
-        var cursorCreatedAt = query.Cursor?.CreatedAtUnixTimeMilliseconds;
-        var bound = cursorCreatedAt;
-        var inclusive = query.Cursor is not null;
-        while (fetched.Count < wanted)
+        Int64? truncatedGroup = null;
+
+        // The window cannot resolve the cursor's own group: LiteDB orders by one field, so the rows it would return
+        // for that group are an arbitrary subset rather than the ordered continuation after the cursor identifier.
+        if (query.Cursor is not null)
+        {
+            fetched.AddRange(FindGroup(query, query.Cursor.CreatedAtUnixTimeMilliseconds, query.Cursor.ShareId, wanted)
+                                 .Select(MapList));
+        }
+
+        if (fetched.Count < wanted)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // The page holds at most pageSize + 1 shares, so every creation timestamp it can still need is within
-            // the next pageSize + 1 matching timestamps. One query therefore replaces the whole group walk.
-            var timestamps = FindCreatedAtBatch(query, bound, inclusive, wanted - fetched.Count);
-            if (timestamps.Count == 0)
-            {
-                break;
-            }
+            var window = ReadWindow(query, query.Cursor?.CreatedAtUnixTimeMilliseconds, wanted - fetched.Count);
+            truncatedGroup = window.TruncatedGroup;
+            fetched.AddRange(window.Shares);
 
-            Int64? previous = null;
-            foreach (var createdAt in timestamps)
+            // A full window holds at least as many rows of its trailing group as it needs, so re-reading that one
+            // group in identifier order always completes the page. No fourth query can be required.
+            if (truncatedGroup is not null && fetched.Count < wanted)
             {
-                if (createdAt == previous)
-                {
-                    continue;
-                }
-
-                previous = createdAt;
                 cancellationToken.ThrowIfCancellationRequested();
-
-                // The tie-break stays inside LiteDB: within one timestamp the identifier index orders the group and
-                // the cursor's identifier excludes everything already returned, so nothing is materialized twice.
-                var group = CreateListQuery(query,
-                                            createdAt,
-                                            shareIdBefore: createdAt == cursorCreatedAt ? query.Cursor?.ShareId : null)
-                            .OrderByDescending(document => document.ShareId)
-                            .Limit(wanted - fetched.Count)
-                            .ToList();
-                fetched.AddRange(group.Select(MapList));
-                if (fetched.Count >= wanted)
-                {
-                    break;
-                }
+                fetched.AddRange(FindGroup(query, truncatedGroup.Value, null, wanted - fetched.Count).Select(MapList));
             }
-
-            // A partially consumed cursor group can yield fewer shares than timestamps, so continue strictly after
-            // the last timestamp inspected rather than assuming the batch was enough.
-            bound = previous;
-            inclusive = false;
         }
 
-        if (fetched.Count <= query.PageSize)
+        // A window holding nothing but its truncated trailing group leaves no share to continue from once that
+        // group is deleted before the re-read. The cursor cannot express "strictly older than T" on its own -
+        // its identifier bound would have to be an empty Guid, which the cursor contract rejects - so read the
+        // next window below the vanished group instead of reporting the listing as exhausted. Only its complete
+        // groups are kept: re-reading this window's own trailing group would buy a full page at the cost of a
+        // fifth query, while a short page plus a cursor already lets the caller continue.
+        if (fetched.Count == 0 && truncatedGroup is not null)
         {
-            return Task.FromResult(new ShareListRepositoryPage(fetched, null));
+            cancellationToken.ThrowIfCancellationRequested();
+            var replacement = ReadWindow(query, truncatedGroup, wanted);
+            truncatedGroup = replacement.TruncatedGroup;
+            fetched.AddRange(replacement.Shares);
         }
 
-        var shares = fetched.Take(query.PageSize).ToList();
+        var shares = fetched.Count > query.PageSize ? fetched.Take(query.PageSize).ToList() : fetched;
+
+        // A truncated trailing group means the window stopped at its limit, so older shares can still exist even
+        // when the page came back short: a group deleted between the two reads must not look like the end of the
+        // listing. Continue from the last share actually returned rather than reporting the listing as exhausted.
+        if (shares.Count == 0 || (fetched.Count <= query.PageSize && truncatedGroup is null))
+        {
+            return Task.FromResult(new ShareListRepositoryPage(shares, null));
+        }
+
         var last = shares[^1];
         var cursor = new ShareListCursor(OperationalStatusProtocol.CurrentVersion,
                                          query.Statuses,
