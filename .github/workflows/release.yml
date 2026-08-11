@@ -129,8 +129,100 @@ jobs:
             docker push "$tag"
           done <<< "$DOCKER_TAGS"
 
+  # The CLI ships as self-contained Native AOT binaries, so unlike the API image this cannot copy one
+  # architecture-neutral publish output onto both platform bases; StageCliDockerArtifacts stages the
+  # matching native binary per architecture instead. Runs in parallel with build-docker-image.
+  build-cli-docker-image:
+    needs:
+      - validate-version
+      - release-artifacts
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_PAT: ${{ secrets.DOCKERHUB_PAT }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download release artifact bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: shadowdrop-release-artifacts
+          path: artifacts/release
+
+      # StageCliDockerArtifacts reads the Linux CLI binaries from the versioned publish directory that
+      # PublishCliLinux writes, so the bundled artifacts are restored into that path rather than
+      # republished -- cross-compiling linux-arm64 would need a cross-linker this job does not install.
+      - name: Restore CLI publish output
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "artifacts/publish/cli/$VERSION"
+          cp "artifacts/release/cli/shadowdrop-$VERSION-linux-x64" "artifacts/publish/cli/$VERSION/"
+          cp "artifacts/release/cli/shadowdrop-$VERSION-linux-arm64" "artifacts/publish/cli/$VERSION/"
+
+      # GitHub-hosted runners default to the legacy image store, which cannot build or load
+      # multi-platform images. Enable the containerd image store and set up QEMU/binfmt so the
+      # non-native architecture can be assembled, loaded, and smoke tested.
+      - name: Enable Docker containerd image store
+        uses: docker/setup-docker-action@v5
+        with:
+          daemon-config: |
+            {
+              "features": {
+                "containerd-snapshotter": true
+              }
+            }
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Calculate release metadata
+        id: release
+        shell: bash
+        env:
+          INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
+        run: bash scripts/calculate-docker-tags.sh "$VERSION" chaos/shadowdrop-cli >> "$GITHUB_OUTPUT"
+
+      - name: Build and smoke test multi-platform CLI Docker image
+        run: bash build.sh SmokeTestCliDockerImageMultiPlatform --release-version "$VERSION"
+
+      - name: Authenticate to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ env.DOCKERHUB_PAT }}
+
+      - name: Push Docker Hub image
+        shell: bash
+        env:
+          DOCKER_TAGS: ${{ steps.release.outputs.docker_tags }}
+          SOURCE_IMAGE: ${{ steps.release.outputs.source_image }}
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r tag; do
+            if [[ -z "$tag" ]]; then
+              continue
+            fi
+
+            docker tag "$SOURCE_IMAGE" "$tag"
+            docker push "$tag"
+          done <<< "$DOCKER_TAGS"
+
+  # Depends on both image jobs: the release footer links both images, so publishing before either push
+  # completes would advertise a tag that does not exist yet.
   github-release:
-    needs: build-docker-image
+    needs:
+      - build-docker-image
+      - build-cli-docker-image
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -156,6 +248,18 @@ jobs:
           INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
         run: bash scripts/calculate-docker-tags.sh "$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Calculate CLI image release metadata
+        id: release-cli
+        shell: bash
+        env:
+          INCLUDE_FLOATING_TAGS: ${{ inputs.publish_floating_tags }}
+        run: bash scripts/calculate-docker-tags.sh "$VERSION" chaos/shadowdrop-cli >> "$GITHUB_OUTPUT"
+
+      # release-drafter concatenates this footer straight onto the rendered template, which ends with
+      # the last changelog list item. The leading blank line is load-bearing: without it Markdown treats
+      # the footer as a lazy continuation of that item and renders it inside the bullet. Keep the spacer
+      # here rather than at the end of release-drafter.yml's template -- update-draft-release.yml reuses
+      # that config with no footer, and would then carry a dangling separator on the vNext draft.
       - name: Draft GitHub release
         uses: release-drafter/release-drafter@v7
         with:
@@ -167,7 +271,13 @@ jobs:
           publish: false
           commitish: ${{ github.sha }}
           footer: |
-            Docker image: [${{ steps.release.outputs.docker_image_tag }}](${{ steps.release.outputs.docker_hub_url }})
+
+            ---
+
+            Docker images:
+
+            - API server: [${{ steps.release.outputs.docker_image_tag }}](${{ steps.release.outputs.docker_hub_url }})
+            - CLI: [${{ steps.release-cli.outputs.docker_image_tag }}](${{ steps.release-cli.outputs.docker_hub_url }})
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

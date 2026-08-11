@@ -8,19 +8,19 @@ The CLI ships only as a downloadable release binary. Locked-down workstations, h
 
 ## Acceptance Criteria
 
-- [ ] A new `Dockerfile.cli` builds an image from the patch-pinned `runtime-deps:<x.y.z>-noble-chiseled` tag, matching how `Dockerfile` pins `aspnet`, that runs as the base image's non-root user and entrypoints `/usr/local/bin/shadowdrop`, so `docker run … chaos/shadowdrop-cli upload …` needs no command name.
-- [ ] The image sets `HOME=/home/app` so config resolution stays deterministic when the caller overrides the user, and `SHADOWDROP_NO_UPDATE_CHECK=1` so the CLI never prints installer guidance that does not apply inside a container.
-- [ ] The image's working directory is writable by the runtime user, so `download` without `--out` lands in a bind-mounted host directory, and an unmounted run under the image's default user succeeds rather than failing on permissions.
-- [ ] Building for `linux/amd64` and `linux/arm64` produces one tag backed by a manifest list, each platform carrying the natively matching CLI binary.
-- [ ] Building the CLI image without the Linux CLI release binaries present fails with an actionable message naming the target that produces them, rather than producing an incomplete or wrong-architecture image.
-- [ ] A multi-platform smoke test runs the image once per platform and fails unless `shadowdrop --version` exits zero and reports `ShadowDrop v<release-version>`.
-- [ ] `scripts/calculate-docker-tags.sh` derives `source_image` from the requested Docker repository so the server and CLI images can coexist in the local image store during a release; its output for the default repository is unchanged.
-- [ ] `scripts/test-calculate-docker-tags.sh` covers `source_image` derivation for the CLI repository across stable, prerelease, and non-floating-tag cases.
-- [ ] A release run publishes the CLI image to `chaos/shadowdrop-cli` under the same version, floating-tag, and prerelease rules that already govern `chaos/shadowdrop`.
-- [ ] The drafted GitHub release footer links both the API server image and the CLI image at the released version.
-- [ ] The footer renders as its own block instead of being absorbed into the last changelog list item, and the `vNext` draft produced by `update-draft-release.yml` gains no stray separator.
-- [ ] `docs/CLI.md` documents container usage, covering mounted-volume file ownership, that `--interactive` requires `docker run -it`, and that updates come from pulling a new tag.
-- [ ] `README.md` presents the CLI image as a distribution channel alongside the release binaries.
+- [x] A new `Dockerfile.cli` builds an image from the patch-pinned `runtime-deps:<x.y.z>-noble-chiseled` tag, matching how `Dockerfile` pins `aspnet`, that runs as the base image's non-root user and entrypoints `/usr/local/bin/shadowdrop`, so `docker run … chaos/shadowdrop-cli upload …` needs no command name.
+- [x] The image sets `HOME=/home/app` so config resolution stays deterministic when the caller overrides the user, and `SHADOWDROP_NO_UPDATE_CHECK=1` so the CLI never prints installer guidance that does not apply inside a container.
+- [x] The image's working directory is writable by the runtime user, so `download` without `--out` lands in a bind-mounted host directory, and an unmounted run under the image's default user succeeds rather than failing on permissions.
+- [x] Building for `linux/amd64` and `linux/arm64` produces one tag backed by a manifest list, each platform carrying the natively matching CLI binary.
+- [x] Building the CLI image without the Linux CLI release binaries present fails with an actionable message naming the target that produces them, rather than producing an incomplete or wrong-architecture image.
+- [x] A multi-platform smoke test runs the image once per platform and fails unless `shadowdrop --version` exits zero and reports `ShadowDrop v<release-version>`.
+- [x] `scripts/calculate-docker-tags.sh` derives `source_image` from the requested Docker repository so the server and CLI images can coexist in the local image store during a release; its output for the default repository is unchanged.
+- [x] `scripts/test-calculate-docker-tags.sh` covers `source_image` derivation for the CLI repository across stable, prerelease, and non-floating-tag cases.
+- [x] A release run publishes the CLI image to `chaos/shadowdrop-cli` under the same version, floating-tag, and prerelease rules that already govern `chaos/shadowdrop`.
+- [x] The drafted GitHub release footer links both the API server image and the CLI image at the released version.
+- [x] The footer renders as its own block instead of being absorbed into the last changelog list item, and the `vNext` draft produced by `update-draft-release.yml` gains no stray separator.
+- [x] `docs/CLI.md` documents container usage, covering mounted-volume file ownership, that `--interactive` requires `docker run -it`, and that updates come from pulling a new tag.
+- [x] `README.md` presents the CLI image as a distribution channel alongside the release binaries.
 
 ## Technical Details
 

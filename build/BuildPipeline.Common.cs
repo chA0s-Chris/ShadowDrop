@@ -36,6 +36,10 @@ internal partial class BuildPipeline
 
     private AbsolutePath CoverageSettingsFile => RootDirectory / "coverlet.xml";
 
+    // Architecture-named copies of the Linux CLI release artifacts, staged for Dockerfile.cli's
+    // TARGETARCH-based COPY. Kept out of PublishDirectory so it is never mistaken for publish output.
+    private AbsolutePath DockerCliStagingDirectory => ArtifactsDirectory / "docker" / "cli";
+
     [GitRepository]
     private GitRepository GitRepository { get; init; } = null!;
 

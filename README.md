@@ -24,12 +24,14 @@ with the CLI, sends the recipient the share URL, and delivers the decryption
 key over a separate channel. Shares expire automatically (default: 7 days) and
 can be revoked at any time.
 
-ShadowDrop ships through two channels:
+ShadowDrop ships through these channels:
 
 - **API server** — Docker image [`chaos/shadowdrop`](https://hub.docker.com/r/chaos/shadowdrop)
   on Docker Hub (the only image registry).
 - **CLI** — single-file native binaries for Linux, macOS, and Windows from the
-  [GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases).
+  [GitHub releases](https://github.com/chA0s-Chris/ShadowDrop/releases), or the
+  multi-arch Docker image [`chaos/shadowdrop-cli`](https://hub.docker.com/r/chaos/shadowdrop-cli)
+  where installing a binary is not an option (see [CLI Guide](docs/CLI.md#running-in-a-container)).
 
 ## Quick start: run the server
 

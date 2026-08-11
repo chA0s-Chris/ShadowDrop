@@ -1,0 +1,15 @@
+# BuildKit prefers this file over .dockerignore when building with --file Dockerfile.cli, so it fully
+# replaces those rules rather than adding to them. Keeping the CLI context separate means neither image
+# accumulates re-includes for the other's build inputs.
+#
+# Like .dockerignore, this excludes everything and re-includes only what the Dockerfile copies. Each
+# parent directory has to be re-included before its children become reachable.
+**
+!Dockerfile.cli
+!artifacts/
+!artifacts/docker/
+!artifacts/docker/cli/
+!artifacts/docker/cli/**
+!docker/
+!docker/cli-workdir/
+!docker/cli-workdir/**

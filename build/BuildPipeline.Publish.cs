@@ -16,6 +16,17 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 internal partial class BuildPipeline
 {
+    // `docker buildx build --platform` exposes TARGETARCH as amd64/arm64, while the CLI release
+    // artifacts are named after their .NET runtime identifier. Resolving the mapping here keeps it out
+    // of Dockerfile.cli, which cannot vary a build argument per platform in a single buildx invocation.
+    private static readonly (String DockerArchitecture, String RuntimeIdentifier)[] CliDockerArchitectures =
+    [
+        ("amd64", "linux-x64"),
+        ("arm64", "linux-arm64")
+    ];
+
+    private const String CliDockerImageRepository = "shadowdrop-cli";
+
     // The documented command users invoke; the versioned release artifact is derived from it. Independent
     // of the CLI assembly identity, which the publish output is named after.
     private const String CliExecutableName = "shadowdrop";
@@ -56,8 +67,9 @@ internal partial class BuildPipeline
         "osx-arm64"
     ];
 
-    // The framework-dependent API publish output is architecture-neutral IL, so the same artifacts
-    // are copied onto each platform's runtime base image to produce one tag backed by a manifest list.
+    // Both images publish one tag backed by a manifest list covering these platforms. The API image
+    // copies identical architecture-neutral IL onto each platform's runtime base; the CLI image instead
+    // selects a per-architecture native binary staged by StageCliDockerArtifacts.
     private static readonly String[] MultiPlatformDockerPlatforms =
     [
         "linux/amd64",
@@ -72,6 +84,22 @@ internal partial class BuildPipeline
 
     public Target Publish => target =>
         target.DependsOn(PublishApi, PublishCli);
+
+    // Builds the CLI image for linux/amd64 + linux/arm64 as one manifest-list tag and loads it into the
+    // local image store, mirroring BuildDockerImageMultiPlatform's requirements: Docker's containerd
+    // image store plus QEMU/binfmt for the non-native architecture. Ordered After(PublishCliLinux) but
+    // without depending on it, so existing release artifacts (e.g. restored from the release bundle in
+    // CI) are reused instead of triggering a cross-compiling republish.
+    private Target BuildCliDockerImageMultiPlatform => target =>
+        target.DependsOn(StageCliDockerArtifacts)
+              .After(PublishCliLinux)
+              .Executes(() =>
+              {
+                  BuildDockerImageCore(RootDirectory / "Dockerfile.cli",
+                                       GetCliDockerImageTag(),
+                                       MultiPlatformDockerPlatforms,
+                                       true);
+              });
 
     private Target BuildDockerImage => target =>
         target.DependsOn(EnsurePublishApiArtifacts)
@@ -198,6 +226,20 @@ internal partial class BuildPipeline
                   PublishCliArtifacts(WindowsCliRuntimeIdentifiers);
               });
 
+    // Runs the loaded manifest-list image once per platform, the non-native architecture under QEMU.
+    // Asserting the exact version string rather than only the exit code catches a stale artifact bundle
+    // as well as a wrong-architecture binary, which is the likeliest failure of the TARGETARCH wiring.
+    private Target SmokeTestCliDockerImageMultiPlatform => target =>
+        target.DependsOn(BuildCliDockerImageMultiPlatform)
+              .Executes(() =>
+              {
+                  foreach (var platform in MultiPlatformDockerPlatforms)
+                  {
+                      Log.Information("Smoke testing multi-platform CLI image for platform {Platform}...", platform);
+                      SmokeTestCliDockerImageCore(platform);
+                  }
+              });
+
     private Target SmokeTestDockerImage => target =>
         target.DependsOn(BuildDockerImage)
               .Executes(() => SmokeTestDockerImageCore());
@@ -216,6 +258,13 @@ internal partial class BuildPipeline
                       SmokeTestDockerImageCore(platform);
                   }
               });
+
+    // Unlike EnsurePublishApiArtifacts, this never republishes as a local-dev fallback: producing the
+    // linux-arm64 artifact needs a cross-linker (gcc-aarch64-linux-gnu) that a typical machine lacks, so
+    // a silent republish would fail far less clearly than naming the target that produces the artifacts.
+    private Target StageCliDockerArtifacts => target =>
+        target.After(Clean, RestoreTools, PublishCliLinux)
+              .Executes(StageCliDockerArtifactsCore);
 
     private static void AssertContainerLogsDoNotContainStartupErrors(String containerName)
     {
@@ -485,14 +534,22 @@ internal partial class BuildPipeline
     {
         EnsurePublishApiArtifactsExist();
 
+        BuildDockerImageCore(RootDirectory / "Dockerfile", GetDockerImageTag(), platforms, loadIntoLocalStore);
+    }
+
+    private void BuildDockerImageCore(AbsolutePath dockerfile,
+                                      String imageTag,
+                                      IReadOnlyCollection<String> platforms,
+                                      Boolean loadIntoLocalStore)
+    {
         var arguments = new List<String>
         {
             "buildx",
             "build",
             "--file",
-            (RootDirectory / "Dockerfile").ToString(),
+            dockerfile.ToString(),
             "--tag",
-            GetDockerImageTag()
+            imageTag
         };
 
         if (platforms.Count > 0)
@@ -541,6 +598,10 @@ internal partial class BuildPipeline
         var extension = IsWindowsRuntime(runtimeIdentifier) ? ".exe" : String.Empty;
         return $"{CliExecutableName}-{SemanticVersion}-{runtimeIdentifier}{extension}";
     }
+
+    // Matches the source_image that scripts/calculate-docker-tags.sh derives from the Docker Hub
+    // repository's final path segment, so the release workflow can retag exactly what was built.
+    private String GetCliDockerImageTag() => $"{CliDockerImageRepository}:{SemanticVersion}";
 
     private String GetDockerImageTag() => $"{DockerImageRepository}:{SemanticVersion}";
 
@@ -631,6 +692,19 @@ internal partial class BuildPipeline
         intermediateDirectory.DeleteDirectory();
     }
 
+    private void SmokeTestCliDockerImageCore(String platform)
+    {
+        var result = RunDocker(["run", "--rm", "--platform", platform, GetCliDockerImageTag(), "--version"], true);
+        var output = $"{result.StandardOutput}{Environment.NewLine}{result.StandardError}";
+
+        Assert.True(result.ExitCode == 0,
+                    $"CLI image smoke test for platform '{platform}' failed with exit code {result.ExitCode}.{Environment.NewLine}{output}");
+
+        var expectedVersion = $"ShadowDrop v{SemanticVersion}";
+        Assert.True(result.StandardOutput.Contains(expectedVersion, StringComparison.Ordinal),
+                    $"CLI image smoke test for platform '{platform}' did not report '{expectedVersion}'.{Environment.NewLine}{output}");
+    }
+
     private void SmokeTestDockerImageCore(String? platform = null)
     {
         var nameSuffix = platform is null ? String.Empty : $"-{platform.Replace('/', '-')}";
@@ -675,6 +749,32 @@ internal partial class BuildPipeline
         {
             RunDockerBestEffort(["rm", "--force", containerName]);
             RunDockerBestEffort(["volume", "rm", "--force", volumeName]);
+        }
+    }
+
+    private void StageCliDockerArtifactsCore()
+    {
+        var releaseDirectory = PublishCliDirectory / SemanticVersion;
+
+        DockerCliStagingDirectory.CreateOrCleanDirectory();
+
+        foreach (var (dockerArchitecture, runtimeIdentifier) in CliDockerArchitectures)
+        {
+            var artifact = releaseDirectory / GetCliArtifactName(runtimeIdentifier);
+            if (!artifact.FileExists())
+            {
+                Assert.Fail(
+                    $"Linux CLI release artifact '{artifact}' is missing. Run the PublishCliLinux target, or restore the release artifact bundle into '{releaseDirectory}', before building the CLI Docker image.");
+            }
+
+            var stagedDirectory = DockerCliStagingDirectory / dockerArchitecture;
+            stagedDirectory.CreateDirectory();
+
+            var stagedExecutable = stagedDirectory / CliExecutableName;
+            File.Copy(artifact, stagedExecutable, true);
+            EnsureExecutableMode(stagedExecutable, runtimeIdentifier);
+
+            Log.Information("Staged {Artifact} as {StagedExecutable}.", artifact.Name, stagedExecutable);
         }
     }
 

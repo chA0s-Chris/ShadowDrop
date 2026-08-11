@@ -39,9 +39,11 @@ elif [[ "$include_floating" == "true" ]]; then
   docker_tags+=("${repository}:${major}")
 fi
 
-# Local image produced by the NUKE pipeline (DockerImageRepository = "shadowdrop"); the release
-# workflow retags this to the Docker Hub repository before pushing.
-source_image="shadowdrop:${version}"
+# Local image produced by the NUKE pipeline, whose image repository constants match the final path
+# segment of the Docker Hub repository ("shadowdrop" for the API, "shadowdrop-cli" for the CLI). The
+# release workflow retags this to the Docker Hub repository before pushing. Deriving it rather than
+# hardcoding it keeps both images distinguishable in the local image store during a release.
+source_image="${repository##*/}:${version}"
 
 printf 'is_prerelease=%s\n' "$is_prerelease"
 printf 'git_tag=v%s\n' "$version"

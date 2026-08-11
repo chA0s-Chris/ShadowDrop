@@ -1,0 +1,29 @@
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.10-noble-chiseled
+
+# runtime-deps rather than the API's aspnet base: the CLI is self-contained Native AOT and needs no
+# .NET runtime, only a matching libc and loader, the OpenSSL 3 libraries it dlopens, and CA certificates.
+#
+# HOME is set explicitly because the base image resolves it from /etc/passwd for uid 1654, which stops
+# working the moment a caller passes --user with a uid that has no passwd entry; CliConfigPathResolver
+# would then find no config path at all. The update check is disabled because its guidance points at
+# get.shadowdrop.net/install.sh, which is the wrong advice in a container: you update by pulling a new tag.
+ENV HOME=/home/app \
+    SHADOWDROP_NO_UPDATE_CHECK=1
+
+# `download` without --out writes to ./<original-filename>, so the working directory has to be writable.
+# The base image declares none, leaving /, which $APP_UID cannot write. Ship /data as an owned directory
+# rather than only declaring WORKDIR: Docker would otherwise create it as root:root whenever nothing is
+# mounted there, reproducing the same permission failure under a better name.
+COPY --chown=$APP_UID:$APP_UID --chmod=755 docker/cli-workdir/ /data/
+
+# The CLI is self-contained Native AOT, so every platform needs its own binary. StageCliDockerArtifacts
+# resolves the amd64->x64 naming difference beforehand and stages each binary under its TARGETARCH name,
+# which keeps both the version and that mapping out of this file and lets one buildx invocation with
+# --platform cover both architectures.
+ARG TARGETARCH
+COPY --chmod=755 artifacts/docker/cli/${TARGETARCH}/shadowdrop /usr/local/bin/shadowdrop
+
+USER $APP_UID
+WORKDIR /data
+
+ENTRYPOINT ["/usr/local/bin/shadowdrop"]
