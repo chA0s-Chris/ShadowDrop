@@ -69,6 +69,57 @@ On macOS, use the matching `osx-*` asset and replace `sha256sum` with
 (Get-FileHash "shadowdrop-<version>-win-x64.exe" -Algorithm SHA256).Hash.ToLower()
 ```
 
+### Running in a container
+
+When installing a binary is not an option — a locked-down workstation, no
+writable directory on `PATH`, or a CI job that would rather pull an image than
+fetch and verify a release asset — run the CLI from its published image:
+
+```bash
+docker run --rm \
+  --volume "$PWD:/data" \
+  --user "$(id -u):$(id -g)" \
+  --env SHADOWDROP_SERVER_URL --env SHADOWDROP_UPLOAD_TOKEN \
+  chaos/shadowdrop-cli:1 upload report.pdf
+```
+
+The image is published on Docker Hub as
+[`chaos/shadowdrop-cli`](https://hub.docker.com/r/chaos/shadowdrop-cli) for
+`linux/amd64` and `linux/arm64`, and carries the same version and floating
+`latest`/`MAJOR`/`MAJOR.MINOR` tags as the server image. The CLI is the image's
+entrypoint, so commands and options are passed straight to `docker run`.
+
+Its working directory is `/data`. Mounting your working directory there means
+relative paths and default destinations behave as they do locally:
+
+```bash
+docker run --rm --volume "$PWD:/data" --user "$(id -u):$(id -g)" \
+  chaos/shadowdrop-cli:1 download "https://drop.example.com/d/qHxI_…" --share-key 5f4a…
+# writes ./report.pdf on the host
+```
+
+Two differences from a local installation are worth knowing before you hit them:
+
+- **Pass `--user "$(id -u):$(id -g)"` whenever you mount a volume.** Without it
+  the container runs as uid `1654`, and every file it writes lands in your
+  working directory owned by that uid instead of by you.
+- **`--interactive` requires `docker run -it`.** The guided prompts need a TTY;
+  without one they have nothing to read from.
+
+Configuration precedence is unchanged. Environment variables are usually the
+most convenient source in a container; to use an existing config file instead,
+mount it read-only at `/home/app/.config/shadowdrop/config.json`.
+
+The image ships without a shell or package manager, which keeps its attack
+surface small but means you cannot open a shell inside it to investigate a mount
+or permission problem — inspect paths and ownership from the host instead.
+
+Update by pulling a newer tag. The image sets `SHADOWDROP_NO_UPDATE_CHECK=1`, so
+the automatic notification described in
+[Automatic update notifications](#automatic-update-notifications) never fires;
+an explicit `shadowdrop update` still reports the latest release, but the
+installer command it prints is not how you update a container.
+
 ## Updating the CLI
 
 `shadowdrop update` queries the official
