@@ -2123,8 +2123,13 @@ public sealed class UploadCommandHandlerTests
         var exitCode = await CliApplication.InvokeAsync(["upload", "raw", inputDirectory, "-r"], services, CancellationToken.None);
 
         exitCode.Should().Be(0);
-        FindLines(standardOut.ToString(), "file-id:").Should().HaveCount(2);
-        fixture.GetStoredUploads().Select(static upload => upload.OriginalFileName).Should().Equal("alpha.bin", "zeta.bin");
+        // The reported file ids are emitted in upload order, so resolving names through them is what proves the
+        // selection order. GetStoredUploads enumerates GUID-named blobs and carries no order of its own.
+        var uploadedIds = FindLines(standardOut.ToString(), "file-id:").Select(static line => Guid.Parse(Value(line))).ToArray();
+        uploadedIds.Should().HaveCount(2);
+        var namesByFileId = fixture.GetStoredUploads().ToDictionary(static upload => upload.FileId,
+                                                                    static upload => upload.OriginalFileName);
+        uploadedIds.Select(id => namesByFileId[id]).Should().Equal("alpha.bin", "zeta.bin");
     }
 
     [Test]
