@@ -159,21 +159,23 @@ internal static class UploadInputResolver
             pending.Push(root);
             while (pending.TryPop(out var directory))
             {
-                foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                // Enumerating infos rather than paths keeps the attributes the enumeration already read, so each
+                // entry is classified without a second stat call.
+                foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())
                 {
-                    var attributes = File.GetAttributes(entry);
+                    var attributes = entry.Attributes;
                     if ((attributes & FileAttributes.Directory) != 0)
                     {
                         if ((attributes & FileAttributes.ReparsePoint) == 0)
                         {
-                            pending.Push(entry);
+                            pending.Push(entry.FullName);
                         }
 
                         continue;
                     }
 
-                    var relativePath = Path.GetRelativePath(root, entry).Replace(Path.DirectorySeparatorChar, '/');
-                    discovered.Add((Path.GetFullPath(entry), relativePath));
+                    var relativePath = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
+                    discovered.Add((entry.FullName, relativePath));
                 }
             }
 

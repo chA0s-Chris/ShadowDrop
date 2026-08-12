@@ -10,13 +10,13 @@ using System.Diagnostics.CodeAnalysis;
 /// </summary>
 internal sealed class UploadGlob
 {
-    private readonly StringComparison _comparison;
+    private readonly Boolean _ignoreCase;
     private readonly ImmutableArray<GlobSegment> _segments;
 
     private UploadGlob(ImmutableArray<GlobSegment> segments)
     {
         _segments = segments;
-        _comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        _ignoreCase = OperatingSystem.IsWindows();
     }
 
     public static Boolean TryCreate(String pattern,
@@ -164,7 +164,7 @@ internal sealed class UploadGlob
                                           || (characterIndex < value.Length && Match(tokenIndex, characterIndex + 1)),
                     GlobTokenKind.Question => characterIndex < value.Length && Match(tokenIndex + 1, characterIndex + 1),
                     _ => characterIndex < value.Length
-                         && String.Equals(token.Literal.ToString(), value[characterIndex].ToString(), _comparison)
+                         && MatchesLiteral(token.Literal, value[characterIndex])
                          && Match(tokenIndex + 1, characterIndex + 1)
                 };
             }
@@ -173,6 +173,13 @@ internal sealed class UploadGlob
             return matched;
         }
     }
+
+    // Compares one code unit at a time. Ordinal-ignore-case string comparison uppercases per code unit, so the
+    // invariant uppercase mapping here matches it without allocating a string for every character compared.
+    private Boolean MatchesLiteral(Char expected, Char actual) =>
+        _ignoreCase
+            ? Char.ToUpperInvariant(expected) == Char.ToUpperInvariant(actual)
+            : expected == actual;
 
     private readonly record struct GlobSegment(Boolean IsRecursive, ImmutableArray<GlobToken> Tokens)
     {

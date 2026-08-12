@@ -261,6 +261,11 @@ public sealed class CliApplicationTests
     [TestCase(new[] { "upload" }, "Required argument missing for command: 'upload'.")]
     [TestCase(new[]
     {
+        "upload",
+        "raw"
+    }, "Required argument missing for command: 'raw'.")]
+    [TestCase(new[]
+    {
         "download",
         "--output-root",
         "."

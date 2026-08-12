@@ -27,7 +27,13 @@ internal sealed record LocalUploadFile(
 /// </summary>
 internal sealed record UploadSelectionOrigin(String Source, Int32? RecordNumber = null)
 {
-    public static UploadSelectionOrigin CommandLine { get; } = new("commandLine");
+    /// <summary>
+    /// The <see cref="Source"/> value shared by every command-line selection. Diagnostics compare against this
+    /// constant instead of repeating the literal.
+    /// </summary>
+    public const String CommandLineSource = "commandLine";
+
+    public static UploadSelectionOrigin CommandLine { get; } = new(CommandLineSource);
 }
 
 /// <summary>

@@ -107,7 +107,7 @@ internal static class LocalUploadPlanner
 
     internal static String FormatError(String message, UploadSelectionOrigin origin)
     {
-        if (origin.Source == "commandLine")
+        if (origin.Source == UploadSelectionOrigin.CommandLineSource)
         {
             return message;
         }
