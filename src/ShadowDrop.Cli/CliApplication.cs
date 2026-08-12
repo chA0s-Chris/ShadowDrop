@@ -62,6 +62,13 @@ internal static class CliApplication
         return ExecuteAsync(parseResult, services, commandModel, initialWorkingDirectory, cancellationToken);
     }
 
+    // ZeroOrMore keeps a repeatable option non-greedy so a following flag is still parsed as a flag, but it also
+    // makes a valueless occurrence look identical to an omitted one through GetValue alone. Consulting the parse
+    // result keeps them apart: null means omitted, an empty array means supplied without a value, which validation
+    // rejects rather than silently ignoring the filter the user asked for.
+    private static String[]? BindRepeatableOption(ParseResult parseResult, Option<String[]> option) =>
+        parseResult.GetResult(option) is null ? null : parseResult.GetValue(option) ?? [];
+
     private static CliCommandModel CreateCommandModel()
     {
         var filesArgument = new Argument<String[]>("input-paths")
@@ -774,12 +781,14 @@ internal static class CliApplication
                                                          parseResult.GetValue(commandModel.ForceOption),
                                                          parseResult.GetValue(commandModel.RawFilesArgument) ?? [],
                                                          parseResult.GetValue(commandModel.RecursiveOption),
-                                                         parseResult.GetValue(commandModel.IncludeOption) ?? [],
-                                                         parseResult.GetValue(commandModel.ExcludeOption) ?? [],
-                                                         parseResult.GetValue(commandModel.FilesFromOption) ?? [],
+                                                         BindRepeatableOption(parseResult, commandModel.IncludeOption),
+                                                         BindRepeatableOption(parseResult, commandModel.ExcludeOption),
+                                                         BindRepeatableOption(parseResult, commandModel.FilesFromOption),
                                                          initialWorkingDirectory);
 
-            if (rawOptions is { InputPaths.Length: 0, FilesFrom.Length: 0 })
+            // A valueless --files-from is present, not absent, so it falls through to the validator that names it
+            // rather than being reported as a missing positional argument.
+            if (rawOptions is { InputPaths.Length: 0, FilesFrom: null })
             {
                 await services.StandardError.WriteLineAsync("Required argument missing for command: 'raw'.");
                 return 1;
@@ -1001,9 +1010,9 @@ internal static class CliApplication
                                                      initialWorkingDirectory,
                                                      parseResult.GetValue(commandModel.FilesArgument) ?? [],
                                                      parseResult.GetValue(commandModel.RecursiveOption),
-                                                     parseResult.GetValue(commandModel.IncludeOption) ?? [],
-                                                     parseResult.GetValue(commandModel.ExcludeOption) ?? [],
-                                                     parseResult.GetValue(commandModel.FilesFromOption) ?? []);
+                                                     BindRepeatableOption(parseResult, commandModel.IncludeOption),
+                                                     BindRepeatableOption(parseResult, commandModel.ExcludeOption),
+                                                     BindRepeatableOption(parseResult, commandModel.FilesFromOption));
 
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
@@ -1023,7 +1032,9 @@ internal static class CliApplication
                                                              services.StandardInput).ExecuteAsync(uploadOptions, cancellationToken);
         }
 
-        if (uploadOptions is { InputPaths.Length: 0, FilesFrom.Length: 0 })
+        // A valueless --files-from is present, not absent, so it falls through to the validator that names it
+        // rather than being reported as a missing positional argument.
+        if (uploadOptions is { InputPaths.Length: 0, FilesFrom: null })
         {
             await services.StandardError.WriteLineAsync("Required argument missing for command: 'upload'.");
             return 1;

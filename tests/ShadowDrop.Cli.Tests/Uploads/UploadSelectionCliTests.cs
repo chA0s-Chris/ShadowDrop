@@ -128,6 +128,31 @@ public sealed class UploadSelectionCliTests
                      .And.Contain("record 1");
     }
 
+    // A valueless repeatable option must not read as "no filter": that would silently upload a wider selection
+    // than the invocation asks for.
+    [TestCase("upload", "--include", "The --include option requires a glob pattern.")]
+    [TestCase("upload", "--exclude", "The --exclude option requires a glob pattern.")]
+    [TestCase("upload", "--files-from", "The --files-from option requires a file path or '-'.")]
+    [TestCase("raw", "--include", "The --include option requires a glob pattern.")]
+    [TestCase("raw", "--exclude", "The --exclude option requires a glob pattern.")]
+    [TestCase("raw", "--files-from", "The --files-from option requires a file path or '-'.")]
+    public async Task InvokeAsync_ShouldRejectRepeatableOptionsSuppliedWithoutAValue(String command, String option, String expectedError)
+    {
+        var root = CreateDirectory("tree");
+        CreateFile("tree/keep.pdf");
+        CreateFile("tree/notes.txt");
+        var standardError = new StringWriter();
+        String[] arguments = command == "raw"
+            ? ["upload", "raw", root, "--recursive", option]
+            : ["upload", root, "--recursive", option];
+
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(expectedError)
+                     .And.NotContain("Required argument missing");
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldRejectStdinWithInteractiveBeforeReadingIt()
     {

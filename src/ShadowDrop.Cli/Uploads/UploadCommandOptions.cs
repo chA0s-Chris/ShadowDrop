@@ -35,8 +35,9 @@ internal static class UploadCommandOptionsValidator
         ArgumentNullException.ThrowIfNull(options);
 
         if (!UploadInputOptionsValidator.TryValidate(options.Recursive,
-                                                     options.IncludePatterns ?? [],
-                                                     options.ExcludePatterns ?? [],
+                                                     options.IncludePatterns,
+                                                     options.ExcludePatterns,
+                                                     options.FilesFrom,
                                                      out error))
         {
             return false;
@@ -102,18 +103,41 @@ internal static class UploadCommandOptionsValidator
 
 internal static class UploadInputOptionsValidator
 {
+    /// <summary>
+    /// Validates the repeatable selection options. A <see langword="null"/> list means the option was omitted; an
+    /// empty list means it was supplied without a value, which is rejected rather than read as "no filter".
+    /// </summary>
     public static Boolean TryValidate(Boolean recursive,
-                                      IReadOnlyList<String> includePatterns,
-                                      IReadOnlyList<String> excludePatterns,
+                                      IReadOnlyList<String>? includePatterns,
+                                      IReadOnlyList<String>? excludePatterns,
+                                      IReadOnlyList<String>? filesFrom,
                                       [NotNullWhen(false)] out String? error)
     {
-        if (!recursive && includePatterns.Count > 0)
+        if (includePatterns is { Count: 0 })
+        {
+            error = "The --include option requires a glob pattern.";
+            return false;
+        }
+
+        if (excludePatterns is { Count: 0 })
+        {
+            error = "The --exclude option requires a glob pattern.";
+            return false;
+        }
+
+        if (filesFrom is { Count: 0 })
+        {
+            error = "The --files-from option requires a file path or '-'.";
+            return false;
+        }
+
+        if (!recursive && includePatterns is { Count: > 0 })
         {
             error = "The --include option requires --recursive.";
             return false;
         }
 
-        if (!recursive && excludePatterns.Count > 0)
+        if (!recursive && excludePatterns is { Count: > 0 })
         {
             error = "The --exclude option requires --recursive.";
             return false;

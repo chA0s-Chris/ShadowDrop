@@ -42,8 +42,9 @@ internal sealed class UploadRawCommandHandler
         ArgumentNullException.ThrowIfNull(options);
 
         if (!UploadInputOptionsValidator.TryValidate(options.Recursive,
-                                                     options.IncludePatterns ?? [],
-                                                     options.ExcludePatterns ?? [],
+                                                     options.IncludePatterns,
+                                                     options.ExcludePatterns,
+                                                     options.FilesFrom,
                                                      out var optionError))
         {
             await _standardError.WriteLineAsync(optionError);
