@@ -161,6 +161,11 @@ internal static class CliApplication
             Description = "Emit the result as a single JSON object on stdout."
         };
 
+        var dryRunOption = new Option<Boolean>("--dry-run")
+        {
+            Description = "Validate and preview the complete local upload plan without contacting a server or writing outputs."
+        };
+
         var forceOption = new Option<Boolean>("--force")
         {
             Description = "Allow overwriting an existing --secrets-out or queue output file."
@@ -290,6 +295,7 @@ internal static class CliApplication
         uploadCommand.Options.Add(nameOption);
         uploadCommand.Options.Add(uploadDisplayNameOption);
         uploadCommand.Options.Add(jsonOption);
+        uploadCommand.Options.Add(dryRunOption);
         uploadCommand.Options.Add(forceOption);
         uploadCommand.Options.Add(uploadInteractiveOption);
         uploadCommand.Options.Add(recursiveOption);
@@ -311,6 +317,7 @@ internal static class CliApplication
         uploadRawCommand.Options.Add(uploadTokenOption);
         uploadRawCommand.Options.Add(secretsOutOption);
         uploadRawCommand.Options.Add(jsonOption);
+        uploadRawCommand.Options.Add(dryRunOption);
         uploadRawCommand.Options.Add(forceOption);
         uploadRawCommand.Options.Add(recursiveOption);
         uploadRawCommand.Options.Add(includeOption);
@@ -597,6 +604,7 @@ internal static class CliApplication
                    uploadDisplayNameOption,
                    shareDisplayNameOption,
                    jsonOption,
+                   dryRunOption,
                    forceOption,
                    uploadInteractiveOption,
                    recursiveOption,
@@ -638,6 +646,47 @@ internal static class CliApplication
                    verboseStatusOption,
                    updateCommand);
     }
+
+    private static UploadCommandOptions CreateUploadOptions(ParseResult parseResult,
+                                                            CliCommandModel commandModel,
+                                                            String initialWorkingDirectory) =>
+        new([],
+            parseResult.GetValue(commandModel.ServerOption),
+            parseResult.GetValue(commandModel.UploadTokenOption),
+            parseResult.GetValue(commandModel.ExpiresInOption),
+            parseResult.GetValue(commandModel.DirectHttpOption),
+            parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
+            parseResult.GetValue(commandModel.SecretsOutOption),
+            parseResult.GetValue(commandModel.QueueOutOption),
+            parseResult.GetValue(commandModel.EmbedSecretsOption),
+            parseResult.GetValue(commandModel.JsonOption),
+            parseResult.GetValue(commandModel.ForceOption),
+            parseResult.GetValue(commandModel.NameOption),
+            parseResult.GetValue(commandModel.UploadDisplayNameOption) ?? [],
+            parseResult.GetValue(commandModel.InputRootOption),
+            parseResult.GetValue(commandModel.FlattenOption),
+            initialWorkingDirectory,
+            parseResult.GetValue(commandModel.FilesArgument) ?? [],
+            parseResult.GetValue(commandModel.RecursiveOption),
+            BindRepeatableOption(parseResult, commandModel.IncludeOption),
+            BindRepeatableOption(parseResult, commandModel.ExcludeOption),
+            BindRepeatableOption(parseResult, commandModel.FilesFromOption));
+
+    private static UploadRawCommandOptions CreateUploadRawOptions(ParseResult parseResult,
+                                                                  CliCommandModel commandModel,
+                                                                  String initialWorkingDirectory) =>
+        new([],
+            parseResult.GetValue(commandModel.ServerOption),
+            parseResult.GetValue(commandModel.UploadTokenOption),
+            parseResult.GetValue(commandModel.SecretsOutOption),
+            parseResult.GetValue(commandModel.JsonOption),
+            parseResult.GetValue(commandModel.ForceOption),
+            parseResult.GetValue(commandModel.RawFilesArgument) ?? [],
+            parseResult.GetValue(commandModel.RecursiveOption),
+            BindRepeatableOption(parseResult, commandModel.IncludeOption),
+            BindRepeatableOption(parseResult, commandModel.ExcludeOption),
+            BindRepeatableOption(parseResult, commandModel.FilesFromOption),
+            initialWorkingDirectory);
 
     private static async Task<Int32> ExecuteAsync(ParseResult parseResult, CliApplicationServices services, CliCommandModel commandModel,
                                                   String initialWorkingDirectory,
@@ -685,6 +734,28 @@ internal static class CliApplication
                                                   services.StandardError,
                                                   services.TimeProvider,
                                                   CliVersion.Current).ExecuteAsync(cancellationToken);
+        }
+
+        // Dry-run is an entirely local contract. Dispatch it before configuration, TLS/HTTP setup, and the
+        // automatic update check so the command cannot perform any network or output side effect.
+        if (parseResult.GetValue(commandModel.DryRunOption))
+        {
+            var handler = new UploadDryRunCommandHandler(services.StandardInput,
+                                                         services.StandardOut,
+                                                         services.StandardError);
+            var tlsOptionsConflict = parseResult.GetValue(commandModel.CaCertOption) is not null
+                                     && parseResult.GetValue(commandModel.InsecureOption);
+            if (parseResult.CommandResult.Command == commandModel.UploadRawCommand)
+            {
+                return await handler.ExecuteAsync(CreateUploadRawOptions(parseResult, commandModel, initialWorkingDirectory),
+                                                  tlsOptionsConflict,
+                                                  cancellationToken);
+            }
+
+            return await handler.ExecuteAsync(CreateUploadOptions(parseResult, commandModel, initialWorkingDirectory),
+                                              parseResult.GetValue(commandModel.UploadInteractiveOption),
+                                              tlsOptionsConflict,
+                                              cancellationToken);
         }
 
         var exitCode = await ExecuteCommandAsync(parseResult, services, commandModel, initialWorkingDirectory, cancellationToken);
@@ -773,18 +844,7 @@ internal static class CliApplication
 
         if (parseResult.CommandResult.Command == commandModel.UploadRawCommand)
         {
-            var rawOptions = new UploadRawCommandOptions([],
-                                                         parseResult.GetValue(commandModel.ServerOption),
-                                                         parseResult.GetValue(commandModel.UploadTokenOption),
-                                                         parseResult.GetValue(commandModel.SecretsOutOption),
-                                                         parseResult.GetValue(commandModel.JsonOption),
-                                                         parseResult.GetValue(commandModel.ForceOption),
-                                                         parseResult.GetValue(commandModel.RawFilesArgument) ?? [],
-                                                         parseResult.GetValue(commandModel.RecursiveOption),
-                                                         BindRepeatableOption(parseResult, commandModel.IncludeOption),
-                                                         BindRepeatableOption(parseResult, commandModel.ExcludeOption),
-                                                         BindRepeatableOption(parseResult, commandModel.FilesFromOption),
-                                                         initialWorkingDirectory);
+            var rawOptions = CreateUploadRawOptions(parseResult, commandModel, initialWorkingDirectory);
 
             // A valueless --files-from is present, not absent, so it falls through to the validator that names it
             // rather than being reported as a missing positional argument.
@@ -992,27 +1052,7 @@ internal static class CliApplication
             return 1;
         }
 
-        var uploadOptions = new UploadCommandOptions([],
-                                                     parseResult.GetValue(commandModel.ServerOption),
-                                                     parseResult.GetValue(commandModel.UploadTokenOption),
-                                                     parseResult.GetValue(commandModel.ExpiresInOption),
-                                                     parseResult.GetValue(commandModel.DirectHttpOption),
-                                                     parseResult.GetValue(commandModel.GenerateDownloadTokenOption),
-                                                     parseResult.GetValue(commandModel.SecretsOutOption),
-                                                     parseResult.GetValue(commandModel.QueueOutOption),
-                                                     parseResult.GetValue(commandModel.EmbedSecretsOption),
-                                                     parseResult.GetValue(commandModel.JsonOption),
-                                                     parseResult.GetValue(commandModel.ForceOption),
-                                                     parseResult.GetValue(commandModel.NameOption),
-                                                     parseResult.GetValue(commandModel.UploadDisplayNameOption) ?? [],
-                                                     parseResult.GetValue(commandModel.InputRootOption),
-                                                     parseResult.GetValue(commandModel.FlattenOption),
-                                                     initialWorkingDirectory,
-                                                     parseResult.GetValue(commandModel.FilesArgument) ?? [],
-                                                     parseResult.GetValue(commandModel.RecursiveOption),
-                                                     BindRepeatableOption(parseResult, commandModel.IncludeOption),
-                                                     BindRepeatableOption(parseResult, commandModel.ExcludeOption),
-                                                     BindRepeatableOption(parseResult, commandModel.FilesFromOption));
+        var uploadOptions = CreateUploadOptions(parseResult, commandModel, initialWorkingDirectory);
 
         if (parseResult.GetValue(commandModel.UploadInteractiveOption))
         {
@@ -1127,6 +1167,7 @@ internal static class CliApplication
         Option<String[]> UploadDisplayNameOption,
         Option<String[]> ShareDisplayNameOption,
         Option<Boolean> JsonOption,
+        Option<Boolean> DryRunOption,
         Option<Boolean> ForceOption,
         Option<Boolean> UploadInteractiveOption,
         Option<Boolean> RecursiveOption,

@@ -1642,6 +1642,55 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldUseTheSameFilesSizesDisplayNamesAndDestinations_AsDryRun()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var inputDirectory = Path.Combine(fixture.RootDirectory, "parity");
+        var alphaPath = fixture.CreateInputFile(Path.Combine("parity", "alpha.bin"), 11);
+        fixture.CreateInputFile(Path.Combine("parity", "nested", "beta.bin"), 19);
+        fixture.CreateInputFile(Path.Combine("parity", "ignored.txt"), 23);
+        var queuePath = Path.Combine(fixture.RootDirectory, "parity.queue.json");
+        var sharedArguments = new[]
+        {
+            "upload",
+            inputDirectory,
+            "--recursive",
+            "--include",
+            "**/*.bin",
+            "--display-name",
+            $"{alphaPath}=Renamed.bin",
+            "--queue-out",
+            queuePath,
+            "--input-root",
+            fixture.RootDirectory
+        };
+        var dryRunOut = new StringWriter();
+
+        var dryRunExit = await CliApplication.InvokeAsync([.. sharedArguments, "--dry-run", "--json", "--no-banner"],
+                                                          CreateServices(dryRunOut, new(), fixture.ConfigFilePath, httpClient: httpClient),
+                                                          CancellationToken.None);
+        var uploadExit = await CliApplication.InvokeAsync(sharedArguments,
+                                                          CreateServices(new(), new(), fixture.ConfigFilePath, httpClient: httpClient),
+                                                          CancellationToken.None);
+
+        dryRunExit.Should().Be(0);
+        uploadExit.Should().Be(0);
+        using var dryRun = JsonDocument.Parse(dryRunOut.ToString());
+        var dryRunFiles = dryRun.RootElement.GetProperty("files").EnumerateArray().ToArray();
+        var storedFiles = fixture.GetStoredUploads().OrderBy(static file => file.OriginalFileName, StringComparer.Ordinal).ToArray();
+        storedFiles.Select(static file => file.OriginalFileName).Should().Equal("alpha.bin", "beta.bin");
+        storedFiles.Select(static file => file.PlaintextLength).Should()
+                   .Equal(dryRunFiles.Select(static file => file.GetProperty("plaintextBytes").GetInt64()));
+        storedFiles.Select(static file => file.EncryptedLength).Should()
+                   .Equal(dryRunFiles.Select(static file => file.GetProperty("encryptedBytes").GetInt64()));
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Files!.Select(QueueOutputPath.Resolve).Should()
+             .Equal(dryRunFiles.Select(static file => file.GetProperty("queueDestination").GetString()));
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldWriteCredentialsToFile_WhenSecretsOutProvided()
     {
         await using var fixture = new CliUploadApiFactory();

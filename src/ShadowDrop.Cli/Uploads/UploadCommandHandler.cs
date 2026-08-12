@@ -263,6 +263,55 @@ internal sealed class UploadCommandHandler
         return 0;
     }
 
+    // The queue option contract and every destination knowable from local input are resolved before any upload or
+    // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
+    internal static Boolean TryResolveQueueDestinationPlan(UploadCommandOptions options,
+                                                           IReadOnlyDictionary<String, String> displayNameOverrides,
+                                                           out IReadOnlyDictionary<String, QueueDestination>? destinations,
+                                                           [NotNullWhen(false)] out String? error)
+    {
+        destinations = null;
+
+        if (options.QueueOut is null)
+        {
+            error = null;
+            return true;
+        }
+
+        // Captured once by the command entry point so path resolution cannot be affected by a working directory
+        // that changes while the upload runs.
+        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+
+        // Flatten derives no source root at all, which is what allows inputs from unrelated locations.
+        if (options.Flatten)
+        {
+            return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Flatten,
+                                                       workingDirectory, out destinations, out error);
+        }
+
+        String inputRoot;
+        try
+        {
+            inputRoot = options.InputRoot is null
+                ? Path.GetFullPath(workingDirectory)
+                : Path.GetFullPath(options.InputRoot, workingDirectory);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            error = "The --input-root path is invalid.";
+            return false;
+        }
+
+        if (!Directory.Exists(inputRoot))
+        {
+            error = $"The --input-root directory '{inputRoot}' does not exist.";
+            return false;
+        }
+
+        return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Preserve,
+                                                   inputRoot, out destinations, out error);
+    }
+
     private static IReadOnlyList<DirectHttpDownload> BuildDirectHttpDownloads(Uri serverUrl,
                                                                               UploadExecutionResult uploadResult,
                                                                               String shareSecretHex,
@@ -312,55 +361,6 @@ internal sealed class UploadCommandHandler
 
     private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
         displayNameOverrides.GetValueOrDefault(file.FullName);
-
-    // The queue option contract and every destination knowable from local input are resolved before any upload or
-    // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
-    private static Boolean TryResolveQueueDestinationPlan(UploadCommandOptions options,
-                                                          IReadOnlyDictionary<String, String> displayNameOverrides,
-                                                          out IReadOnlyDictionary<String, QueueDestination>? destinations,
-                                                          [NotNullWhen(false)] out String? error)
-    {
-        destinations = null;
-
-        if (options.QueueOut is null)
-        {
-            error = null;
-            return true;
-        }
-
-        // Captured once by the command entry point so path resolution cannot be affected by a working directory
-        // that changes while the upload runs.
-        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
-
-        // Flatten derives no source root at all, which is what allows inputs from unrelated locations.
-        if (options.Flatten)
-        {
-            return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Flatten,
-                                                       workingDirectory, out destinations, out error);
-        }
-
-        String inputRoot;
-        try
-        {
-            inputRoot = options.InputRoot is null
-                ? Path.GetFullPath(workingDirectory)
-                : Path.GetFullPath(options.InputRoot, workingDirectory);
-        }
-        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            error = "The --input-root path is invalid.";
-            return false;
-        }
-
-        if (!Directory.Exists(inputRoot))
-        {
-            error = $"The --input-root directory '{inputRoot}' does not exist.";
-            return false;
-        }
-
-        return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Preserve,
-                                                   inputRoot, out destinations, out error);
-    }
 
     private UploadCommandResult BuildResult(String status,
                                             UploadExecutionResult uploadResult,

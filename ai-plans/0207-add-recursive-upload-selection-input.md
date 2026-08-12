@@ -40,17 +40,17 @@ Introduce a single local planning model shared by `upload`, `upload raw`, and dr
 
 ### Layer 3: Dry-run, documentation, and end-to-end behavior
 
-- [ ] `upload` and `upload raw` accept `--dry-run` and produce the same resolved local plan that a corresponding real invocation consumes.
-- [ ] Dry-run performs every validation that the corresponding real command can complete from command arguments and local state, including recursive expansion and filtering, duplicate detection, file preflight and encrypted-size calculation, share options, direct-HTTP restrictions, queue and secrets option combinations, `--embed-secrets` requirements, display-name mappings, prospective output validation, and applicable queue-destination planning.
-- [ ] Dry-run bypasses server configuration, TLS client creation, upload capabilities, authentication, reservations, uploads, share creation, queue fetching, and the automatic update check. Only checks requiring configuration, TLS/HTTP construction, authentication, server capabilities, quotas, or other remote state are reported as unchecked.
-- [ ] Dry-run creates or overwrites no queue, secrets, cache, or other output file; `--force` and prospective output options are validated and reported without mutation.
-- [ ] Plain output reports every selected absolute source path, its plaintext and encrypted sizes, its queue destination when applicable, aggregate selected/excluded counts and byte totals, intended output paths, and the server-side checks that were not performed.
-- [ ] `--dry-run --json` emits exactly one Native-AOT-compatible result object for successful or failed local validation, using the stable camelCase schema and success/failure rules defined in Technical Details.
-- [ ] A valid non-empty plan exits zero; local validation failures exit non-zero. Excluded-file totals count regular files rejected by filters rather than skipped directory links.
-- [ ] `--dry-run` cannot be combined with `--interactive`; interactive upload retains its existing confirmation summary, while dry-run remains a deterministic non-interactive contract.
-- [ ] Documentation covers recursive selection, glob semantics, ordering, hidden content, link handling, input-list encoding and stdin, queue-path interaction, dry-run output and limitations, and the risk of recursively selecting secrets.
-- [ ] Unit tests prove that dry-run makes no HTTP, update-check, or output-write calls and that its files, ordering, sizes, display names, and destinations match real execution. The plain-text and JSON contracts are covered for `upload` and for `upload raw`, whose result omits queue destinations and display names.
-- [ ] Real-process end-to-end coverage recursively uploads a filtered directory, generates a queue, downloads it, and verifies the expected nested files byte-for-byte.
+- [x] `upload` and `upload raw` accept `--dry-run` and produce the same resolved local plan that a corresponding real invocation consumes.
+- [x] Dry-run performs every validation that the corresponding real command can complete from command arguments and local state, including recursive expansion and filtering, duplicate detection, file preflight and encrypted-size calculation, share options, direct-HTTP restrictions, queue and secrets option combinations, `--embed-secrets` requirements, display-name mappings, prospective output validation, and applicable queue-destination planning.
+- [x] Dry-run bypasses server configuration, TLS client creation, upload capabilities, authentication, reservations, uploads, share creation, queue fetching, and the automatic update check. Only checks requiring configuration, TLS/HTTP construction, authentication, server capabilities, quotas, or other remote state are reported as unchecked.
+- [x] Dry-run creates or overwrites no queue, secrets, cache, or other output file; `--force` and prospective output options are validated and reported without mutation.
+- [x] Plain output reports every selected absolute source path, its plaintext and encrypted sizes, its queue destination when applicable, aggregate selected/excluded counts and byte totals, intended output paths, and the server-side checks that were not performed.
+- [x] `--dry-run --json` emits exactly one Native-AOT-compatible result object for successful or failed local validation, using the stable camelCase schema and success/failure rules defined in Technical Details.
+- [x] A valid non-empty plan exits zero; local validation failures exit non-zero. Excluded-file totals count regular files rejected by filters rather than skipped directory links.
+- [x] `--dry-run` cannot be combined with `--interactive`; interactive upload retains its existing confirmation summary, while dry-run remains a deterministic non-interactive contract.
+- [x] Documentation covers recursive selection, glob semantics, ordering, hidden content, link handling, input-list encoding and stdin, queue-path interaction, dry-run output and limitations, and the risk of recursively selecting secrets.
+- [x] Unit tests prove that dry-run makes no HTTP, update-check, or output-write calls and that its files, ordering, sizes, display names, and destinations match real execution. The plain-text and JSON contracts are covered for `upload` and for `upload raw`, whose result omits queue destinations and display names.
+- [x] Real-process end-to-end coverage recursively uploads a filtered directory, generates a queue, downloads it, and verifies the expected nested files byte-for-byte.
 
 ## Technical Details
 

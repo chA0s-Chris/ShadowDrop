@@ -33,6 +33,7 @@ public sealed class UploadSelectionCliTests
                 .And.Contain("-i, --include")
                 .And.Contain("-x, --exclude")
                 .And.Contain("--files-from")
+                .And.Contain("--dry-run")
                 .And.Contain("directory-relative")
                 .And.Contain("exclusion wins");
         }

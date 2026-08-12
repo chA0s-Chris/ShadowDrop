@@ -38,6 +38,14 @@ share, so its destinations are always flat. Recipient-facing names set with
 `--name` or `--display-name` replace only the destination leaf and do not hide
 preserved directory segments.
 
+Recursive selection (`upload --recursive`) includes hidden files and ignores no
+`.gitignore` or similar rules. A broad directory operand can therefore select
+credentials, private keys, environment files, backups, or other secrets that a
+developer tool would normally hide. Preview the exact selection with `--dry-run`,
+use narrow include/exclude patterns, and inspect the absolute source paths before
+performing the real upload. Directory links are not traversed, but explicitly
+named file links retain normal explicit-file behavior.
+
 ## Direct-HTTP mode (`--direct-http`)
 
 Direct-HTTP shares exist for recipients who cannot run the CLI. They send the

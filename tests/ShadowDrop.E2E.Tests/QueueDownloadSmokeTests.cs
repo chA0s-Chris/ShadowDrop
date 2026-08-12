@@ -61,6 +61,50 @@ public sealed class QueueDownloadSmokeTests : SmokeTestBase
         }
     }
 
+    [Test]
+    public async Task QueueDownload_ShouldReproduceRecursivelySelectedFilteredFilesByteForByte()
+    {
+        using var workspace = TempWorkspace.Create("shadowdrop-e2e-queue-recursive");
+        var dataDirectory = workspace.CreateSubdirectory("api-data");
+
+        await using var api = await ApiServerProcess.StartAsync(Artifacts, dataDirectory, CancellationToken.None);
+
+        var inputDirectory = workspace.CreateSubdirectory("inputs");
+        var nestedDirectory = workspace.CreateSubdirectory(Path.Combine("inputs", "nested"));
+        var alpha = CreateInputFile(inputDirectory, "alpha.bin", 5);
+        var bravo = CreateInputFile(nestedDirectory, "bravo.bin", 7);
+        CreateInputFile(nestedDirectory, "ignored.bin", 9);
+        CreateInputFile(inputDirectory, "notes.txt", 11);
+        var queuePath = Path.Combine(workspace.Path, "recursive.queue.json");
+
+        var upload = await CliRunner.RunAsync(
+            Artifacts,
+            [
+                "upload", inputDirectory,
+                "--recursive",
+                "--include", "**/*.bin",
+                "--exclude", "**/ignored.bin",
+                "--server-url", api.BaseAddress.AbsoluteUri,
+                "--upload-token", api.AdminToken,
+                "--queue-out", queuePath
+            ],
+            workspace.Path);
+        upload.ExitCode.Should().Be(0, $"the recursive upload should succeed.{Environment.NewLine}{upload.Describe()}{api.DiagnosticsTail()}");
+
+        var shareKey = RequireOutputValue(upload, "share-key:");
+        var outputRoot = workspace.CreateSubdirectory("downloads");
+        var download = await CliRunner.RunAsync(
+            Artifacts,
+            ["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", shareKey],
+            workspace.Path);
+        download.ExitCode.Should().Be(0, $"the queue download should succeed.{Environment.NewLine}{download.Describe()}{api.DiagnosticsTail()}");
+
+        AssertFilesEqual(alpha, Path.Combine(outputRoot, "inputs", "alpha.bin"));
+        AssertFilesEqual(bravo, Path.Combine(outputRoot, "inputs", "nested", "bravo.bin"));
+        File.Exists(Path.Combine(outputRoot, "inputs", "nested", "ignored.bin")).Should().BeFalse();
+        File.Exists(Path.Combine(outputRoot, "inputs", "notes.txt")).Should().BeFalse();
+    }
+
     // The default preserve mode makes destinations relative to the command's working directory, so a nested input
     // must be recreated at the same relative path under the download output root.
     [Test]
