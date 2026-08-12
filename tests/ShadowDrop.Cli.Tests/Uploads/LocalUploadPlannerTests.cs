@@ -120,8 +120,15 @@ public sealed class LocalUploadPlannerTests
         return new(path);
     }
 
-    private sealed class MutatingCapabilitiesHandler(String filePath) : HttpMessageHandler
+    private sealed class MutatingCapabilitiesHandler : HttpMessageHandler
     {
+        private readonly String _filePath;
+
+        public MutatingCapabilitiesHandler(String filePath)
+        {
+            _filePath = filePath;
+        }
+
         public Int32 RequestCount { get; private set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -129,7 +136,7 @@ public sealed class LocalUploadPlannerTests
             RequestCount++;
             request.Method.Should().Be(HttpMethod.Get);
             request.RequestUri?.AbsolutePath.Should().Be("/api/uploads/capabilities");
-            using (var stream = new FileStream(filePath, FileMode.Append, FileAccess.Write))
+            using (var stream = new FileStream(_filePath, FileMode.Append, FileAccess.Write))
             {
                 stream.WriteByte(42);
             }
