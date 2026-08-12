@@ -146,19 +146,24 @@ internal static class UploadInputResolver
     {
         try
         {
-            if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
-            {
-                selections = [];
-                excluded = 0;
-                error = new($"The directory '{root}' is a link and will not be traversed.", origin);
-                return false;
-            }
-
             List<(String FullPath, String RelativePath)> discovered = [];
             Stack<String> pending = new();
             pending.Push(root);
             while (pending.TryPop(out var directory))
             {
+                // Whatever cleared this directory happened before it reached the stack, and the enumeration below
+                // resolves it by path again. Re-checking here keeps the check adjacent to its use instead of
+                // separated by the rest of the traversal, so a path swapped in between is caught rather than
+                // followed. This narrows the window; closing it needs handle-based enumeration that no-follows
+                // across the whole read, which the BCL does not expose.
+                if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                {
+                    selections = [];
+                    excluded = 0;
+                    error = new($"The directory '{directory}' is a link and will not be traversed.", origin);
+                    return false;
+                }
+
                 // Enumerating infos rather than paths keeps the attributes the enumeration already read, so each
                 // entry is classified without a second stat call.
                 foreach (var entry in new DirectoryInfo(directory).EnumerateFileSystemInfos())

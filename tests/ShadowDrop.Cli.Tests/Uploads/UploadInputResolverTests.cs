@@ -93,6 +93,24 @@ public sealed class UploadInputResolverTests
         result.Selections.Select(static selection => selection.Origin.RecordNumber).Should().Equal(null, 1, 3, 1);
     }
 
+    // A link operand resolves to a directory, so it reaches traversal and must be refused there rather than
+    // silently expanded into whatever the link points at.
+    [Test]
+    public void Resolve_ShouldRefuseADirectoryOperandThatIsALink()
+    {
+        var target = CreateDirectory("target");
+        CreateFile("target/secret.bin");
+        var linkPath = Path.Combine(_rootDirectory, "linked");
+        Directory.CreateSymbolicLink(linkPath, target);
+
+        var result = UploadInputResolver.Resolve([], [linkPath], true, [], [], [], _rootDirectory, new StringReader(""));
+
+        result.IsValid.Should().BeFalse();
+        result.Selections.Should().BeEmpty();
+        result.Errors.Should().ContainSingle()
+              .Which.Message.Should().Contain(linkPath).And.Contain("is a link and will not be traversed");
+    }
+
     [Test]
     public void Resolve_ShouldRejectMalformedUtf8AndRepeatedStdin()
     {
