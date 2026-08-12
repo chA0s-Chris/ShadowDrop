@@ -18,6 +18,7 @@ internal sealed class InteractiveUploadCommandHandler
     private readonly HttpClient _httpClient;
     private readonly ICliInteractiveSession _interactiveSession;
     private readonly TextWriter _standardError;
+    private readonly TextReader _standardInput;
     private readonly TextWriter _standardOut;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
@@ -28,13 +29,15 @@ internal sealed class InteractiveUploadCommandHandler
                                            TextWriter standardOut,
                                            TextWriter standardError,
                                            TimeProvider timeProvider,
-                                           IUploadProgressReporterFactory uploadProgressReporterFactory)
+                                           IUploadProgressReporterFactory uploadProgressReporterFactory,
+                                           TextReader? standardInput = null)
     {
         _configurationResolver = configurationResolver;
         _httpClient = httpClient;
         _interactiveSession = interactiveSession;
         _standardOut = standardOut;
         _standardError = standardError;
+        _standardInput = standardInput ?? Console.In;
         _timeProvider = timeProvider;
         _uploadProgressReporterFactory = uploadProgressReporterFactory;
     }
@@ -49,9 +52,9 @@ internal sealed class InteractiveUploadCommandHandler
             return 1;
         }
 
-        if (!UploadCommandOptionsValidator.TryValidateQueueDestinationOptions(options, out var queueOptionError))
+        if (!UploadCommandOptionsValidator.TryValidateLocalOptionCombinations(options, out var optionError))
         {
-            await _standardError.WriteLineAsync(queueOptionError);
+            await _standardError.WriteLineAsync(optionError);
             return 1;
         }
 
@@ -68,11 +71,14 @@ internal sealed class InteractiveUploadCommandHandler
 
         var serverUrl = ResolveServerUrl(configuration.ServerUrl);
         var uploadToken = ResolveUploadToken(configuration.UploadToken);
-        var files = ResolveFiles(options.Files);
+        var files = ResolveFiles(options);
         var shareChoices = PromptShareOptions();
 
+        var suppliedPaths = options.InputPaths ?? [];
         _interactiveSession.ShowSummary("Upload plan",
                                         files.Select(file => ("File", file.FullName))
+                                             .Concat(suppliedPaths.Select(static path => ("Input", path)))
+                                             .Concat((options.FilesFrom ?? []).Select(static source => ("Input list", source)))
                                              .Concat(
                                              [
                                                  ("Server", serverUrl.AbsoluteUri),
@@ -101,14 +107,20 @@ internal sealed class InteractiveUploadCommandHandler
                                                      // exactly the same queue destinations as the equivalent command line.
                                                      options.InputRoot,
                                                      options.Flatten,
-                                                     options.WorkingDirectory);
+                                                     options.WorkingDirectory,
+                                                     options.InputPaths,
+                                                     options.Recursive,
+                                                     options.IncludePatterns,
+                                                     options.ExcludePatterns,
+                                                     options.FilesFrom);
 
         return await new UploadCommandHandler(_configurationResolver,
                                               _httpClient,
                                               _standardOut,
                                               _standardError,
                                               _timeProvider,
-                                              _uploadProgressReporterFactory)
+                                              _uploadProgressReporterFactory,
+                                              _standardInput)
             .ExecuteAsync(uploadOptions, cancellationToken);
     }
 
@@ -127,11 +139,11 @@ internal sealed class InteractiveUploadCommandHandler
         return new(expirationChoice.ExpiresIn, expirationChoice.Label, directHttp, generateDownloadToken);
     }
 
-    private IReadOnlyList<FileInfo> ResolveFiles(IReadOnlyList<FileInfo> files)
+    private IReadOnlyList<FileInfo> ResolveFiles(UploadCommandOptions options)
     {
-        if (files.Count > 0)
+        if (options.Files.Length > 0 || options.InputPaths is { Length: > 0 } || options.FilesFrom is { Length: > 0 })
         {
-            return files;
+            return options.Files;
         }
 
         List<FileInfo> selectedFiles = [];

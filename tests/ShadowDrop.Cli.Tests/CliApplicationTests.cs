@@ -77,7 +77,7 @@ public sealed class CliApplicationTests
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("Server URL invalid or missing.")
+        standardError.ToString().Should().Contain("FAILED 1/1 --help: File is missing.")
                      .And.NotContain("ShadowDrop CLI")
                      .And.NotContain("Encrypt local files and upload encrypted content to ShadowDrop.");
     }
@@ -261,6 +261,11 @@ public sealed class CliApplicationTests
     [TestCase(new[] { "upload" }, "Required argument missing for command: 'upload'.")]
     [TestCase(new[]
     {
+        "upload",
+        "raw"
+    }, "Required argument missing for command: 'raw'.")]
+    [TestCase(new[]
+    {
         "download",
         "--output-root",
         "."
@@ -287,7 +292,7 @@ public sealed class CliApplicationTests
         "upload",
         "raw",
         "payload.bin"
-    }, "Server URL invalid or missing.")]
+    }, "FAILED 1/1 payload.bin: File is missing.")]
     [TestCase(new[]
     {
         "share",

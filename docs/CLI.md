@@ -169,8 +169,8 @@ stable release is known. This is designed to stay out of the way:
 
 | Command                        | Purpose                                                        |
 | ------------------------------ | -------------------------------------------------------------- |
-| `upload [files]`               | Encrypt, upload, and create a share in one step (files are optional only with `--interactive`). |
-| `upload raw <files>`           | Encrypt and upload only; prints file IDs and the share key.    |
+| `upload [input-paths]`         | Encrypt, upload, and create a share; inputs may also come from `--files-from` or interactive selection. |
+| `upload raw [input-paths]`     | Encrypt and upload only; inputs may also come from `--files-from`. |
 | `share create <file-ids>`      | Create a share from previously uploaded file IDs.              |
 | `share revoke <share-id>`      | Revoke a share by internal share ID.                           |
 | `share cleanup`                | Delete blobs and metadata for expired and revoked shares, and reclaim unreferenced uploads. |
@@ -440,6 +440,78 @@ shadowdrop upload raw a.bin b.bin
 # share-key:…
 shadowdrop share create <file-id-1> <file-id-2> --expires-in 3d
 ```
+
+### Recursive selection and input lists
+
+Both `upload` and `upload raw` accept file and directory input paths. A directory
+requires `-r`/`--recursive`; without it the command fails locally and recommends
+the flag. Filters are repeatable and apply only to files discovered beneath each
+directory operand:
+
+```bash
+shadowdrop upload ./project --recursive \
+  --include '**/*.pdf' --include '**/*.md' \
+  --exclude '**/draft-*' --exclude '**/private/**'
+```
+
+Patterns match the complete `/`-separated path relative to the directory operand.
+`*` matches within one path segment, `?` matches one character within a segment,
+and a complete `**` segment matches zero or more segments. Thus `**/*.pdf` matches
+both `report.pdf` and `docs/report.pdf`. Use `\*`, `\?`, or `\\` for literal
+wildcard or backslash characters. Repeated includes are ORed, repeated excludes
+are ORed, and exclusion wins. With no include, all discovered regular files are
+initially selected. Matching is case-sensitive except on Windows.
+
+Discovery includes dotfiles and hidden directories and does not consult
+`.gitignore` or other ignore files. It does not traverse directory symlinks or
+reparse-point directories; that check is path-based, so it cannot survive a
+directory being swapped for a link mid-traversal by a local attacker with write
+access to the tree (see
+[Security Trade-offs](SECURITY_TRADEOFFS.md#separate-key-mode-default)). Explicit
+file operands—including file symlinks—retain normal explicit-file behavior and
+bypass include/exclude filters. Files within each directory are ordered by
+normalized relative path; command-line operands come first, followed by
+`--files-from` sources in the order those options appear.
+Overlapping roots and repeated records fail the existing duplicate-file check.
+
+Use repeatable `--files-from <file|->` to read one path per record from a strict
+UTF-8 list. Empty records are ignored; all other whitespace is part of the path,
+and there is no comment, quote, escape, or environment-variable syntax. Relative
+positional and listed paths resolve against the directory in which the command
+started. `--files-from -` reads standard input, may appear once, and cannot be
+combined with `--interactive`:
+
+```bash
+find ./exports -type f -print | shadowdrop upload --files-from -
+shadowdrop upload raw --files-from nightly-inputs.txt
+```
+
+### Previewing uploads with `--dry-run`
+
+Add `--dry-run` to either upload command to resolve and validate the complete
+local plan without reading server configuration, constructing a TLS/HTTP client,
+contacting the server or release source, or creating/overwriting output files:
+
+```bash
+shadowdrop upload ./project -r -i '**/*.pdf' \
+  --queue-out project.queue.json --input-root ./project --dry-run
+shadowdrop upload raw --files-from nightly-inputs.txt --dry-run --json
+```
+
+The plain result lists each absolute source path, plaintext and encrypted sizes,
+the queue destination when applicable, selected/excluded counts and byte totals,
+intended queue/secrets paths, and every unchecked server-side validation. JSON
+mode emits exactly one object with `status`, `files`, `totals`, `intendedOutputs`,
+`uncheckedValidations`, and `errors`; locally invalid plans use `status: "invalid"`,
+expose no partial file or output plan, and exit non-zero.
+
+Dry-run checks recursive selection, glob and list validity, duplicates, readable
+non-empty files, encrypted sizes, display names, share/direct-HTTP combinations,
+queue destinations, and prospective output paths. It deliberately cannot check
+server availability, authentication, upload capabilities, account quota, or the
+server's file-size limit. `--force` is validated as permission to overwrite but
+never causes an overwrite. `--dry-run` is deterministic and cannot be combined
+with `--interactive`.
 
 ### Upload size limits and batch behavior
 

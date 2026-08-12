@@ -26,6 +26,7 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(UploadCredentialCliListResult))]
 [JsonSerializable(typeof(TokenRevokeCliResult))]
 [JsonSerializable(typeof(UploadCommandResult))]
+[JsonSerializable(typeof(UploadDryRunResult))]
 [JsonSerializable(typeof(UploadFailure))]
 [JsonSerializable(typeof(DirectHttpDownload))]
 [JsonSerializable(typeof(CredentialDocument))]

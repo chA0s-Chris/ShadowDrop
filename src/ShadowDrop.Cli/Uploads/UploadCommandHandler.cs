@@ -22,6 +22,7 @@ internal sealed class UploadCommandHandler
     private readonly CliConfigurationResolver _configurationResolver;
     private readonly HttpClient _httpClient;
     private readonly TextWriter _standardError;
+    private readonly TextReader _standardInput;
     private readonly TextWriter _standardOut;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
@@ -31,12 +32,14 @@ internal sealed class UploadCommandHandler
                                 TextWriter standardOut,
                                 TextWriter standardError,
                                 TimeProvider timeProvider,
-                                IUploadProgressReporterFactory uploadProgressReporterFactory)
+                                IUploadProgressReporterFactory uploadProgressReporterFactory,
+                                TextReader? standardInput = null)
     {
         _configurationResolver = configurationResolver;
         _httpClient = httpClient;
         _standardOut = standardOut;
         _standardError = standardError;
+        _standardInput = standardInput ?? Console.In;
         _timeProvider = timeProvider;
         _uploadProgressReporterFactory = uploadProgressReporterFactory;
     }
@@ -45,57 +48,66 @@ internal sealed class UploadCommandHandler
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (!UploadCommandOptionsValidator.TryValidateQueueDestinationOptions(options, out var queueOptionError))
+        if (!UploadCommandOptionsValidator.TryValidateLocalOptionCombinations(options, out var optionCombinationError))
         {
-            await _standardError.WriteLineAsync(queueOptionError);
+            await _standardError.WriteLineAsync(optionCombinationError);
             return 1;
         }
 
-        // Resolve recipient-facing display names before any file I/O or network requests so malformed or ambiguous
-        // input fails fast with a clear error.
+        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+        var inputResolution = UploadInputResolver.Resolve(options.Files,
+                                                          options.InputPaths ?? [],
+                                                          options.Recursive,
+                                                          options.IncludePatterns ?? [],
+                                                          options.ExcludePatterns ?? [],
+                                                          options.FilesFrom ?? [],
+                                                          workingDirectory,
+                                                          _standardInput);
+        if (!inputResolution.IsValid)
+        {
+            foreach (var error in inputResolution.Errors)
+            {
+                await _standardError.WriteLineAsync(LocalUploadPlanner.FormatError(error.Message, error.Origin));
+            }
+
+            return 1;
+        }
+
+        var resolvedFiles = inputResolution.Selections.Select(static selection => selection.File).ToArray();
+        options = options with
+        {
+            Files = resolvedFiles
+        };
+
+        var progressReporter = _uploadProgressReporterFactory.Create(options.Json);
+        var planningResult = LocalUploadPlanner.Create(inputResolution.Selections, inputResolution.ExcludedFileCount);
+        if (!planningResult.IsValid)
+        {
+            var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult, options.Files.Length, progressReporter, cancellationToken);
+            await WriteResultIfJsonAsync(options, BuildResult(UploadCommandStatus.UploadFailed, failedResult, null, null, null, null));
+            return 1;
+        }
+
+        var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
+
+        // Resolve recipient-facing display names after the complete batch has passed file preflight, while still
+        // remaining ahead of configuration, output validation, and network requests.
         if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
-                                                     out var displayNameOverrides, out var displayNameError))
+                                                     out var displayNameOverrides, out var displayNameError, workingDirectory))
         {
             await _standardError.WriteLineAsync(displayNameError);
-            return 1;
-        }
-
-        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
-            is not { } configuration)
-        {
-            return 1;
-        }
-
-        var serverUrl = configuration.ServerUrl;
-
-        // Validate share options and the credential sink before any file I/O or network requests begin.
-        if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var optionError))
-        {
-            await _standardError.WriteLineAsync(optionError);
-            return 1;
-        }
-
-        if (options.DirectHttp && options.QueueOut is not null)
-        {
-            await _standardError.WriteLineAsync("Direct HTTP shares do not support queue generation (--queue-out).");
-            return 1;
-        }
-
-        if (options.DirectHttp && options.SecretsOut is not null)
-        {
-            await _standardError.WriteLineAsync("Direct HTTP shares do not support writing secrets to a separate file (--secrets-out).");
-            return 1;
-        }
-
-        if (options.EmbedSecrets && options.QueueOut is null)
-        {
-            await _standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
             return 1;
         }
 
         if (!TryResolveQueueDestinationPlan(options, displayNameOverrides, out var queueDestinations, out var queueDestinationError))
         {
             await _standardError.WriteLineAsync(queueDestinationError);
+            return 1;
+        }
+
+        if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var shareOptionError))
+        {
+            await _standardError.WriteLineAsync(shareOptionError);
             return 1;
         }
 
@@ -125,12 +137,20 @@ internal sealed class UploadCommandHandler
             }
         }
 
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
+            is not { } configuration)
+        {
+            return 1;
+        }
+
+        var serverUrl = configuration.ServerUrl;
+
         var executor = new UploadCommandExecutor(_httpClient);
         var uploadResult =
-            await executor.ExecuteAsync(options.Files,
+            await executor.ExecuteAsync(localPlan,
                                         serverUrl,
                                         configuration.UploadToken,
-                                        _uploadProgressReporterFactory.Create(options.Json),
+                                        progressReporter,
                                         cancellationToken);
 
         if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))
@@ -243,6 +263,55 @@ internal sealed class UploadCommandHandler
         return 0;
     }
 
+    // The queue option contract and every destination knowable from local input are resolved before any upload or
+    // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
+    internal static Boolean TryResolveQueueDestinationPlan(UploadCommandOptions options,
+                                                           IReadOnlyDictionary<String, String> displayNameOverrides,
+                                                           out IReadOnlyDictionary<String, QueueDestination>? destinations,
+                                                           [NotNullWhen(false)] out String? error)
+    {
+        destinations = null;
+
+        if (options.QueueOut is null)
+        {
+            error = null;
+            return true;
+        }
+
+        // Captured once by the command entry point so path resolution cannot be affected by a working directory
+        // that changes while the upload runs.
+        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+
+        // Flatten derives no source root at all, which is what allows inputs from unrelated locations.
+        if (options.Flatten)
+        {
+            return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Flatten,
+                                                       workingDirectory, out destinations, out error);
+        }
+
+        String inputRoot;
+        try
+        {
+            inputRoot = options.InputRoot is null
+                ? Path.GetFullPath(workingDirectory)
+                : Path.GetFullPath(options.InputRoot, workingDirectory);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            error = "The --input-root path is invalid.";
+            return false;
+        }
+
+        if (!Directory.Exists(inputRoot))
+        {
+            error = $"The --input-root directory '{inputRoot}' does not exist.";
+            return false;
+        }
+
+        return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Preserve,
+                                                   inputRoot, out destinations, out error);
+    }
+
     private static IReadOnlyList<DirectHttpDownload> BuildDirectHttpDownloads(Uri serverUrl,
                                                                               UploadExecutionResult uploadResult,
                                                                               String shareSecretHex,
@@ -292,55 +361,6 @@ internal sealed class UploadCommandHandler
 
     private static String? ResolveDisplayName(IReadOnlyDictionary<String, String> displayNameOverrides, FileInfo file) =>
         displayNameOverrides.GetValueOrDefault(file.FullName);
-
-    // The queue option contract and every destination knowable from local input are resolved before any upload or
-    // share-creation request, so a bad root, an unsafe name, or a collision fails without remote side effects.
-    private static Boolean TryResolveQueueDestinationPlan(UploadCommandOptions options,
-                                                          IReadOnlyDictionary<String, String> displayNameOverrides,
-                                                          out IReadOnlyDictionary<String, QueueDestination>? destinations,
-                                                          [NotNullWhen(false)] out String? error)
-    {
-        destinations = null;
-
-        if (options.QueueOut is null)
-        {
-            error = null;
-            return true;
-        }
-
-        // Captured once by the command entry point so path resolution cannot be affected by a working directory
-        // that changes while the upload runs.
-        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
-
-        // Flatten derives no source root at all, which is what allows inputs from unrelated locations.
-        if (options.Flatten)
-        {
-            return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Flatten,
-                                                       workingDirectory, out destinations, out error);
-        }
-
-        String inputRoot;
-        try
-        {
-            inputRoot = options.InputRoot is null
-                ? Path.GetFullPath(workingDirectory)
-                : Path.GetFullPath(options.InputRoot, workingDirectory);
-        }
-        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            error = "The --input-root path is invalid.";
-            return false;
-        }
-
-        if (!Directory.Exists(inputRoot))
-        {
-            error = $"The --input-root directory '{inputRoot}' does not exist.";
-            return false;
-        }
-
-        return QueueDestinationResolver.TryResolve(options.Files, displayNameOverrides, QueueDestinationMode.Preserve,
-                                                   inputRoot, out destinations, out error);
-    }
 
     private UploadCommandResult BuildResult(String status,
                                             UploadExecutionResult uploadResult,
