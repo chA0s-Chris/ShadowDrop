@@ -19,4 +19,13 @@
     <PackageReference Include="SemanticVersioning" />
   </ItemGroup>
 
+  <!-- Nuke.Common 10.1.0 drags in vulnerable transitives (NuGet.Packaging via Nuke.Tooling,
+       System.Security.Cryptography.Xml via Microsoft.Build.Tasks.Core) and is no longer maintained.
+       Pull them forward here to clear the NU1901/NU1903 audit warnings. Bumping NuGet.Packaging to the
+       7.9 family also aligns NuGet.Frameworks with the copy the .NET 10.0.4xx SDK's MSBuild binds to. -->
+  <ItemGroup>
+    <PackageReference Include="NuGet.Packaging" />
+    <PackageReference Include="System.Security.Cryptography.Xml" />
+  </ItemGroup>
+
 </Project>
