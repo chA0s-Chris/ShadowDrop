@@ -439,13 +439,15 @@ public sealed class UploadCommandHandlerTests
             var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
             File.WriteAllText(configPath, "{\"serverUrl\":");
+            var inputPath = Path.Combine(rootDirectory, "input.bin");
+            File.WriteAllText(inputPath, "content");
             var services = new CliApplicationServices(
                 new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(new Dictionary<String, String?>())),
                 httpClient,
                 standardOut,
                 standardError);
 
-            var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+            var exitCode = await CliApplication.InvokeAsync(["upload", inputPath], services, CancellationToken.None);
 
             exitCode.Should().Be(1);
             standardOut.ToString().Should().BeEmpty();
@@ -475,6 +477,8 @@ public sealed class UploadCommandHandlerTests
             var configPath = Path.Combine(rootDirectory, ".config", "shadowdrop", "config.json");
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
             await File.WriteAllTextAsync(configPath, "{\"serverUrl\":\"https://shadowdrop.test/\",\"uploadToken\":\"token\"}");
+            var inputPath = Path.Combine(rootDirectory, "input.bin");
+            await File.WriteAllTextAsync(inputPath, "content");
             if (!OperatingSystem.IsLinux())
             {
                 Assert.Ignore("Unreadable file permissions test is only supported on Linux.");
@@ -487,7 +491,7 @@ public sealed class UploadCommandHandlerTests
                 standardOut,
                 standardError);
 
-            var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], services, CancellationToken.None);
+            var exitCode = await CliApplication.InvokeAsync(["upload", inputPath], services, CancellationToken.None);
 
             exitCode.Should().Be(1);
             standardOut.ToString().Should().BeEmpty();
@@ -541,12 +545,21 @@ public sealed class UploadCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
+        var inputPath = Path.Combine(Path.GetTempPath(), $"shadowdrop-input-{Guid.NewGuid():N}.bin");
+        await File.WriteAllTextAsync(inputPath, "content");
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"], CreateServices(standardOut, standardError), CancellationToken.None);
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["upload", inputPath], CreateServices(standardOut, standardError), CancellationToken.None);
 
-        exitCode.Should().Be(1);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("Server URL invalid or missing.");
+            exitCode.Should().Be(1);
+            standardOut.ToString().Should().BeEmpty();
+            standardError.ToString().Should().Contain("Server URL invalid or missing.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
     }
 
     [Test]
@@ -554,18 +567,27 @@ public sealed class UploadCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var exitCode = await CliApplication.InvokeAsync(["upload", "placeholder.bin"],
-                                                        CreateServices(standardOut,
-                                                                       standardError,
-                                                                       environmentValues: new Dictionary<String, String?>
-                                                                       {
-                                                                           ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
-                                                                       }),
-                                                        CancellationToken.None);
+        var inputPath = Path.Combine(Path.GetTempPath(), $"shadowdrop-input-{Guid.NewGuid():N}.bin");
+        await File.WriteAllTextAsync(inputPath, "content");
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["upload", inputPath],
+                                                            CreateServices(standardOut,
+                                                                           standardError,
+                                                                           environmentValues: new Dictionary<String, String?>
+                                                                           {
+                                                                               ["SHADOWDROP_SERVER_URL"] = "https://shadowdrop.test/"
+                                                                           }),
+                                                            CancellationToken.None);
 
-        exitCode.Should().Be(1);
-        standardOut.ToString().Should().BeEmpty();
-        standardError.ToString().Should().Contain("Authentication token invalid or missing.");
+            exitCode.Should().Be(1);
+            standardOut.ToString().Should().BeEmpty();
+            standardError.ToString().Should().Contain("Authentication token invalid or missing.");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
     }
 
     [Test]
@@ -1239,6 +1261,30 @@ public sealed class UploadCommandHandlerTests
         standardError.ToString().Should().Contain("Direct HTTP shares do not support writing secrets to a separate file");
         fixture.GetStoredUploads().Should().BeEmpty();
         File.Exists(secretsPath).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldReportFilePreflightBeforeConfigurationFailure()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), $"config-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, "{ not valid json");
+        var standardError = new StringWriter();
+        var missingPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
+
+        try
+        {
+            var exitCode = await CliApplication.InvokeAsync(["upload", missingPath],
+                                                            CreateServices(new(), standardError, configPath),
+                                                            CancellationToken.None);
+
+            exitCode.Should().Be(1);
+            standardError.ToString().Should().Contain("File is missing.")
+                         .And.NotContain("Configuration file invalid or unreadable.");
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 
     [Test]

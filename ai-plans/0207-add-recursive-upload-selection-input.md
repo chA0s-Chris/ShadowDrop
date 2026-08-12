@@ -12,12 +12,12 @@ Introduce a single local planning model shared by `upload`, `upload raw`, and dr
 
 ### Layer 1: Shared upload planning
 
-- [ ] `upload` and `upload raw` consume a shared, immutable local upload plan that contains the resolved files, deterministic file numbers, plaintext lengths, chunk counts, and encrypted lengths.
-- [ ] Existing explicit-file invocations that pass local planning retain their current file ordering, diagnostics, progress reporting, metadata, queue destinations, and upload outcomes.
-- [ ] The complete selected batch is preflighted before configuration resolution, prospective-output validation, or any remote request; missing, empty, unreadable, duplicate, or unrepresentably large files prevent all uploads. Local failures are reported in the precedence order defined in Technical Details, so an invocation containing several errors reports the earliest stage.
-- [ ] Duplicate source paths use the existing OS-aware comparison: case-insensitive on Windows and ordinal elsewhere.
-- [ ] Real uploads consume the prepared plan without recomputing selection or encrypted sizes, while retaining the existing file-length revalidation immediately before reserving each file ID.
-- [ ] Automated tests cover the shared planner, prove that refactoring explicit-file uploads does not change observable `upload` or `upload raw` behavior after local planning succeeds, and verify local selection and preflight error precedence.
+- [x] `upload` and `upload raw` consume a shared, immutable local upload plan that contains the resolved files, deterministic file numbers, plaintext lengths, chunk counts, and encrypted lengths.
+- [x] Existing explicit-file invocations that pass local planning retain their current file ordering, diagnostics, progress reporting, metadata, queue destinations, and upload outcomes.
+- [x] The complete selected batch is preflighted before configuration resolution, prospective-output validation, or any remote request; missing, empty, unreadable, duplicate, or unrepresentably large files prevent all uploads. Local failures are reported in the precedence order defined in Technical Details, so an invocation containing several errors reports the earliest stage.
+- [x] Duplicate source paths use the existing OS-aware comparison: case-insensitive on Windows and ordinal elsewhere.
+- [x] Real uploads consume the prepared plan without recomputing selection or encrypted sizes, while retaining the existing file-length revalidation immediately before reserving each file ID.
+- [x] Automated tests cover the shared planner, prove that refactoring explicit-file uploads does not change observable `upload` or `upload raw` behavior after local planning succeeds, and verify local selection and preflight error precedence.
 
 ### Layer 2: Recursive and listed inputs
 

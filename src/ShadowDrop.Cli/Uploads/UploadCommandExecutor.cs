@@ -9,7 +9,6 @@ using ShadowDrop.Crypto;
 
 internal sealed class UploadCommandExecutor
 {
-    private const Int32 ChunkSize = 1024 * 1024;
     private readonly HttpClient _httpClient;
 
     public UploadCommandExecutor(HttpClient httpClient)
@@ -17,36 +16,23 @@ internal sealed class UploadCommandExecutor
         _httpClient = httpClient;
     }
 
-    public async Task<UploadExecutionResult> ExecuteAsync(IReadOnlyList<FileInfo> files,
+    public async Task<UploadExecutionResult> ExecuteAsync(LocalUploadPlan plan,
                                                           Uri serverUrl,
                                                           String uploadToken,
                                                           IUploadProgressReporter progressReporter,
                                                           CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(files);
+        ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(serverUrl);
         ArgumentNullException.ThrowIfNull(progressReporter);
         ArgumentException.ThrowIfNullOrWhiteSpace(uploadToken);
 
-        if (files.Count == 0)
+        if (plan.Files.IsEmpty)
         {
             return new([], null, false);
         }
 
         var uploadApiClient = new UploadApiClient(_httpClient);
-        var preflight = PreflightFiles(files);
-        if (preflight.Errors.Count > 0)
-        {
-            foreach (var error in preflight.Errors)
-            {
-                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, files.Count, error.UploadSizeBytes ?? 0),
-                                                              error.ErrorMessage ?? "Upload failed.",
-                                                              cancellationToken);
-            }
-
-            return new(preflight.Errors, null, false);
-        }
-
         UploadCapabilitiesResponse capabilities;
         try
         {
@@ -58,12 +44,12 @@ internal sealed class UploadCommandExecutor
             return new([], null, false, exception.Message);
         }
 
-        var oversizedFiles = FindOversizedFiles(preflight.Files, capabilities.MaxFilePayloadBytes);
+        var oversizedFiles = FindOversizedFiles(plan.Files, capabilities.MaxFilePayloadBytes);
         if (oversizedFiles.Count > 0)
         {
             foreach (var error in oversizedFiles)
             {
-                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, files.Count, error.UploadSizeBytes ?? 0),
+                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, plan.Files.Length, error.UploadSizeBytes ?? 0),
                                                               error.ErrorMessage ?? "Upload failed.",
                                                               cancellationToken);
             }
@@ -74,16 +60,16 @@ internal sealed class UploadCommandExecutor
         using var shareSecret = ShareSecret.Generate();
         List<UploadFileExecutionResult> results = [];
 
-        foreach (var file in preflight.Files)
+        foreach (var file in plan.Files)
         {
-            UploadFilePlan plan;
+            UploadFilePlan uploadFilePlan;
             try
             {
-                plan = await CreatePlanAsync(file, uploadApiClient, serverUrl, uploadToken, cancellationToken);
+                uploadFilePlan = await CreatePlanAsync(file, uploadApiClient, serverUrl, uploadToken, cancellationToken);
             }
             catch (Exception exception) when (ClassifyUploadException(exception) is { } message)
             {
-                await progressReporter.ReportFileFailureAsync(new(file.File.Name, file.FileNumber, files.Count, file.EncryptedLength),
+                await progressReporter.ReportFileFailureAsync(new(file.File.Name, file.FileNumber, plan.Files.Length, file.EncryptedLength),
                                                               message,
                                                               cancellationToken);
                 results.Add(new(file.File, file.FileNumber, null, message));
@@ -91,11 +77,11 @@ internal sealed class UploadCommandExecutor
             }
 
             var upload =
-                await progressReporter.RunFileAsync(new(file.File.Name, file.FileNumber, files.Count, plan.Metadata.EncryptedLength),
+                await progressReporter.RunFileAsync(new(file.File.Name, file.FileNumber, plan.Files.Length, uploadFilePlan.Metadata.EncryptedLength),
                                                     (progressSink, token) =>
                                                         uploadApiClient.UploadAsync(serverUrl,
                                                                                     uploadToken,
-                                                                                    plan,
+                                                                                    uploadFilePlan,
                                                                                     shareSecret,
                                                                                     progressSink,
                                                                                     token),
@@ -125,7 +111,7 @@ internal sealed class UploadCommandExecutor
         _ => null
     };
 
-    private static async Task<UploadFilePlan> CreatePlanAsync(PreflightedUploadFile file,
+    private static async Task<UploadFilePlan> CreatePlanAsync(LocalUploadFile file,
                                                               UploadApiClient uploadApiClient,
                                                               Uri serverUrl,
                                                               String uploadToken,
@@ -149,14 +135,14 @@ internal sealed class UploadCommandExecutor
                                                  "application/octet-stream",
                                                  FormatConstants.EncryptionFormatVersion,
                                                  FormatConstants.Aes256GcmAlgorithmId,
-                                                 ChunkSize,
+                                                 LocalUploadPlanner.ChunkSize,
                                                  file.ChunkCount,
                                                  Convert.ToBase64String(kdfSalt),
                                                  null);
-        return new(file.File, fileId, encryptionContext, metadata, ChunkSize);
+        return new(file.File, fileId, encryptionContext, metadata, LocalUploadPlanner.ChunkSize);
     }
 
-    private static IReadOnlyList<UploadFileExecutionResult> FindOversizedFiles(IReadOnlyList<PreflightedUploadFile> files, Int64 maxFilePayloadBytes)
+    private static IReadOnlyList<UploadFileExecutionResult> FindOversizedFiles(IReadOnlyList<LocalUploadFile> files, Int64 maxFilePayloadBytes)
     {
         List<UploadFileExecutionResult> errors = [];
         foreach (var file in files)
@@ -175,51 +161,7 @@ internal sealed class UploadCommandExecutor
         return errors;
     }
 
-    private static UploadPreflightResult PreflightFiles(IReadOnlyList<FileInfo> files)
-    {
-        List<PreflightedUploadFile> preflightedFiles = [];
-        List<UploadFileExecutionResult> errors = [];
-
-        for (var index = 0; index < files.Count; index++)
-        {
-            var file = files[index];
-            var fileNumber = index + 1;
-            try
-            {
-                if (!file.Exists)
-                {
-                    errors.Add(new(file, fileNumber, null, "File is missing."));
-                    continue;
-                }
-
-                var plaintextLength = file.Length;
-                if (plaintextLength <= 0)
-                {
-                    errors.Add(new(file, fileNumber, null, "File is empty."));
-                    continue;
-                }
-
-                using var probe = file.OpenRead();
-                _ = probe.Length;
-
-                var chunkCount = checked(((plaintextLength - 1) / ChunkSize) + 1);
-                var encryptedLength = checked(plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength));
-                preflightedFiles.Add(new(file, fileNumber, plaintextLength, chunkCount, encryptedLength));
-            }
-            catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
-            {
-                errors.Add(new(file, fileNumber, null, "File is unreadable."));
-            }
-            catch (OverflowException)
-            {
-                errors.Add(new(file, fileNumber, null, $"{file.Name} exceeds the maximum upload size."));
-            }
-        }
-
-        return new(preflightedFiles, errors);
-    }
-
-    private static void RevalidatePreflightSnapshot(PreflightedUploadFile file)
+    private static void RevalidatePreflightSnapshot(LocalUploadFile file)
     {
         // FileInfo caches Exists/Length; Refresh() is what makes this a re-stat rather than a replay of preflight.
         file.File.Refresh();
@@ -289,14 +231,3 @@ internal sealed record UploadFileExecutionResult(
     String? ErrorMessage,
     Int64? UploadSizeBytes = null,
     Int64? MaxFilePayloadBytes = null);
-
-internal sealed record UploadPreflightResult(
-    IReadOnlyList<PreflightedUploadFile> Files,
-    IReadOnlyList<UploadFileExecutionResult> Errors);
-
-internal sealed record PreflightedUploadFile(
-    FileInfo File,
-    Int32 FileNumber,
-    Int64 PlaintextLength,
-    Int64 ChunkCount,
-    Int64 EncryptedLength);

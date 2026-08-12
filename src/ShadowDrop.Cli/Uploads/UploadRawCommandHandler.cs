@@ -38,11 +38,16 @@ internal sealed class UploadRawCommandHandler
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
-            is not { } configuration)
+        var progressReporter = _uploadProgressReporterFactory.Create(options.Json);
+        var planningResult = LocalUploadPlanner.Create(options.Files.Select(UploadSelection.FromCommandLine));
+        if (!planningResult.IsValid)
         {
+            var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult, options.Files.Length, progressReporter, cancellationToken);
+            await EmitPlanningFailureAsync(options, failedResult);
             return 1;
         }
+
+        var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
 
         if (options.SecretsOut is not null)
         {
@@ -57,12 +62,18 @@ internal sealed class UploadRawCommandHandler
             }
         }
 
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
+            is not { } configuration)
+        {
+            return 1;
+        }
+
         var executor = new UploadCommandExecutor(_httpClient);
         var uploadResult =
-            await executor.ExecuteAsync(options.Files,
+            await executor.ExecuteAsync(localPlan,
                                         configuration.ServerUrl,
                                         configuration.UploadToken,
-                                        _uploadProgressReporterFactory.Create(options.Json),
+                                        progressReporter,
                                         cancellationToken);
 
         var uploadedFileIds = uploadResult.UploadedFileIds.Select(static id => id.ToString()).ToArray();
@@ -126,12 +137,31 @@ internal sealed class UploadRawCommandHandler
             }
         }
 
-        await EmitSuccessAsync(options, uploadedFileIds, uploadResult.ShareSecretHex, cancellationToken);
+        await EmitSuccessAsync(options, uploadedFileIds, uploadResult.ShareSecretHex);
         return 0;
     }
 
-    private async Task EmitSuccessAsync(UploadRawCommandOptions options, IReadOnlyList<String> uploadedFileIds, String shareKey,
-                                        CancellationToken cancellationToken)
+    private async Task EmitPlanningFailureAsync(UploadRawCommandOptions options, UploadExecutionResult uploadResult)
+    {
+        if (!options.Json)
+        {
+            return;
+        }
+
+        await UploadResultWriter.WriteAsync(_standardOut,
+                                            new(UploadCommandStatus.UploadFailed,
+                                                [],
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                uploadResult.Failures));
+    }
+
+    private async Task EmitSuccessAsync(UploadRawCommandOptions options, IReadOnlyList<String> uploadedFileIds, String shareKey)
     {
         if (options.Json)
         {

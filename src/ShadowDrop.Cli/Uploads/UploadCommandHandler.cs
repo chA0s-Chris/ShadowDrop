@@ -45,14 +45,25 @@ internal sealed class UploadCommandHandler
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (!UploadCommandOptionsValidator.TryValidateQueueDestinationOptions(options, out var queueOptionError))
+        if (!UploadCommandOptionsValidator.TryValidateLocalOptionCombinations(options, out var optionCombinationError))
         {
-            await _standardError.WriteLineAsync(queueOptionError);
+            await _standardError.WriteLineAsync(optionCombinationError);
             return 1;
         }
 
-        // Resolve recipient-facing display names before any file I/O or network requests so malformed or ambiguous
-        // input fails fast with a clear error.
+        var progressReporter = _uploadProgressReporterFactory.Create(options.Json);
+        var planningResult = LocalUploadPlanner.Create(options.Files.Select(UploadSelection.FromCommandLine));
+        if (!planningResult.IsValid)
+        {
+            var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult, options.Files.Length, progressReporter, cancellationToken);
+            await WriteResultIfJsonAsync(options, BuildResult(UploadCommandStatus.UploadFailed, failedResult, null, null, null, null));
+            return 1;
+        }
+
+        var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
+
+        // Resolve recipient-facing display names after the complete batch has passed file preflight, while still
+        // remaining ahead of configuration, output validation, and network requests.
         if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
                                                      out var displayNameOverrides, out var displayNameError))
         {
@@ -60,42 +71,15 @@ internal sealed class UploadCommandHandler
             return 1;
         }
 
-        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
-            is not { } configuration)
-        {
-            return 1;
-        }
-
-        var serverUrl = configuration.ServerUrl;
-
-        // Validate share options and the credential sink before any file I/O or network requests begin.
-        if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var optionError))
-        {
-            await _standardError.WriteLineAsync(optionError);
-            return 1;
-        }
-
-        if (options.DirectHttp && options.QueueOut is not null)
-        {
-            await _standardError.WriteLineAsync("Direct HTTP shares do not support queue generation (--queue-out).");
-            return 1;
-        }
-
-        if (options.DirectHttp && options.SecretsOut is not null)
-        {
-            await _standardError.WriteLineAsync("Direct HTTP shares do not support writing secrets to a separate file (--secrets-out).");
-            return 1;
-        }
-
-        if (options.EmbedSecrets && options.QueueOut is null)
-        {
-            await _standardError.WriteLineAsync("--embed-secrets requires --queue-out.");
-            return 1;
-        }
-
         if (!TryResolveQueueDestinationPlan(options, displayNameOverrides, out var queueDestinations, out var queueDestinationError))
         {
             await _standardError.WriteLineAsync(queueDestinationError);
+            return 1;
+        }
+
+        if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out var expiration, out var shareOptionError))
+        {
+            await _standardError.WriteLineAsync(shareOptionError);
             return 1;
         }
 
@@ -125,12 +109,20 @@ internal sealed class UploadCommandHandler
             }
         }
 
+        if (await UploadConfiguration.ResolveAsync(_configurationResolver, options.ServerUrlOverride, options.UploadTokenOverride, _standardError)
+            is not { } configuration)
+        {
+            return 1;
+        }
+
+        var serverUrl = configuration.ServerUrl;
+
         var executor = new UploadCommandExecutor(_httpClient);
         var uploadResult =
-            await executor.ExecuteAsync(options.Files,
+            await executor.ExecuteAsync(localPlan,
                                         serverUrl,
                                         configuration.UploadToken,
-                                        _uploadProgressReporterFactory.Create(options.Json),
+                                        progressReporter,
                                         cancellationToken);
 
         if (!uploadResult.AllSucceeded || String.IsNullOrWhiteSpace(uploadResult.ShareSecretHex))

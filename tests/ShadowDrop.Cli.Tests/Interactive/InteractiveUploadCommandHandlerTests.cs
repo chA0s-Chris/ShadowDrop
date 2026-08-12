@@ -38,7 +38,9 @@ public sealed class InteractiveUploadCommandHandlerTests
     {
         var standardError = new StringWriter();
         var session = new FakeInteractiveSession();
-        session.EnqueueTextResponse(MissingFilePath());
+        var inputPath = Path.Combine(Path.GetTempPath(), $"interactive-input-{Guid.NewGuid():N}.bin");
+        await File.WriteAllTextAsync(inputPath, "content");
+        session.EnqueueTextResponse(inputPath);
         session.EnqueueConfirmation(false);
         session.EnqueueSelection(2);
         session.EnqueueConfirmation(false);
@@ -56,10 +58,17 @@ public sealed class InteractiveUploadCommandHandlerTests
             WorkingDirectory = workingDirectory
         };
 
-        var exitCode = await handler.ExecuteAsync(options, CancellationToken.None);
+        try
+        {
+            var exitCode = await handler.ExecuteAsync(options, CancellationToken.None);
 
-        exitCode.Should().Be(1);
-        standardError.ToString().Should().Contain(Path.Combine(workingDirectory, "inputs")).And.Contain("does not exist");
+            exitCode.Should().Be(1);
+            standardError.ToString().Should().Contain(Path.Combine(workingDirectory, "inputs")).And.Contain("does not exist");
+        }
+        finally
+        {
+            File.Delete(inputPath);
+        }
     }
 
     [Test]
