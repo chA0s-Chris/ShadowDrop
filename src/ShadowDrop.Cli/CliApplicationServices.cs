@@ -99,6 +99,12 @@ internal sealed record CliApplicationServices(
                terminalCapabilityProvider) { }
 
     /// <summary>
+    /// Standard input consumed by commands such as <c>--files-from -</c>. Tests replace this reader without
+    /// mutating process-global console state.
+    /// </summary>
+    public TextReader StandardInput { get; init; } = Console.In;
+
+    /// <summary>
     /// The update feature's replaceable collaborators. An init property rather than a positional parameter
     /// so the many existing constructor chains stay untouched; tests set it via an object initializer to
     /// guarantee no live release requests.

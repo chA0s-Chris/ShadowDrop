@@ -18,6 +18,7 @@ internal sealed class UploadRawCommandHandler
     private readonly CliConfigurationResolver _configurationResolver;
     private readonly HttpClient _httpClient;
     private readonly TextWriter _standardError;
+    private readonly TextReader _standardInput;
     private readonly TextWriter _standardOut;
     private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
 
@@ -25,12 +26,14 @@ internal sealed class UploadRawCommandHandler
                                    HttpClient httpClient,
                                    TextWriter standardOut,
                                    TextWriter standardError,
-                                   IUploadProgressReporterFactory uploadProgressReporterFactory)
+                                   IUploadProgressReporterFactory uploadProgressReporterFactory,
+                                   TextReader? standardInput = null)
     {
         _configurationResolver = configurationResolver;
         _httpClient = httpClient;
         _standardOut = standardOut;
         _standardError = standardError;
+        _standardInput = standardInput ?? Console.In;
         _uploadProgressReporterFactory = uploadProgressReporterFactory;
     }
 
@@ -38,11 +41,41 @@ internal sealed class UploadRawCommandHandler
     {
         ArgumentNullException.ThrowIfNull(options);
 
+        if (!UploadInputOptionsValidator.TryValidate(options.Recursive,
+                                                     options.IncludePatterns ?? [],
+                                                     options.ExcludePatterns ?? [],
+                                                     out var optionError))
+        {
+            await _standardError.WriteLineAsync(optionError);
+            return 1;
+        }
+
         var progressReporter = _uploadProgressReporterFactory.Create(options.Json);
-        var planningResult = LocalUploadPlanner.Create(options.Files.Select(UploadSelection.FromCommandLine));
+        var inputResolution = UploadInputResolver.Resolve(options.Files,
+                                                          options.InputPaths ?? [],
+                                                          options.Recursive,
+                                                          options.IncludePatterns ?? [],
+                                                          options.ExcludePatterns ?? [],
+                                                          options.FilesFrom ?? [],
+                                                          options.WorkingDirectory ?? Directory.GetCurrentDirectory(),
+                                                          _standardInput);
+        if (!inputResolution.IsValid)
+        {
+            foreach (var error in inputResolution.Errors)
+            {
+                await _standardError.WriteLineAsync(LocalUploadPlanner.FormatError(error.Message, error.Origin));
+            }
+
+            return 1;
+        }
+
+        var planningResult = LocalUploadPlanner.Create(inputResolution.Selections, inputResolution.ExcludedFileCount);
         if (!planningResult.IsValid)
         {
-            var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult, options.Files.Length, progressReporter, cancellationToken);
+            var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult,
+                                                                           inputResolution.Selections.Length,
+                                                                           progressReporter,
+                                                                           cancellationToken);
             await EmitPlanningFailureAsync(options, failedResult);
             return 1;
         }

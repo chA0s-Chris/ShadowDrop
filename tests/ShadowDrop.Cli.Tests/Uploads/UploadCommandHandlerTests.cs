@@ -919,6 +919,31 @@ public sealed class UploadCommandHandlerTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldRecursivelyUploadFilteredFilesAndPreserveQueuePaths()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new(), new(), fixture.ConfigFilePath, httpClient: httpClient);
+        var inputDirectory = Path.Combine(fixture.RootDirectory, "batch");
+        fixture.CreateInputFile(Path.Combine("batch", "alpha.bin"), 16);
+        fixture.CreateInputFile(Path.Combine("batch", "nested", "beta.bin"), 32);
+        fixture.CreateInputFile(Path.Combine("batch", "nested", "ignored.txt"), 48);
+        var queuePath = Path.Combine(fixture.RootDirectory, "recursive.queue.json");
+
+        var exitCode = await CliApplication.InvokeAsync(
+            ["upload", inputDirectory, "--recursive", "--include", "**/*.bin", "--queue-out", queuePath, "--input-root", fixture.RootDirectory],
+            services,
+            CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        fixture.GetStoredUploads().Should().HaveCount(2);
+        var queue = QueueFileParser.Parse(await File.ReadAllTextAsync(queuePath));
+        queue.Files.Should().NotBeNull();
+        queue.Files.Select(QueueOutputPath.Resolve).Should().Equal("batch/alpha.bin", "batch/nested/beta.bin");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRefuseToOverwriteSecretsFile_WithoutForce()
     {
         await using var fixture = new CliUploadApiFactory();
@@ -1121,6 +1146,24 @@ public sealed class UploadCommandHandlerTests
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("does-not-exist").And.Contain("does not exist");
+        fixture.GetStoredUploads().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task InvokeAsync_ShouldRejectOverlappingSelectionsBeforeUploading()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardError = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(new(), standardError, fixture.ConfigFilePath, httpClient: httpClient);
+        var inputDirectory = Path.Combine(fixture.RootDirectory, "overlap");
+        var inputFile = fixture.CreateInputFile(Path.Combine("overlap", "duplicate.bin"), 16);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", inputFile, inputDirectory, "--recursive"], services, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain("selected more than once");
         fixture.GetStoredUploads().Should().BeEmpty();
     }
 
@@ -2063,6 +2106,25 @@ public sealed class UploadCommandHandlerTests
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
         standardError.ToString().Should().NotBeEmpty();
+    }
+
+    [Test]
+    public async Task UploadRaw_ShouldRecursivelyUploadDeterministicallyOrderedFiles()
+    {
+        await using var fixture = new CliUploadApiFactory();
+        var standardOut = new StringWriter();
+        using var httpClient = fixture.CreateClient();
+        fixture.WriteConfig(fixture.BaseAddress.ToString(), fixture.BootstrapToken);
+        var services = CreateServices(standardOut, new(), fixture.ConfigFilePath, httpClient: httpClient);
+        var inputDirectory = Path.Combine(fixture.RootDirectory, "raw-tree");
+        fixture.CreateInputFile(Path.Combine("raw-tree", "zeta.bin"), 16);
+        fixture.CreateInputFile(Path.Combine("raw-tree", "alpha.bin"), 32);
+
+        var exitCode = await CliApplication.InvokeAsync(["upload", "raw", inputDirectory, "-r"], services, CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        FindLines(standardOut.ToString(), "file-id:").Should().HaveCount(2);
+        fixture.GetStoredUploads().Select(static upload => upload.OriginalFileName).Should().Equal("alpha.bin", "zeta.bin");
     }
 
     [Test]

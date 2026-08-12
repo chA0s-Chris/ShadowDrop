@@ -22,6 +22,7 @@ public sealed class CliApplicationServicesTests
 
         services.StandardOut.Should().BeSameAs(standardOut);
         services.StandardError.Should().BeSameAs(standardError);
+        services.StandardInput.Should().BeSameAs(Console.In);
         services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
         services.TimeProvider.Should().BeSameAs(TimeProvider.System);
     }
@@ -35,6 +36,7 @@ public sealed class CliApplicationServicesTests
         services.HttpClientFactory.Should().NotBeNull();
         services.StandardOut.Should().BeSameAs(Console.Out);
         services.StandardError.Should().BeSameAs(Console.Error);
+        services.StandardInput.Should().BeSameAs(Console.In);
         services.InteractiveSession.Should().BeOfType<SpectreCliInteractiveSession>();
         services.TimeProvider.Should().BeSameAs(TimeProvider.System);
 

@@ -17,6 +17,7 @@ internal static class DisplayNameResolver
     private static readonly StringComparer FilePathComparer = OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
+
     private static readonly IReadOnlyDictionary<String, String> EmptyStringMap = new Dictionary<String, String>(FilePathComparer);
 
 
@@ -82,12 +83,14 @@ internal static class DisplayNameResolver
     /// <param name="mappings">The repeated <c>--display-name &lt;path&gt;=&lt;name&gt;</c> values.</param>
     /// <param name="overridesByFullPath">The resolved overrides keyed by <see cref="FileSystemInfo.FullName"/>.</param>
     /// <param name="error">The validation error when resolution fails; otherwise <see langword="null"/>.</param>
+    /// <param name="workingDirectory">The captured directory used to resolve relative mapping keys.</param>
     /// <returns><see langword="true"/> when resolution succeeds; otherwise <see langword="false"/>.</returns>
     public static Boolean TryResolveForUpload(IReadOnlyList<FileInfo> files,
                                               String? name,
                                               IReadOnlyList<String> mappings,
                                               out IReadOnlyDictionary<String, String> overridesByFullPath,
-                                              out String? error)
+                                              out String? error,
+                                              String? workingDirectory = null)
     {
         if (name is not null)
         {
@@ -128,7 +131,7 @@ internal static class DisplayNameResolver
             String fullPath;
             try
             {
-                fullPath = Path.GetFullPath(key);
+                fullPath = workingDirectory is null ? Path.GetFullPath(key) : Path.GetFullPath(key, workingDirectory);
             }
             catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
             {

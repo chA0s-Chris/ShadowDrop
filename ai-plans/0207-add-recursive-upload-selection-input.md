@@ -21,22 +21,22 @@ Introduce a single local planning model shared by `upload`, `upload raw`, and dr
 
 ### Layer 2: Recursive and listed inputs
 
-- [ ] Both upload commands accept `-r`/`--recursive`, repeatable `-i`/`--include <glob>`, repeatable `-x`/`--exclude <glob>`, and repeatable `--files-from <file|->`; positional help describes operands as input paths, and the include/exclude help states directory-relative matching and that exclusion wins.
-- [ ] Either command may obtain all inputs from `--files-from`, without requiring a positional operand.
-- [ ] Directory operands require `--recursive`; otherwise the command names the directory, recommends `--recursive`, and performs no remote or output side effect.
-- [ ] Recursive discovery includes hidden content, does not apply ignore files, does not traverse directory symlinks or reparse-point directories, and fails rather than silently skipping inaccessible input. Explicitly supplied file operands keep their current link behavior.
-- [ ] Files discovered beneath each directory are ordered deterministically by their normalized directory-relative paths; positional inputs come first, followed by file-list sources in option occurrence order, while each list retains record order.
-- [ ] Include and exclude patterns require `--recursive`, match the entire `/`-separated path relative to each traversed directory operand, support the `*`, `?`, and `**` semantics defined in Technical Details, and follow the platform's source-path case convention.
-- [ ] With no includes, every discovered file is initially selected; repeated includes are ORed, repeated excludes are ORed, and exclusion takes precedence.
-- [ ] Filters apply only to recursively discovered files. Explicit file operands from either the command line or a file list bypass filters.
-- [ ] `--files-from` reads strict UTF-8 with one path per line, ignores only empty records, preserves all other whitespace, and performs no comment, quoting, escaping, or environment-variable interpretation.
-- [ ] Relative positional and listed paths resolve against the command's captured initial working directory; invalid listed paths identify their source file or stdin and record number.
-- [ ] `--files-from -` reads the injected standard input, may appear once, and cannot be combined with `--interactive`.
-- [ ] Empty expansions, invalid glob patterns, malformed UTF-8, unreadable lists, directory enumeration failures, display-name errors, and queue-destination conflicts are reported before configuration resolution, output validation, or network access. Recursively discovered and listed files enter the existing duplicate check, so overlapping trees and repeated list records are rejected on the same terms as repeated operands.
-- [ ] `--name` requires exactly one resolved file, and `--display-name` mappings resolve against the expanded selection.
-- [ ] Interactive upload applies the same resolver to supplied paths while preserving its existing prompted file selection when no inputs are supplied.
-- [ ] Recursive selection does not alter server-side file-name metadata or queue v2; `--input-root` continues to choose the preserved queue root, while `--flatten` continues to discard source directories and resolve destination collisions deterministically.
-- [ ] CLI tests cover aliases, repeated filters, matching and precedence, multiple roots, hidden files, directory links, inaccessible paths, ordering, overlapping selections, input files, stdin, Unicode, whitespace, diagnostics, interactive conflicts, display names, and queue destinations.
+- [x] Both upload commands accept `-r`/`--recursive`, repeatable `-i`/`--include <glob>`, repeatable `-x`/`--exclude <glob>`, and repeatable `--files-from <file|->`; positional help describes operands as input paths, and the include/exclude help states directory-relative matching and that exclusion wins.
+- [x] Either command may obtain all inputs from `--files-from`, without requiring a positional operand.
+- [x] Directory operands require `--recursive`; otherwise the command names the directory, recommends `--recursive`, and performs no remote or output side effect.
+- [x] Recursive discovery includes hidden content, does not apply ignore files, does not traverse directory symlinks or reparse-point directories, and fails rather than silently skipping inaccessible input. Explicitly supplied file operands keep their current link behavior.
+- [x] Files discovered beneath each directory are ordered deterministically by their normalized directory-relative paths; positional inputs come first, followed by file-list sources in option occurrence order, while each list retains record order.
+- [x] Include and exclude patterns require `--recursive`, match the entire `/`-separated path relative to each traversed directory operand, support the `*`, `?`, and `**` semantics defined in Technical Details, and follow the platform's source-path case convention.
+- [x] With no includes, every discovered file is initially selected; repeated includes are ORed, repeated excludes are ORed, and exclusion takes precedence.
+- [x] Filters apply only to recursively discovered files. Explicit file operands from either the command line or a file list bypass filters.
+- [x] `--files-from` reads strict UTF-8 with one path per line, ignores only empty records, preserves all other whitespace, and performs no comment, quoting, escaping, or environment-variable interpretation.
+- [x] Relative positional and listed paths resolve against the command's captured initial working directory; invalid listed paths identify their source file or stdin and record number.
+- [x] `--files-from -` reads the injected standard input, may appear once, and cannot be combined with `--interactive`.
+- [x] Empty expansions, invalid glob patterns, malformed UTF-8, unreadable lists, directory enumeration failures, display-name errors, and queue-destination conflicts are reported before configuration resolution, output validation, or network access. Recursively discovered and listed files enter the existing duplicate check, so overlapping trees and repeated list records are rejected on the same terms as repeated operands.
+- [x] `--name` requires exactly one resolved file, and `--display-name` mappings resolve against the expanded selection.
+- [x] Interactive upload applies the same resolver to supplied paths while preserving its existing prompted file selection when no inputs are supplied.
+- [x] Recursive selection does not alter server-side file-name metadata or queue v2; `--input-root` continues to choose the preserved queue root, while `--flatten` continues to discard source directories and resolve destination collisions deterministically.
+- [x] CLI tests cover aliases, repeated filters, matching and precedence, multiple roots, hidden files, directory links, inaccessible paths, ordering, overlapping selections, input files, stdin, Unicode, whitespace, diagnostics, interactive conflicts, display names, and queue destinations.
 
 ### Layer 3: Dry-run, documentation, and end-to-end behavior
 

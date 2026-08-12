@@ -20,7 +20,12 @@ internal sealed record UploadCommandOptions(
     String[] DisplayNameMappings,
     String? InputRoot = null,
     Boolean Flatten = false,
-    String? WorkingDirectory = null);
+    String? WorkingDirectory = null,
+    String[]? InputPaths = null,
+    Boolean Recursive = false,
+    String[]? IncludePatterns = null,
+    String[]? ExcludePatterns = null,
+    String[]? FilesFrom = null);
 
 internal static class UploadCommandOptionsValidator
 {
@@ -28,6 +33,14 @@ internal static class UploadCommandOptionsValidator
                                                              [NotNullWhen(false)] out String? error)
     {
         ArgumentNullException.ThrowIfNull(options);
+
+        if (!UploadInputOptionsValidator.TryValidate(options.Recursive,
+                                                     options.IncludePatterns ?? [],
+                                                     options.ExcludePatterns ?? [],
+                                                     out error))
+        {
+            return false;
+        }
 
         if (!TryValidateQueueDestinationOptions(options, out error))
         {
@@ -56,8 +69,8 @@ internal static class UploadCommandOptionsValidator
         return true;
     }
 
-    public static Boolean TryValidateQueueDestinationOptions(UploadCommandOptions options,
-                                                             [NotNullWhen(false)] out String? error)
+    private static Boolean TryValidateQueueDestinationOptions(UploadCommandOptions options,
+                                                              [NotNullWhen(false)] out String? error)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -79,6 +92,30 @@ internal static class UploadCommandOptionsValidator
         if (options.InputRoot is not null && options.Flatten)
         {
             error = "The --input-root and --flatten options cannot be combined.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+}
+
+internal static class UploadInputOptionsValidator
+{
+    public static Boolean TryValidate(Boolean recursive,
+                                      IReadOnlyList<String> includePatterns,
+                                      IReadOnlyList<String> excludePatterns,
+                                      [NotNullWhen(false)] out String? error)
+    {
+        if (!recursive && includePatterns.Count > 0)
+        {
+            error = "The --include option requires --recursive.";
+            return false;
+        }
+
+        if (!recursive && excludePatterns.Count > 0)
+        {
+            error = "The --exclude option requires --recursive.";
             return false;
         }
 

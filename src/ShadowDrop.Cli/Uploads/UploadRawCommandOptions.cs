@@ -8,4 +8,10 @@ internal sealed record UploadRawCommandOptions(
     String? UploadTokenOverride,
     FileInfo? SecretsOut,
     Boolean Json,
-    Boolean Force);
+    Boolean Force,
+    String[]? InputPaths = null,
+    Boolean Recursive = false,
+    String[]? IncludePatterns = null,
+    String[]? ExcludePatterns = null,
+    String[]? FilesFrom = null,
+    String? WorkingDirectory = null);

@@ -8,7 +8,7 @@ using System.Collections.Immutable;
 /// A fully materialized, locally validated upload batch. The captured sizes are the source of truth for
 /// metadata and encrypted payload lengths during execution.
 /// </summary>
-internal sealed record LocalUploadPlan(ImmutableArray<LocalUploadFile> Files);
+internal sealed record LocalUploadPlan(ImmutableArray<LocalUploadFile> Files, Int32 ExcludedFileCount = 0);
 
 /// <summary>
 /// One immutable entry in a <see cref="LocalUploadPlan"/>.
@@ -47,6 +47,7 @@ internal sealed record LocalUploadPlanningResult(
 
 internal sealed record LocalUploadPlanningError(
     FileInfo File,
+    UploadSelectionOrigin Origin,
     Int32 FileNumber,
     String Message,
     Int64? EncryptedLength = null);

@@ -18,9 +18,10 @@ internal static class LocalUploadPlanner
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
 
-    public static LocalUploadPlanningResult Create(IEnumerable<UploadSelection> selections)
+    public static LocalUploadPlanningResult Create(IEnumerable<UploadSelection> selections, Int32 excludedFileCount = 0)
     {
         ArgumentNullException.ThrowIfNull(selections);
+        ArgumentOutOfRangeException.ThrowIfNegative(excludedFileCount);
 
         var materialized = selections.ToImmutableArray();
         var duplicateErrors = FindDuplicates(materialized);
@@ -42,14 +43,14 @@ internal static class LocalUploadPlanner
                 file.Refresh();
                 if (!file.Exists)
                 {
-                    errors.Add(new(file, fileNumber, "File is missing."));
+                    errors.Add(new(file, selection.Origin, fileNumber, "File is missing."));
                     continue;
                 }
 
                 var plaintextLength = file.Length;
                 if (plaintextLength <= 0)
                 {
-                    errors.Add(new(file, fileNumber, "File is empty."));
+                    errors.Add(new(file, selection.Origin, fileNumber, "File is empty."));
                     continue;
                 }
 
@@ -68,17 +69,17 @@ internal static class LocalUploadPlanner
             }
             catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
             {
-                errors.Add(new(file, fileNumber, "File is unreadable."));
+                errors.Add(new(file, selection.Origin, fileNumber, "File is unreadable."));
             }
             catch (OverflowException)
             {
-                errors.Add(new(file, fileNumber, $"{file.Name} exceeds the maximum upload size."));
+                errors.Add(new(file, selection.Origin, fileNumber, $"{file.Name} exceeds the maximum upload size."));
             }
         }
 
         return errors.Count > 0
             ? new(null, errors.ToImmutable())
-            : new(new(files.ToImmutable()), []);
+            : new(new(files.ToImmutable(), excludedFileCount), []);
     }
 
     public static async Task<UploadExecutionResult> ReportFailureAsync(LocalUploadPlanningResult result,
@@ -96,12 +97,24 @@ internal static class LocalUploadPlanner
                                                               error.FileNumber,
                                                               selectedFileCount,
                                                               error.EncryptedLength ?? 0),
-                                                          error.Message,
+                                                          FormatError(error.Message, error.Origin),
                                                           cancellationToken);
-            failures.Add(new(error.File, error.FileNumber, null, error.Message, error.EncryptedLength));
+            failures.Add(new(error.File, error.FileNumber, null, FormatError(error.Message, error.Origin), error.EncryptedLength));
         }
 
         return new(failures, null, false);
+    }
+
+    internal static String FormatError(String message, UploadSelectionOrigin origin)
+    {
+        if (origin.Source == "commandLine")
+        {
+            return message;
+        }
+
+        return origin.RecordNumber is { } recordNumber
+            ? $"{message} Source: {origin.Source}, record {recordNumber}."
+            : $"{message} Source: {origin.Source}.";
     }
 
     private static ImmutableArray<LocalUploadPlanningError> FindDuplicates(ImmutableArray<UploadSelection> selections)
@@ -119,13 +132,13 @@ internal static class LocalUploadPlanner
             }
             catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
             {
-                errors.Add(new(file, index + 1, "File path is invalid."));
+                errors.Add(new(file, selections[index].Origin, index + 1, "File path is invalid."));
                 continue;
             }
 
             if (!paths.Add(fullPath))
             {
-                errors.Add(new(file, index + 1, "File was selected more than once."));
+                errors.Add(new(file, selections[index].Origin, index + 1, "File was selected more than once."));
             }
         }
 

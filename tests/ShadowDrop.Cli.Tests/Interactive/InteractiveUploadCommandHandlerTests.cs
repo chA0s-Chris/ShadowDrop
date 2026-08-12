@@ -34,6 +34,28 @@ public sealed class InteractiveUploadCommandHandlerTests
     }
 
     [Test]
+    public async Task ExecuteAsync_ShouldApplyTheSharedResolverToSuppliedInputPathsWithoutPromptingForFiles()
+    {
+        var standardError = new StringWriter();
+        var session = new FakeInteractiveSession();
+        session.EnqueueSelection(2);
+        session.EnqueueConfirmation(false);
+        session.EnqueueConfirmation(false);
+        var handler = CreateHandler(session, new NeverCalledHandler(),
+                                    FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"), standardError);
+        var options = Options() with
+        {
+            InputPaths = [MissingFilePath()]
+        };
+
+        var exitCode = await handler.ExecuteAsync(options, CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        session.TextPrompts.Should().NotContain(prompt => prompt.Prompt == "Path to a file to upload:");
+        standardError.ToString().Should().Contain("File is missing.");
+    }
+
+    [Test]
     public async Task ExecuteAsync_ShouldCarryTheCapturedWorkingDirectory_IntoTheSharedUploadWorkflow()
     {
         var standardError = new StringWriter();

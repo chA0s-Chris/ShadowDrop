@@ -22,6 +22,7 @@ internal sealed class UploadCommandHandler
     private readonly CliConfigurationResolver _configurationResolver;
     private readonly HttpClient _httpClient;
     private readonly TextWriter _standardError;
+    private readonly TextReader _standardInput;
     private readonly TextWriter _standardOut;
     private readonly TimeProvider _timeProvider;
     private readonly IUploadProgressReporterFactory _uploadProgressReporterFactory;
@@ -31,12 +32,14 @@ internal sealed class UploadCommandHandler
                                 TextWriter standardOut,
                                 TextWriter standardError,
                                 TimeProvider timeProvider,
-                                IUploadProgressReporterFactory uploadProgressReporterFactory)
+                                IUploadProgressReporterFactory uploadProgressReporterFactory,
+                                TextReader? standardInput = null)
     {
         _configurationResolver = configurationResolver;
         _httpClient = httpClient;
         _standardOut = standardOut;
         _standardError = standardError;
+        _standardInput = standardInput ?? Console.In;
         _timeProvider = timeProvider;
         _uploadProgressReporterFactory = uploadProgressReporterFactory;
     }
@@ -51,8 +54,33 @@ internal sealed class UploadCommandHandler
             return 1;
         }
 
+        var workingDirectory = options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+        var inputResolution = UploadInputResolver.Resolve(options.Files,
+                                                          options.InputPaths ?? [],
+                                                          options.Recursive,
+                                                          options.IncludePatterns ?? [],
+                                                          options.ExcludePatterns ?? [],
+                                                          options.FilesFrom ?? [],
+                                                          workingDirectory,
+                                                          _standardInput);
+        if (!inputResolution.IsValid)
+        {
+            foreach (var error in inputResolution.Errors)
+            {
+                await _standardError.WriteLineAsync(LocalUploadPlanner.FormatError(error.Message, error.Origin));
+            }
+
+            return 1;
+        }
+
+        var resolvedFiles = inputResolution.Selections.Select(static selection => selection.File).ToArray();
+        options = options with
+        {
+            Files = resolvedFiles
+        };
+
         var progressReporter = _uploadProgressReporterFactory.Create(options.Json);
-        var planningResult = LocalUploadPlanner.Create(options.Files.Select(UploadSelection.FromCommandLine));
+        var planningResult = LocalUploadPlanner.Create(inputResolution.Selections, inputResolution.ExcludedFileCount);
         if (!planningResult.IsValid)
         {
             var failedResult = await LocalUploadPlanner.ReportFailureAsync(planningResult, options.Files.Length, progressReporter, cancellationToken);
@@ -65,7 +93,7 @@ internal sealed class UploadCommandHandler
         // Resolve recipient-facing display names after the complete batch has passed file preflight, while still
         // remaining ahead of configuration, output validation, and network requests.
         if (!DisplayNameResolver.TryResolveForUpload(options.Files, options.DisplayName, options.DisplayNameMappings,
-                                                     out var displayNameOverrides, out var displayNameError))
+                                                     out var displayNameOverrides, out var displayNameError, workingDirectory))
         {
             await _standardError.WriteLineAsync(displayNameError);
             return 1;
