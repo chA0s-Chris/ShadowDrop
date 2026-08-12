@@ -1,4 +1,5 @@
 {
   "$schema": "build.schema.json",
-  "Solution": "ShadowDrop.slnx"
+  "Solution": "ShadowDrop.slnx",
+  "NUKE_TELEMETRY_OPTOUT": "1"
 }

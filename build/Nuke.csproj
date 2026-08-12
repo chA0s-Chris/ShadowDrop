@@ -6,7 +6,6 @@
     <NoWarn>CS0649;CS0169</NoWarn>
     <NukeRootDirectory>..</NukeRootDirectory>
     <NukeScriptDirectory>..</NukeScriptDirectory>
-    <NukeTelemetryVersion>1</NukeTelemetryVersion>
     <NukeDefaultExcludes>true</NukeDefaultExcludes>
     <NukeExcludeBoot>true</NukeExcludeBoot>
     <NukeExcludeConfig>true</NukeExcludeConfig>
