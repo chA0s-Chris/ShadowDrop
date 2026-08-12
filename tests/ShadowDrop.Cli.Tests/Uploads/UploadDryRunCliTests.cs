@@ -162,6 +162,40 @@ public sealed class UploadDryRunCliTests
     }
 
     [Test]
+    public async Task InvokeAsync_ShouldIdentifyEveryFailingCommandLineFile()
+    {
+        var missingFirst = Path.Combine(_rootDirectory, "missing-first.bin");
+        var present = CreateFile("present.bin", 3);
+        var missingSecond = Path.Combine(_rootDirectory, "missing-second.bin");
+        String[] arguments =
+        [
+            "upload",
+            missingFirst,
+            present,
+            missingSecond,
+            "--dry-run",
+            "--no-banner"
+        ];
+        var jsonOut = new StringWriter();
+        var plainError = new StringWriter();
+
+        var jsonExit = await CliApplication.InvokeAsync([.. arguments, "--json"], CreateServices(jsonOut, new()), CancellationToken.None);
+        var plainExit = await CliApplication.InvokeAsync(arguments, CreateServices(new(), plainError), CancellationToken.None);
+
+        jsonExit.Should().Be(1);
+        plainExit.Should().Be(1);
+        using var document = JsonDocument.Parse(jsonOut.ToString());
+        var errors = document.RootElement.GetProperty("errors").EnumerateArray().ToArray();
+        errors.Select(static error => error.GetProperty("message").GetString()).Should().Equal(
+            $"{missingFirst}: File is missing.",
+            $"{missingSecond}: File is missing.");
+        errors.Select(static error => error.GetProperty("source").GetString()).Should().AllBe("commandLine");
+        plainError.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Should().Equal(
+            $"{missingFirst}: File is missing.",
+            $"{missingSecond}: File is missing.");
+    }
+
+    [Test]
     public async Task InvokeAsync_ShouldRejectInteractiveDryRun_AsStructuredJson()
     {
         var standardOut = new StringWriter();

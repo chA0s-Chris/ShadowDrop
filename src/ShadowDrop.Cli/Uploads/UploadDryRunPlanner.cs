@@ -6,6 +6,7 @@ using ShadowDrop.Cli.Output;
 using ShadowDrop.Cli.Queues;
 using ShadowDrop.Cli.Shares;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 
 internal sealed record UploadDryRunPlan(
     LocalUploadPlan LocalPlan,
@@ -95,7 +96,7 @@ internal static class UploadDryRunPlanner
 
         if (!TryValidateOutputs(options.SecretsOut, options.QueueOut, options.Force, out var outputError))
         {
-            return Invalid(outputError!);
+            return Invalid(outputError);
         }
 
         return new(new(localPlan, queueDestinations, options.QueueOut, options.SecretsOut), []);
@@ -143,7 +144,7 @@ internal static class UploadDryRunPlanner
 
         if (!TryValidateOutputs(options.SecretsOut, null, options.Force, out var outputError))
         {
-            return Invalid(outputError!);
+            return Invalid(outputError);
         }
 
         var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
@@ -153,8 +154,10 @@ internal static class UploadDryRunPlanner
     private static UploadDryRunPlanningResult FromInputErrors(ImmutableArray<UploadInputError> errors) =>
         new(null, [.. errors.Select(static error => new UploadDryRunError(error.Message, error.Origin))]);
 
+    // Preflight messages describe a single file without naming it, and the structured error contract carries no
+    // file field, so the absolute source path is prefixed here. Otherwise a batch reports several identical errors.
     private static UploadDryRunPlanningResult FromLocalPlanningErrors(ImmutableArray<LocalUploadPlanningError> errors) =>
-        new(null, [.. errors.Select(static error => new UploadDryRunError(error.Message, error.Origin))]);
+        new(null, [.. errors.Select(static error => new UploadDryRunError($"{error.File.FullName}: {error.Message}", error.Origin))]);
 
     private static UploadDryRunPlanningResult Invalid(String message) =>
         new(null, [new(message, UploadSelectionOrigin.CommandLine)]);
@@ -179,7 +182,7 @@ internal static class UploadDryRunPlanner
     private static Boolean TryValidateOutputs(FileInfo? secretsOut,
                                               FileInfo? queueOut,
                                               Boolean force,
-                                              out String? error)
+                                              [NotNullWhen(false)] out String? error)
     {
         foreach (var output in new[]
                  {

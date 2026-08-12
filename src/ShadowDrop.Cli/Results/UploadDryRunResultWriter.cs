@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Results;
 
 using ShadowDrop.Cli.Configuration;
+using ShadowDrop.Cli.Uploads;
 using System.Text.Json;
 
 internal static class UploadDryRunResultWriter
@@ -45,9 +46,11 @@ internal static class UploadDryRunResultWriter
 
         foreach (var error in result.Errors)
         {
+            // A command-line origin adds nothing the invocation does not already show, so only list and stdin
+            // records name their source, matching the non-dry-run diagnostics.
             var origin = error.Source switch
             {
-                null => String.Empty,
+                null or UploadSelectionOrigin.CommandLineSource => String.Empty,
                 _ when error.RecordNumber is { } recordNumber => $" Source: {error.Source}, record {recordNumber}.",
                 _ => $" Source: {error.Source}."
             };
