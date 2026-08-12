@@ -2444,6 +2444,12 @@ public sealed class UploadCommandHandlerTests
             return Directory.EnumerateFiles(StorageRoot, $"{fileId}.blob", SearchOption.AllDirectories).Single();
         }
 
+        /// <summary>
+        /// Every stored upload, ordered by original file name and then by file id. Blob files are named after
+        /// their file id and enumeration promises no order, so sorting is what keeps assertions from depending on
+        /// the file system. The result is deliberately not upload order: assert that through the file ids the
+        /// command reports.
+        /// </summary>
         public IReadOnlyList<UploadedFileRecord> GetStoredUploads()
         {
             using var scope = Services.CreateScope();
@@ -2455,6 +2461,8 @@ public sealed class UploadCommandHandlerTests
                 : [];
             return ids.Select(id => repository.GetAsync(id, CancellationToken.None).GetAwaiter().GetResult()!)
                       .Where(static record => record is not null)
+                      .OrderBy(static record => record.OriginalFileName, StringComparer.Ordinal)
+                      .ThenBy(static record => record.FileId)
                       .ToArray();
         }
 
