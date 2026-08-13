@@ -6,7 +6,9 @@ using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli.Uploads;
 using ShadowDrop.Cli.Uploads.Progress;
+using System.Diagnostics;
 using System.Net;
+using System.Runtime.Versioning;
 using System.Text;
 
 public sealed class LocalUploadPlannerTests
@@ -35,6 +37,26 @@ public sealed class LocalUploadPlannerTests
         plan.Files[0].Origin.Should().Be(UploadSelectionOrigin.CommandLine);
         plan.Files[1].Origin.Should().Be(new UploadSelectionOrigin("list.txt", 7));
         plan.Files[1].DirectoryRelativePath.Should().Be("nested/second.bin");
+    }
+
+    // FileInfo.Length reports a symlink's own size, so planning from it would promise the length of the stored
+    // target path: the request could not satisfy its own Content-Length and the payload would not decrypt.
+    [Test]
+    public void Create_ShouldMeasureASymlinkFromItsTargetRatherThanFromTheLink()
+    {
+        var target = CreateFile("deeply/nested/target-with-a-deliberately-long-path.bin", 5);
+        var link = new FileInfo(Path.Combine(_rootDirectory, "link.bin"));
+        File.CreateSymbolicLink(link.FullName, target.FullName);
+        link.Length.Should().NotBe(5, "the link must be one whose own size disagrees with its target");
+
+        var result = LocalUploadPlanner.Create([UploadSelection.FromCommandLine(link)]);
+
+        result.IsValid.Should().BeTrue();
+        result.Plan.Should().NotBeNull();
+        var planned = result.Plan.Files.Should().ContainSingle().Which;
+        planned.PlaintextLength.Should().Be(5);
+        planned.ChunkCount.Should().Be(1);
+        planned.EncryptedLength.Should().Be(21);
     }
 
     [Test]
@@ -69,6 +91,34 @@ public sealed class LocalUploadPlannerTests
         result.Plan.Should().BeNull();
         result.Errors.Should().ContainSingle()
               .Which.Message.Should().Be("File was selected more than once.");
+    }
+
+    // Opening a named pipe blocks until a writer appears, so preflight must classify one without opening it.
+    // The task wrapper is what turns a regression into a failed assertion rather than a hung test run.
+    [Test]
+    [SupportedOSPlatform("linux")]
+    public void Create_ShouldRejectNamedPipesWithoutOpeningThem()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Assert.Ignore("Named pipes are created with mkfifo on Linux.");
+        }
+
+        var pipePath = Path.Combine(_rootDirectory, "pipe");
+        CreateNamedPipe(pipePath);
+        var linkPath = Path.Combine(_rootDirectory, "link-to-pipe");
+        File.CreateSymbolicLink(linkPath, pipePath);
+
+        var planning = Task.Run(() => LocalUploadPlanner.Create([
+            UploadSelection.FromCommandLine(new(pipePath)),
+            UploadSelection.FromCommandLine(new(linkPath))
+        ]));
+
+        planning.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue("preflight must not block on opening a named pipe");
+        planning.Result.IsValid.Should().BeFalse();
+        planning.Result.Errors.Select(static error => (error.FileNumber, error.Message)).Should().Equal(
+            (1, "File is empty."),
+            (2, "File is empty."));
     }
 
     [Test]
@@ -109,6 +159,18 @@ public sealed class LocalUploadPlannerTests
         {
             Directory.Delete(_rootDirectory, true);
         }
+    }
+
+    private static void CreateNamedPipe(String path)
+    {
+        using var mkfifo = Process.Start(new ProcessStartInfo("mkfifo", [path])
+        {
+            UseShellExecute = false
+        });
+
+        mkfifo.Should().NotBeNull();
+        mkfifo.WaitForExit(TimeSpan.FromSeconds(10)).Should().BeTrue();
+        mkfifo.ExitCode.Should().Be(0);
     }
 
     private FileInfo CreateFile(String relativePath, Int64 length)

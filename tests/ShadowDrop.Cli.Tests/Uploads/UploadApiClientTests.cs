@@ -354,11 +354,12 @@ public sealed class UploadApiClientTests
             var plaintextLength = fileInfo.Length;
             var chunkCount = 1L;
             var encryptedLength = plaintextLength + EncryptedChunk.AuthenticationTagLength;
-            Plan = new UploadFilePlan(
+            Plan = new(
                 fileInfo,
+                null,
                 FileId,
-                new FileEncryptionContext(FileId, kdfSalt),
-                new UploadMetadataPayload(
+                new(FileId, kdfSalt),
+                new(
                     FileId,
                     fileInfo.Name,
                     plaintextLength,

@@ -9,12 +9,15 @@ using System.Text;
 internal sealed record UploadInputResolution(
     ImmutableArray<UploadSelection> Selections,
     Int32 ExcludedFileCount,
+    ImmutableArray<UploadInputDiagnostic> Diagnostics,
     ImmutableArray<UploadInputError> Errors)
 {
     public Boolean IsValid => Errors.IsEmpty && !Selections.IsEmpty;
 }
 
 internal sealed record UploadInputError(String Message, UploadSelectionOrigin Origin);
+
+internal sealed record UploadInputDiagnostic(String Message);
 
 internal static class UploadInputResolver
 {
@@ -41,12 +44,12 @@ internal static class UploadInputResolver
 
         if (!TryCreateGlobs(includePatterns, "--include", out var includes, out var patternError))
         {
-            return new([], 0, [patternError]);
+            return new([], 0, [], [patternError]);
         }
 
         if (!TryCreateGlobs(excludePatterns, "--exclude", out var excludes, out patternError))
         {
-            return new([], 0, [patternError]);
+            return new([], 0, [], [patternError]);
         }
 
         if (filesFrom.Count(static source => source == "-") > 1)
@@ -64,19 +67,20 @@ internal static class UploadInputResolver
         {
             if (!TryReadList(source, workingDirectory, standardInput, out var listedRecords, out var listError))
             {
-                return new([], 0, [listError]);
+                return new([], 0, [], [listError]);
             }
 
             records.AddRange(listedRecords);
         }
 
         List<UploadSelection> selections = [];
+        List<UploadInputDiagnostic> diagnostics = [];
         var excluded = 0;
         foreach (var record in records)
         {
             if (!TryResolvePath(record.Path, workingDirectory, out var fullPath, out var pathError))
             {
-                return new([], 0, [new(pathError, record.Origin)]);
+                return Invalid(new(pathError, record.Origin), diagnostics);
             }
 
             if (!Directory.Exists(fullPath))
@@ -87,31 +91,40 @@ internal static class UploadInputResolver
 
             if (!recursive)
             {
-                return new([], 0,
-                           [new($"The input path '{fullPath}' is a directory. Pass --recursive to include its files.", record.Origin)]);
+                return Invalid(new($"The input path '{fullPath}' is a directory. Pass --recursive to include its files.", record.Origin),
+                               diagnostics);
             }
 
-            if (!TryExpandDirectory(fullPath, record.Origin, includes, excludes, out var expanded, out var directoryExcluded, out var expansionError))
+            if (!TryExpandDirectory(fullPath, record.Origin, includes, excludes, out var expanded, out var directoryExcluded,
+                                    out var directoryDiagnostics, out var expansionError))
             {
-                return new([], 0, [expansionError]);
+                return Invalid(expansionError, diagnostics);
             }
 
-            if (expanded.Count == 0)
+            excluded += directoryExcluded;
+            diagnostics.AddRange(directoryDiagnostics);
+            if (expanded.Count == 0 && directoryDiagnostics.Count == 0)
             {
-                return new([], 0, [new($"The directory '{fullPath}' did not select any files.", record.Origin)]);
+                return Invalid(new($"The directory '{fullPath}' did not select any files.", record.Origin), diagnostics);
             }
 
             selections.AddRange(expanded);
-            excluded += directoryExcluded;
         }
 
+        // Diagnostics survive an invalid resolution: a run that selects nothing because every candidate was
+        // an excluded link must still name those links rather than report an unexplained empty selection.
         return selections.Count == 0
-            ? Invalid("No input files were selected.")
-            : new([.. selections], excluded, []);
+            ? Invalid(new("No input files were selected.", UploadSelectionOrigin.CommandLine), diagnostics, excluded)
+            : new([.. selections], excluded, [.. diagnostics], []);
     }
 
     private static UploadInputResolution Invalid(String message) =>
-        new([], 0, [new(message, UploadSelectionOrigin.CommandLine)]);
+        new([], 0, [], [new(message, UploadSelectionOrigin.CommandLine)]);
+
+    private static UploadInputResolution Invalid(UploadInputError error,
+                                                 IReadOnlyList<UploadInputDiagnostic> diagnostics,
+                                                 Int32 excluded = 0) =>
+        new([], excluded, [.. diagnostics], [error]);
 
     private static Boolean TryCreateGlobs(IReadOnlyList<String> patterns,
                                           String optionName,
@@ -142,11 +155,13 @@ internal static class UploadInputResolver
                                               ImmutableArray<UploadGlob> excludes,
                                               out IReadOnlyList<UploadSelection> selections,
                                               out Int32 excluded,
+                                              out IReadOnlyList<UploadInputDiagnostic> diagnostics,
                                               [NotNullWhen(false)] out UploadInputError? error)
     {
         try
         {
-            List<(String FullPath, String RelativePath)> discovered = [];
+            List<(String FullPath, String RelativePath, FileAttributes Attributes)> discovered = [];
+            List<UploadInputDiagnostic> selectionDiagnostics = [];
             Stack<String> pending = new();
             pending.Push(root);
             while (pending.TryPop(out var directory))
@@ -160,6 +175,7 @@ internal static class UploadInputResolver
                 {
                     selections = [];
                     excluded = 0;
+                    diagnostics = [];
                     error = new($"The directory '{directory}' is a link and will not be traversed.", origin);
                     return false;
                 }
@@ -180,8 +196,17 @@ internal static class UploadInputResolver
                     }
 
                     var relativePath = Path.GetRelativePath(root, entry.FullName).Replace(Path.DirectorySeparatorChar, '/');
-                    discovered.Add((entry.FullName, relativePath));
+                    discovered.Add((entry.FullName, relativePath, attributes));
                 }
+            }
+
+            if (!RecursiveLinkBoundary.TryResolveDirectoryRoot(root, out var resolvedRoot))
+            {
+                selections = [];
+                excluded = 0;
+                diagnostics = [];
+                error = new($"The directory '{root}' could not be resolved to a physical path.", origin);
+                return false;
             }
 
             discovered.Sort(static (left, right) => MatchPathComparer.Compare(left.RelativePath, right.RelativePath));
@@ -197,10 +222,24 @@ internal static class UploadInputResolver
                     continue;
                 }
 
-                selected.Add(new(new(file.FullPath), origin, file.RelativePath));
+                // The attributes come from the enumeration above, so an ordinary file reaches the selection
+                // without a second stat call; only a reparse point pays for resolution.
+                if ((file.Attributes & FileAttributes.ReparsePoint) != 0
+                    && !RecursiveLinkBoundary.TryValidateFile(new(file.FullPath), resolvedRoot))
+                {
+                    excluded++;
+                    selectionDiagnostics.Add(new($"The file link '{file.FullPath}' resolves outside the recursive upload root and will not be uploaded."));
+                    continue;
+                }
+
+                // Every recursive selection carries its root, not just the entries that are links right now.
+                // An ordinary file swapped for a link after discovery is then caught by the same check
+                // before it is opened for encryption.
+                selected.Add(new(new(file.FullPath), origin, file.RelativePath, resolvedRoot));
             }
 
             selections = selected;
+            diagnostics = selectionDiagnostics;
             error = null;
             return true;
         }
@@ -208,6 +247,7 @@ internal static class UploadInputResolver
         {
             selections = [];
             excluded = 0;
+            diagnostics = [];
             error = new($"The directory '{root}' could not be enumerated.", origin);
             return false;
         }

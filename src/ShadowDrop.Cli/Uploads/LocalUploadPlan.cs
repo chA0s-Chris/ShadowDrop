@@ -17,6 +17,7 @@ internal sealed record LocalUploadFile(
     FileInfo File,
     UploadSelectionOrigin Origin,
     String? DirectoryRelativePath,
+    String? RecursiveRootPath,
     Int32 FileNumber,
     Int64 PlaintextLength,
     Int64 ChunkCount,
@@ -39,7 +40,11 @@ internal sealed record UploadSelectionOrigin(String Source, Int32? RecordNumber 
 /// <summary>
 /// A selected source before file-system preflight enriches it with immutable size information.
 /// </summary>
-internal sealed record UploadSelection(FileInfo File, UploadSelectionOrigin Origin, String? DirectoryRelativePath = null)
+internal sealed record UploadSelection(
+    FileInfo File,
+    UploadSelectionOrigin Origin,
+    String? DirectoryRelativePath = null,
+    String? RecursiveRootPath = null)
 {
     public static UploadSelection FromCommandLine(FileInfo file) => new(file, UploadSelectionOrigin.CommandLine);
 }

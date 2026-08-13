@@ -63,6 +63,11 @@ internal sealed class UploadCommandHandler
                                                           options.FilesFrom ?? [],
                                                           workingDirectory,
                                                           _standardInput);
+        foreach (var diagnostic in inputResolution.Diagnostics)
+        {
+            await _standardError.WriteLineAsync(diagnostic.Message);
+        }
+
         if (!inputResolution.IsValid)
         {
             foreach (var error in inputResolution.Errors)

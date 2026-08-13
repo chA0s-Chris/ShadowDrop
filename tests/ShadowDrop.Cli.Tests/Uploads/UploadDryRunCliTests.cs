@@ -212,6 +212,31 @@ public sealed class UploadDryRunCliTests
         error.GetProperty("recordNumber").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
+    [TestCase("upload")]
+    [TestCase("raw")]
+    public async Task InvokeAsync_ShouldReportAnOnlyExcludedLinkDirectoryWithoutInvalidatingTheJsonPlan(String command)
+    {
+        var inputDirectory = CreateDirectory("inputs");
+        var visiblePath = CreateFile("visible.bin", 3);
+        var outsidePath = CreateFile("outside/secret.bin", 3);
+        var linkPath = Path.Combine(inputDirectory, "linked.bin");
+        File.CreateSymbolicLink(linkPath, outsidePath);
+        var standardOut = new StringWriter();
+        var standardError = new StringWriter();
+        String[] arguments = command == "raw"
+            ? ["upload", "raw", visiblePath, inputDirectory, "--recursive", "--dry-run", "--json", "--no-banner"]
+            : ["upload", visiblePath, inputDirectory, "--recursive", "--dry-run", "--json", "--no-banner"];
+
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(standardOut, standardError), CancellationToken.None);
+
+        exitCode.Should().Be(0);
+        standardError.ToString().Should().Contain(linkPath).And.Contain("will not be uploaded");
+        using var document = JsonDocument.Parse(standardOut.ToString());
+        document.RootElement.GetProperty("status").GetString().Should().Be("valid");
+        document.RootElement.GetProperty("files").EnumerateArray().Single().GetProperty("sourcePath").GetString().Should().Be(visiblePath);
+        document.RootElement.GetProperty("totals").GetProperty("excludedFiles").GetInt32().Should().Be(1);
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldValidateLocalOptionAndOutputConflicts_AsStructuredFailures()
     {

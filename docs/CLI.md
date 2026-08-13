@@ -464,14 +464,21 @@ initially selected. Matching is case-sensitive except on Windows.
 
 Discovery includes dotfiles and hidden directories and does not consult
 `.gitignore` or other ignore files. It does not traverse directory symlinks or
-reparse-point directories; that check is path-based, so it cannot survive a
-directory being swapped for a link mid-traversal by a local attacker with write
-access to the tree (see
+reparse-point directories. Discovered file symlinks are followed only when their
+final target remains inside the physical directory root; links outside that root,
+dangling links, and links that cannot be resolved are skipped, counted as
+excluded, and named on standard error. The same selection and diagnostics apply
+to `--dry-run`, including JSON mode, whose standard output remains one result
+object. The directory-link check is path-based, so it cannot survive a directory
+being swapped for a link mid-traversal by a local attacker with write access to
+the tree (see
 [Security Trade-offs](SECURITY_TRADEOFFS.md#separate-key-mode-default)). Explicit
 file operands—including file symlinks—retain normal explicit-file behavior and
-bypass include/exclude filters. Files within each directory are ordered by
-normalized relative path; command-line operands come first, followed by
-`--files-from` sources in the order those options appear.
+bypass include/exclude filters. Recursively discovered files are rechecked
+against the root immediately before encryption, which narrows but does not
+eliminate a link-swap race. Files within each directory are ordered by normalized
+relative path; command-line operands come first, followed by `--files-from`
+sources in the order those options appear.
 Overlapping roots and repeated records fail the existing duplicate-file check.
 
 Use repeatable `--files-from <file|->` to read one path per record from a strict

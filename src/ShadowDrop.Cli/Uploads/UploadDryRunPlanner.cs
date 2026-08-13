@@ -16,6 +16,7 @@ internal sealed record UploadDryRunPlan(
 
 internal sealed record UploadDryRunPlanningResult(
     UploadDryRunPlan? Plan,
+    ImmutableArray<UploadInputDiagnostic> Diagnostics,
     ImmutableArray<UploadDryRunError> Errors)
 {
     public Boolean IsValid => Plan is not null && Errors.IsEmpty;
@@ -59,13 +60,13 @@ internal static class UploadDryRunPlanner
                                             standardInput);
         if (!inputResolution.IsValid)
         {
-            return FromInputErrors(inputResolution.Errors);
+            return FromInputErrors(inputResolution);
         }
 
         var planningResult = LocalUploadPlanner.Create(inputResolution.Selections, inputResolution.ExcludedFileCount);
         if (!planningResult.IsValid)
         {
-            return FromLocalPlanningErrors(planningResult.Errors);
+            return FromLocalPlanningErrors(planningResult.Errors, inputResolution.Diagnostics);
         }
 
         var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
@@ -81,25 +82,25 @@ internal static class UploadDryRunPlanner
                                                      out var displayNameError,
                                                      workingDirectory))
         {
-            return Invalid(displayNameError!);
+            return Invalid(displayNameError!, inputResolution.Diagnostics);
         }
 
         if (!UploadCommandHandler.TryResolveQueueDestinationPlan(options, displayNames, out var queueDestinations, out var queueError))
         {
-            return Invalid(queueError);
+            return Invalid(queueError, inputResolution.Diagnostics);
         }
 
         if (!ShareOptions.TryValidate(options.ExpiresIn, options.DirectHttp, options.GenerateDownloadToken, out _, out var shareError))
         {
-            return Invalid(shareError!);
+            return Invalid(shareError!, inputResolution.Diagnostics);
         }
 
         if (!TryValidateOutputs(options.SecretsOut, options.QueueOut, options.Force, out var outputError))
         {
-            return Invalid(outputError);
+            return Invalid(outputError, inputResolution.Diagnostics);
         }
 
-        return new(new(localPlan, queueDestinations, options.QueueOut, options.SecretsOut), []);
+        return new(new(localPlan, queueDestinations, options.QueueOut, options.SecretsOut), inputResolution.Diagnostics, []);
     }
 
     public static UploadDryRunPlanningResult Create(UploadRawCommandOptions options,
@@ -133,34 +134,39 @@ internal static class UploadDryRunPlanner
                                             standardInput);
         if (!inputResolution.IsValid)
         {
-            return FromInputErrors(inputResolution.Errors);
+            return FromInputErrors(inputResolution);
         }
 
         var planningResult = LocalUploadPlanner.Create(inputResolution.Selections, inputResolution.ExcludedFileCount);
         if (!planningResult.IsValid)
         {
-            return FromLocalPlanningErrors(planningResult.Errors);
+            return FromLocalPlanningErrors(planningResult.Errors, inputResolution.Diagnostics);
         }
 
         if (!TryValidateOutputs(options.SecretsOut, null, options.Force, out var outputError))
         {
-            return Invalid(outputError);
+            return Invalid(outputError, inputResolution.Diagnostics);
         }
 
         var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
-        return new(new(localPlan, null, null, options.SecretsOut), []);
+        return new(new(localPlan, null, null, options.SecretsOut), inputResolution.Diagnostics, []);
     }
 
-    private static UploadDryRunPlanningResult FromInputErrors(ImmutableArray<UploadInputError> errors) =>
-        new(null, [.. errors.Select(static error => new UploadDryRunError(error.Message, error.Origin))]);
+    // Selection diagnostics belong to the run, not to its outcome, so they are carried onto an invalid result
+    // as well. Otherwise an excluded link goes unreported precisely when it is the reason nothing was selected.
+    private static UploadDryRunPlanningResult FromInputErrors(UploadInputResolution inputResolution) =>
+        new(null,
+            inputResolution.Diagnostics,
+            [.. inputResolution.Errors.Select(static error => new UploadDryRunError(error.Message, error.Origin))]);
 
     // Preflight messages describe a single file without naming it, and the structured error contract carries no
     // file field, so the absolute source path is prefixed here. Otherwise a batch reports several identical errors.
-    private static UploadDryRunPlanningResult FromLocalPlanningErrors(ImmutableArray<LocalUploadPlanningError> errors) =>
-        new(null, [.. errors.Select(static error => new UploadDryRunError($"{error.File.FullName}: {error.Message}", error.Origin))]);
+    private static UploadDryRunPlanningResult FromLocalPlanningErrors(ImmutableArray<LocalUploadPlanningError> errors,
+                                                                      ImmutableArray<UploadInputDiagnostic> diagnostics) =>
+        new(null, diagnostics, [.. errors.Select(static error => new UploadDryRunError($"{error.File.FullName}: {error.Message}", error.Origin))]);
 
-    private static UploadDryRunPlanningResult Invalid(String message) =>
-        new(null, [new(message, UploadSelectionOrigin.CommandLine)]);
+    private static UploadDryRunPlanningResult Invalid(String message, ImmutableArray<UploadInputDiagnostic> diagnostics = default) =>
+        new(null, diagnostics.IsDefault ? [] : diagnostics, [new(message, UploadSelectionOrigin.CommandLine)]);
 
     private static UploadInputResolution ResolveInputs(IReadOnlyList<FileInfo> files,
                                                        IReadOnlyList<String> inputPaths,

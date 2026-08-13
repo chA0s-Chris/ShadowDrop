@@ -6,6 +6,7 @@ using ShadowDrop.Crypto;
 
 internal sealed record UploadFilePlan(
     FileInfo File,
+    String? RecursiveRootPath,
     Guid FileId,
     FileEncryptionContext EncryptionContext,
     UploadMetadataPayload Metadata,

@@ -129,6 +129,27 @@ public sealed class UploadSelectionCliTests
                      .And.Contain("record 1");
     }
 
+    [TestCase("upload")]
+    [TestCase("raw")]
+    public async Task InvokeAsync_ShouldNameExcludedFileLinksWhenTheySelectNothing(String command)
+    {
+        var root = CreateDirectory("tree");
+        var outside = CreateFile("outside/secret.bin");
+        var linkPath = Path.Combine(root, "linked.bin");
+        File.CreateSymbolicLink(linkPath, outside);
+        var standardError = new StringWriter();
+        String[] arguments = command == "raw"
+            ? ["upload", "raw", root, "--recursive"]
+            : ["upload", root, "--recursive"];
+
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(linkPath)
+                     .And.Contain("will not be uploaded")
+                     .And.Contain("No input files were selected.");
+    }
+
     // A valueless repeatable option must not read as "no filter": that would silently upload a wider selection
     // than the invocation asks for.
     [TestCase("upload", "--include", "The --include option requires a glob pattern.")]
@@ -169,6 +190,29 @@ public sealed class UploadSelectionCliTests
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("--files-from - cannot be combined with --interactive");
         reader.WasRead.Should().BeFalse();
+    }
+
+    [TestCase("upload")]
+    [TestCase("raw")]
+    public async Task InvokeAsync_ShouldReportExcludedFileLinksWithoutFailingSelection(String command)
+    {
+        var root = CreateDirectory("tree");
+        var visible = CreateFile("visible.bin");
+        var outside = CreateFile("outside/secret.bin");
+        var linkPath = Path.Combine(root, "linked.bin");
+        File.CreateSymbolicLink(linkPath, outside);
+        var standardError = new StringWriter();
+        String[] arguments = command == "raw"
+            ? ["upload", "raw", visible, root, "--recursive"]
+            : ["upload", visible, root, "--recursive"];
+
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+
+        exitCode.Should().Be(1);
+        standardError.ToString().Should().Contain(linkPath)
+                     .And.Contain("will not be uploaded")
+                     .And.Contain("Server URL invalid or missing.")
+                     .And.NotContain("did not select any files");
     }
 
     [Test]

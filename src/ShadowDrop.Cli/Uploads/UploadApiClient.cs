@@ -7,7 +7,6 @@ using ShadowDrop.Cli.Http;
 using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Crypto;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text.Json;
 
 internal sealed class UploadApiClient
@@ -30,7 +29,7 @@ internal sealed class UploadApiClient
 
     public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/uploads/capabilities"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Get, new(serverUrl, "/api/uploads/capabilities"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -65,7 +64,7 @@ internal sealed class UploadApiClient
 
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads/reservations"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Post, new(serverUrl, "/api/uploads/reservations"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -107,7 +106,7 @@ internal sealed class UploadApiClient
         => await SendWithRetryAsync(
             (requestCancellation, reportActivity) =>
             {
-                var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads"), uploadToken);
+                var request = CreateRequest(HttpMethod.Post, new(serverUrl, "/api/uploads"), uploadToken);
                 request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, requestCancellation, reportActivity);
                 return request;
             },
@@ -188,11 +187,12 @@ internal sealed class UploadApiClient
         var multipartContent = new MultipartFormDataContent();
         var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(plan.Metadata, CliJsonSerializerContext.Default.UploadMetadataPayload);
         var metadataContent = new ByteArrayContent(metadataBytes);
-        metadataContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        metadataContent.Headers.ContentType = new("application/json");
         multipartContent.Add(metadataContent, "metadata");
 
         var encryptedContent =
             new EncryptedFileContent(plan.File,
+                                     plan.RecursiveRootPath,
                                      shareSecret,
                                      plan.EncryptionContext,
                                      plan.ChunkSize,
@@ -200,7 +200,7 @@ internal sealed class UploadApiClient
                                      progress,
                                      cancellationToken,
                                      reportActivity);
-        encryptedContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        encryptedContent.Headers.ContentType = new("application/octet-stream");
         multipartContent.Add(encryptedContent, "content", "cipher.bin");
         return multipartContent;
     }

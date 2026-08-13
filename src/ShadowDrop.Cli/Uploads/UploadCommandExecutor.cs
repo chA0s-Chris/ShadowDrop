@@ -139,7 +139,7 @@ internal sealed class UploadCommandExecutor
                                                  file.ChunkCount,
                                                  Convert.ToBase64String(kdfSalt),
                                                  null);
-        return new(file.File, fileId, encryptionContext, metadata, LocalUploadPlanner.ChunkSize);
+        return new(file.File, file.RecursiveRootPath, fileId, encryptionContext, metadata, LocalUploadPlanner.ChunkSize);
     }
 
     private static IReadOnlyList<UploadFileExecutionResult> FindOversizedFiles(IReadOnlyList<LocalUploadFile> files, Int64 maxFilePayloadBytes)
@@ -171,7 +171,18 @@ internal sealed class UploadCommandExecutor
             throw new UploadCommandException("File is missing.");
         }
 
-        if (file.File.Length != file.PlaintextLength)
+        // Gate before opening, as preflight does: a file swapped for a FIFO would otherwise block the upload
+        // here instead of failing it.
+        var target = file.File.ResolveLinkTarget(true) as FileInfo ?? file.File;
+        if (target.Length <= 0)
+        {
+            throw new UploadCommandException($"{file.File.Name} changed while preparing the upload.");
+        }
+
+        // Opened rather than stat'ed, for the same reason preflight measures through a handle: FileInfo.Length
+        // reports a symlink's own size, so comparing it would fail every link and pass nothing useful.
+        using var probe = file.File.OpenRead();
+        if (probe.Length != file.PlaintextLength)
         {
             throw new UploadCommandException($"{file.File.Name} changed while preparing the upload.");
         }
