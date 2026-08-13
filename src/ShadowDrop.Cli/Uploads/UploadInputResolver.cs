@@ -228,7 +228,8 @@ internal static class UploadInputResolver
                     && !RecursiveLinkBoundary.TryValidateFile(new(file.FullPath), resolvedRoot))
                 {
                     excluded++;
-                    selectionDiagnostics.Add(new($"The file link '{file.FullPath}' resolves outside the recursive upload root and will not be uploaded."));
+                    selectionDiagnostics.Add(
+                        new($"The file link '{file.FullPath}' does not resolve within the recursive upload root and will not be uploaded."));
                     continue;
                 }
 

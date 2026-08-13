@@ -48,7 +48,10 @@ traversed. Discovered file links are selected only when their resolved target
 remains inside the physical root of the directory operand; excluded links are
 reported on standard error and counted as excluded. Explicitly named file links
 retain normal explicit-file behavior. This boundary does not cover hardlinks or
-bind mounts, which look like ordinary files to the available APIs.
+bind mounts, which look like ordinary files to the available APIs. On Windows the
+containment comparison is case-insensitive, so in a tree with NTFS per-directory
+case sensitivity enabled a sibling directory whose name differs from the root
+only in case is treated as in-tree.
 
 Link detection is path-based: each directory is checked immediately before it is
 enumerated, but the enumeration resolves that path again. A local attacker who
