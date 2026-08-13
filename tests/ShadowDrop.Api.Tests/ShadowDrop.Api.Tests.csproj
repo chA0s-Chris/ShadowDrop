@@ -8,6 +8,8 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <PackageReference Include="Testcontainers.MongoDb" />
+    <!-- Testcontainers 4.13.0 still resolves SSH.NET 2025.1.0, which GHSA-q939-rpr3-3284 affects. Drop this pin once an upstream release moves past it. -->
+    <PackageReference Include="SSH.NET" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\ShadowDrop.Api\ShadowDrop.Api.csproj" />
