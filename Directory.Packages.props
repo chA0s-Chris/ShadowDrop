@@ -20,6 +20,7 @@
     <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
     <PackageVersion Include="Nuke.Common" Version="10.1.0" />
     <PackageVersion Include="SemanticVersioning" Version="3.0.0" />
+    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Spectre.Console" Version="0.57.2" />
