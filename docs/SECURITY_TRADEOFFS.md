@@ -44,7 +44,14 @@ therefore select credentials, private keys, environment files, backups, or other
 secrets that a developer tool would normally hide. Preview the exact selection
 with `--dry-run`, use narrow include/exclude patterns, and inspect the absolute
 source paths before performing the real upload. Directory links are not
-traversed, but explicitly named file links retain normal explicit-file behavior.
+traversed. Discovered file links are selected only when their resolved target
+remains inside the physical root of the directory operand; excluded links are
+reported on standard error and counted as excluded. Explicitly named file links
+retain normal explicit-file behavior. This boundary does not cover hardlinks or
+bind mounts, which look like ordinary files to the available APIs. On Windows the
+containment comparison is case-insensitive, so in a tree with NTFS per-directory
+case sensitivity enabled a sibling directory whose name differs from the root
+only in case is treated as in-tree.
 
 Link detection is path-based: each directory is checked immediately before it is
 enumerated, but the enumeration resolves that path again. A local attacker who
@@ -53,7 +60,17 @@ a link in the moment between the two and have files outside the tree selected â€
 read with your privileges, not theirs. The check is placed next to its use to
 keep that window small, but only handle-based traversal could close it, and no
 such API is available. Do not run a recursive upload over a directory that
-untrusted local users can write to.
+untrusted local users can write to. Every recursively discovered file is resolved
+against the root again immediately before encryption, which reduces the window in
+which a selected entry can be swapped for a link out of the tree but does not make
+path-based traversal race-free.
+
+Named pipes, sockets, and device files are classified without being opened, so a
+tree containing one reports it rather than blocking. That check runs when the
+upload is planned and again before the file is reserved; a file replaced by one
+in the moment before its bytes are sent blocks that send instead of misreading
+data. Blocking is the safer failure of the two, and it needs the same local write
+access to the tree that the preceding paragraph rules out.
 
 ## Direct-HTTP mode (`--direct-http`)
 

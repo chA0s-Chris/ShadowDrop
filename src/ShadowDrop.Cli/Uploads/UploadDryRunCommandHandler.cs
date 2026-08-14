@@ -81,6 +81,11 @@ internal sealed class UploadDryRunCommandHandler
             ? BuildValidResult(planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan."))
             : BuildInvalidResult(planningResult.Errors);
 
+        foreach (var diagnostic in planningResult.Diagnostics)
+        {
+            await _standardError.WriteLineAsync(diagnostic.Message);
+        }
+
         if (json)
         {
             await UploadDryRunResultWriter.WriteJsonAsync(_standardOut, result);

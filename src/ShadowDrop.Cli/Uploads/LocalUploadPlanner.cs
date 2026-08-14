@@ -47,21 +47,29 @@ internal static class LocalUploadPlanner
                     continue;
                 }
 
-                var plaintextLength = file.Length;
-                if (plaintextLength <= 0)
+                // Gate before opening anything: a FIFO, socket, or device reports zero length here, and opening
+                // one blocks until a writer appears instead of failing. Resolve first, because FileInfo.Length
+                // on a link reports its stored target path rather than the file it points at, which would let a
+                // link to such a file past the gate.
+                var target = file.ResolveLinkTarget(true) as FileInfo ?? file;
+                if (target.Length <= 0)
                 {
                     errors.Add(new(file, selection.Origin, fileNumber, "File is empty."));
                     continue;
                 }
 
+                // Measured through an open handle rather than from FileInfo.Length, for the same reason: the
+                // metadata, Content-Length, and chunk count all derive from this number, so a link would
+                // otherwise promise the length of its target path.
                 using var probe = file.OpenRead();
-                _ = probe.Length;
+                var plaintextLength = probe.Length;
 
                 var chunkCount = checked(((plaintextLength - 1) / ChunkSize) + 1);
                 var encryptedLength = checked(plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength));
                 files.Add(new(file,
                               selection.Origin,
                               selection.DirectoryRelativePath,
+                              selection.RecursiveRootPath,
                               fileNumber,
                               plaintextLength,
                               chunkCount,

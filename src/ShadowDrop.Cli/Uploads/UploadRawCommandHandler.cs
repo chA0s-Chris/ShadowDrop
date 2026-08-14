@@ -60,6 +60,11 @@ internal sealed class UploadRawCommandHandler
                                                           options.FilesFrom ?? [],
                                                           options.WorkingDirectory ?? Directory.GetCurrentDirectory(),
                                                           _standardInput);
+        foreach (var diagnostic in inputResolution.Diagnostics)
+        {
+            await _standardError.WriteLineAsync(diagnostic.Message);
+        }
+
         if (!inputResolution.IsValid)
         {
             foreach (var error in inputResolution.Errors)

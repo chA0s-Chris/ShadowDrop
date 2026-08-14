@@ -13,6 +13,24 @@ public sealed class UploadInputResolverTests
     private String _rootDirectory;
 
     [Test]
+    public void Resolve_ShouldExcludeOutOfTreeAndDanglingFileLinksWithDiagnostics()
+    {
+        var root = CreateDirectory("tree");
+        var visible = CreateFile("visible.bin");
+        var outside = CreateFile("outside/secret.bin");
+        File.CreateSymbolicLink(Path.Combine(root, "outside.bin"), outside);
+        File.CreateSymbolicLink(Path.Combine(root, "dangling.bin"), Path.Combine(_rootDirectory, "missing.bin"));
+
+        var result = UploadInputResolver.Resolve([], [visible, root], true, [], [], [], _rootDirectory, new StringReader(""));
+
+        result.IsValid.Should().BeTrue();
+        result.Selections.Select(static selection => selection.File.Name).Should().Equal("visible.bin");
+        result.ExcludedFileCount.Should().Be(2);
+        result.Diagnostics.Select(static diagnostic => diagnostic.Message).Should().HaveCount(2)
+              .And.OnlyContain(static message => message.Contains("will not be uploaded", StringComparison.Ordinal));
+    }
+
+    [Test]
     [SupportedOSPlatform("linux")]
     public void Resolve_ShouldFailWhenDirectoryCannotBeEnumerated()
     {
@@ -36,6 +54,68 @@ public sealed class UploadInputResolverTests
         {
             File.SetUnixFileMode(root, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
+    }
+
+    [Test]
+    public void Resolve_ShouldIncludeARelativeInTreeFileLinkThroughASymlinkedAncestor()
+    {
+        var physicalRoot = CreateDirectory("physical/tree");
+        CreateFile("physical/tree/target.bin");
+        var link = Path.Combine(physicalRoot, "linked.bin");
+        File.CreateSymbolicLink(link, "target.bin");
+        var operandParent = Path.Combine(_rootDirectory, "alias");
+        Directory.CreateSymbolicLink(operandParent, Path.Combine(_rootDirectory, "physical"));
+
+        var result = UploadInputResolver.Resolve([], [Path.Combine(operandParent, "tree")], true, [], [], [], _rootDirectory, new StringReader(""));
+
+        result.IsValid.Should().BeTrue();
+        result.Selections.Select(static selection => selection.DirectoryRelativePath).Should().Equal("linked.bin", "target.bin");
+        result.Diagnostics.Should().BeEmpty();
+    }
+
+    // The selection is invalid because nothing survived, but the excluded link is the reason for that and
+    // must still be reported rather than replaced by an unexplained empty selection.
+    [Test]
+    public void Resolve_ShouldKeepDiagnosticsWhenExcludedLinksAreTheOnlyCandidates()
+    {
+        var root = CreateDirectory("tree");
+        var outside = CreateFile("outside/secret.bin");
+        var link = Path.Combine(root, "outside.bin");
+        File.CreateSymbolicLink(link, outside);
+
+        var result = UploadInputResolver.Resolve([], [root], true, [], [], [], _rootDirectory, new StringReader(""));
+
+        result.IsValid.Should().BeFalse();
+        result.Selections.Should().BeEmpty();
+        result.ExcludedFileCount.Should().Be(1);
+        result.Diagnostics.Should().ContainSingle()
+              .Which.Message.Should().Contain(link).And.Contain("will not be uploaded");
+        result.Errors.Should().ContainSingle()
+              .Which.Message.Should().Contain("No input files were selected.");
+    }
+
+    // The pre-encryption boundary check is skipped when a selection carries no root, so an ordinary file must
+    // carry one too. Without this, dropping the root anywhere between here and EncryptedFileContent would
+    // disable that check silently and leave every other test green.
+    [Test]
+    public void Resolve_ShouldKeepTheResolvedRootOnEveryRecursiveSelection()
+    {
+        var physicalRoot = CreateDirectory("physical/tree");
+        CreateFile("physical/tree/ordinary.bin");
+        File.CreateSymbolicLink(Path.Combine(physicalRoot, "linked.bin"), "ordinary.bin");
+        var operandParent = Path.Combine(_rootDirectory, "alias");
+        Directory.CreateSymbolicLink(operandParent, Path.Combine(_rootDirectory, "physical"));
+        var explicitFile = CreateFile("explicit.bin");
+
+        var result = UploadInputResolver.Resolve([], [explicitFile, Path.Combine(operandParent, "tree")], true, [], [], [], _rootDirectory,
+                                                 new StringReader(""));
+
+        result.IsValid.Should().BeTrue();
+        result.Selections.Where(static selection => selection.DirectoryRelativePath is not null)
+              .Should().HaveCount(2)
+              .And.OnlyContain(selection => selection.RecursiveRootPath == physicalRoot);
+        result.Selections.Should().ContainSingle(static selection => selection.DirectoryRelativePath == null)
+              .Which.RecursiveRootPath.Should().BeNull();
     }
 
     [Test]

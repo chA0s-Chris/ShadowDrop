@@ -14,10 +14,12 @@ internal sealed class EncryptedFileContent : HttpContent
     private readonly FileEncryptionContext _encryptionContext;
     private readonly FileInfo _file;
     private readonly IProgress<Int64>? _progress;
+    private readonly String? _recursiveRootPath;
     private readonly Action? _reportActivity;
     private readonly ShareSecret _shareSecret;
 
     public EncryptedFileContent(FileInfo file,
+                                String? recursiveRootPath,
                                 ShareSecret shareSecret,
                                 FileEncryptionContext encryptionContext,
                                 Int32 chunkSize,
@@ -33,6 +35,7 @@ internal sealed class EncryptedFileContent : HttpContent
         ArgumentOutOfRangeException.ThrowIfNegative(encryptedLength);
 
         _file = file;
+        _recursiveRootPath = recursiveRootPath;
         _shareSecret = shareSecret;
         _encryptionContext = encryptionContext;
         _chunkSize = chunkSize;
@@ -55,11 +58,21 @@ internal sealed class EncryptedFileContent : HttpContent
     {
         using var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(_cancellationToken, cancellationToken);
         var effectiveCancellationToken = cancellationTokenSource.Token;
+        // Not an IOException: HttpContent.CopyToAsync wraps those in HttpRequestException, which the upload
+        // client cannot tell apart from a transport failure. It would retry the send and finally report a
+        // local boundary rejection as a failed server connection.
+        if (_recursiveRootPath is not null && !RecursiveLinkBoundary.TryValidateFile(_file, _recursiveRootPath))
+        {
+            throw new UploadCommandException($"{_file.Name} no longer resolves within the recursive upload root.");
+        }
+
         await using var plaintext = _file.OpenRead();
         using var contentKey = ChunkEncryptionService.DeriveContentKey(_shareSecret, _encryptionContext);
         var buffer = new Byte[_chunkSize];
         var chunkIndex = 0L;
-        var chunkCount = checked(((_file.Length - 1) / _chunkSize) + 1);
+        // From the open stream, not FileInfo.Length: a symlink reports its own size there, which would put the
+        // final-chunk marker on the wrong chunk and produce a payload that cannot be decrypted.
+        var chunkCount = checked(((plaintext.Length - 1) / _chunkSize) + 1);
         var encryptedBytesWritten = 0L;
 
         try

@@ -10,6 +10,75 @@ using ShadowDrop.Crypto;
 [NonParallelizable]
 public sealed class EncryptedFileContentTests
 {
+    // Chunk counting from FileInfo.Length would read a symlink's own size and put the final-chunk marker on
+    // the wrong chunk, so the ciphertext would be the right length and still fail to decrypt.
+    [Test]
+    public async Task CopyToAsync_ShouldChunkASymlinkByItsTargetLength()
+    {
+        const Int32 chunkSize = 128;
+        const Int32 plaintextLength = 300;
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "encrypted-file-content-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+
+        try
+        {
+            var fileId = Guid.NewGuid();
+            var targetPath = Path.Combine(rootDirectory, "deeply", "nested", "target-with-a-deliberately-long-path.bin");
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            var plaintext = Enumerable.Range(0, plaintextLength).Select(static value => (Byte)value).ToArray();
+            await File.WriteAllBytesAsync(targetPath, plaintext);
+            var linkPath = Path.Combine(rootDirectory, "link.bin");
+            File.CreateSymbolicLink(linkPath, targetPath);
+            new FileInfo(linkPath).Length.Should().NotBe(plaintextLength, "the link must be one whose own size disagrees with its target");
+            var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
+            using var shareSecret = ShareSecret.Generate();
+            const Int32 chunkCount = 3;
+            var encryptedLength = plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength);
+            using var content = new EncryptedFileContent(new(linkPath),
+                                                         null,
+                                                         shareSecret,
+                                                         new(fileId, kdfSalt),
+                                                         chunkSize,
+                                                         encryptedLength,
+                                                         null,
+                                                         CancellationToken.None);
+            using var sink = new MemoryStream();
+
+            await content.CopyToAsync(sink, null, CancellationToken.None);
+
+            var ciphertext = sink.ToArray();
+            ciphertext.Length.Should().Be(encryptedLength);
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new(fileId, kdfSalt));
+            using var decrypted = new MemoryStream();
+            var ciphertextOffset = 0;
+            for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
+            {
+                var plaintextChunkLength = Math.Min(chunkSize, plaintextLength - (chunkIndex * chunkSize));
+                var encryptedChunkLength = plaintextChunkLength + EncryptedChunk.AuthenticationTagLength;
+                // Binding the AAD is what makes this fail when the chunk count came from the link's own size.
+                decrypted.Write(ChunkEncryptionService.DecryptChunk(new(ciphertext.AsSpan(ciphertextOffset, encryptedChunkLength).ToArray()),
+                                                                    contentKey,
+                                                                    new(CryptoVersion.V1,
+                                                                        CryptoAlgorithm.Aes256Gcm,
+                                                                        fileId,
+                                                                        chunkSize,
+                                                                        chunkIndex,
+                                                                        plaintextChunkLength,
+                                                                        chunkIndex == chunkCount - 1)));
+                ciphertextOffset += encryptedChunkLength;
+            }
+
+            decrypted.ToArray().Should().Equal(plaintext);
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
     [TestCase(384)]
     [TestCase(300)]
     public async Task CopyToAsync_ShouldEncryptOnlyLastChunkAsFinal(Int32 plaintextLength)
@@ -29,6 +98,7 @@ public sealed class EncryptedFileContentTests
             var chunkCount = ((plaintextLength - 1) / chunkSize) + 1;
             var encryptedLength = plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength);
             using var content = new EncryptedFileContent(new(filePath),
+                                                         null,
                                                          shareSecret,
                                                          new(fileId, kdfSalt),
                                                          chunkSize,
@@ -87,15 +157,16 @@ public sealed class EncryptedFileContentTests
             var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
             using var shareSecret = ShareSecret.Generate();
             using var content = new EncryptedFileContent(new(filePath),
+                                                         null,
                                                          shareSecret,
                                                          new(fileId, kdfSalt),
                                                          128,
                                                          new FileInfo(filePath).Length + (4 * 16),
                                                          null,
-                                                         new CancellationToken(true));
+                                                         new(true));
             using var sink = new MemoryStream();
 
-            Func<Task> act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
+            var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
 
             await act.Should().ThrowAsync<OperationCanceledException>();
         }
@@ -104,6 +175,50 @@ public sealed class EncryptedFileContentTests
             if (Directory.Exists(rootDirectory))
             {
                 Directory.Delete(rootDirectory, true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task CopyToAsync_ShouldRejectARecursiveFileLinkThatMovesOutsideItsRoot()
+    {
+        var rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory, "artifacts", "encrypted-file-content-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectory);
+        var outsideDirectory = Path.Combine(rootDirectory, "..", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(outsideDirectory);
+
+        try
+        {
+            var inside = Path.Combine(rootDirectory, "inside.bin");
+            var outside = Path.Combine(outsideDirectory, "outside.bin");
+            var link = Path.Combine(rootDirectory, "linked.bin");
+            await File.WriteAllBytesAsync(inside, [1, 2, 3]);
+            await File.WriteAllBytesAsync(outside, [4, 5, 6]);
+            File.CreateSymbolicLink(link, inside);
+            File.Delete(link);
+            File.CreateSymbolicLink(link, outside);
+            using var shareSecret = ShareSecret.Generate();
+            using var content = new EncryptedFileContent(new(link), rootDirectory, shareSecret,
+                                                         new(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt()),
+                                                         4, 19, null, CancellationToken.None);
+
+            var act = async () => await content.CopyToAsync(Stream.Null);
+
+            // Deliberately not wrapped in HttpRequestException: only an IOException would be, and the upload
+            // client would then retry the send and blame the server for a local boundary rejection.
+            await act.Should().ThrowAsync<UploadCommandException>()
+                     .WithMessage("*recursive upload root*");
+        }
+        finally
+        {
+            if (Directory.Exists(rootDirectory))
+            {
+                Directory.Delete(rootDirectory, true);
+            }
+
+            if (Directory.Exists(outsideDirectory))
+            {
+                Directory.Delete(outsideDirectory, true);
             }
         }
     }
@@ -119,7 +234,7 @@ public sealed class EncryptedFileContentTests
 
         try
         {
-            using var content = new EncryptedFileContent(new(filePath), shareSecret, context, 4, 58, null, CancellationToken.None, () => activityCount++);
+            using var content = new EncryptedFileContent(new(filePath), null, shareSecret, context, 4, 58, null, CancellationToken.None, () => activityCount++);
             await content.CopyToAsync(Stream.Null);
 
             activityCount.Should().Be(3);
@@ -147,6 +262,7 @@ public sealed class EncryptedFileContentTests
             var encryptedLength = 300 + (3 * EncryptedChunk.AuthenticationTagLength);
             var progress = new CapturingProgress();
             using var content = new EncryptedFileContent(new(filePath),
+                                                         null,
                                                          shareSecret,
                                                          new(fileId, kdfSalt),
                                                          chunkSize,
