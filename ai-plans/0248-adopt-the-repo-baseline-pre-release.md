@@ -10,20 +10,20 @@ Adopting the pinned pre-release replaces the local copies with synced content, r
 
 ## Acceptance Criteria
 
-- [ ] `.repo-baseline.json` pins `0.2.0` with the profiles `common`, `dotnet` and `github`, and `check` against `v0.2.0` reports no findings.
+- [x] `.repo-baseline.json` pins `0.2.0` with the profiles `common`, `dotnet` and `github`, and `check` against `v0.2.0` reports no findings.
 - [ ] A `repo-baseline` job in `.github/workflows/ci.yml` runs `check` with the snippet from the repo-baseline README, and it passes on the adoption PR.
-- [ ] The root `Directory.Build.props` imports `.repo-baseline/Common.props` and keeps only `TargetFramework` and `EmbedUntrackedSources`; `tests/Directory.Build.props` imports `.repo-baseline/Tests.props` and keeps only `NoWarn` and `RootNamespace`.
-- [ ] Neither `Microsoft.SourceLink.GitHub` (BLD-6) nor `Microsoft.TestPlatform.TestHost` (TST-1) has a `PackageReference` or `PackageVersion`.
-- [ ] `ShadowDrop.slnx.DotSettings` contains only the injection of `.repo-baseline/ReSharper.DotSettings`; `.editorconfig`, `.gitignore`, `AGENTS.md` and `.github/copilot-instructions.md` contain only local content beside their managed blocks.
-- [ ] `AGENTS.md` no longer has the "Here is Your Space" section or its `mongo:8.3` note (AGT-1), and its remaining local text no longer describes the replaced script behavior (C#-only selection, `-e=WARNING`) or says that `Directory.Build.props` sets `TreatWarningsAsErrors` for Release only.
-- [ ] `scripts/test-inspect-code.sh` and its CI step are removed.
-- [ ] Every integration test class carries `[Category("Integration")]` (TST-3), `AGENTS.md` lists the fast-test command with `TestCategory!=Integration&TestCategory!=E2E`, and `tests/AGENTS.md` states the category rule. `dotnet test --filter TestCategory=Integration` selects exactly the three MongoDB persistence fixtures and `RustFsS3IntegrationTests`.
-- [ ] `renovate.json` extends `github>chA0s-Chris/repo-baseline//renovate/default` and otherwise contains only the test-image custom manager and the `mongo-5` and `rustfs` holds.
-- [ ] Each drift item listed in #248 is resolved, or recorded in this plan with the reason it stays.
-- [ ] The reformatting caused by the shared rules is a commit of its own and passes the Release build and the full test suite on its own. `.git-blame-ignore-revs` lists that commit.
-- [ ] `./inspect_code.sh --all` reports no findings at warning severity; each former finding is fixed or suppressed with a reason (CS-11).
-- [ ] The Release build has no warnings, `CI=true` builds of `ShadowDrop.slnx` and `build/Nuke.csproj` pass, and the full test suite passes, including the end-to-end tests.
-- [ ] Problems found in repo-baseline's profile content or tool are reported as issues in chA0s-Chris/repo-baseline after the maintainer approved their text.
+- [x] The root `Directory.Build.props` imports `.repo-baseline/Common.props` and keeps only `TargetFramework` and `EmbedUntrackedSources`; `tests/Directory.Build.props` imports `.repo-baseline/Tests.props` and keeps only `NoWarn` and `RootNamespace`.
+- [x] Neither `Microsoft.SourceLink.GitHub` (BLD-6) nor `Microsoft.TestPlatform.TestHost` (TST-1) has a `PackageReference` or `PackageVersion`.
+- [x] `ShadowDrop.slnx.DotSettings` contains only the injection of `.repo-baseline/ReSharper.DotSettings`; `.editorconfig`, `.gitignore`, `AGENTS.md` and `.github/copilot-instructions.md` contain only local content beside their managed blocks.
+- [x] `AGENTS.md` no longer has the "Here is Your Space" section or its `mongo:8.3` note (AGT-1), and its remaining local text no longer describes the replaced script behavior (C#-only selection, `-e=WARNING`) or says that `Directory.Build.props` sets `TreatWarningsAsErrors` for Release only.
+- [x] `scripts/test-inspect-code.sh` and its CI step are removed.
+- [x] Every integration test class carries `[Category("Integration")]` (TST-3), `AGENTS.md` lists the fast-test command with `TestCategory!=Integration&TestCategory!=E2E`, and `tests/AGENTS.md` states the category rule. `dotnet test --filter TestCategory=Integration` selects exactly the three MongoDB persistence fixtures and `RustFsS3IntegrationTests`.
+- [x] `renovate.json` extends `github>chA0s-Chris/repo-baseline//renovate/default` and otherwise contains only the test-image custom manager and the `mongo-5` and `rustfs` holds.
+- [x] Each drift item listed in #248 is resolved, or recorded in this plan with the reason it stays.
+- [x] The reformatting caused by the shared rules is a commit of its own and passes the Release build and the full test suite on its own. `.git-blame-ignore-revs` lists that commit.
+- [x] `./inspect_code.sh --all` reports no findings at warning severity; each former finding is fixed or suppressed with a reason (CS-11).
+- [x] The Release build has no warnings, `CI=true` builds of `ShadowDrop.slnx` and `build/Nuke.csproj` pass, and the full test suite passes, including the end-to-end tests.
+- [x] Problems found in repo-baseline's profile content or tool are reported as issues in chA0s-Chris/repo-baseline after the maintainer approved their text.
 
 ## Technical Details
 
@@ -93,4 +93,4 @@ Add a job that clones the pinned release into `${RUNNER_TEMP}` and runs `check` 
 
 ### repo-baseline findings
 
-None found yet. Each problem in repo-baseline's profile content or tool that this adoption finds is listed here with its issue link once the maintainer approved the issue text.
+None found. `init`, `sync` and `check` of `v0.2.0` worked as documented, and the fixes from the first pilot (chA0s-Chris/repo-baseline#17, #18) held: `check` reported the two missing props imports until they were added.
