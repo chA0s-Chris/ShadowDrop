@@ -940,7 +940,6 @@ public sealed class DownloadFileService
         }
     }
 
-
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
 
     private sealed record ResolvedShareContext(ShareRecord Share, DateTimeOffset Now);

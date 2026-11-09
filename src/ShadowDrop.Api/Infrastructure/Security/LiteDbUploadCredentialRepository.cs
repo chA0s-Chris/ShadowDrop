@@ -73,7 +73,7 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorDigestBase64);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindOne(x => x.SelectorDigestBase64 == selectorDigestBase64);
         return Task.FromResult(document is null ? null : Map(document));
@@ -83,7 +83,7 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(credentialId);
         return Task.FromResult(document is null ? null : Map(document));
@@ -97,7 +97,7 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
 
         // Credential counts stay small, so ordering in memory is acceptable here; only authentication lookups
         // must avoid scans (see the unique selector-digest index).
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var ordered = _collection.FindAll()
                                  .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)

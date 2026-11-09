@@ -223,7 +223,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
 
         var now = DateTimeOffset.UtcNow;
         var cutoff = GetReservationCutoffUnixTimeMilliseconds(now);
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var count = _collection.Count(document => document.IsReserved
                                                   && !document.IsClaimed
@@ -236,7 +236,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(fileId);
         return Task.FromResult(document is null || document.IsReserved ? null : Map(document));
@@ -253,7 +253,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
             return Task.FromResult<IReadOnlyList<UploadedFileListProjection>>([]);
         }
 
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         IReadOnlyList<UploadedFileListProjection> projections = _collection
                                                                 .Find(Query.In("_id", fileIds.Distinct().Select(id => new BsonValue(id))))
@@ -271,7 +271,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
 
         var completedFileCount = 0L;
         var totalEncryptedBytes = 0L;
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         foreach (var document in _collection.Find(document => !document.IsReserved))
         {

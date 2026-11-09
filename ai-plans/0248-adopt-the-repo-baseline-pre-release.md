@@ -93,4 +93,6 @@ Add a job that clones the pinned release into `${RUNNER_TEMP}` and runs `check` 
 
 ### repo-baseline findings
 
-None found. `init`, `sync` and `check` of `v0.2.0` worked as documented, and the fixes from the first pilot (chA0s-Chris/repo-baseline#17, #18) held: `check` reported the two missing props imports until they were added.
+- chA0s-Chris/repo-baseline#21: the naming rules in the synced `CODESTYLE.md` disagree with the shared ReSharper naming rules; following `CODESTYLE.md`, a mutable private static field is named `_camelCase`, and the inspection reports it.
+
+`init`, `sync` and `check` of `v0.2.0` otherwise worked as documented, and the fixes from the first pilot (chA0s-Chris/repo-baseline#17, #18) held: `check` reported the two missing props imports until they were added.

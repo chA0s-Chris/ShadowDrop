@@ -41,7 +41,7 @@ dotnet coverage merge artifacts/test-coverage/*/coverage.cobertura.xml \
   -f cobertura -o artifacts/test-coverage/coverage.cobertura.merged.xml
 ```
 
-This uses the same collector, the same `coverlet.xml`, and the same `dotnet-coverage` tool as CI. The reset is required rather than tidy: `dotnet test` adds one result directory per run and the merge globs all of them, so leaving earlier runs in place folds their fragments into the number. `-c Release` matches what CI measures and additionally exercises `TreatWarningsAsErrors`, which `.repo-baseline/Common.props` sets for Release builds and for every build in CI.
+This uses the same collector, the same `coverlet.xml`, and the same `dotnet-coverage` tool from `dotnet-tools.json` as CI, so run `dotnet tool restore` first. The reset is required rather than tidy: `dotnet test` adds one result directory per run and the merge globs all of them, so leaving earlier runs in place folds their fragments into the number. `-c Release` matches what CI measures and additionally exercises `TreatWarningsAsErrors`, which `.repo-baseline/Common.props` sets for Release builds and for every build in CI.
 
 The installer scripts have their own suites, which no `dotnet test` command covers:
 

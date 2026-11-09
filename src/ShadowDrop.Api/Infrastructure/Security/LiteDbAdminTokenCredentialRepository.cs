@@ -30,7 +30,7 @@ public sealed class LiteDbAdminTokenCredentialRepository : IAdminTokenCredential
     public Task<AdminTokenCredential?> GetAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        // A single LiteDB read needs no _syncRoot: LiteDatabase serializes its own operations, and _syncRoot only makes read-check-write sequences atomic.
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
         // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(CredentialId);
         return Task.FromResult(document is null

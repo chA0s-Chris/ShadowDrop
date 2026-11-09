@@ -130,8 +130,12 @@ public sealed class RustFsS3IntegrationTests
             await _mongoContainer.DisposeAsync();
         }
 
-        _administrationClient.Dispose();
-        _storageClient.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before creating the S3 clients.
+        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
+        _administrationClient?.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before creating the S3 clients.
+        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
+        _storageClient?.Dispose();
         // NUnit runs this teardown even when StartDependenciesAsync throws before building the RustFS container.
         // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_container is not null)
