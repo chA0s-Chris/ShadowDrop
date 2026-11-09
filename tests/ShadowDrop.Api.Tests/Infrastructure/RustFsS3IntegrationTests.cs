@@ -26,6 +26,7 @@ using System.Text.Json;
 using Testcontainers.MongoDb;
 
 [TestFixture]
+[Category("Integration")]
 [Category("S3Integration")]
 [NonParallelizable]
 public sealed class RustFsS3IntegrationTests

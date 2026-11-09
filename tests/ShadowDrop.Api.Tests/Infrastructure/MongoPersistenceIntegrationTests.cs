@@ -24,6 +24,7 @@ using System.Net;
 using System.Text.Json;
 using Testcontainers.MongoDb;
 
+[Category("Integration")]
 [Category("MongoIntegration")]
 [NonParallelizable]
 public abstract class MongoPersistenceIntegrationTests

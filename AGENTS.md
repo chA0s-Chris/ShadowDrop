@@ -10,15 +10,16 @@ TBD
 
 Run these from the repository root.
 
-| Purpose                         | Command                                                              |
-|---------------------------------|----------------------------------------------------------------------|
-| Apply the code style            | `./cleanup_code.sh`                                                  |
-| Find code issues                | `./inspect_code.sh`                                                  |
-| Find code issues in a branch    | `./inspect_code.sh --base <revision>`                                |
-| Complete test suite             | `dotnet test ShadowDrop.slnx`                                        |
-| Unit and integration tests only | `dotnet test ShadowDrop.slnx --filter "TestCategory!=E2E"`           |
-| End-to-end tests only           | `dotnet test tests/ShadowDrop.E2E.Tests/ShadowDrop.E2E.Tests.csproj` |
-| Release parity                  | `dotnet build -c Release ShadowDrop.slnx`                            |
+| Purpose                         | Command                                                                              |
+|---------------------------------|--------------------------------------------------------------------------------------|
+| Apply the code style            | `./cleanup_code.sh`                                                                  |
+| Find code issues                | `./inspect_code.sh`                                                                  |
+| Find code issues in a branch    | `./inspect_code.sh --base <revision>`                                                |
+| Complete test suite             | `dotnet test ShadowDrop.slnx`                                                        |
+| Unit and integration tests only | `dotnet test ShadowDrop.slnx --filter "TestCategory!=E2E"`                           |
+| Unit tests only                 | `dotnet test ShadowDrop.slnx --filter "TestCategory!=Integration&TestCategory!=E2E"` |
+| End-to-end tests only           | `dotnet test tests/ShadowDrop.E2E.Tests/ShadowDrop.E2E.Tests.csproj`                 |
+| Release parity                  | `dotnet build -c Release ShadowDrop.slnx`                                            |
 
 ### Tests
 
