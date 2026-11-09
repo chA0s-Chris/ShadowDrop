@@ -38,7 +38,7 @@ public sealed class MongoUploadedFileMetadataRepository : IUploadedFileMetadataR
             var fileId = Guid.NewGuid();
             try
             {
-                await Collection.InsertOneAsync(new()
+                await Collection.InsertOneAsync(new MongoUploadedFileDocument
                 {
                     FileId = fileId,
                     IsReserved = true,
@@ -114,11 +114,11 @@ public sealed class MongoUploadedFileMetadataRepository : IUploadedFileMetadataR
         var groups = await cursor.ToListAsync(cancellationToken);
         if (groups.Any(document => document["_id"].ToInt32() == (Int32)BlobRetentionState.Unknown))
         {
-            return new(null, null, false);
+            return new UploadedFileStorageStats(null, null, false);
         }
 
         var retained = groups.FirstOrDefault(document => document["_id"].ToInt32() == (Int32)BlobRetentionState.Retained);
-        return new(retained?["count"].ToInt64() ?? 0, retained?["total"].ToInt64() ?? 0);
+        return new UploadedFileStorageStats(retained?["count"].ToInt64() ?? 0, retained?["total"].ToInt64() ?? 0);
     }
 
     public async Task<IReadOnlyList<UploadSweepCandidate>> GetSweepCandidatesAsync(

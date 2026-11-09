@@ -87,13 +87,13 @@ internal sealed class EncryptedFileContent : HttpContent
 
                 var encryptedChunk = ChunkEncryptionService.EncryptChunk(buffer.AsSpan(0, bytesRead),
                                                                          contentKey,
-                                                                         new(CryptoVersion.V1,
-                                                                             CryptoAlgorithm.Aes256Gcm,
-                                                                             _encryptionContext.FileId,
-                                                                             _chunkSize,
-                                                                             chunkIndex,
-                                                                             bytesRead,
-                                                                             chunkIndex == chunkCount - 1));
+                                                                         new ChunkMetadata(CryptoVersion.V1,
+                                                                                           CryptoAlgorithm.Aes256Gcm,
+                                                                                           _encryptionContext.FileId,
+                                                                                           _chunkSize,
+                                                                                           chunkIndex,
+                                                                                           bytesRead,
+                                                                                           chunkIndex == chunkCount - 1));
                 await stream.WriteAsync(encryptedChunk.CiphertextMemory, effectiveCancellationToken);
                 _reportActivity?.Invoke();
                 encryptedBytesWritten += encryptedChunk.CiphertextMemory.Length;

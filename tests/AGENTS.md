@@ -23,6 +23,8 @@ In general, we distinguish between three types of tests:
    is the existence of at least one I/O call that does not involve the local file system.
 3. An End-to-End test is a modification of an integration test where test doubles are not allowed. Everything has to be in place as it would run in a staging or production environment. They usually test the whole chain of services and dependencies.
 
+Every integration test class carries `[Category("Integration")]`, and every end-to-end test class carries `[Category("E2E")]`; a narrower category such as `MongoIntegration` may stand next to `Integration`. Unit tests carry neither, so the filter `TestCategory!=Integration&TestCategory!=E2E` selects them.
+
 ### We Follow the Test Pyramid
 
 We follow the test pyramid where Unit Tests are the most important part of our test suite. Integration tests and especially End-to-End tests are more complex to set up and maintain, they also take longer to run, which is why we treat them as a second line of defense. The production code should be primarily tested via Unit Tests (happy path and error/edge cases), integration tests and End-to-End tests should only cover the happy path and check if things work as expected when everything is in place.

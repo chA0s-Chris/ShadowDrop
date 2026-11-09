@@ -5,13 +5,14 @@ namespace ShadowDrop.Tests.Downloads;
 using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli.Downloads;
+using ShadowDrop.Contracts;
 
 public sealed class CliDownloadRequestFactoryTests
 {
     [Test]
     public void CreateGetRequest_ShouldAppendCliMode_WhenNoRangeIsRequested()
     {
-        var request = CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"));
+        var request = CliDownloadRequestFactory.CreateGetRequest(new Uri("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"));
 
         request.Method.Should().Be(HttpMethod.Get);
         request.RequestUri.Should().NotBeNull();
@@ -22,7 +23,7 @@ public sealed class CliDownloadRequestFactoryTests
     [Test]
     public void CreateGetRequest_ShouldAttachAuthorizationHeader_WhenBearerTokenIsProvided()
     {
-        var request = CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
+        var request = CliDownloadRequestFactory.CreateGetRequest(new Uri("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
                                                                  "download-token");
 
         request.Headers.Authorization.Should().NotBeNull();
@@ -35,7 +36,7 @@ public sealed class CliDownloadRequestFactoryTests
     [TestCase("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1&mode=direct-http&mode=cli", "?download=1&mode=cli")]
     public void CreateGetRequest_ShouldNormalizeModeQueryParameter_ToSingleCliValue(String downloadUri, String expectedQuery)
     {
-        var request = CliDownloadRequestFactory.CreateGetRequest(new(downloadUri));
+        var request = CliDownloadRequestFactory.CreateGetRequest(new Uri(downloadUri));
 
         request.RequestUri.Should().NotBeNull();
         request.RequestUri.Query.Should().Be(expectedQuery);
@@ -45,8 +46,8 @@ public sealed class CliDownloadRequestFactoryTests
     [Test]
     public void CreateGetRequest_ShouldPreserveExistingQueryString_AndAddByteRangeHeader()
     {
-        var request = CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1"),
-                                                                 requestedRange: new()
+        var request = CliDownloadRequestFactory.CreateGetRequest(new Uri("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef?download=1"),
+                                                                 requestedRange: new RequestedPlaintextRangeContract
                                                                  {
                                                                      Start = 64,
                                                                      End = 120
@@ -66,8 +67,8 @@ public sealed class CliDownloadRequestFactoryTests
     [TestCase(10, 9)]
     public void CreateGetRequest_ShouldRejectInvalidRequestedRanges(Int64 start, Int64 end)
     {
-        var act = () => CliDownloadRequestFactory.CreateGetRequest(new("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
-                                                                   requestedRange: new()
+        var act = () => CliDownloadRequestFactory.CreateGetRequest(new Uri("https://shadowdrop.test/d/token/files/01234567-89ab-cdef-0123-456789abcdef"),
+                                                                   requestedRange: new RequestedPlaintextRangeContract
                                                                    {
                                                                        Start = start,
                                                                        End = end

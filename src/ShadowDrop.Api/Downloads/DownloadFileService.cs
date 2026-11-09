@@ -2,7 +2,6 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Downloads;
 
-using Microsoft.Net.Http.Headers;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
@@ -36,7 +35,7 @@ public sealed class DownloadFileService
         var shareResolution = await TryResolveShareAsync(request.ShareToken, request.AuthorizationBearerToken, cancellationToken);
         if (shareResolution.Status != DownloadLookupStatus.Success || shareResolution.Context is null)
         {
-            return new(shareResolution.Status);
+            return new DownloadLookupResult(shareResolution.Status);
         }
 
         var share = shareResolution.Context.Share;
@@ -47,7 +46,7 @@ public sealed class DownloadFileService
             _logger.LogWarning("Download request rejected because the file is not part of the share. ShareId: {ShareId}; FileId: {FileId}",
                                share.ShareId,
                                request.FileId);
-            return new(DownloadLookupStatus.NotFound);
+            return new DownloadLookupResult(DownloadLookupStatus.NotFound);
         }
 
         var uploadedFile = await _uploadedFileMetadataRepository.GetAsync(request.FileId, cancellationToken);
@@ -56,7 +55,7 @@ public sealed class DownloadFileService
             _logger.LogWarning("Download request rejected because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}",
                                share.ShareId,
                                request.FileId);
-            return new(DownloadLookupStatus.NotFound);
+            return new DownloadLookupResult(DownloadLookupStatus.NotFound);
         }
 
         if (request.Mode == DownloadRequestMode.DirectHttp)
@@ -66,7 +65,7 @@ public sealed class DownloadFileService
                 _logger.LogWarning("Download request rejected because direct-HTTP mode is not enabled for the share. ShareId: {ShareId}; FileId: {FileId}",
                                    share.ShareId,
                                    request.FileId);
-                return new(DownloadLookupStatus.InvalidRequest);
+                return new DownloadLookupResult(DownloadLookupStatus.InvalidRequest);
             }
 
             if (request.HasMalformedRangeHeader)
@@ -74,7 +73,7 @@ public sealed class DownloadFileService
                 _logger.LogWarning("Download request rejected because the range header was malformed. ShareId: {ShareId}; FileId: {FileId}",
                                    share.ShareId,
                                    request.FileId);
-                return new(DownloadLookupStatus.InvalidRange);
+                return new DownloadLookupResult(DownloadLookupStatus.InvalidRange);
             }
 
             var rangeResolution = ResolveDirectHttpRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
@@ -85,7 +84,7 @@ public sealed class DownloadFileService
                     share.ShareId,
                     request.FileId,
                     rangeResolution.Status);
-                return new(rangeResolution.Status);
+                return new DownloadLookupResult(rangeResolution.Status);
             }
 
             var hasHeaderKey = !String.IsNullOrWhiteSpace(request.HeaderKeyMaterial);
@@ -96,7 +95,7 @@ public sealed class DownloadFileService
                     "Download request rejected because key material was missing or provided in both the header and query string. ShareId: {ShareId}; FileId: {FileId}",
                     share.ShareId,
                     request.FileId);
-                return new(DownloadLookupStatus.InvalidRequest);
+                return new DownloadLookupResult(DownloadLookupStatus.InvalidRequest);
             }
 
             // The equality check above rejected both "neither" and "both", so exactly one of the two carries
@@ -109,21 +108,21 @@ public sealed class DownloadFileService
                                                                            cancellationToken);
             if (directHttpOpenResult.Status != DownloadLookupStatus.Success || directHttpOpenResult.Content is null)
             {
-                return new(directHttpOpenResult.Status);
+                return new DownloadLookupResult(directHttpOpenResult.Status);
             }
 
-            return new(DownloadLookupStatus.Success,
-                       new(DownloadMode.DirectHttp,
-                           share.ShareId,
-                           request.FileId,
-                           fileEntry.DisplayName ?? fileEntry.OriginalFileName,
-                           uploadedFile.ContentType ?? "application/octet-stream",
-                           uploadedFile.ContentType ?? "application/octet-stream",
-                           rangeResolution.RequestedRange?.End - rangeResolution.RequestedRange?.Start ?? uploadedFile.PlaintextLength,
-                           directHttpOpenResult.Content,
-                           uploadedFile.PlaintextLength,
-                           rangeResolution.RequestedRange,
-                           null));
+            return new DownloadLookupResult(DownloadLookupStatus.Success,
+                                            new DownloadFileResolution(DownloadMode.DirectHttp,
+                                                                       share.ShareId,
+                                                                       request.FileId,
+                                                                       fileEntry.DisplayName ?? fileEntry.OriginalFileName,
+                                                                       uploadedFile.ContentType ?? "application/octet-stream",
+                                                                       uploadedFile.ContentType ?? "application/octet-stream",
+                                                                       rangeResolution.RequestedRange?.End - rangeResolution.RequestedRange?.Start ?? uploadedFile.PlaintextLength,
+                                                                       directHttpOpenResult.Content,
+                                                                       uploadedFile.PlaintextLength,
+                                                                       rangeResolution.RequestedRange,
+                                                                       null));
         }
 
         if (share.DirectHttpEnabled)
@@ -131,7 +130,7 @@ public sealed class DownloadFileService
             _logger.LogWarning("Download request rejected because streamed CLI mode is not enabled for the share. ShareId: {ShareId}; FileId: {FileId}",
                                share.ShareId,
                                request.FileId);
-            return new(DownloadLookupStatus.InvalidRequest);
+            return new DownloadLookupResult(DownloadLookupStatus.InvalidRequest);
         }
 
         if (request.HasMalformedRangeHeader)
@@ -139,7 +138,7 @@ public sealed class DownloadFileService
             _logger.LogWarning("Download request rejected because the range header was malformed. ShareId: {ShareId}; FileId: {FileId}",
                                share.ShareId,
                                request.FileId);
-            return new(DownloadLookupStatus.InvalidRange);
+            return new DownloadLookupResult(DownloadLookupStatus.InvalidRange);
         }
 
         var cliRangeResolution = ResolveCliRequestedRange(uploadedFile.PlaintextLength, request.RequestedRange);
@@ -150,7 +149,7 @@ public sealed class DownloadFileService
                 share.ShareId,
                 request.FileId,
                 cliRangeResolution.Status);
-            return new(cliRangeResolution.Status);
+            return new DownloadLookupResult(cliRangeResolution.Status);
         }
 
         var cliOpenResult = await TryOpenCliContentAsync(uploadedFile,
@@ -158,21 +157,21 @@ public sealed class DownloadFileService
                                                          cancellationToken);
         if (cliOpenResult.Status != DownloadLookupStatus.Success || cliOpenResult.Content is null || cliOpenResult.Metadata is null)
         {
-            return new(cliOpenResult.Status);
+            return new DownloadLookupResult(cliOpenResult.Status);
         }
 
-        return new(DownloadLookupStatus.Success,
-                   new(DownloadMode.Cli,
-                       share.ShareId,
-                       request.FileId,
-                       fileEntry.DisplayName ?? fileEntry.OriginalFileName,
-                       uploadedFile.ContentType ?? "application/octet-stream",
-                       DownloadHeaderConstants.CliDownloadContentType,
-                       cliOpenResult.ContentLength,
-                       cliOpenResult.Content,
-                       uploadedFile.PlaintextLength,
-                       cliRangeResolution.IsPartial ? cliRangeResolution.RequestedRange : null,
-                       cliOpenResult.Metadata));
+        return new DownloadLookupResult(DownloadLookupStatus.Success,
+                                        new DownloadFileResolution(DownloadMode.Cli,
+                                                                   share.ShareId,
+                                                                   request.FileId,
+                                                                   fileEntry.DisplayName ?? fileEntry.OriginalFileName,
+                                                                   uploadedFile.ContentType ?? "application/octet-stream",
+                                                                   DownloadHeaderConstants.CliDownloadContentType,
+                                                                   cliOpenResult.ContentLength,
+                                                                   cliOpenResult.Content,
+                                                                   uploadedFile.PlaintextLength,
+                                                                   cliRangeResolution.IsPartial ? cliRangeResolution.RequestedRange : null,
+                                                                   cliOpenResult.Metadata));
     }
 
     public async Task<ShareManifestLookupResult> ResolveManifestAsync(String shareToken,
@@ -182,7 +181,7 @@ public sealed class DownloadFileService
         var shareResolution = await TryResolveShareAsync(shareToken, authorizationBearerToken, cancellationToken);
         if (shareResolution.Status != DownloadLookupStatus.Success || shareResolution.Context is null)
         {
-            return new(shareResolution.Status);
+            return new ShareManifestLookupResult(shareResolution.Status);
         }
 
         var files = new List<ShareManifestFileContract>(shareResolution.Context.Share.Files.Count);
@@ -195,10 +194,10 @@ public sealed class DownloadFileService
                     "Share manifest request rejected because upload metadata was missing. ShareId: {ShareId}; FileId: {FileId}",
                     shareResolution.Context.Share.ShareId,
                     file.FileId);
-                return new(DownloadLookupStatus.NotFound);
+                return new ShareManifestLookupResult(DownloadLookupStatus.NotFound);
             }
 
-            files.Add(new()
+            files.Add(new ShareManifestFileContract
             {
                 FileId = file.FileId.ToString(),
                 FileName = file.DisplayName ?? file.OriginalFileName,
@@ -212,7 +211,7 @@ public sealed class DownloadFileService
             });
         }
 
-        return new(DownloadLookupStatus.Success, new()
+        return new ShareManifestLookupResult(DownloadLookupStatus.Success, new ShareManifestContract
         {
             Files = files
         });
@@ -278,7 +277,7 @@ public sealed class DownloadFileService
             throw new InvalidDataException("Chunked metadata must declare a positive chunk size.");
         }
 
-        var fullChunksLength = checked((uploadedFile.ChunkCount - 1) * (Int64)uploadedFile.ChunkSize);
+        var fullChunksLength = checked((uploadedFile.ChunkCount - 1) * uploadedFile.ChunkSize);
         var remainingPlaintextLength = checked(uploadedFile.PlaintextLength - fullChunksLength);
         var finalChunkLength = remainingPlaintextLength == 0
             ? uploadedFile.ChunkSize
@@ -319,71 +318,53 @@ public sealed class DownloadFileService
         return checked(chunkCount * uploadedFile.ChunkSize);
     }
 
-    private static ParsedRangeHeader ParseRequestedByteRange(String rangeHeader)
-    {
-        if (!RangeHeaderValue.TryParse(rangeHeader, out var parsedRange)
-            || !String.Equals(parsedRange.Unit.ToString(), "bytes", StringComparison.OrdinalIgnoreCase)
-            || parsedRange.Ranges.Count != 1)
-        {
-            return new(null, true);
-        }
-
-        var range = parsedRange.Ranges.Single();
-        if (range.From is null && range.To is null)
-        {
-            return new(null, true);
-        }
-
-        return new(new(range.From, range.To), false);
-    }
-
     private static RangeResolution ResolveCliRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
     {
         if (requestedRange is null)
         {
-            return new(DownloadLookupStatus.Success,
-                       new()
-                       {
-                           Start = 0,
-                           End = totalPlaintextLength
-                       },
-                       false);
+            return new RangeResolution(DownloadLookupStatus.Success,
+                                       new RequestedPlaintextRangeContract
+                                       {
+                                           Start = 0,
+                                           End = totalPlaintextLength
+                                       },
+                                       false);
         }
 
         if (requestedRange.Start is null || requestedRange.EndInclusive is null)
         {
-            return new(DownloadLookupStatus.InvalidRange, null, false);
+            return new RangeResolution(DownloadLookupStatus.InvalidRange, null, false);
         }
 
         var start = requestedRange.Start.Value;
         var endInclusive = requestedRange.EndInclusive.Value;
         if (start < 0 || endInclusive < start)
         {
-            return new(DownloadLookupStatus.InvalidRange, null, false);
+            return new RangeResolution(DownloadLookupStatus.InvalidRange, null, false);
         }
 
         if (start >= totalPlaintextLength)
         {
-            return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
+            return new RangeResolution(DownloadLookupStatus.RangeNotSatisfiable, null, false);
         }
 
         var endExclusive = endInclusive >= totalPlaintextLength
             ? totalPlaintextLength
             : checked(endInclusive + 1);
-        return new(DownloadLookupStatus.Success,
-                   new()
-                   {
-                       Start = start,
-                       End = endExclusive
-                   },
-                   true);
+        return new RangeResolution(DownloadLookupStatus.Success,
+                                   new RequestedPlaintextRangeContract
+                                   {
+                                       Start = start,
+                                       End = endExclusive
+                                   },
+                                   true);
     }
 
     private static RangeResolution ResolveDirectHttpRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
     {
         if (requestedRange is null)
         {
-            return new(DownloadLookupStatus.Success, null, false);
+            return new RangeResolution(DownloadLookupStatus.Success, null, false);
         }
 
         Int64 start;
@@ -392,13 +373,13 @@ public sealed class DownloadFileService
         {
             if (requestedRange.EndInclusive is null || requestedRange.EndInclusive <= 0)
             {
-                return new(DownloadLookupStatus.InvalidRange, null, false);
+                return new RangeResolution(DownloadLookupStatus.InvalidRange, null, false);
             }
 
             var suffixLength = Math.Min(requestedRange.EndInclusive.Value, totalPlaintextLength);
             if (suffixLength == 0)
             {
-                return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
+                return new RangeResolution(DownloadLookupStatus.RangeNotSatisfiable, null, false);
             }
 
             start = totalPlaintextLength - suffixLength;
@@ -409,17 +390,17 @@ public sealed class DownloadFileService
             start = requestedRange.Start.Value;
             if (start < 0)
             {
-                return new(DownloadLookupStatus.InvalidRange, null, false);
+                return new RangeResolution(DownloadLookupStatus.InvalidRange, null, false);
             }
 
             if (start >= totalPlaintextLength)
             {
-                return new(DownloadLookupStatus.RangeNotSatisfiable, null, false);
+                return new RangeResolution(DownloadLookupStatus.RangeNotSatisfiable, null, false);
             }
 
             if (requestedRange.EndInclusive is not null && requestedRange.EndInclusive < start)
             {
-                return new(DownloadLookupStatus.InvalidRange, null, false);
+                return new RangeResolution(DownloadLookupStatus.InvalidRange, null, false);
             }
 
             var endInclusive = requestedRange.EndInclusive is null || requestedRange.EndInclusive.Value >= totalPlaintextLength
@@ -428,13 +409,13 @@ public sealed class DownloadFileService
             endExclusive = checked(endInclusive + 1);
         }
 
-        return new(DownloadLookupStatus.Success,
-                   new()
-                   {
-                       Start = start,
-                       End = endExclusive
-                   },
-                   true);
+        return new RangeResolution(DownloadLookupStatus.Success,
+                                   new RequestedPlaintextRangeContract
+                                   {
+                                       Start = start,
+                                       End = endExclusive
+                                   },
+                                   true);
     }
 
     private static async Task SkipAsync(Stream stream, Int64 bytesToSkip, CancellationToken cancellationToken)
@@ -483,7 +464,7 @@ public sealed class DownloadFileService
                 _logger.LogWarning("Download content missing from blob storage. FileId: {FileId}; BlobKey: {BlobKey}",
                                    uploadedFile.FileId,
                                    uploadedFile.BlobKey);
-                return new(DownloadLookupStatus.NotFound, null, 0, null);
+                return new CliOpenResult(DownloadLookupStatus.NotFound, null, 0, null);
             }
 
             var encryptedOffset = GetEncryptedOffsetForChunkIndex(uploadedFile, chunkRange.FirstChunkIndex);
@@ -502,10 +483,10 @@ public sealed class DownloadFileService
 
             var content = new LengthLimitingReadStream(encryptedContent, encryptedLength);
             encryptedContent = null;
-            return new(DownloadLookupStatus.Success,
-                       content,
-                       encryptedLength,
-                       metadata);
+            return new CliOpenResult(DownloadLookupStatus.Success,
+                                     content,
+                                     encryptedLength,
+                                     metadata);
         }
         catch (Exception exception) when (exception is ArgumentException
                                                        or ArgumentOutOfRangeException
@@ -524,7 +505,7 @@ public sealed class DownloadFileService
                 await encryptedContent.DisposeAsync();
             }
 
-            return new(DownloadLookupStatus.InvalidRequest, null, 0, null);
+            return new CliOpenResult(DownloadLookupStatus.InvalidRequest, null, 0, null);
         }
     }
 
@@ -546,7 +527,7 @@ public sealed class DownloadFileService
                         _logger.LogWarning("Download content missing from blob storage. FileId: {FileId}; BlobKey: {BlobKey}",
                                            uploadedFile.FileId,
                                            uploadedFile.BlobKey);
-                        return (new(DownloadLookupStatus.NotFound, null), false);
+                        return (new DirectHttpOpenResult(DownloadLookupStatus.NotFound, null), false);
                     }
 
                     var decryptedContent = await DirectHttpDecryptingStream.CreateAsync(encryptedContent,
@@ -575,7 +556,7 @@ public sealed class DownloadFileService
                 await encryptedContent.DisposeAsync();
             }
 
-            return new(DownloadLookupStatus.InvalidRequest, null);
+            return new DirectHttpOpenResult(DownloadLookupStatus.InvalidRequest, null);
         }
     }
 
@@ -596,7 +577,7 @@ public sealed class DownloadFileService
         if (String.IsNullOrWhiteSpace(shareToken))
         {
             _logger.LogWarning("Download request rejected because no share token was provided");
-            return new(DownloadLookupStatus.InvalidShare, null);
+            return new ShareResolution(DownloadLookupStatus.InvalidShare, null);
         }
 
         var now = _timeProvider.GetUtcNow();
@@ -606,7 +587,7 @@ public sealed class DownloadFileService
         if (share is null)
         {
             _logger.LogWarning("Download request rejected because the share is unknown, expired, or revoked");
-            return new(DownloadLookupStatus.InvalidShare, null);
+            return new ShareResolution(DownloadLookupStatus.InvalidShare, null);
         }
 
         if (share.DownloadBearerToken is not null)
@@ -616,7 +597,7 @@ public sealed class DownloadFileService
                 _logger.LogWarning(
                     "Download request rejected because a bearer token was required but not provided. ShareId: {ShareId}",
                     share.ShareId);
-                return new(DownloadLookupStatus.Forbidden, null);
+                return new ShareResolution(DownloadLookupStatus.Forbidden, null);
             }
 
             if (share.DownloadBearerToken.ExpiresAtUtc < now
@@ -625,11 +606,11 @@ public sealed class DownloadFileService
                 _logger.LogWarning(
                     "Download request rejected because the bearer token was invalid or expired. ShareId: {ShareId}",
                     share.ShareId);
-                return new(DownloadLookupStatus.Forbidden, null);
+                return new ShareResolution(DownloadLookupStatus.Forbidden, null);
             }
         }
 
-        return new(DownloadLookupStatus.Success, new(share, now));
+        return new ShareResolution(DownloadLookupStatus.Success, new ResolvedShareContext(share, now));
     }
 
     private sealed record CliOpenResult(DownloadLookupStatus Status, Stream? Content, Int64 ContentLength, CliDownloadMetadataContract? Metadata);
@@ -686,12 +667,6 @@ public sealed class DownloadFileService
         public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
                                                                          UploadedFileRecord uploadedFile,
                                                                          Byte[] shareSecret,
-                                                                         CancellationToken cancellationToken) =>
-            await CreateAsync(encryptedContent, uploadedFile, shareSecret, null, cancellationToken);
-
-        public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
-                                                                         UploadedFileRecord uploadedFile,
-                                                                         Byte[] shareSecret,
                                                                          RequestedPlaintextRangeContract? requestedRange,
                                                                          CancellationToken cancellationToken)
         {
@@ -718,15 +693,15 @@ public sealed class DownloadFileService
                                                                                   chunkRange.LastChunkIndex);
 
                 await SkipAsync(encryptedContent, encryptedOffset, cancellationToken);
-                stream = new(encryptedContent,
-                             contentKey,
-                             kdfSalt,
-                             uploadedFile,
-                             shareSecret,
-                             chunkRange.FirstChunkIndex,
-                             chunkRange.LastChunkIndex,
-                             range.End - range.Start,
-                             remainingSpanPlaintextLength);
+                stream = new DirectHttpDecryptingStream(encryptedContent,
+                                                        contentKey,
+                                                        kdfSalt,
+                                                        uploadedFile,
+                                                        shareSecret,
+                                                        chunkRange.FirstChunkIndex,
+                                                        chunkRange.LastChunkIndex,
+                                                        range.End - range.Start,
+                                                        remainingSpanPlaintextLength);
                 contentKey = null;
                 if (uploadedFile.ChunkCount > 0)
                 {
@@ -850,7 +825,7 @@ public sealed class DownloadFileService
                                              _nextChunkIndex,
                                              plaintextChunkLength,
                                              _nextChunkIndex == _uploadedFile.ChunkCount - 1);
-            _currentChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunkBytes), _contentKey, metadata);
+            _currentChunk = ChunkEncryptionService.DecryptChunk(new EncryptedChunk(encryptedChunkBytes), _contentKey, metadata);
             _currentChunkOffset = 0;
             _remainingSpanPlaintextLength -= plaintextChunkLength;
             _nextChunkIndex++;
@@ -964,8 +939,6 @@ public sealed class DownloadFileService
             base.Dispose(disposing);
         }
     }
-
-    private sealed record ParsedRangeHeader(RequestedByteRange? Range, Boolean IsMalformed);
 
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
 

@@ -28,7 +28,7 @@ internal sealed class TrackingProgress : IProgress<Int64>
     /// </summary>
     public Int64 Value => Interlocked.Read(ref _value);
 
-    /// <inheritdoc />
+    /// <inheritdoc/>
     public void Report(Int64 value)
     {
         Interlocked.CompareExchange(ref _startingValue, value, -1);

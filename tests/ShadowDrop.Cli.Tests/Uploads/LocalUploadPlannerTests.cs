@@ -15,6 +15,25 @@ public sealed class LocalUploadPlannerTests
 {
     private String _rootDirectory;
 
+    [SetUp]
+    public void SetUp()
+    {
+        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                      "artifacts",
+                                      "local-upload-planner-tests",
+                                      Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_rootDirectory);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_rootDirectory))
+        {
+            Directory.Delete(_rootDirectory, true);
+        }
+    }
+
     [Test]
     public void Create_ShouldCaptureStableNumbersAndEncryptedSizes()
     {
@@ -23,7 +42,7 @@ public sealed class LocalUploadPlannerTests
 
         var result = LocalUploadPlanner.Create([
             UploadSelection.FromCommandLine(first),
-            new(second, new("list.txt", 7), "nested/second.bin")
+            new UploadSelection(second, new UploadSelectionOrigin("list.txt", 7), "nested/second.bin")
         ]);
 
         result.IsValid.Should().BeTrue();
@@ -84,7 +103,7 @@ public sealed class LocalUploadPlannerTests
 
         var result = LocalUploadPlanner.Create([
             UploadSelection.FromCommandLine(missing),
-            UploadSelection.FromCommandLine(new(missing.FullName))
+            UploadSelection.FromCommandLine(new FileInfo(missing.FullName))
         ]);
 
         result.IsValid.Should().BeFalse();
@@ -110,8 +129,8 @@ public sealed class LocalUploadPlannerTests
         File.CreateSymbolicLink(linkPath, pipePath);
 
         var planning = Task.Run(() => LocalUploadPlanner.Create([
-            UploadSelection.FromCommandLine(new(pipePath)),
-            UploadSelection.FromCommandLine(new(linkPath))
+            UploadSelection.FromCommandLine(new FileInfo(pipePath)),
+            UploadSelection.FromCommandLine(new FileInfo(linkPath))
         ]));
 
         planning.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue("preflight must not block on opening a named pipe");
@@ -131,7 +150,7 @@ public sealed class LocalUploadPlannerTests
         using var httpClient = new HttpClient(handler);
 
         var result = await new UploadCommandExecutor(httpClient).ExecuteAsync(planningResult.Plan,
-                                                                              new("https://shadowdrop.test"),
+                                                                              new Uri("https://shadowdrop.test"),
                                                                               "upload-token",
                                                                               NullUploadProgressReporter.Instance,
                                                                               CancellationToken.None);
@@ -140,25 +159,6 @@ public sealed class LocalUploadPlannerTests
         result.Files.Should().ContainSingle()
               .Which.ErrorMessage.Should().Be("changing.bin changed while preparing the upload.");
         handler.RequestCount.Should().Be(1, "a changed file must fail before reserving a file ID");
-    }
-
-    [SetUp]
-    public void SetUp()
-    {
-        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
-                                      "artifacts",
-                                      "local-upload-planner-tests",
-                                      Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_rootDirectory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_rootDirectory))
-        {
-            Directory.Delete(_rootDirectory, true);
-        }
     }
 
     private static void CreateNamedPipe(String path)
@@ -179,7 +179,7 @@ public sealed class LocalUploadPlannerTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
         stream.SetLength(length);
-        return new(path);
+        return new FileInfo(path);
     }
 
     private sealed class MutatingCapabilitiesHandler : HttpMessageHandler

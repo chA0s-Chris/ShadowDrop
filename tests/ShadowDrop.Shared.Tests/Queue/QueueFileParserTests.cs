@@ -192,13 +192,13 @@ public sealed class QueueFileParserTests
            .Throw<QueueFileValidationException>()
            .Which.Errors.Should().BeEquivalentTo(
                [
-                   new("shadowDrop", "The shadowDrop value must be '1.0'."),
-                   new("serverUrl", "The serverUrl value must be an absolute HTTP or HTTPS URL."),
-                   new("shareToken", "The shareToken value is required."),
-                   new("files[0].fileId", "The fileId value is required."),
-                   new("files[0].fileName", "The fileName value is required."),
-                   new("files[0].length", "The file length must be zero or greater."),
-                   new("files[0].outputPath", "The outputPath value is required."),
+                   new QueueFileValidationError("shadowDrop", "The shadowDrop value must be '1.0'."),
+                   new QueueFileValidationError("serverUrl", "The serverUrl value must be an absolute HTTP or HTTPS URL."),
+                   new QueueFileValidationError("shareToken", "The shareToken value is required."),
+                   new QueueFileValidationError("files[0].fileId", "The fileId value is required."),
+                   new QueueFileValidationError("files[0].fileName", "The fileName value is required."),
+                   new QueueFileValidationError("files[0].length", "The file length must be zero or greater."),
+                   new QueueFileValidationError("files[0].outputPath", "The outputPath value is required."),
                    new QueueFileValidationError("files[0].plaintextSha256",
                                                 "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest.")
                ],
@@ -392,7 +392,7 @@ public sealed class QueueFileParserTests
         {
             Files =
             [
-                new()
+                new QueueFileEntry
                 {
                     FileId = "file-1",
                     FileName = "report.txt",
@@ -434,7 +434,7 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new()
+            Credentials = new QueueCredentials
             {
                 ShareKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 DownloadBearerToken = "bearer"
@@ -470,7 +470,7 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new()
+            Credentials = new QueueCredentials
             {
                 ShareKey = "not-a-valid-hex-key"
             }
@@ -487,7 +487,7 @@ public sealed class QueueFileParserTests
     {
         var queueFile = CreateValidQueueFile() with
         {
-            Credentials = new()
+            Credentials = new QueueCredentials
             {
                 ShareKey = null
             }
@@ -514,10 +514,10 @@ public sealed class QueueFileParserTests
 
         errors.Should().BeEquivalentTo(
             [
-                new("shadowDrop", "The shadowDrop value is required."),
-                new("queueVersion", "The queueVersion value is required."),
-                new("serverUrl", "The serverUrl value is required."),
-                new("shareToken", "The shareToken value is required."),
+                new QueueFileValidationError("shadowDrop", "The shadowDrop value is required."),
+                new QueueFileValidationError("queueVersion", "The queueVersion value is required."),
+                new QueueFileValidationError("serverUrl", "The serverUrl value is required."),
+                new QueueFileValidationError("shareToken", "The shareToken value is required."),
                 new QueueFileValidationError("files", "The files collection must contain at least one entry.")
             ],
             options => options.WithoutStrictOrdering());
@@ -558,7 +558,7 @@ public sealed class QueueFileParserTests
             ShareToken = "share-123",
             Files =
             [
-                new()
+                new QueueFileEntry
                 {
                     FileId = "file-1",
                     FileName = "report.txt",

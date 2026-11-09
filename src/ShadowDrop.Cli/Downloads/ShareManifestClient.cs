@@ -6,6 +6,7 @@ using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Http;
 using ShadowDrop.Contracts;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 internal sealed class ShareManifestClient
@@ -22,7 +23,7 @@ internal sealed class ShareManifestClient
         using var request = new HttpRequestMessage(HttpMethod.Get, ShareDownloadUriFactory.CreateManifestUri(serverUrl, shareToken));
         if (!String.IsNullOrWhiteSpace(bearerToken))
         {
-            request.Headers.Authorization = new("Bearer", bearerToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         }
 
         using var deadline = new ControlPlaneTimeout(cancellationToken);

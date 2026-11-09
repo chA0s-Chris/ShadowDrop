@@ -32,6 +32,6 @@ internal sealed class OperationalStatisticsProvider : IOperationalStatisticsProv
         var storageTask = _uploadedFileRepository.GetStorageStatsAsync(cancellationToken);
         var sharesTask = _shareRepository.GetStatusCountsAsync(nowUtc, cancellationToken);
         await Task.WhenAll(storageTask, sharesTask);
-        return new(await storageTask, await sharesTask);
+        return new OperationalStatisticsSnapshot(await storageTask, await sharesTask);
     }
 }

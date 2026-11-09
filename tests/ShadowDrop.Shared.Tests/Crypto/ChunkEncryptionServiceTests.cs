@@ -20,6 +20,8 @@ public sealed class ChunkEncryptionServiceTests
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
         var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize, metadata.ChunkIndex + 1, metadata.PlaintextChunkLength);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
         act.Should().Throw<CryptographicException>();
@@ -36,6 +38,8 @@ public sealed class ChunkEncryptionServiceTests
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
         var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize + 1, metadata.ChunkIndex, metadata.PlaintextChunkLength);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
         act.Should().Throw<CryptographicException>();
@@ -54,6 +58,8 @@ public sealed class ChunkEncryptionServiceTests
         tamperedCiphertext[0] ^= Byte.MaxValue;
         var tamperedChunk = new EncryptedChunk(tamperedCiphertext);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(tamperedChunk, key, metadata);
 
         act.Should().Throw<CryptographicException>();
@@ -71,6 +77,8 @@ public sealed class ChunkEncryptionServiceTests
         var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, wrongKey, metadata);
 
         act.Should().Throw<CryptographicException>();
@@ -94,6 +102,8 @@ public sealed class ChunkEncryptionServiceTests
             metadata.PlaintextChunkLength,
             metadata.IsFinal);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
         act.Should().Throw<CryptographicException>();
@@ -111,6 +121,8 @@ public sealed class ChunkEncryptionServiceTests
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
         var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize, metadata.ChunkIndex, metadata.PlaintextChunkLength, tamperedIsFinal);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
         act.Should().Throw<CryptographicException>();
@@ -127,6 +139,8 @@ public sealed class ChunkEncryptionServiceTests
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
         var tamperedMetadata = CreateMetadata(fixture.Context, metadata.ChunkSize, metadata.ChunkIndex, metadata.PlaintextChunkLength - 1);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, key, tamperedMetadata);
 
         act.Should().Throw<CryptographicException>();
@@ -144,6 +158,8 @@ public sealed class ChunkEncryptionServiceTests
         var metadata = CreateMetadata(fixture.Context, 64, 2, plaintext.Length);
         var encryptedChunk = ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.DecryptChunk(encryptedChunk, wrongKey, metadata);
 
         act.Should().Throw<CryptographicException>();
@@ -174,6 +190,8 @@ public sealed class ChunkEncryptionServiceTests
         var plaintext = CreatePlaintext(32);
         var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length - 1);
 
+        // The assertion below invokes the delegate synchronously, before the key is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = () => ChunkEncryptionService.EncryptChunk(plaintext, key, metadata);
 
         act.Should()
@@ -186,7 +204,7 @@ public sealed class ChunkEncryptionServiceTests
     {
         var fixture = CreateTestFixture();
         using var secret = fixture.Secret;
-        using var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
+        var key = ChunkEncryptionService.DeriveContentKey(secret, fixture.Context);
         var plaintext = CreatePlaintext(32);
         var metadata = CreateMetadata(fixture.Context, 64, 0, plaintext.Length);
         key.Dispose();
@@ -274,7 +292,7 @@ public sealed class ChunkEncryptionServiceTests
         Int32 plaintextChunkLength,
         Boolean isFinal = false)
     {
-        return new(
+        return new ChunkMetadata(
             CryptoVersion.V1,
             CryptoAlgorithm.Aes256Gcm,
             context.FileId,

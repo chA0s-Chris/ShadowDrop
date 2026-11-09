@@ -15,6 +15,22 @@ public sealed class InteractiveDownloadCommandHandlerTests
     private const String ValidKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     private String _outputDirectory = String.Empty;
 
+    [SetUp]
+    public void SetUp()
+    {
+        _outputDirectory = Path.Combine(Path.GetTempPath(), $"sd-interactive-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_outputDirectory);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_outputDirectory))
+        {
+            Directory.Delete(_outputDirectory, true);
+        }
+    }
+
     [Test]
     public async Task ExecuteAsync_ShouldDownloadFile_WhenShareUrlAndKeyProvided()
     {
@@ -79,7 +95,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
         await File.WriteAllTextAsync(configPath, "{ not valid json");
         var standardError = new StringWriter();
         var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(configFilePath: configPath),
-                                                            new(new NeverCalledHandler()), new FakeInteractiveSession(), standardError);
+                                                            new HttpClient(new NeverCalledHandler()), new FakeInteractiveSession(), standardError);
 
         var exitCode = await handler.ExecuteAsync(Options("plain-token", ValidKey), CancellationToken.None);
 
@@ -91,9 +107,9 @@ public sealed class InteractiveDownloadCommandHandlerTests
     public async Task ExecuteAsync_ShouldFail_WhenQueuePathProvided()
     {
         var standardError = new StringWriter();
-        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), new FakeInteractiveSession(), standardError);
+        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new HttpClient(), new FakeInteractiveSession(), standardError);
 
-        var exitCode = await handler.ExecuteAsync(Options(queuePath: new("queue.json")), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(Options(queuePath: new FileInfo("queue.json")), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("The --interactive option cannot be combined with --queue.");
@@ -104,7 +120,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
     {
         var standardError = new StringWriter();
         var session = new FakeInteractiveSession();
-        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(new NeverCalledHandler()), session,
+        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new HttpClient(new NeverCalledHandler()), session,
                                                             standardError);
 
         var exitCode = await handler.ExecuteAsync(
@@ -122,7 +138,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
         {
             IsInteractiveSupported = false
         };
-        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new(), session, standardError);
+        var handler = new InteractiveDownloadCommandHandler(FakeConfiguration.Resolver(), new HttpClient(), session, standardError);
 
         var exitCode = await handler.ExecuteAsync(Options(), CancellationToken.None);
 
@@ -140,7 +156,7 @@ public sealed class InteractiveDownloadCommandHandlerTests
         session.EnqueueMultiSelection(0);
         session.EnqueueTextResponse(outputPath);
         var handler = CreateHandler(session,
-                                    _ => new(HttpStatusCode.Forbidden),
+                                    _ => new HttpResponseMessage(HttpStatusCode.Forbidden),
                                     _ => fixture.CreateManifestResponse(),
                                     _ => fixture.CreateDownloadResponse());
 
@@ -204,25 +220,9 @@ public sealed class InteractiveDownloadCommandHandlerTests
         session.Errors.Should().Contain("Select at least one file.");
     }
 
-    [SetUp]
-    public void SetUp()
-    {
-        _outputDirectory = Path.Combine(Path.GetTempPath(), $"sd-interactive-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_outputDirectory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_outputDirectory))
-        {
-            Directory.Delete(_outputDirectory, true);
-        }
-    }
-
     private static InteractiveDownloadCommandHandler CreateHandler(FakeInteractiveSession session,
                                                                    params Func<HttpRequestMessage, HttpResponseMessage>[] responses) =>
-        new(FakeConfiguration.Resolver(), new(new SequenceHttpMessageHandler(responses)), session, new StringWriter());
+        new(FakeConfiguration.Resolver(), new HttpClient(new SequenceHttpMessageHandler(responses)), session, new StringWriter());
 
     private static InteractiveDownloadCommandHandler CreateHandler(FakeInteractiveSession session, params HttpResponseMessage[] responses) =>
         CreateHandler(session, responses.Select<HttpResponseMessage, Func<HttpRequestMessage, HttpResponseMessage>>(response => _ => response).ToArray());

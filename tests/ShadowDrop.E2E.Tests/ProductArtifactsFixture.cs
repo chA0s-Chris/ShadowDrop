@@ -16,18 +16,18 @@ using ShadowDrop.Tests.Infrastructure;
 [SetUpFixture]
 public sealed class ProductArtifactsFixture
 {
-    private static ProductArtifacts? _artifacts;
+    private static ProductArtifacts? BuiltArtifacts;
 
     internal static ProductArtifacts Artifacts =>
-        _artifacts ?? throw new InvalidOperationException("The product artifacts have not been built. Did the E2E one-time setup run?");
+        BuiltArtifacts ?? throw new InvalidOperationException("The product artifacts have not been built. Did the E2E one-time setup run?");
 
     [OneTimeSetUp]
-    public async Task BuildArtifactsAsync() => _artifacts = await ProductArtifacts.BuildAsync(CancellationToken.None);
+    public async Task BuildArtifactsAsync() => BuiltArtifacts = await ProductArtifacts.BuildAsync(CancellationToken.None);
 
     [OneTimeTearDown]
     public void DisposeArtifacts()
     {
-        _artifacts?.Dispose();
-        _artifacts = null;
+        BuiltArtifacts?.Dispose();
+        BuiltArtifacts = null;
     }
 }

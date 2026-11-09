@@ -21,7 +21,7 @@ internal static class UploadCredentialSecretHashing
         ArgumentException.ThrowIfNullOrWhiteSpace(secret);
         var salt = RandomNumberGenerator.GetBytes(SaltSize);
         var hash = Derive(secret, salt, CurrentIterations);
-        return new(Convert.ToBase64String(hash), Convert.ToBase64String(salt), CurrentIterations, CurrentVersion);
+        return new UploadCredentialSecretHash(Convert.ToBase64String(hash), Convert.ToBase64String(salt), CurrentIterations, CurrentVersion);
     }
 
     public static Boolean Matches(String secret, UploadCredentialRecord credential)

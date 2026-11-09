@@ -82,20 +82,20 @@ internal sealed class ServerStatusCommandHandler
                                             and <= OperationalStatusProtocol.MaximumSupportedVersion;
         if (!compatible)
         {
-            return new(false, ServerStatusOutcomes.ProtocolIncompatible, null, 5);
+            return new ServerStatusEvaluation(false, ServerStatusOutcomes.ProtocolIncompatible, null, 5);
         }
 
         if (!ready || statusCode == HttpStatusCode.ServiceUnavailable)
         {
-            return new(true, ServerStatusOutcomes.NotReady, null, 2);
+            return new ServerStatusEvaluation(true, ServerStatusOutcomes.NotReady, null, 2);
         }
 
         if (statusCode != HttpStatusCode.OK)
         {
-            return new(true, ServerStatusOutcomes.UnexpectedFailure, "unexpected-response", 1);
+            return new ServerStatusEvaluation(true, ServerStatusOutcomes.UnexpectedFailure, "unexpected-response", 1);
         }
 
-        return new(true, ServerStatusOutcomes.Healthy, null, 0);
+        return new ServerStatusEvaluation(true, ServerStatusOutcomes.Healthy, null, 0);
     }
 
     private static String ResolveConfigurationError(ServerStatusMode mode) => mode switch
@@ -194,7 +194,7 @@ internal sealed class ServerStatusCommandHandler
             return null;
         }
 
-        return new(uri, bearerToken);
+        return new ResolvedStatusConfiguration(uri, bearerToken);
     }
 
     private async Task<Int32> WriteFailureAsync(

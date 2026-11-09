@@ -210,7 +210,7 @@ internal static class DisplayNameResolver
                 return false;
             }
 
-            result.Add(new(key, value));
+            result.Add(new KeyValuePair<String, String>(key, value));
         }
 
         parsed = result;

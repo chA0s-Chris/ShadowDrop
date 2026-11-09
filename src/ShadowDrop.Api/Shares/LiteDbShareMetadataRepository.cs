@@ -35,7 +35,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(databaseDirectory);
 
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -194,6 +194,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
             clauses.Add($"$._id < {Parameter(shareIdBefore.Value)}");
         }
 
+        // List and count queries run without _syncRoot by design; their callers tolerate rows that change between reads.
+        // ReSharper disable once InconsistentlySynchronizedField
         var result = _collection.Query();
         return clauses.Count == 0
             ? result
@@ -308,6 +310,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(shareId);
         return Task.FromResult(document is null ? null : Map(document));
     }
@@ -321,6 +325,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var now = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindOne(share => share.ShareTokenHashBase64 == shareTokenHashBase64
                                                     && share.RevokedAtUnixTimeMilliseconds == null
                                                     && share.ExpiresAtUnixTimeMilliseconds > now);
@@ -332,6 +338,8 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
         cancellationToken.ThrowIfCancellationRequested();
 
         var nowUnixTimeMilliseconds = nowUtc.ToUniversalTime().ToUnixTimeMilliseconds();
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         IReadOnlyList<ShareRecord> candidates = _collection
                                                 .Find(document => document.ExpiresAtUnixTimeMilliseconds <= nowUnixTimeMilliseconds
                                                                   || document.RevokedAtUnixTimeMilliseconds != null)
@@ -414,7 +422,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
 
         Int64 Count(String status)
         {
-            return CreateListQuery(new(nowUtc, [status], 1, null)).Count();
+            return CreateListQuery(new ShareListQuery(nowUtc, [status], 1, null)).Count();
         }
 
         return Task.FromResult(new ShareStatusCounts(Count(ShareListStatuses.Active),

@@ -17,7 +17,7 @@ public sealed class CleanupRunStatus
     public void Record(DateTimeOffset completedAtUtc, String outcome)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outcome);
-        Volatile.Write(ref _snapshot, new(completedAtUtc, outcome));
+        Volatile.Write(ref _snapshot, new CleanupRunStatusSnapshot(completedAtUtc, outcome));
     }
 }
 

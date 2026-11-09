@@ -20,15 +20,15 @@ public sealed class OperationalAuditEndpointFilterTests
         var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         var httpContext = new DefaultHttpContext();
         httpContext.Request.RouteValues["shareId"] = "sensitive-share-id";
-        httpContext.Request.QueryString = new("?includeFilenames=true&secret=value");
+        httpContext.Request.QueryString = new QueryString("?includeFilenames=true&secret=value");
         if (included is { } value)
         {
             httpContext.Items[OperationalAuditEndpointFilter.FilenamesIncludedItemKey] = value;
         }
 
-        httpContext.SetEndpoint(new(static _ => Task.CompletedTask,
-                                    new(new OperationalAuditMetadata("admin-share-inspect")),
-                                    "inspect"));
+        httpContext.SetEndpoint(new Endpoint(static _ => Task.CompletedTask,
+                                             new EndpointMetadataCollection(new OperationalAuditMetadata("admin-share-inspect")),
+                                             "inspect"));
         var context = new DefaultEndpointFilterInvocationContext(httpContext, []);
 
         _ = await filter.InvokeAsync(context, static _ => ValueTask.FromResult<Object?>(Results.Ok()));
@@ -85,9 +85,9 @@ public sealed class OperationalAuditEndpointFilterTests
         var filter = new OperationalAuditEndpointFilter(new FakeLogger<OperationalAuditEndpointFilter>(collector));
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers.Authorization = "Bearer secret-token";
-        httpContext.SetEndpoint(new(static _ => Task.CompletedTask,
-                                    new(new OperationalAuditMetadata("admin-status-view")),
-                                    "status"));
+        httpContext.SetEndpoint(new Endpoint(static _ => Task.CompletedTask,
+                                             new EndpointMetadataCollection(new OperationalAuditMetadata("admin-status-view")),
+                                             "status"));
         var context = new DefaultEndpointFilterInvocationContext(httpContext, []);
 
         _ = await filter.InvokeAsync(context, static _ => ValueTask.FromResult<Object?>(Results.Unauthorized()));
@@ -141,9 +141,9 @@ public sealed class OperationalAuditEndpointFilterTests
         {
             RequestAborted = requestAborted
         };
-        httpContext.SetEndpoint(new(static _ => Task.CompletedTask,
-                                    new(new OperationalAuditMetadata("admin-status-view")),
-                                    "status"));
-        return new(httpContext, []);
+        httpContext.SetEndpoint(new Endpoint(static _ => Task.CompletedTask,
+                                             new EndpointMetadataCollection(new OperationalAuditMetadata("admin-status-view")),
+                                             "status"));
+        return new DefaultEndpointFilterInvocationContext(httpContext, []);
     }
 }

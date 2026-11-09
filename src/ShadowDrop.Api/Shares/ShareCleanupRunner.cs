@@ -17,7 +17,7 @@ public sealed class ShareCleanupRunner
                               UploadSweepService sweepService,
                               IShareCleanupCoordinator coordinator,
                               ILogger<ShareCleanupRunner> logger)
-        : this(cleanupService, sweepService, coordinator, TimeProvider.System, new(), logger) { }
+        : this(cleanupService, sweepService, coordinator, TimeProvider.System, new CleanupRunStatus(), logger) { }
 
     public ShareCleanupRunner(ShareCleanupService cleanupService,
                               UploadSweepService sweepService,
@@ -43,7 +43,7 @@ public sealed class ShareCleanupRunner
             {
                 _logger.LogInformation("Share cleanup skipped because another cleanup run is already in progress");
                 _cleanupRunStatus.Record(_timeProvider.GetUtcNow(), CleanupRunStatus.Skipped);
-                return new(0, 0, 0, 0, 0, Skipped: true);
+                return new ShareCleanupResult(0, 0, 0, 0, 0, Skipped: true);
             }
 
             _logger.LogInformation("Share cleanup started");

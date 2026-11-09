@@ -69,7 +69,7 @@ public sealed class FileMetadataContractTests
 
     private static FileMetadataContract CreateMetadataContract()
     {
-        return new()
+        return new FileMetadataContract
         {
             ShareId = "share-123",
             FileId = "file-456",

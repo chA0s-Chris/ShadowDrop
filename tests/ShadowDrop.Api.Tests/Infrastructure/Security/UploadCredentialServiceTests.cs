@@ -16,7 +16,7 @@ public sealed class UploadCredentialServiceTests
     public async Task AuthenticateAsync_ShouldClassifyCredentialProviderFailures(Boolean failLookup)
     {
         var (service, repository, _) = CreateService();
-        var created = await service.CreateAsync(new("automation", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("automation", null, null, null), CancellationToken.None);
         if (failLookup)
         {
             repository.LookupFailure = new IOException("connection detail");
@@ -36,7 +36,7 @@ public sealed class UploadCredentialServiceTests
     public async Task AuthenticateAsync_ShouldRejectExpiredCredential_AndSkipUsageRecording()
     {
         var (service, repository, timeProvider) = CreateService();
-        var created = await service.CreateAsync(new("expiring", Now.AddMinutes(5), null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("expiring", Now.AddMinutes(5), null, null), CancellationToken.None);
         timeProvider.UtcNow = Now.AddMinutes(6);
 
         var context = await service.AuthenticateAsync(created.Token, CancellationToken.None);
@@ -60,7 +60,7 @@ public sealed class UploadCredentialServiceTests
     public async Task AuthenticateAsync_ShouldRejectRevokedCredential_AndSkipUsageRecording()
     {
         var (service, repository, _) = CreateService();
-        var created = await service.CreateAsync(new("revoked", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("revoked", null, null, null), CancellationToken.None);
         await repository.RevokeAsync(created.Credential.CredentialId, Now, CancellationToken.None);
 
         var context = await service.AuthenticateAsync(created.Token, CancellationToken.None);
@@ -83,7 +83,7 @@ public sealed class UploadCredentialServiceTests
     public async Task AuthenticateAsync_ShouldRejectWrongSecret_AndSkipUsageRecording()
     {
         var (service, repository, _) = CreateService();
-        var created = await service.CreateAsync(new("victim", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("victim", null, null, null), CancellationToken.None);
         UploadCredentialToken.TryParse(created.Token, out var selector, out _).Should().BeTrue();
         var forged = $"{UploadCredentialToken.Prefix}.{selector}.{UploadCredentialToken.Create().Secret}";
 
@@ -97,7 +97,7 @@ public sealed class UploadCredentialServiceTests
     public async Task AuthenticateAsync_ShouldReturnContextAndRecordUsage_ForValidToken()
     {
         var (service, repository, timeProvider) = CreateService();
-        var created = await service.CreateAsync(new("automation", Now.AddDays(30), 1024, 4096), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("automation", Now.AddDays(30), 1024, 4096), CancellationToken.None);
         timeProvider.UtcNow = Now.AddMinutes(1);
 
         var context = await service.AuthenticateAsync(created.Token, CancellationToken.None);
@@ -117,7 +117,7 @@ public sealed class UploadCredentialServiceTests
         var preciseExpiration = Now.AddHours(1).AddTicks(5678).ToOffset(TimeSpan.FromHours(-4));
         timeProvider.UtcNow = preciseNow;
 
-        var created = await service.CreateAsync(new("name", preciseExpiration, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("name", preciseExpiration, null, null), CancellationToken.None);
 
         var expectedNow = DateTimeOffset.FromUnixTimeMilliseconds(preciseNow.ToUnixTimeMilliseconds());
         var expectedExpiration = DateTimeOffset.FromUnixTimeMilliseconds(preciseExpiration.ToUnixTimeMilliseconds());
@@ -132,7 +132,7 @@ public sealed class UploadCredentialServiceTests
     {
         var (service, repository, _) = CreateService();
 
-        var created = await service.CreateAsync(new("  automation  ", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("  automation  ", null, null, null), CancellationToken.None);
 
         UploadCredentialToken.TryParse(created.Token, out var selector, out var secret).Should().BeTrue();
         var record = repository.Records.Should().ContainSingle().Subject;
@@ -162,7 +162,7 @@ public sealed class UploadCredentialServiceTests
         var (service, repository, _) = CreateService();
         repository.RejectNextCreates = 2;
 
-        var created = await service.CreateAsync(new("retried", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("retried", null, null, null), CancellationToken.None);
 
         repository.CreateAttempts.Should().Be(3);
         repository.Records.Should().ContainSingle().Which.CredentialId.Should().Be(created.Credential.CredentialId);
@@ -174,7 +174,7 @@ public sealed class UploadCredentialServiceTests
     {
         var (service, repository, _) = CreateService();
 
-        var create = async () => await service.CreateAsync(new(name, null, null, null), CancellationToken.None);
+        var create = async () => await service.CreateAsync(new UploadCredentialCreationRequest(name, null, null, null), CancellationToken.None);
 
         await create.Should().ThrowAsync<UploadCredentialValidationException>();
         repository.Records.Should().BeEmpty();
@@ -187,7 +187,7 @@ public sealed class UploadCredentialServiceTests
         timeProvider.UtcNow = Now.AddTicks(TimeSpan.TicksPerMillisecond / 2);
         var expiration = Now.AddTicks(TimeSpan.TicksPerMillisecond - 1);
 
-        var create = async () => await service.CreateAsync(new("name", expiration, null, null), CancellationToken.None);
+        var create = async () => await service.CreateAsync(new UploadCredentialCreationRequest("name", expiration, null, null), CancellationToken.None);
 
         await create.Should().ThrowAsync<UploadCredentialValidationException>();
         repository.Records.Should().BeEmpty();
@@ -200,7 +200,7 @@ public sealed class UploadCredentialServiceTests
     {
         var (service, _, _) = CreateService();
 
-        var create = async () => await service.CreateAsync(new(name, null, null, null), CancellationToken.None);
+        var create = async () => await service.CreateAsync(new UploadCredentialCreationRequest(name, null, null, null), CancellationToken.None);
 
         await create.Should().ThrowAsync<UploadCredentialValidationException>();
     }
@@ -210,8 +210,8 @@ public sealed class UploadCredentialServiceTests
     {
         var (service, _, _) = CreateService();
 
-        var createWithFileLimit = async () => await service.CreateAsync(new("name", null, 0, null), CancellationToken.None);
-        var createWithShareLimit = async () => await service.CreateAsync(new("name", null, null, -1), CancellationToken.None);
+        var createWithFileLimit = async () => await service.CreateAsync(new UploadCredentialCreationRequest("name", null, 0, null), CancellationToken.None);
+        var createWithShareLimit = async () => await service.CreateAsync(new UploadCredentialCreationRequest("name", null, null, -1), CancellationToken.None);
 
         await createWithFileLimit.Should().ThrowAsync<UploadCredentialValidationException>();
         await createWithShareLimit.Should().ThrowAsync<UploadCredentialValidationException>();
@@ -222,7 +222,7 @@ public sealed class UploadCredentialServiceTests
     {
         var (service, _, _) = CreateService();
 
-        var create = async () => await service.CreateAsync(new("name", Now.AddMinutes(-1), null, null), CancellationToken.None);
+        var create = async () => await service.CreateAsync(new UploadCredentialCreationRequest("name", Now.AddMinutes(-1), null, null), CancellationToken.None);
 
         await create.Should().ThrowAsync<UploadCredentialValidationException>();
     }
@@ -234,10 +234,10 @@ public sealed class UploadCredentialServiceTests
         var maximumLengthName = new String('n', UploadCredentialService.MaxNameLength);
 
         var createTooLong = async () =>
-            await service.CreateAsync(new(maximumLengthName + "n", null, null, null), CancellationToken.None);
+            await service.CreateAsync(new UploadCredentialCreationRequest(maximumLengthName + "n", null, null, null), CancellationToken.None);
 
         await createTooLong.Should().ThrowAsync<UploadCredentialValidationException>();
-        _ = await service.CreateAsync(new(maximumLengthName, null, null, null), CancellationToken.None);
+        _ = await service.CreateAsync(new UploadCredentialCreationRequest(maximumLengthName, null, null, null), CancellationToken.None);
         repository.Records.Should().ContainSingle().Which.Name.Should().Be(maximumLengthName);
     }
 
@@ -249,7 +249,7 @@ public sealed class UploadCredentialServiceTests
         {
             UtcNow = Now
         };
-        return (new(repository, timeProvider, NullLogger<UploadCredentialService>.Instance), repository, timeProvider);
+        return (new UploadCredentialService(repository, timeProvider, NullLogger<UploadCredentialService>.Instance), repository, timeProvider);
     }
 
     private sealed class InMemoryUploadCredentialRepository : IUploadCredentialRepository

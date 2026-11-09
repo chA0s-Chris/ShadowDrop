@@ -45,12 +45,15 @@ public sealed class CompositeReadinessCheckTests
         using var release = new ManualResetEventSlim();
         using var finished = new ManualResetEventSlim();
 
+        // The finally block releases the probe and waits for its completion signal before the events are disposed.
+        // ReSharper disable AccessToDisposedClosure
         void BlockingProbe()
         {
             entered.Set();
             release.Wait();
             finished.Set();
         }
+        // ReSharper restore AccessToDisposedClosure
 
         IOperationalDependencyProbe probe = provider switch
         {

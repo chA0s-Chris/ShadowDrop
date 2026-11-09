@@ -26,6 +26,7 @@ using System.Text.Json;
 using Testcontainers.MongoDb;
 
 [TestFixture]
+[Category("Integration")]
 [Category("S3Integration")]
 [NonParallelizable]
 public sealed class RustFsS3IntegrationTests
@@ -65,13 +66,13 @@ public sealed class RustFsS3IntegrationTests
             AuthenticationRegion = Region,
             ForcePathStyle = true
         };
-        _administrationClient = new(new BasicAWSCredentials(AccessKey, SecretKey), s3Configuration);
+        _administrationClient = new AmazonS3Client(new BasicAWSCredentials(AccessKey, SecretKey), s3Configuration);
         _ = await _administrationClient.PutBucketAsync(BucketName, CancellationToken.None);
 
         _endpoint = endpoint;
         var storageOptions = CreateStorageOptions();
-        _storageClient = new(storageOptions);
-        _storage = new(storageOptions, _storageClient, NullLogger<S3BlobStorage>.Instance);
+        _storageClient = new AwsS3Client(storageOptions);
+        _storage = new S3BlobStorage(storageOptions, _storageClient, NullLogger<S3BlobStorage>.Instance);
 
         _mongoContainer = new MongoDbBuilder()
                           .WithImage(MongoDbTestImages.LatestStable)
@@ -80,11 +81,11 @@ public sealed class RustFsS3IntegrationTests
         await _mongoContainer.StartAsync();
         var mongoOptions = new ShadowDropOptions
         {
-            Metadata = new()
+            Metadata = new MetadataOptions
             {
                 Provider = MetadataProvider.MongoDb
             },
-            Mongo = new()
+            Mongo = new MongoPersistenceOptions
             {
                 ConnectionString = _mongoContainer.GetConnectionString(),
                 DatabaseName = $"shadowdrop_s3_{Guid.NewGuid():N}"
@@ -114,19 +115,29 @@ public sealed class RustFsS3IntegrationTests
     [OneTimeTearDown]
     public async Task StopDependenciesAsync()
     {
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the Mongo service provider.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_mongoServices is not null)
         {
             await _mongo.Database.Client.DropDatabaseAsync(_mongo.Database.DatabaseNamespace.DatabaseName);
             await _mongoServices.DisposeAsync();
         }
 
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the Mongo container.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_mongoContainer is not null)
         {
             await _mongoContainer.DisposeAsync();
         }
 
-        _administrationClient.Dispose();
-        _storageClient.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before creating the S3 clients.
+        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
+        _administrationClient?.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before creating the S3 clients.
+        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
+        _storageClient?.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the RustFS container.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_container is not null)
         {
             await _container.DisposeAsync();
@@ -209,9 +220,9 @@ public sealed class RustFsS3IntegrationTests
             IUploadedFileMetadataRepository repository;
             if (metadataProvider == MetadataProvider.LiteDb)
             {
-                var liteDb = new LiteDbUploadedFileMetadataRepository(new()
+                var liteDb = new LiteDbUploadedFileMetadataRepository(new ShadowDropOptions
                 {
-                    Metadata = new()
+                    Metadata = new MetadataOptions
                     {
                         LiteDbPath = Path.Combine(root, "metadata", "shadowdrop.db")
                     }
@@ -263,10 +274,10 @@ public sealed class RustFsS3IntegrationTests
 
     private ShadowDropOptions CreateStorageOptions() => new()
     {
-        Storage = new()
+        Storage = new StorageOptions
         {
             Provider = BlobStorageProvider.S3,
-            S3 = new()
+            S3 = new S3StorageOptions
             {
                 BucketName = BucketName,
                 Region = Region,

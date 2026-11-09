@@ -42,7 +42,7 @@ internal sealed class UpdateCommandHandler
         }
 
         // Refresh the cache so a subsequent automatic check does not repeat the request within the interval.
-        _updateServices.Cache.Write(new(_timeProvider.GetUtcNow(), latest.ToString()));
+        _updateServices.Cache.Write(new UpdateCheckRecord(_timeProvider.GetUtcNow(), latest.ToString()));
 
         // An unparseable installed version cannot prove it is current, so it is reported as updatable.
         var upToDate = CliSemanticVersion.TryParse(_installedVersionText, out var installed) && latest.CompareTo(installed) <= 0;

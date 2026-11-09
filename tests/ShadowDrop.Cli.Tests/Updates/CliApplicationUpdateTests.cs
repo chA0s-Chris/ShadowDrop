@@ -6,6 +6,8 @@ using FluentAssertions;
 using NUnit.Framework;
 using ShadowDrop.Cli;
 using ShadowDrop.Cli.Downloads.Progress;
+using ShadowDrop.Cli.Terminals;
+using ShadowDrop.Cli.Updates;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
 
@@ -13,17 +15,18 @@ using System.Net;
 public sealed class CliApplicationUpdateTests
 {
     private static readonly FixedTerminalCapabilityProvider Interactive =
-        new(new(false, false, false));
+        new(new TerminalCapabilities(false, false, false));
+
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-07-12T12:00:00Z");
 
     [Test]
     public async Task InvokeAsync_ShouldNotifyAfterOrdinaryCommand_WhenCachedCheckIndicatesNewerRelease()
     {
         var releaseClient = new StubUpdateReleaseClient("v99.0.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(1), "99.0.0"));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(1), "99.0.0"));
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var shareId = Guid.NewGuid();
         // ReSharper disable once AccessToDisposedClosure
         var services = CreateServices(standardOut, standardError, releaseClient, cache, () => httpClient);
@@ -46,7 +49,7 @@ public sealed class CliApplicationUpdateTests
         var releaseClient = new StubUpdateReleaseClient("v99.0.0");
         var cache = new InMemoryUpdateCheckCache();
         var standardError = new StringWriter();
-        var services = CreateServices(new(), standardError, releaseClient, cache);
+        var services = CreateServices(new StringWriter(), standardError, releaseClient, cache);
 
         await CliApplication.InvokeAsync([argument], services, CancellationToken.None);
 
@@ -60,7 +63,7 @@ public sealed class CliApplicationUpdateTests
     {
         var releaseClient = new StubUpdateReleaseClient("v99.0.0");
         var standardError = new StringWriter();
-        var services = CreateServices(new(), standardError, releaseClient, new());
+        var services = CreateServices(new StringWriter(), standardError, releaseClient, new InMemoryUpdateCheckCache());
 
         await CliApplication.InvokeAsync(["update", "--no-banner"], services, CancellationToken.None);
 
@@ -74,7 +77,7 @@ public sealed class CliApplicationUpdateTests
         var releaseClient = new StubUpdateReleaseClient("v99.0.0");
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var services = CreateServices(standardOut, standardError, releaseClient, new());
+        var services = CreateServices(standardOut, standardError, releaseClient, new InMemoryUpdateCheckCache());
 
         var exitCode = await CliApplication.InvokeAsync(["update", "--no-banner"], services, CancellationToken.None);
 
@@ -91,11 +94,11 @@ public sealed class CliApplicationUpdateTests
     public async Task InvokeAsync_ShouldSuppressAutomaticCheck_ForJsonInvocations()
     {
         var releaseClient = new StubUpdateReleaseClient("v99.0.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(1), "99.0.0"));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(1), "99.0.0"));
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new NeverCalledHandler());
         // ReSharper disable once AccessToDisposedClosure
-        var services = CreateServices(new(), standardError, releaseClient, cache, () => httpClient);
+        var services = CreateServices(new StringWriter(), standardError, releaseClient, cache, () => httpClient);
 
         var exitCode = await CliApplication.InvokeAsync(["share", "create", "file-id", "--json", "--no-banner"], services, CancellationToken.None);
 
@@ -111,14 +114,14 @@ public sealed class CliApplicationUpdateTests
                                                          Func<HttpClient>? httpClientFactory = null)
     {
         var timeProvider = new ManualTimeProvider(Now);
-        return new(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
-                   _ => httpClientFactory is null ? throw new AssertionException("HTTP client should not have been created.") : httpClientFactory(),
-                   standardOut,
-                   standardError,
-                   new FakeInteractiveSession(),
-                   timeProvider,
-                   new PlainDownloadProgressReporterFactory(standardOut, standardError, timeProvider),
-                   Interactive)
+        return new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
+                                          _ => httpClientFactory is null ? throw new AssertionException("HTTP client should not have been created.") : httpClientFactory(),
+                                          standardOut,
+                                          standardError,
+                                          new FakeInteractiveSession(),
+                                          timeProvider,
+                                          new PlainDownloadProgressReporterFactory(standardOut, standardError, timeProvider),
+                                          Interactive)
         {
             UpdateServices = FakeUpdateServices.Create(releaseClient, cache)
         };

@@ -20,13 +20,13 @@ public sealed class TokenCommandHandlerTests
         var credentialId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Created)
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
         {
             Content = new StringContent(CreationResponseJson(credentialId))
         }));
         var handler = CreateCreateHandler(httpClient, standardOut, standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("automation", null, null, null, null, null, true), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenCreateCommandOptions("automation", null, null, null, null, null, true), CancellationToken.None);
 
         exitCode.Should().Be(0);
         var stdoutLines = ReadLines(standardOut);
@@ -43,13 +43,13 @@ public sealed class TokenCommandHandlerTests
         var credentialId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Created)
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Created)
         {
             Content = new StringContent(CreationResponseJson(credentialId))
         }));
         var handler = CreateCreateHandler(httpClient, standardOut, standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("automation", "12h", 1024, 4096, null, null, false), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenCreateCommandOptions("automation", "12h", 1024, 4096, null, null, false), CancellationToken.None);
 
         exitCode.Should().Be(0);
         ReadLines(standardOut).Should().Equal($"credential-id:{credentialId}", "token:sdu1.selector.secret");
@@ -64,14 +64,14 @@ public sealed class TokenCommandHandlerTests
         const String nameError = "Credential name invalid or missing. Provide --name with 1 to 100 characters and no control characters.";
         var scenarios = new (TokenCreateCommandOptions Options, String ExpectedError)[]
         {
-            (new(null, null, null, null, null, null, false), nameError),
-            (new("   ", null, null, null, null, null, false), nameError),
-            (new(new String('n', 101), null, null, null, null, null, false), nameError),
-            (new("escape\u001bsequence", null, null, null, null, null, false), nameError),
-            (new("name", "soon", null, null, null, null, false), "Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m."),
-            (new("name", "3000000d", null, null, null, null, false), "Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m."),
-            (new("name", null, 0, null, null, null, false), "The --max-file-bytes value must be positive."),
-            (new("name", null, null, -5, null, null, false), "The --max-share-bytes value must be positive.")
+            (new TokenCreateCommandOptions(null, null, null, null, null, null, false), nameError),
+            (new TokenCreateCommandOptions("   ", null, null, null, null, null, false), nameError),
+            (new TokenCreateCommandOptions(new String('n', 101), null, null, null, null, null, false), nameError),
+            (new TokenCreateCommandOptions("escape\u001bsequence", null, null, null, null, null, false), nameError),
+            (new TokenCreateCommandOptions("name", "soon", null, null, null, null, false), "Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m."),
+            (new TokenCreateCommandOptions("name", "3000000d", null, null, null, null, false), "Expiration invalid. Use <amount><unit> such as 30d, 12h, or 45m."),
+            (new TokenCreateCommandOptions("name", null, 0, null, null, null, false), "The --max-file-bytes value must be positive."),
+            (new TokenCreateCommandOptions("name", null, null, -5, null, null, false), "The --max-share-bytes value must be positive.")
         };
 
         foreach (var (options, expectedError) in scenarios)
@@ -97,7 +97,7 @@ public sealed class TokenCommandHandlerTests
         var resolver = FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token-only");
         var handler = new TokenCreateCommandHandler(resolver, httpClient, standardOut, standardError, new FixedTimeProvider(Now));
 
-        var exitCode = await handler.ExecuteAsync(new("automation", null, null, null, null, null, false), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenCreateCommandOptions("automation", null, null, null, null, null, false), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -135,18 +135,18 @@ public sealed class TokenCommandHandlerTests
         var invalidError = new StringWriter();
         using var neverCalledClient = new HttpClient(new NeverCalledHandler());
         var invalidHandler = new TokenInspectCommandHandler(CreateResolver(), neverCalledClient, invalidOut, invalidError);
-        (await invalidHandler.ExecuteAsync(new("not-a-guid", null, null, false), CancellationToken.None)).Should().Be(1);
+        (await invalidHandler.ExecuteAsync(new TokenInspectCommandOptions("not-a-guid", null, null, false), CancellationToken.None)).Should().Be(1);
         invalidError.ToString().Trim().Should().Be("Credential id invalid or missing.");
 
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(ProjectionJson(credentialId))
         }));
         var handler = new TokenInspectCommandHandler(CreateResolver(), httpClient, standardOut, standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(credentialId.ToString(), null, null, false), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenInspectCommandOptions(credentialId.ToString(), null, null, false), CancellationToken.None);
 
         exitCode.Should().Be(0);
         var lines = ReadLines(standardOut);
@@ -164,13 +164,13 @@ public sealed class TokenCommandHandlerTests
         var credentialId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent($$"""{"credentials":[{{ProjectionJson(credentialId)}}],"nextCursor":"cursor-a"}""")
         }));
         var handler = new TokenListCommandHandler(CreateResolver(), httpClient, standardOut, standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(null, null, null, null, false), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenListCommandOptions(null, null, null, null, false), CancellationToken.None);
 
         exitCode.Should().Be(0);
         var lines = ReadLines(standardOut);
@@ -187,17 +187,17 @@ public sealed class TokenCommandHandlerTests
         using var neverCalledClient = new HttpClient(new NeverCalledHandler());
         var invalidError = new StringWriter();
         var invalidHandler = new TokenListCommandHandler(CreateResolver(), neverCalledClient, new StringWriter(), invalidError);
-        (await invalidHandler.ExecuteAsync(new(null, 0, null, null, false), CancellationToken.None)).Should().Be(1);
+        (await invalidHandler.ExecuteAsync(new TokenListCommandOptions(null, 0, null, null, false), CancellationToken.None)).Should().Be(1);
         invalidError.ToString().Trim().Should().Be("The --limit value must be positive.");
 
         var standardOut = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent("""{"credentials":[],"nextCursor":null}""")
         }));
         var handler = new TokenListCommandHandler(CreateResolver(), httpClient, standardOut, new StringWriter());
 
-        (await handler.ExecuteAsync(new(null, null, null, null, true), CancellationToken.None)).Should().Be(0);
+        (await handler.ExecuteAsync(new TokenListCommandOptions(null, null, null, null, true), CancellationToken.None)).Should().Be(0);
 
         var stdoutLines = ReadLines(standardOut);
         stdoutLines.Should().HaveCount(1);
@@ -234,19 +234,19 @@ public sealed class TokenCommandHandlerTests
         var credentialId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var handler = new TokenRevokeCommandHandler(CreateResolver(), httpClient, standardOut, standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(credentialId.ToString(), null, null, false), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new TokenRevokeCommandOptions(credentialId.ToString(), null, null, false), CancellationToken.None);
 
         exitCode.Should().Be(0);
         ReadLines(standardOut).Should().Equal($"token-revoked:{credentialId}");
         standardError.ToString().Should().BeEmpty();
 
         var jsonOut = new StringWriter();
-        using var jsonClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        using var jsonClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var jsonHandler = new TokenRevokeCommandHandler(CreateResolver(), jsonClient, jsonOut, new StringWriter());
-        (await jsonHandler.ExecuteAsync(new(credentialId.ToString(), null, null, true), CancellationToken.None)).Should().Be(0);
+        (await jsonHandler.ExecuteAsync(new TokenRevokeCommandOptions(credentialId.ToString(), null, null, true), CancellationToken.None)).Should().Be(0);
         using var document = JsonDocument.Parse(ReadLines(jsonOut).Should().ContainSingle().Subject);
         document.RootElement.GetProperty("credentialId").GetGuid().Should().Be(credentialId);
     }
@@ -257,11 +257,11 @@ public sealed class TokenCommandHandlerTests
         using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
         {
             capturedAuthorization = request.Headers.Authorization?.ToString();
-            return new(HttpStatusCode.NoContent);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }));
         var handler = new TokenRevokeCommandHandler(resolver, httpClient, new StringWriter(), new StringWriter());
 
-        (await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, adminTokenOverride, false), CancellationToken.None)).Should().Be(0);
+        (await handler.ExecuteAsync(new TokenRevokeCommandOptions(Guid.NewGuid().ToString(), null, adminTokenOverride, false), CancellationToken.None)).Should().Be(0);
         return capturedAuthorization;
     }
 

@@ -138,7 +138,7 @@ internal partial class BuildPipeline
             RunDocker(upArguments);
 
             var apiContainer = GetComposeContainerId(composePrefix, "shadowdrop");
-            WaitForHealthyContainer(apiContainer, new("http://127.0.0.1:19423/health/ready"));
+            WaitForHealthyContainer(apiContainer, new Uri("http://127.0.0.1:19423/health/ready"));
             AssertComposeProviders(apiContainer, mongoVariant);
             if (mongoVariant)
             {
@@ -156,7 +156,7 @@ internal partial class BuildPipeline
             RunDocker(recreateArguments);
 
             apiContainer = GetComposeContainerId(composePrefix, "shadowdrop");
-            WaitForHealthyContainer(apiContainer, new("http://127.0.0.1:19423/health/ready"));
+            WaitForHealthyContainer(apiContainer, new Uri("http://127.0.0.1:19423/health/ready"));
 
             RunProcess("dotnet",
                        [cliAssembly, "download", shareUrl, "--share-key", shareKey, "--out", downloadedFile],

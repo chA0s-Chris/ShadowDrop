@@ -54,7 +54,7 @@ internal sealed class TokenRevokeCommandHandler
 
         if (options.Json)
         {
-            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(new(credentialId),
+            await _standardOut.WriteLineAsync(JsonSerializer.Serialize(new TokenRevokeCliResult(credentialId),
                                                                        CliJsonSerializerContext.Default.TokenRevokeCliResult));
             return 0;
         }

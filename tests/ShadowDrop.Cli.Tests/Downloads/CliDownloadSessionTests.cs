@@ -8,6 +8,7 @@ using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 
 public sealed class CliDownloadSessionTests
@@ -17,20 +18,21 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var httpClient =
-            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
-            {
-                BaseAddress = new("https://shadowdrop.test/")
-            };
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")));
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         using var destination = new NonSeekableWriteStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
 
+        // The synchronous Throw assertion below invokes the delegate before httpClient, destination, and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => new CliDownloadSession(httpClient,
-                                               new(httpClient.BaseAddress, "d/share-token/files/file-id"),
+                                               new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"),
                                                destination,
                                                shareSecret,
                                                fixture.CreateFileEncryptionContext(),
                                                durablePlaintextLength: fixture.ChunkSize,
                                                totalPlaintextSize: fixture.Plaintext.LongLength);
+        // ReSharper restore AccessToDisposedClosure
 
         act.Should().Throw<ArgumentException>()
            .WithMessage("*resumed download requires a seekable destination stream*")
@@ -42,17 +44,15 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var httpClient =
-            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
-            {
-                BaseAddress = new("https://shadowdrop.test/")
-            };
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")));
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         using var destination = new MemoryStream(fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         List<Int64> reportedValues = [];
         var progress = new RecordingProgress(reportedValues.Add);
 
         using var session = new CliDownloadSession(httpClient,
-                                                   new(httpClient.BaseAddress, "d/share-token/files/file-id"),
+                                                   new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"),
                                                    destination,
                                                    shareSecret,
                                                    fixture.CreateFileEncryptionContext(),
@@ -71,15 +71,15 @@ public sealed class CliDownloadSessionTests
         var fixture = DownloadFixture.Create();
         var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateInterruptedResponse(firstChunkEncryptedLength + 7));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
-        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+        using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var firstAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await firstAttempt.Should().ThrowAsync<IOException>();
@@ -89,6 +89,8 @@ public sealed class CliDownloadSessionTests
 
         destination.SetLength(fixture.ChunkSize + lengthDelta);
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var resumedAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await resumedAttempt.Should().ThrowAsync<InvalidOperationException>()
@@ -103,13 +105,11 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateSuccessResponse());
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
-        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+        using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
         await session.DownloadAsync(CancellationToken.None);
@@ -128,7 +128,7 @@ public sealed class CliDownloadSessionTests
         var fixture = DownloadFixture.Create();
         var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
         var callCount = 0;
-        using var handler = new StubHttpMessageHandler(request =>
+        using var handler = new StubHttpMessageHandler(_ =>
         {
             callCount++;
             if (callCount == 1)
@@ -136,21 +136,21 @@ public sealed class CliDownloadSessionTests
                 return fixture.CreateInterruptedResponse(firstChunkEncryptedLength + 7);
             }
 
-            return fixture.CreateSuccessResponse(new()
+            return fixture.CreateSuccessResponse(new RequestedPlaintextRangeContract
             {
                 Start = fixture.ChunkSize,
                 End = fixture.Plaintext.LongLength
             });
         });
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
-        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+        using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var firstAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await firstAttempt.Should().ThrowAsync<IOException>();
@@ -176,15 +176,15 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateRelabeledTruncatedResponse(1));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
-        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+        using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await session.DownloadAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<CryptographicException>();
@@ -197,15 +197,15 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateResponseWithTrailingData(4));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
-        using var session = new CliDownloadSession(httpClient, new(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
+        using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await session.DownloadAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidDataException>();
@@ -253,17 +253,17 @@ public sealed class CliDownloadSessionTests
                 var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
                 var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
                                                                          contentKey,
-                                                                         new(CryptoVersion.V1,
-                                                                             CryptoAlgorithm.Aes256Gcm,
-                                                                             fileId,
-                                                                             chunkSize,
-                                                                             chunkIndex,
-                                                                             chunkPlaintext.Length,
-                                                                             chunkIndex == chunkCount - 1));
+                                                                         new ChunkMetadata(CryptoVersion.V1,
+                                                                                           CryptoAlgorithm.Aes256Gcm,
+                                                                                           fileId,
+                                                                                           chunkSize,
+                                                                                           chunkIndex,
+                                                                                           chunkPlaintext.Length,
+                                                                                           chunkIndex == chunkCount - 1));
                 encryptedChunks.Add(encryptedChunk.Ciphertext);
             }
 
-            return new(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
+            return new DownloadFixture(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
         }
 
         public FileEncryptionContext CreateFileEncryptionContext() => new(FileId, KdfSalt);
@@ -276,7 +276,7 @@ public sealed class CliDownloadSessionTests
             var declaredLength = servedFullSizedChunkCount * ChunkSize;
             var responseBody = EncryptedChunks.Take(servedFullSizedChunkCount).SelectMany(static chunk => chunk).ToArray();
             return CreateResponse(new MemoryStream(responseBody, false),
-                                  new()
+                                  new RequestedPlaintextRangeContract
                                   {
                                       Start = 0,
                                       End = declaredLength
@@ -322,7 +322,7 @@ public sealed class CliDownloadSessionTests
             {
                 Content = new StreamContent(contentStream)
             };
-            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
             response.Content.Headers.ContentLength = contentLength ?? CreateResponseBody(range).LongLength;
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, chunkRange.FirstChunkIndex.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, chunkRange.LastChunkIndex.ToString());

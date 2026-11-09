@@ -17,7 +17,7 @@ public sealed class UpdateCommandHandlerTests
         var cache = new InMemoryUpdateCheckCache();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var handler = CreateHandler(new("v1.5.0"), cache, standardOut, standardError, "1.4.0",
+        var handler = CreateHandler(new StubUpdateReleaseClient("v1.5.0"), cache, standardOut, standardError, "1.4.0",
                                     executableDirectory: "/home/alice/bin");
 
         var exitCode = await handler.ExecuteAsync(CancellationToken.None);
@@ -36,7 +36,7 @@ public sealed class UpdateCommandHandlerTests
     public async Task ExecuteAsync_ShouldPrintWindowsInstallCommand_WhenUpdateIsAvailable()
     {
         var standardOut = new StringWriter();
-        var handler = CreateHandler(new("v1.5.0"), new(), standardOut, new(),
+        var handler = CreateHandler(new StubUpdateReleaseClient("v1.5.0"), new InMemoryUpdateCheckCache(), standardOut, new StringWriter(),
                                     "1.4.0", true, @"C:\Users\alice\Tools\ShadowDrop");
 
         var exitCode = await handler.ExecuteAsync(CancellationToken.None);
@@ -52,7 +52,7 @@ public sealed class UpdateCommandHandlerTests
     public async Task ExecuteAsync_ShouldRefreshCache_AfterSuccessfulCheck()
     {
         var cache = new InMemoryUpdateCheckCache();
-        var handler = CreateHandler(new("v1.5.0"), cache, new(), new(), "1.4.0");
+        var handler = CreateHandler(new StubUpdateReleaseClient("v1.5.0"), cache, new StringWriter(), new StringWriter(), "1.4.0");
 
         await handler.ExecuteAsync(CancellationToken.None);
 
@@ -63,7 +63,7 @@ public sealed class UpdateCommandHandlerTests
     public async Task ExecuteAsync_ShouldReportUpdate_WhenInstalledPrereleaseIsBelowLatestStable()
     {
         var standardOut = new StringWriter();
-        var handler = CreateHandler(new("v1.5.0"), new(), standardOut, new(),
+        var handler = CreateHandler(new StubUpdateReleaseClient("v1.5.0"), new InMemoryUpdateCheckCache(), standardOut, new StringWriter(),
                                     "1.5.0-preview.2");
 
         var exitCode = await handler.ExecuteAsync(CancellationToken.None);
@@ -78,7 +78,7 @@ public sealed class UpdateCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var handler = CreateHandler(new("v1.5.0"), new(), standardOut, standardError,
+        var handler = CreateHandler(new StubUpdateReleaseClient("v1.5.0"), new InMemoryUpdateCheckCache(), standardOut, standardError,
                                     installedVersion);
 
         var exitCode = await handler.ExecuteAsync(CancellationToken.None);
@@ -97,7 +97,7 @@ public sealed class UpdateCommandHandlerTests
         var cache = new InMemoryUpdateCheckCache();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var handler = CreateHandler(new(new UpdateCheckException("The update check timed out after 5 seconds.")),
+        var handler = CreateHandler(new StubUpdateReleaseClient(new UpdateCheckException("The update check timed out after 5 seconds.")),
                                     cache, standardOut, standardError, "1.4.0");
 
         var exitCode = await handler.ExecuteAsync(CancellationToken.None);

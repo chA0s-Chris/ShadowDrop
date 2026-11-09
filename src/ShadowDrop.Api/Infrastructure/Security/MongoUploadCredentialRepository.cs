@@ -90,12 +90,12 @@ public sealed class MongoUploadCredentialRepository : IUploadCredentialRepositor
                                       .ToListAsync(cancellationToken);
         if (fetched.Count <= pageSize)
         {
-            return new(fetched.Select(Map).ToList(), null);
+            return new UploadCredentialPage(fetched.Select(Map).ToList(), null);
         }
 
         var page = fetched.Take(pageSize).Select(Map).ToList();
         var last = page[^1];
-        return new(page, new(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
+        return new UploadCredentialPage(page, new UploadCredentialListCursor(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
     }
 
     public async Task RecordUsageAsync(Guid credentialId, DateTimeOffset lastUsedAtUtc, CancellationToken cancellationToken)

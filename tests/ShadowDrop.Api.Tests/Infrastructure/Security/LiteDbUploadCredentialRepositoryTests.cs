@@ -3,6 +3,7 @@
 namespace ShadowDrop.Tests.Infrastructure.Security;
 
 using NUnit.Framework;
+using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Infrastructure.Security;
 
 public sealed class LiteDbUploadCredentialRepositoryTests
@@ -41,9 +42,9 @@ public sealed class LiteDbUploadCredentialRepositoryTests
         await UploadCredentialRepositoryContract.AssertListPaginationContractAsync(repository);
     }
 
-    private LiteDbUploadCredentialRepository CreateRepository() => new(new()
+    private LiteDbUploadCredentialRepository CreateRepository() => new(new ShadowDropOptions
     {
-        Metadata = new()
+        Metadata = new MetadataOptions
         {
             LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
         }

@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Shares;
 using ShadowDrop.Cli.Http;
 using ShadowDrop.Contracts;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 internal sealed class ShareInspectApiClient
@@ -27,7 +28,7 @@ internal sealed class ShareInspectApiClient
         var query = includeFilenames ? "?includeFilenames=true" : String.Empty;
         using var request = new HttpRequestMessage(HttpMethod.Get,
                                                    new Uri(serverUrl, $"/api/admin/shares/{canonicalId}{query}"));
-        request.Headers.Authorization = new("Bearer", adminToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {

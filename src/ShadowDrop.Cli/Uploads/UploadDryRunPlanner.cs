@@ -100,7 +100,7 @@ internal static class UploadDryRunPlanner
             return Invalid(outputError, inputResolution.Diagnostics);
         }
 
-        return new(new(localPlan, queueDestinations, options.QueueOut, options.SecretsOut), inputResolution.Diagnostics, []);
+        return new UploadDryRunPlanningResult(new UploadDryRunPlan(localPlan, queueDestinations, options.QueueOut, options.SecretsOut), inputResolution.Diagnostics, []);
     }
 
     public static UploadDryRunPlanningResult Create(UploadRawCommandOptions options,
@@ -149,7 +149,7 @@ internal static class UploadDryRunPlanner
         }
 
         var localPlan = planningResult.Plan ?? throw new InvalidOperationException("A valid planning result must contain a plan.");
-        return new(new(localPlan, null, null, options.SecretsOut), inputResolution.Diagnostics, []);
+        return new UploadDryRunPlanningResult(new UploadDryRunPlan(localPlan, null, null, options.SecretsOut), inputResolution.Diagnostics, []);
     }
 
     // Selection diagnostics belong to the run, not to its outcome, so they are carried onto an invalid result
@@ -166,7 +166,7 @@ internal static class UploadDryRunPlanner
         new(null, diagnostics, [.. errors.Select(static error => new UploadDryRunError($"{error.File.FullName}: {error.Message}", error.Origin))]);
 
     private static UploadDryRunPlanningResult Invalid(String message, ImmutableArray<UploadInputDiagnostic> diagnostics = default) =>
-        new(null, diagnostics.IsDefault ? [] : diagnostics, [new(message, UploadSelectionOrigin.CommandLine)]);
+        new(null, diagnostics.IsDefault ? [] : diagnostics, [new UploadDryRunError(message, UploadSelectionOrigin.CommandLine)]);
 
     private static UploadInputResolution ResolveInputs(IReadOnlyList<FileInfo> files,
                                                        IReadOnlyList<String> inputPaths,

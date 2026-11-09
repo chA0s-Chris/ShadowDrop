@@ -5,7 +5,8 @@ namespace ShadowDrop.Cli.Tokens;
 using System.Text.Json.Serialization;
 
 internal sealed record CreateUploadCredentialCliRequest(
-    [property: JsonPropertyName("name")] String Name,
+    [property: JsonPropertyName("name")]
+    String Name,
     [property: JsonPropertyName("expiresAtUtc")]
     DateTimeOffset? ExpiresAtUtc,
     [property: JsonPropertyName("maxEncryptedFileBytes")]

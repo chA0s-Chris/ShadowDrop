@@ -176,6 +176,8 @@ public sealed class UploadPersistenceServiceTests
         var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = CreateRequest(Guid.NewGuid());
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Func<Task> act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
@@ -193,6 +195,8 @@ public sealed class UploadPersistenceServiceTests
         var request = await CreateReservedRequestAsync(repository);
         await using var content = new CancelingStream(CreateCiphertext());
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -217,7 +221,7 @@ public sealed class UploadPersistenceServiceTests
         var logRecords = collector.GetSnapshot();
         logRecords.Should().Contain(logRecord => logRecord.Level == LogLevel.Information && logRecord.Message.Contains("Upload completed"));
         var completionRecord = logRecords.Single(logRecord => logRecord.Message.Contains("Upload completed"));
-        var values = completionRecord.StructuredState!.Select(pair => pair.Value);
+        var values = completionRecord.StructuredState!.Select(pair => pair.Value).ToArray();
         values.Should().NotContain(value => value != null && value.Contains(request.KdfSaltBase64));
         values.Should().NotContain(value => value != null && value.Contains(request.PlaintextSha256!));
         values.Should().NotContain(value => value != null && value.Contains(request.OriginalFileName));
@@ -242,6 +246,8 @@ public sealed class UploadPersistenceServiceTests
         var blobPath = Path.Combine(options.Storage.LocalRoot, storedRecord.BlobKey);
         var originalBlob = await File.ReadAllBytesAsync(blobPath);
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(request, duplicateContent, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadValidationException>()
@@ -263,6 +269,8 @@ public sealed class UploadPersistenceServiceTests
         var firstUploadTask = sut.PersistAsync(request, firstContent, CancellationToken.None);
         await blobStorage.SaveStarted.Task;
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var secondAttempt = async () => await sut.PersistAsync(request, secondContent, CancellationToken.None);
 
         await secondAttempt.Should().ThrowAsync<UploadValidationException>()
@@ -288,6 +296,8 @@ public sealed class UploadPersistenceServiceTests
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(CreateRequest(expiredReservationId), content, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadValidationException>()
@@ -345,7 +355,7 @@ public sealed class UploadPersistenceServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new('a', 64));
+            new String('a', 64));
 
     private static UploadPersistenceRequest CreateRequest(Guid fileId) =>
         new(fileId,
@@ -358,7 +368,7 @@ public sealed class UploadPersistenceServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new('a', 64));
+            new String('a', 64));
 
     private static async Task<UploadPersistenceRequest> CreateReservedRequestAsync(IUploadedFileMetadataRepository repository)
     {
@@ -472,7 +482,7 @@ public sealed class UploadPersistenceServiceTests
             SaveCallCount++;
             SaveStarted.TrySetResult();
             await AllowSaveToFinish.Task.WaitAsync(cancellationToken);
-            return new($"blob/{fileId:N}.blob", encryptedContent.Length);
+            return new UploadBlobDescriptor($"blob/{fileId:N}.blob", encryptedContent.Length);
         }
     }
 
@@ -528,11 +538,11 @@ public sealed class UploadPersistenceServiceTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

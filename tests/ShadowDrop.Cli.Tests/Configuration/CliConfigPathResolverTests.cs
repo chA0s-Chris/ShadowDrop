@@ -11,6 +11,12 @@ public sealed class CliConfigPathResolverTests
 {
     private String? _originalHome;
 
+    [SetUp]
+    public void SetUp() => _originalHome = Environment.GetEnvironmentVariable("HOME");
+
+    [TearDown]
+    public void TearDown() => Environment.SetEnvironmentVariable("HOME", _originalHome);
+
     [Test]
     public void GetConfigFilePath_ShouldComposePathBelowHome_WhenHomeIsSet()
     {
@@ -41,10 +47,4 @@ public sealed class CliConfigPathResolverTests
             result.Should().Be(Path.Combine(expectedHome, ".config", "shadowdrop", "config.json"));
         }
     }
-
-    [SetUp]
-    public void SetUp() => _originalHome = Environment.GetEnvironmentVariable("HOME");
-
-    [TearDown]
-    public void TearDown() => Environment.SetEnvironmentVariable("HOME", _originalHome);
 }

@@ -75,7 +75,7 @@ public sealed class UploadSweepService
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger.LogWarning(exception, "Unreferenced-upload sweep could not select candidates");
-            return Log(new(0, 0, 0, failures + 1));
+            return Log(new UploadSweepResult(0, 0, 0, failures + 1));
         }
 
         var candidatesInspected = 0;
@@ -104,7 +104,7 @@ public sealed class UploadSweepService
             }
         }
 
-        return Log(new(candidatesInspected, uploadsDeleted, blobsAlreadyMissing, failures));
+        return Log(new UploadSweepResult(candidatesInspected, uploadsDeleted, blobsAlreadyMissing, failures));
     }
 
     private static Guid SweepOperationId(Guid fileId)
@@ -114,7 +114,7 @@ public sealed class UploadSweepService
         fileId.TryWriteBytes(material[16..]);
         Span<Byte> digest = stackalloc Byte[SHA256.HashSizeInBytes];
         SHA256.HashData(material, digest);
-        return new(digest[..16]);
+        return new Guid(digest[..16]);
     }
 
     /// <summary>

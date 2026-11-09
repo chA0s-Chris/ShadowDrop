@@ -12,13 +12,6 @@ using ShadowDrop.Api.Status;
 
 public sealed class ScopedUploadStatusAuthorizationFilterTests
 {
-    public enum BlockingOperation
-    {
-        Lookup,
-        Usage,
-        FailLookup
-    }
-
     [Test]
     public void DefaultAuthenticationTimeout_ShouldBeFiveSeconds()
     {
@@ -100,7 +93,7 @@ public sealed class ScopedUploadStatusAuthorizationFilterTests
             RequestServices = services
         };
         httpContext.Request.Headers.Authorization = $"Bearer {token}";
-        return new(httpContext, []);
+        return new DefaultEndpointFilterInvocationContext(httpContext, []);
     }
 
     private static async Task<(ScopedUploadStatusAuthorizationFilter Filter, BlockingUploadCredentialRepository Repository, String Token)>
@@ -108,13 +101,20 @@ public sealed class ScopedUploadStatusAuthorizationFilterTests
     {
         var repository = new BlockingUploadCredentialRepository();
         var service = new UploadCredentialService(repository, TimeProvider.System, NullLogger<UploadCredentialService>.Instance);
-        var created = await service.CreateAsync(new("status-test", null, null, null), CancellationToken.None);
+        var created = await service.CreateAsync(new UploadCredentialCreationRequest("status-test", null, null, null), CancellationToken.None);
         repository.Operation = blockingOperation;
-        return (new(service, new(timeout)), repository, created.Token);
+        return (new ScopedUploadStatusAuthorizationFilter(service, new ScopedUploadStatusAuthorizationOptions(timeout)), repository, created.Token);
     }
 
     private static ValueTask<Object?> UnexpectedNext(EndpointFilterInvocationContext context) =>
         ValueTask.FromException<Object?>(new AssertionException("The status handler must not run."));
+
+    public enum BlockingOperation
+    {
+        Lookup,
+        Usage,
+        FailLookup
+    }
 
     private sealed class BlockingUploadCredentialRepository : IUploadCredentialRepository
     {

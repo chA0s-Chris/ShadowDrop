@@ -43,7 +43,7 @@ public sealed class GitHubUpdateReleaseClientTests
     [Test]
     public async Task GetLatestStableVersionAsync_ShouldReportHttpStatus_WhenReleaseServiceFails()
     {
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.InternalServerError)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError)));
         var client = new GitHubUpdateReleaseClient(httpClient);
 
         var action = async () => await client.GetLatestStableVersionAsync(CancellationToken.None);

@@ -52,7 +52,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
 
         var unauthenticatedResponse = await client.GetAsync("/api/admin/management/ping");
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var authenticatedResponse = await client.GetAsync("/api/admin/management/ping");
 
         unauthenticatedResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -73,7 +73,7 @@ public sealed class ApiWalkingSkeletonTests
                                                 Guid.Parse("80000000-0000-0000-0000-000000000001")).Encode();
 
         var unauthorized = await client.GetAsync("/api/admin/shares");
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var invalid = await client.GetAsync("/api/admin/shares?status=unknown&pageSize=0&cursor=bad");
         var malformedCursor = await client.GetAsync("/api/admin/shares?cursor=not-base64url!!");
         var mismatchedCursor = await client.GetAsync($"/api/admin/shares?status={ShareListStatuses.Expired}&cursor={boundToActive}");
@@ -108,7 +108,7 @@ public sealed class ApiWalkingSkeletonTests
         // The audit filter is mapped outside the bearer-token filter precisely so rejected credentials stay
         // observable, so the unauthorized request has to produce a record just like the accepted ones.
         var unauthorized = await client.GetAsync("/api/admin/shares?status=active&cursor=leaked-cursor-value");
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var invalid = await client.GetAsync("/api/admin/shares?status=leaked-status-value");
         var success = await client.GetAsync("/api/admin/shares?pageSize=1");
 
@@ -116,6 +116,7 @@ public sealed class ApiWalkingSkeletonTests
         invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         success.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        var bootstrapToken = fixture.BootstrapToken;
         var audits = sink.Events
                          .Where(logEvent => Scalar(logEvent, "Operation") == "admin-share-list")
                          .ToArray();
@@ -128,13 +129,8 @@ public sealed class ApiWalkingSkeletonTests
                                                                                             && !message.Contains(
                                                                                                 "leaked-status-value", StringComparison.Ordinal)
                                                                                             && !message.Contains(
-                                                                                                fixture.BootstrapToken, StringComparison.Ordinal));
+                                                                                                bootstrapToken, StringComparison.Ordinal));
     }
-
-    private static String? Scalar(LogEvent logEvent, String name) =>
-        logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue { Value: { } scalar }
-            ? scalar.ToString()
-            : null;
 
     [Test]
     public async Task AdministrativeShareQueries_ShouldNotBeMapped_WhenAdministrativeOperationsAreDisabled()
@@ -175,7 +171,7 @@ public sealed class ApiWalkingSkeletonTests
             services.AddSingleton<IUploadedFileMetadataRepository>(files);
         }));
         using var client = host.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.GetAsync("/api/admin/shares");
         var body = await response.Content.ReadAsStringAsync();
@@ -207,7 +203,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
 
         var unauthorized = await client.GetAsync("/api/admin/shares/not-a-guid?includeFilenames=True");
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var invalidId = await client.GetAsync("/api/admin/shares/not-a-guid");
         var uppercaseBoolean = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=True");
         var numericBoolean = await client.GetAsync($"/api/admin/shares/{Guid.NewGuid():D}?includeFilenames=1");
@@ -241,7 +237,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var uploadedFiles = fixture.Services.GetRequiredService<IUploadedFileMetadataRepository>();
         var shares = fixture.Services.GetRequiredService<IShareMetadataRepository>();
         var fileId = await uploadedFiles.ReserveFileIdAsync(CancellationToken.None);
@@ -267,7 +263,7 @@ public sealed class ApiWalkingSkeletonTests
                                     ShareCleanupState.Pending,
                                     false,
                                     null,
-                                    [new(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
+                                    [new ShareFileEntryRecord(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
         await shares.CreateAsync(share, CancellationToken.None);
 
         var redactedResponse = await client.GetAsync($"/api/admin/shares/{share.ShareId:D}");
@@ -307,7 +303,7 @@ public sealed class ApiWalkingSkeletonTests
                                     ShareCleanupState.Pending,
                                     false,
                                     null,
-                                    [new(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
+                                    [new ShareFileEntryRecord(fileId, "sensitive-original.txt", "sensitive-display.txt")]);
 
         // A projection that simply omits rows is a legitimate `missing` degradation for inspection, so the non-throwing arm
         // has to be one the service cannot reconcile at all rather than one that merely returns too few rows.
@@ -322,7 +318,7 @@ public sealed class ApiWalkingSkeletonTests
             services.AddSingleton<IUploadedFileMetadataRepository>(files);
         }));
         using var client = host.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         // Opting into filename disclosure proves the failure path neither discloses filenames nor loses the audit flag.
         var response = await client.GetAsync($"/api/admin/shares/{share.ShareId:D}?includeFilenames=true");
@@ -353,20 +349,13 @@ public sealed class ApiWalkingSkeletonTests
                                                && !message.Contains("80000000-0000-0000-0000-000000000001", StringComparison.Ordinal));
     }
 
-    private static async Task AssertOperationalReasonAsync(HttpResponseMessage response, String expectedReason)
-    {
-        var error = await response.Content.ReadFromJsonAsync<OperationalErrorContract>();
-        error.Should().NotBeNull();
-        error.Reason.Should().Be(expectedReason);
-    }
-
     [Test]
     public async Task UploadCapabilitiesRoute_ShouldExposeEffectiveMaximumFilePayloadSize()
     {
         var uploadMaxBytes = UploadLimitCalculator.MultipartEnvelopeAllowanceBytes + 1234;
         await using var fixture = new TestApiFactory(uploadMaxBytes: uploadMaxBytes);
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.GetAsync("/api/uploads/capabilities");
 
@@ -385,7 +374,7 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
 
         var noAuthResponse = await client.GetAsync("/api/uploads/capabilities");
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenResponse = await client.GetAsync("/api/uploads/capabilities");
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -409,7 +398,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         _ = await client.GetAsync("/api/admin/management/ping");
 
@@ -428,7 +417,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(false);
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.GetAsync("/api/admin/management/ping");
 
@@ -441,7 +430,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "definitely-not-the-right-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "definitely-not-the-right-token");
 
         var response = await client.GetAsync("/api/admin/management/ping");
 
@@ -453,7 +442,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var responses = new[]
         {
@@ -479,9 +468,9 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = null;
 
         var noAuthResponse = await client.PostAsJsonAsync("/api/shares", request);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenResponse = await client.PostAsJsonAsync("/api/shares", request);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var validTokenResponse = await client.PostAsJsonAsync("/api/shares", request);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -495,7 +484,7 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var request = CreateValidShareRequest(fileId, true);
 
         var response = await client.PostAsJsonAsync("/api/shares", request);
@@ -532,20 +521,20 @@ public sealed class ApiWalkingSkeletonTests
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var duplicateFileResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                                                       [new(fileId), new(fileId)],
+                                                                                                       [new CreateShareFileRequest(fileId), new CreateShareFileRequest(fileId)],
                                                                                                        GenerateDownloadBearerToken: false));
         var missingFileResponse =
             await client.PostAsJsonAsync("/api/shares", CreateValidShareRequest(Guid.NewGuid(), false));
         var invalidModeResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                                                     [new(fileId)],
+                                                                                                     [new CreateShareFileRequest(fileId)],
                                                                                                      true,
                                                                                                      true,
                                                                                                      DateTimeOffset.Parse("2026-05-30T00:00:00Z")));
         var missingTokenSetupResponse = await client.PostAsJsonAsync("/api/shares", new CreateShareRequest(DateTimeOffset.Parse("2026-06-01T00:00:00Z"),
-                                                                         [new(fileId)]));
+                                                                                                           [new CreateShareFileRequest(fileId)]));
 
         duplicateFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         missingFileResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -564,9 +553,9 @@ public sealed class ApiWalkingSkeletonTests
         client.DefaultRequestHeaders.Authorization = null;
 
         var noAuthResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var validTokenResponse = await client.PostAsync($"/api/admin/shares/{share.ShareId}/revoke", null);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -635,7 +624,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.PostAsync($"/api/admin/shares/{Guid.NewGuid()}/revoke", null);
 
@@ -647,7 +636,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(false);
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.PostAsync($"/api/admin/shares/{Guid.NewGuid()}/revoke", null);
 
@@ -661,9 +650,9 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
 
         var noAuthResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var validTokenResponse = await client.PostAsync("/api/admin/shares/cleanup", null);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -683,7 +672,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                    false,
                                                                    expiresAtUtc: DateTimeOffset.UtcNow.AddDays(-1)));
 
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var response = await client.PostAsync("/api/admin/shares/cleanup", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -702,7 +691,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory(false);
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         var response = await client.PostAsync("/api/admin/shares/cleanup", null);
 
@@ -719,10 +708,10 @@ public sealed class ApiWalkingSkeletonTests
 
         var noAuthFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         var noAuthResponse = await client.PostAsync("/api/uploads", CreateValidUploadContent(CreateValidMetadataPayload(noAuthFileId)));
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         var wrongTokenResponse = await client.PostAsync("/api/uploads", CreateValidUploadContent(CreateValidMetadataPayload(wrongTokenFileId)));
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var validTokenResponse = await client.PostAsync("/api/uploads", validRequestContent);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -737,9 +726,9 @@ public sealed class ApiWalkingSkeletonTests
         using var client = fixture.CreateClient();
 
         var noAuthResponse = await client.PostAsync("/api/uploads/reservations", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
         var wrongTokenResponse = await client.PostAsync("/api/uploads/reservations", null);
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var validTokenResponse = await client.PostAsync("/api/uploads/reservations", null);
 
         noAuthResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -756,7 +745,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
 
@@ -801,7 +790,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(encryptedLength: CreateCiphertext().LongLength + 1));
 
         var response = await client.PostAsync("/api/uploads", requestContent);
@@ -817,7 +806,7 @@ public sealed class ApiWalkingSkeletonTests
         var uploadMaxBytes = UploadLimitCalculator.MultipartEnvelopeAllowanceBytes + 128;
         await using var fixture = new TestApiFactory(uploadMaxBytes: uploadMaxBytes);
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         var oversizedCiphertext = new Byte[uploadMaxBytes + 1024];
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId), oversizedCiphertext);
@@ -834,7 +823,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = JsonContent.Create(new
         {
             anything = "nope"
@@ -851,7 +840,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(metadataContentType: "text/plain");
 
         var response = await client.PostAsync("/api/uploads", requestContent);
@@ -865,7 +854,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload() with
         {
             ChunkCount = 3
@@ -883,7 +872,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(Guid.NewGuid()));
 
         var response = await client.PostAsync("/api/uploads", requestContent);
@@ -898,7 +887,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         ExpireReservation(fixture.MetadataDatabasePath, reservedFileId);
         using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
@@ -917,7 +906,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         var reservedFileId = await ReserveFileIdAsync(client, fixture.BootstrapToken);
         using var initialRequest = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
 
@@ -954,7 +943,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(includeUnexpectedSection: true);
 
         var response = await client.PostAsync("/api/uploads", requestContent);
@@ -969,7 +958,7 @@ public sealed class ApiWalkingSkeletonTests
     {
         await using var fixture = new TestApiFactory();
         using var client = fixture.CreateClient();
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
 
         for (var attempt = 0; attempt < 4; attempt++)
         {
@@ -1162,7 +1151,7 @@ public sealed class ApiWalkingSkeletonTests
         var fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
         var share = await CreateShareAsync(client, fixture.BootstrapToken, CreateValidShareRequest(fileId, true));
         using var request = new HttpRequestMessage(HttpMethod.Get, $"/d/{share.ShareToken}/files/{fileId}?mode=cli");
-        request.Headers.Authorization = new("Bearer", share.DownloadBearerToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", share.DownloadBearerToken);
 
         var response = await client.SendAsync(request);
 
@@ -1255,9 +1244,9 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
-            CultureInfo.CurrentCulture = new("ar-SA");
-            CultureInfo.CurrentUICulture = new("ar-SA");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
+            CultureInfo.CurrentCulture = new CultureInfo("ar-SA");
+            CultureInfo.CurrentUICulture = new CultureInfo("ar-SA");
 
             using (var requestContent = CreateValidUploadContent(uploadMetadata, ciphertext))
             {
@@ -1297,10 +1286,10 @@ public sealed class ApiWalkingSkeletonTests
         using var shareSecret = ShareSecret.FromBytes(Convert.FromBase64String(payload.KeyMaterialBase64));
         await using var destination = new MemoryStream();
         using var session = new CliDownloadSession(client,
-                                                   new(fixture.BaseAddress, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}"),
+                                                   new Uri(fixture.BaseAddress, $"/d/{share.ShareToken}/files/{directHttpFixture.FileId}"),
                                                    destination,
                                                    shareSecret,
-                                                   new(directHttpFixture.FileId, Convert.FromBase64String(payload.KdfSaltBase64)));
+                                                   new FileEncryptionContext(directHttpFixture.FileId, Convert.FromBase64String(payload.KdfSaltBase64)));
 
         await session.DownloadAsync(CancellationToken.None);
 
@@ -1658,7 +1647,7 @@ public sealed class ApiWalkingSkeletonTests
                                                         payload.ChunkCount,
                                                         payload.KdfSaltBase64);
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
         var uploadResponse = await client.PostAsync("/api/uploads", requestContent);
         client.DefaultRequestHeaders.Authorization = previousAuthorization;
@@ -1679,7 +1668,7 @@ public sealed class ApiWalkingSkeletonTests
         sanitizedFileName.Any(Char.IsControl).Should().BeFalse("all control characters, including C1 controls, must be removed from mirrored filename headers");
         response.Content.Headers.ContentDisposition.Should().NotBeNull();
         response.Content.Headers.ContentDisposition.FileNameStar.Should().NotContain("\r").And.NotContain("\n",
-            "Content-Disposition must use the sanitized filename");
+                                                                                                          "Content-Disposition must use the sanitized filename");
         response.Content.Headers.ContentDisposition.FileNameStar.Any(Char.IsControl)
                 .Should()
                 .BeFalse("Content-Disposition must also strip persisted C1 control characters");
@@ -1700,7 +1689,7 @@ public sealed class ApiWalkingSkeletonTests
                                                         payload.ChunkCount,
                                                         payload.KdfSaltBase64);
         var previousAuthorization = client.DefaultRequestHeaders.Authorization;
-        client.DefaultRequestHeaders.Authorization = new("Bearer", fixture.BootstrapToken);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.BootstrapToken);
         using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
         var uploadResponse = await client.PostAsync("/api/uploads", requestContent);
         client.DefaultRequestHeaders.Authorization = previousAuthorization;
@@ -1852,6 +1841,8 @@ public sealed class ApiWalkingSkeletonTests
     {
         using var fixture = new TestApiFactory(withBootstrapToken: false);
 
+        // The assertion below invokes the delegate before the fixture is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Action act = () => fixture.CreateClient();
 
         act.Should().Throw<InvalidOperationException>();
@@ -1862,6 +1853,8 @@ public sealed class ApiWalkingSkeletonTests
     {
         using var fixture = new TestApiFactory(bootstrapToken: UploadCredentialToken.Create().Token);
 
+        // The assertion below invokes the delegate before the fixture is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Action act = () => fixture.CreateClient();
 
         act.Should().Throw<InvalidOperationException>();
@@ -2021,13 +2014,25 @@ public sealed class ApiWalkingSkeletonTests
                                         "disposal of a failed factory must restore environment variables so subsequent factories can start");
     }
 
+    private static String? Scalar(LogEvent logEvent, String name) =>
+        logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue { Value: { } scalar }
+            ? scalar.ToString()
+            : null;
+
+    private static async Task AssertOperationalReasonAsync(HttpResponseMessage response, String expectedReason)
+    {
+        var error = await response.Content.ReadFromJsonAsync<OperationalErrorContract>();
+        error.Should().NotBeNull();
+        error.Reason.Should().Be(expectedReason);
+    }
+
 
     private static CreateShareRequest CreateValidShareRequest(Guid fileId,
                                                               Boolean generateDownloadBearerToken,
                                                               Boolean directHttpEnabled = false,
                                                               DateTimeOffset? expiresAtUtc = null) =>
         new(expiresAtUtc ?? DateTimeOffset.UtcNow.AddDays(1),
-            [new(fileId, "renamed.bin")],
+            [new CreateShareFileRequest(fileId, "renamed.bin")],
             directHttpEnabled,
             generateDownloadBearerToken,
             generateDownloadBearerToken ? DateTimeOffset.UtcNow.AddHours(12) : null);
@@ -2038,7 +2043,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             var response = await client.PostAsJsonAsync("/api/shares", request);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             return JsonSerializer.Deserialize<CreateShareResult>(await response.Content.ReadAsStringAsync(), JsonOptions)!;
@@ -2055,7 +2060,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             return await client.PostAsync($"/api/admin/shares/{shareId}/revoke", null);
         }
         finally
@@ -2071,7 +2076,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(CreateValidMetadataPayload(reservedFileId));
             var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -2100,7 +2105,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
             var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -2113,7 +2118,7 @@ public sealed class ApiWalkingSkeletonTests
             client.DefaultRequestHeaders.Authorization = previousAuthorization;
         }
 
-        return new(String.Empty, reservedFileId, payload.KeyMaterialBase64, payload.WrongKeyMaterialBase64, payload.Plaintext);
+        return new DirectHttpDownloadFixture(String.Empty, reservedFileId, payload.KeyMaterialBase64, payload.WrongKeyMaterialBase64, payload.Plaintext);
     }
 
     private static async Task<CliDownloadFixture> UploadCliDownloadFileAsync(HttpClient client, String bootstrapToken)
@@ -2132,7 +2137,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             using var requestContent = CreateValidUploadContent(uploadMetadata, payload.Ciphertext);
             var response = await client.PostAsync("/api/uploads", requestContent);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -2142,7 +2147,7 @@ public sealed class ApiWalkingSkeletonTests
             client.DefaultRequestHeaders.Authorization = previousAuthorization;
         }
 
-        return new(reservedFileId, payload.KeyMaterialBase64, payload.KdfSaltBase64, payload.Plaintext);
+        return new CliDownloadFixture(reservedFileId, payload.KeyMaterialBase64, payload.KdfSaltBase64, payload.Plaintext);
     }
 
     private static async Task<Guid> ReserveFileIdAsync(HttpClient client, String bootstrapToken)
@@ -2151,7 +2156,7 @@ public sealed class ApiWalkingSkeletonTests
 
         try
         {
-            client.DefaultRequestHeaders.Authorization = new("Bearer", bootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bootstrapToken);
             var response = await client.PostAsync("/api/uploads/reservations", null);
             response.StatusCode.Should().Be(HttpStatusCode.Created);
             var reservation = JsonSerializer.Deserialize<UploadReservationResult>(await response.Content.ReadAsStringAsync(), JsonOptions);
@@ -2197,10 +2202,188 @@ public sealed class ApiWalkingSkeletonTests
         collection.Update(document);
     }
 
+    private static async Task AssertNonPartialErrorResponseAsync(HttpResponseMessage response, HttpStatusCode expectedStatusCode, String expectedBody = "")
+    {
+        response.StatusCode.Should().Be(expectedStatusCode);
+        response.StatusCode.Should().NotBe(HttpStatusCode.PartialContent);
+        response.Content.Headers.ContentRange.Should().BeNull();
+        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
+        response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
+        (await response.Content.ReadAsStringAsync()).Should().Be(expectedBody);
+    }
+
+    private static HttpRequestMessage CreateByteRangeRequest(String requestUri, Int64 from, Int64 to)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.Range = new RangeHeaderValue(from, to);
+        return request;
+    }
+
+    private static HttpRequestMessage CreateRawRangeRequest(String requestUri, String rangeHeaderValue)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+        request.Headers.TryAddWithoutValidation("Range", rangeHeaderValue).Should().BeTrue();
+        return request;
+    }
+
+    private static Int32 GetChunkPlaintextLength(CliDownloadMetadataContract metadata, Int64 chunkIndex)
+    {
+        var lastChunkIndex = (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize;
+        return chunkIndex == lastChunkIndex
+            ? metadata.FinalChunkPlaintextLength
+            : metadata.ChunkSize;
+    }
+
+    private static async Task<CliDownloadExecutionResult> DownloadCliPlaintextAsync(HttpClient client,
+                                                                                    Uri downloadUri,
+                                                                                    Guid fileId,
+                                                                                    String kdfSaltBase64,
+                                                                                    String keyMaterialBase64,
+                                                                                    MemoryStream destination,
+                                                                                    RequestedPlaintextRangeContract? requestedRange,
+                                                                                    Int64? stopAfterDurableBytes)
+    {
+        using var request = CliDownloadRequestFactory.CreateGetRequest(downloadUri, requestedRange: requestedRange);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var parsedResponse = CliDownloadResponseParser.Parse(response, requestedRange);
+        await using var encryptedContent = parsedResponse.ContentStream;
+        var metadata = parsedResponse.Metadata;
+        var responsePlaintextRange = metadata.RequestedRange;
+        var durableLimit = stopAfterDurableBytes ?? Int64.MaxValue;
+        var bytesWritten = 0L;
+        var kdfSalt = Convert.FromBase64String(kdfSaltBase64);
+        var shareSecretBytes = Convert.FromBase64String(keyMaterialBase64);
+
+        using var shareSecret = ShareSecret.FromBytes(shareSecretBytes);
+        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new FileEncryptionContext(fileId, kdfSalt));
+
+        for (var chunkIndex = metadata.FirstChunkIndex;
+             chunkIndex <= metadata.LastChunkIndex && bytesWritten < durableLimit;
+             chunkIndex++)
+        {
+            var plaintextChunkLength = GetChunkPlaintextLength(metadata, chunkIndex);
+            var encryptedChunk = new Byte[plaintextChunkLength + 16];
+            await encryptedContent.ReadExactlyAsync(encryptedChunk, CancellationToken.None);
+
+            var decryptedChunk = ChunkEncryptionService.DecryptChunk(new EncryptedChunk(encryptedChunk),
+                                                                     contentKey,
+                                                                     new ChunkMetadata(CryptoVersion.V1,
+                                                                                       CryptoAlgorithm.Aes256Gcm,
+                                                                                       fileId,
+                                                                                       metadata.ChunkSize,
+                                                                                       chunkIndex,
+                                                                                       plaintextChunkLength,
+                                                                                       chunkIndex == (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize));
+            var chunkPlaintextStart = chunkIndex * metadata.ChunkSize;
+            var sliceStart = (Int32)Math.Max(responsePlaintextRange.Start, chunkPlaintextStart) - (Int32)chunkPlaintextStart;
+            var sliceEndExclusive = (Int32)Math.Min(responsePlaintextRange.End, chunkPlaintextStart + plaintextChunkLength) - (Int32)chunkPlaintextStart;
+            var availablePlaintextLength = sliceEndExclusive - sliceStart;
+            if (availablePlaintextLength <= 0)
+            {
+                continue;
+            }
+
+            var bytesToWrite = (Int32)Math.Min(availablePlaintextLength, durableLimit - bytesWritten);
+            await destination.WriteAsync(decryptedChunk.AsMemory(sliceStart, bytesToWrite));
+            bytesWritten += bytesToWrite;
+        }
+
+        return new CliDownloadExecutionResult(bytesWritten, metadata);
+    }
+
+    private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
+
+    private static DirectHttpPayload CreateDirectHttpPayload(Guid fileId)
+    {
+        var plaintext = Enumerable.Range(0, 128).Select(value => (Byte)(255 - value)).ToArray();
+        var keyMaterial = Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray();
+        var wrongKeyMaterial = Enumerable.Range(65, 32).Select(value => (Byte)value).ToArray();
+        var kdfSalt = Enumerable.Range(129, 32).Select(value => (Byte)value).ToArray();
+        using var shareSecret = ShareSecret.FromBytes(keyMaterial);
+        var context = new FileEncryptionContext(fileId, kdfSalt);
+        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
+        using var ciphertext = new MemoryStream();
+        const Int32 chunkSize = 64;
+        var chunkCount = plaintext.LongLength / chunkSize;
+
+        for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
+        {
+            var chunkPlaintext = plaintext.Skip((Int32)(chunkIndex * chunkSize)).Take(chunkSize).ToArray();
+            var metadata = new ChunkMetadata(CryptoVersion.V1,
+                                             CryptoAlgorithm.Aes256Gcm,
+                                             fileId,
+                                             chunkSize,
+                                             chunkIndex,
+                                             chunkPlaintext.Length,
+                                             chunkIndex == chunkCount - 1);
+            var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext, contentKey, metadata);
+            ciphertext.Write(encryptedChunk.Ciphertext);
+        }
+
+        return new DirectHttpPayload(ciphertext.ToArray(),
+                                     plaintext,
+                                     chunkSize,
+                                     chunkCount,
+                                     Convert.ToBase64String(kdfSalt),
+                                     Convert.ToBase64String(keyMaterial),
+                                     Convert.ToBase64String(wrongKeyMaterial),
+                                     Convert.ToHexStringLower(SHA256.HashData(plaintext)));
+    }
+
+    private static UploadMetadataPayload CreateValidMetadataPayload(Guid? fileId = null,
+                                                                    String originalFileName = "cipher.bin",
+                                                                    Int64 plaintextLength = 128,
+                                                                    Int64? encryptedLength = null,
+                                                                    Int32 chunkSize = 64,
+                                                                    Int64 chunkCount = 2,
+                                                                    String? kdfSalt = null,
+                                                                    String? plaintextSha256 = null,
+                                                                    String? contentType = null)
+    {
+        var ciphertext = CreateCiphertext();
+        return new UploadMetadataPayload(
+            fileId ?? Guid.NewGuid(),
+            originalFileName,
+            plaintextLength,
+            encryptedLength ?? ciphertext.LongLength,
+            contentType ?? "application/octet-stream",
+            FormatConstants.EncryptionFormatVersion,
+            FormatConstants.Aes256GcmAlgorithmId,
+            chunkSize,
+            chunkCount,
+            kdfSalt ?? Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
+            plaintextSha256 ?? new String('a', 64));
+    }
+
+    private static MultipartFormDataContent CreateValidUploadContent(UploadMetadataPayload? metadata = null,
+                                                                     Byte[]? ciphertext = null,
+                                                                     String metadataContentType = "application/json",
+                                                                     String contentContentType = "application/octet-stream",
+                                                                     Boolean includeUnexpectedSection = false)
+    {
+        metadata ??= CreateValidMetadataPayload();
+
+        var content = new MultipartFormDataContent();
+        var metadataContent = new StringContent(JsonSerializer.Serialize(metadata, JsonOptions), Encoding.UTF8);
+        metadataContent.Headers.ContentType = MediaTypeHeaderValue.Parse(metadataContentType);
+        content.Add(metadataContent, "metadata");
+
+        var fileContent = new ByteArrayContent(ciphertext ?? CreateCiphertext());
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentContentType);
+        content.Add(fileContent, "content", "cipher.bin");
+
+        if (includeUnexpectedSection)
+        {
+            content.Add(new StringContent("surprise", Encoding.UTF8), "unexpected");
+        }
+
+        return content;
+    }
+
     private sealed class AdminTokenCredentialDocument
     {
-        public Int32 Id { get; set; }
-
         public Int32 Iterations { get; set; }
 
         public String SaltBase64 { get; set; } = String.Empty;
@@ -2210,7 +2393,7 @@ public sealed class ApiWalkingSkeletonTests
 
     /// <summary>
     /// Captures emitted log events. The API registers Serilog with <c>writeToProviders: false</c>, so an
-    /// <see cref="ILoggerProvider"/> would never be called; <c>ReadFrom.Services</c> does pick up sinks from DI.
+    /// <see cref="Microsoft.Extensions.Logging.ILoggerProvider"/> would never be called; <c>ReadFrom.Services</c> does pick up sinks from DI.
     /// </summary>
     private sealed class CapturingLogSink : ILogEventSink
     {
@@ -2463,186 +2646,6 @@ public sealed class ApiWalkingSkeletonTests
                 Directory.Delete(_resolvedRelativeRoot, true);
             }
         }
-    }
-
-    private static async Task AssertNonPartialErrorResponseAsync(HttpResponseMessage response, HttpStatusCode expectedStatusCode, String expectedBody = "")
-    {
-        response.StatusCode.Should().Be(expectedStatusCode);
-        response.StatusCode.Should().NotBe(HttpStatusCode.PartialContent);
-        response.Content.Headers.ContentRange.Should().BeNull();
-        response.Headers.AcceptRanges.Should().ContainSingle("bytes");
-        response.Headers.Contains(DownloadHeaderConstants.ModeHeaderName).Should().BeFalse();
-        (await response.Content.ReadAsStringAsync()).Should().Be(expectedBody);
-    }
-
-    private static HttpRequestMessage CreateByteRangeRequest(String requestUri, Int64 from, Int64 to)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.Range = new(from, to);
-        return request;
-    }
-
-    private static HttpRequestMessage CreateRawRangeRequest(String requestUri, String rangeHeaderValue)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
-        request.Headers.TryAddWithoutValidation("Range", rangeHeaderValue).Should().BeTrue();
-        return request;
-    }
-
-    private static Int32 GetChunkPlaintextLength(CliDownloadMetadataContract metadata, Int64 chunkIndex)
-    {
-        var lastChunkIndex = (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize;
-        return chunkIndex == lastChunkIndex
-            ? metadata.FinalChunkPlaintextLength
-            : metadata.ChunkSize;
-    }
-
-    private static async Task<CliDownloadExecutionResult> DownloadCliPlaintextAsync(HttpClient client,
-                                                                                    Uri downloadUri,
-                                                                                    Guid fileId,
-                                                                                    String kdfSaltBase64,
-                                                                                    String keyMaterialBase64,
-                                                                                    MemoryStream destination,
-                                                                                    RequestedPlaintextRangeContract? requestedRange,
-                                                                                    Int64? stopAfterDurableBytes)
-    {
-        using var request = CliDownloadRequestFactory.CreateGetRequest(downloadUri, requestedRange: requestedRange);
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var parsedResponse = CliDownloadResponseParser.Parse(response, requestedRange);
-        await using var encryptedContent = parsedResponse.ContentStream;
-        var metadata = parsedResponse.Metadata;
-        var responsePlaintextRange = metadata.RequestedRange;
-        var durableLimit = stopAfterDurableBytes ?? Int64.MaxValue;
-        var bytesWritten = 0L;
-        var kdfSalt = Convert.FromBase64String(kdfSaltBase64);
-        var shareSecretBytes = Convert.FromBase64String(keyMaterialBase64);
-
-        using var shareSecret = ShareSecret.FromBytes(shareSecretBytes);
-        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new(fileId, kdfSalt));
-
-        for (var chunkIndex = metadata.FirstChunkIndex;
-             chunkIndex <= metadata.LastChunkIndex && bytesWritten < durableLimit;
-             chunkIndex++)
-        {
-            var plaintextChunkLength = GetChunkPlaintextLength(metadata, chunkIndex);
-            var encryptedChunk = new Byte[plaintextChunkLength + 16];
-            await encryptedContent.ReadExactlyAsync(encryptedChunk, CancellationToken.None);
-
-            var decryptedChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunk),
-                                                                     contentKey,
-                                                                     new(CryptoVersion.V1,
-                                                                         CryptoAlgorithm.Aes256Gcm,
-                                                                         fileId,
-                                                                         metadata.ChunkSize,
-                                                                         chunkIndex,
-                                                                         plaintextChunkLength,
-                                                                         chunkIndex == (metadata.TotalPlaintextSize - 1) / metadata.ChunkSize));
-            var chunkPlaintextStart = chunkIndex * metadata.ChunkSize;
-            var sliceStart = (Int32)Math.Max(responsePlaintextRange.Start, chunkPlaintextStart) - (Int32)chunkPlaintextStart;
-            var sliceEndExclusive = (Int32)Math.Min(responsePlaintextRange.End, chunkPlaintextStart + plaintextChunkLength) - (Int32)chunkPlaintextStart;
-            var availablePlaintextLength = sliceEndExclusive - sliceStart;
-            if (availablePlaintextLength <= 0)
-            {
-                continue;
-            }
-
-            var bytesToWrite = (Int32)Math.Min(availablePlaintextLength, durableLimit - bytesWritten);
-            await destination.WriteAsync(decryptedChunk.AsMemory(sliceStart, bytesToWrite));
-            bytesWritten += bytesToWrite;
-        }
-
-        return new(bytesWritten, metadata);
-    }
-
-    private static Byte[] CreateCiphertext() => Enumerable.Range(0, 160).Select(value => (Byte)value).ToArray();
-
-    private static DirectHttpPayload CreateDirectHttpPayload(Guid fileId)
-    {
-        var plaintext = Enumerable.Range(0, 128).Select(value => (Byte)(255 - value)).ToArray();
-        var keyMaterial = Enumerable.Range(1, 32).Select(value => (Byte)value).ToArray();
-        var wrongKeyMaterial = Enumerable.Range(65, 32).Select(value => (Byte)value).ToArray();
-        var kdfSalt = Enumerable.Range(129, 32).Select(value => (Byte)value).ToArray();
-        using var shareSecret = ShareSecret.FromBytes(keyMaterial);
-        var context = new FileEncryptionContext(fileId, kdfSalt);
-        using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, context);
-        using var ciphertext = new MemoryStream();
-        const Int32 chunkSize = 64;
-        var chunkCount = plaintext.LongLength / chunkSize;
-
-        for (var chunkIndex = 0L; chunkIndex < chunkCount; chunkIndex++)
-        {
-            var chunkPlaintext = plaintext.Skip((Int32)(chunkIndex * chunkSize)).Take(chunkSize).ToArray();
-            var metadata = new ChunkMetadata(CryptoVersion.V1,
-                                             CryptoAlgorithm.Aes256Gcm,
-                                             fileId,
-                                             chunkSize,
-                                             chunkIndex,
-                                             chunkPlaintext.Length,
-                                             chunkIndex == chunkCount - 1);
-            var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext, contentKey, metadata);
-            ciphertext.Write(encryptedChunk.Ciphertext);
-        }
-
-        return new(ciphertext.ToArray(),
-                   plaintext,
-                   chunkSize,
-                   chunkCount,
-                   Convert.ToBase64String(kdfSalt),
-                   Convert.ToBase64String(keyMaterial),
-                   Convert.ToBase64String(wrongKeyMaterial),
-                   Convert.ToHexStringLower(SHA256.HashData(plaintext)));
-    }
-
-    private static UploadMetadataPayload CreateValidMetadataPayload(Guid? fileId = null,
-                                                                    String originalFileName = "cipher.bin",
-                                                                    Int64 plaintextLength = 128,
-                                                                    Int64? encryptedLength = null,
-                                                                    Int32 chunkSize = 64,
-                                                                    Int64 chunkCount = 2,
-                                                                    String? kdfSalt = null,
-                                                                    String? plaintextSha256 = null,
-                                                                    String? contentType = null)
-    {
-        var ciphertext = CreateCiphertext();
-        return new(
-            fileId ?? Guid.NewGuid(),
-            originalFileName,
-            plaintextLength,
-            encryptedLength ?? ciphertext.LongLength,
-            contentType ?? "application/octet-stream",
-            FormatConstants.EncryptionFormatVersion,
-            FormatConstants.Aes256GcmAlgorithmId,
-            chunkSize,
-            chunkCount,
-            kdfSalt ?? Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            plaintextSha256 ?? new('a', 64));
-    }
-
-    private static MultipartFormDataContent CreateValidUploadContent(UploadMetadataPayload? metadata = null,
-                                                                     Byte[]? ciphertext = null,
-                                                                     String metadataContentType = "application/json",
-                                                                     String contentContentType = "application/octet-stream",
-                                                                     Boolean includeUnexpectedSection = false)
-    {
-        metadata ??= CreateValidMetadataPayload();
-
-        var content = new MultipartFormDataContent();
-        var metadataContent = new StringContent(JsonSerializer.Serialize(metadata, JsonOptions), Encoding.UTF8);
-        metadataContent.Headers.ContentType = MediaTypeHeaderValue.Parse(metadataContentType);
-        content.Add(metadataContent, "metadata");
-
-        var fileContent = new ByteArrayContent(ciphertext ?? CreateCiphertext());
-        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentContentType);
-        content.Add(fileContent, "content", "cipher.bin");
-
-        if (includeUnexpectedSection)
-        {
-            content.Add(new StringContent("surprise", Encoding.UTF8), "unexpected");
-        }
-
-        return content;
     }
 
     private sealed record UploadMetadataPayload(

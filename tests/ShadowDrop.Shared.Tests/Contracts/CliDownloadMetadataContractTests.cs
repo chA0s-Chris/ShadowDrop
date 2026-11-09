@@ -15,7 +15,7 @@ public sealed class CliDownloadMetadataContractTests
         {
             FirstChunkIndex = 2,
             LastChunkIndex = 5,
-            RequestedRange = new()
+            RequestedRange = new RequestedPlaintextRangeContract
             {
                 Start = 131072,
                 End = 262144

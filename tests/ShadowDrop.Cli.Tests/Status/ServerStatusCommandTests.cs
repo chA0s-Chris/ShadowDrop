@@ -30,14 +30,14 @@ public sealed class ServerStatusCommandTests
             "1.0.0",
             12,
             [
-                new("storage", OperationalComponentStates.Ready, OperationalStatusReasons.None),
-                new("metadata", OperationalComponentStates.Ready, OperationalStatusReasons.None)
+                new StatusComponentContract("storage", OperationalComponentStates.Ready, OperationalStatusReasons.None),
+                new StatusComponentContract("metadata", OperationalComponentStates.Ready, OperationalStatusReasons.None)
             ],
-            new("litedb", "filesystem"),
-            new(2, 350),
-            new(1, 2, 3, 4, 5),
-            new(DateTimeOffset.Parse("2026-08-02T12:34:56Z"), "success"),
-            new(7),
+            new StatusProvidersContract("litedb", "filesystem"),
+            new StatusStorageContract(2, 350),
+            new StatusSharesContract(1, 2, 3, 4, 5),
+            new StatusCleanupContract(DateTimeOffset.Parse("2026-08-02T12:34:56Z"), "success"),
+            new StatusResumableSessionsContract(7),
             [OperationalStatusWarnings.StorageAccountingIncomplete]);
         using var client = CreateClient(_ => JsonResponse(HttpStatusCode.OK,
                                                           status,
@@ -104,7 +104,7 @@ public sealed class ServerStatusCommandTests
         String mode,
         HttpStatusCode statusCode)
     {
-        using var client = CreateClient(_ => new(statusCode)
+        using var client = CreateClient(_ => new HttpResponseMessage(statusCode)
         {
             Content = new StringContent("{\"protocolVersion\":2,\"futureShape\":{\"state\":\"unknown\"}}",
                                         Encoding.UTF8,
@@ -263,7 +263,7 @@ public sealed class ServerStatusCommandTests
     [Test]
     public async Task SyntacticallyValidButIncompleteResponse_ShouldReturnUnexpectedFailure()
     {
-        using var client = CreateClient(_ => new(HttpStatusCode.OK)
+        using var client = CreateClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent("{}", Encoding.UTF8, "application/json")
         });
@@ -289,7 +289,7 @@ public sealed class ServerStatusCommandTests
                                                           true,
                                                           OperationalStatusReasons.None,
                                                           Capabilities(),
-                                                          new(10, 20, DateTimeOffset.Parse("2026-09-01T00:00:00Z")));
+                                                          new StatusEffectiveLimitsContract(10, 20, DateTimeOffset.Parse("2026-09-01T00:00:00Z")));
         var adminStatus = AdminStatus(ready: true);
         var requests = new List<(Uri Uri, String? Token)>();
         using var client = new HttpClient(new SequenceHttpMessageHandler(
@@ -331,7 +331,7 @@ public sealed class ServerStatusCommandTests
         Int32 expectedExit,
         String expectedOutcome)
     {
-        using var client = CreateClient(_ => new(statusCode));
+        using var client = CreateClient(_ => new HttpResponseMessage(statusCode));
         var (services, standardOut, _) = CreateServices(client);
 
         var exitCode = await CliApplication.InvokeAsync(
@@ -354,14 +354,14 @@ public sealed class ServerStatusCommandTests
             "1.0.0",
             12,
             [
-                new("metadata", ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
-                    ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable)
+                new StatusComponentContract("metadata", ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
+                                            ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable)
             ],
-            new("litedb", "filesystem"),
-            new(0, 0),
-            new(0, 0, 0, 0, 0),
-            new(null, "not-run"),
-            new(null),
+            new StatusProvidersContract("litedb", "filesystem"),
+            new StatusStorageContract(0, 0),
+            new StatusSharesContract(0, 0, 0, 0, 0),
+            new StatusCleanupContract(null, "not-run"),
+            new StatusResumableSessionsContract(null),
             []);
 
     private static StatusCapabilitiesContract Capabilities() => new(true, true, true, true);

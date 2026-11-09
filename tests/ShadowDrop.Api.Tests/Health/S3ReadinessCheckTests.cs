@@ -4,6 +4,7 @@ namespace ShadowDrop.Tests.Health;
 
 using FluentAssertions;
 using NUnit.Framework;
+using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Health;
 using ShadowDrop.Tests.Uploads;
 
@@ -13,7 +14,7 @@ public sealed class S3ReadinessCheckTests
     [Test]
     public async Task IsReadyAsync_ShouldReturnTrue_WhenBucketCheckSucceeds()
     {
-        var check = CreateCheck(new());
+        var check = CreateCheck(new RecordingS3Client());
 
         (await check.IsReadyAsync(CancellationToken.None)).Should().BeTrue();
     }
@@ -62,11 +63,11 @@ public sealed class S3ReadinessCheckTests
 
     private static CompositeReadinessCheck CreateCheck(RecordingS3Client client, TimeSpan? timeout = null) =>
         new([
-            new S3OperationalDependencyProbe(client, new()
+            new S3OperationalDependencyProbe(client, new ShadowDropOptions
             {
-                Storage = new()
+                Storage = new StorageOptions
                 {
-                    S3 = new()
+                    S3 = new S3StorageOptions
                     {
                         BucketName = "bucket"
                     }

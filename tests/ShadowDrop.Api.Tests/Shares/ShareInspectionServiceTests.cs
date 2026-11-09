@@ -19,16 +19,16 @@ public sealed class ShareInspectionServiceTests
         var unknown = Guid.Parse("A0000000-0000-0000-0000-000000000003");
         var missing = Guid.Parse("A0000000-0000-0000-0000-000000000004");
         var share = Share([
-            new(retained, "retained.txt", "retained display"),
-            new(deleted, "deleted.txt", null),
-            new(unknown, "unknown.txt", "unknown display"),
-            new(missing, "missing.txt", "missing display")
+            new ShareFileEntryRecord(retained, "retained.txt", "retained display"),
+            new ShareFileEntryRecord(deleted, "deleted.txt", null),
+            new ShareFileEntryRecord(unknown, "unknown.txt", "unknown display"),
+            new ShareFileEntryRecord(missing, "missing.txt", "missing display")
         ]);
         var shares = new InspectionShareRepository(share);
         var files = new InspectionFileRepository([
-            new(unknown, 300, BlobRetentionState.Unknown),
-            new(retained, 100, BlobRetentionState.Retained),
-            new(deleted, 200, BlobRetentionState.Deleted)
+            new UploadedFileListProjection(unknown, 300, BlobRetentionState.Unknown),
+            new UploadedFileListProjection(retained, 100, BlobRetentionState.Retained),
+            new UploadedFileListProjection(deleted, 200, BlobRetentionState.Deleted)
         ]);
         var time = new CountingTimeProvider(now);
         var service = new ShareInspectionService(shares, files, time);
@@ -62,9 +62,9 @@ public sealed class ShareInspectionServiceTests
     public async Task GetAsync_ShouldPopulateFilenamesOnlyAfterExplicitOptIn()
     {
         var fileId = Guid.NewGuid();
-        var share = Share([new(fileId, "original.txt", "display.txt")]);
+        var share = Share([new ShareFileEntryRecord(fileId, "original.txt", "display.txt")]);
         var service = new ShareInspectionService(new InspectionShareRepository(share),
-                                                 new InspectionFileRepository([new(fileId, 42, BlobRetentionState.Retained)]),
+                                                 new InspectionFileRepository([new UploadedFileListProjection(fileId, 42, BlobRetentionState.Retained)]),
                                                  TimeProvider.System);
 
         var inspection = await service.GetAsync(share.ShareId, true, CancellationToken.None);
@@ -79,10 +79,10 @@ public sealed class ShareInspectionServiceTests
     public async Task GetAsync_ShouldRejectDuplicateOrUnexpectedBatchProjections([Values] Boolean duplicate)
     {
         var fileId = Guid.NewGuid();
-        var share = Share([new(fileId, "file.txt", null)]);
+        var share = Share([new ShareFileEntryRecord(fileId, "file.txt", null)]);
         IReadOnlyList<UploadedFileListProjection> projections = duplicate
-            ? [new(fileId, 1, BlobRetentionState.Retained), new(fileId, 1, BlobRetentionState.Retained)]
-            : [new(Guid.NewGuid(), 1, BlobRetentionState.Retained)];
+            ? [new UploadedFileListProjection(fileId, 1, BlobRetentionState.Retained), new UploadedFileListProjection(fileId, 1, BlobRetentionState.Retained)]
+            : [new UploadedFileListProjection(Guid.NewGuid(), 1, BlobRetentionState.Retained)];
         var service = new ShareInspectionService(new InspectionShareRepository(share),
                                                  new InspectionFileRepository(projections),
                                                  TimeProvider.System);

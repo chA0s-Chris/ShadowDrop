@@ -6,11 +6,4 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <DefineConstants>$(DefineConstants);$(AdditionalConstants)</DefineConstants>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-  </ItemGroup>
 </Project>

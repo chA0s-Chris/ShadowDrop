@@ -17,7 +17,7 @@ public sealed class LiteDbAdminTokenCredentialRepository : IAdminTokenCredential
     public LiteDbAdminTokenCredentialRepository(ShadowDropOptions options)
     {
         _databasePath = options.Metadata.LiteDbPath;
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -30,6 +30,8 @@ public sealed class LiteDbAdminTokenCredentialRepository : IAdminTokenCredential
     public Task<AdminTokenCredential?> GetAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(CredentialId);
         return Task.FromResult(document is null
                                    ? null

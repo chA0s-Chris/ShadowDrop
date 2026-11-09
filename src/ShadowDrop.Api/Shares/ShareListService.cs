@@ -55,7 +55,7 @@ public sealed class ShareListService
         }
 
         var items = page.Shares.Select(share => Map(share, filesById, nowUtc)).ToArray();
-        return new(OperationalStatusProtocol.CurrentVersion, items, page.NextCursor?.Encode(), totalMatching);
+        return new ShareListPageContract(OperationalStatusProtocol.CurrentVersion, items, page.NextCursor?.Encode(), totalMatching);
     }
 
     private static ShareListItemContract Map(

@@ -100,7 +100,7 @@ internal static class QueueDestinationResolver
                 return false;
             }
 
-            if (!resolved.TryAdd(fullPath, new(destinationPath, segments[^1])))
+            if (!resolved.TryAdd(fullPath, new QueueDestination(destinationPath, segments[^1])))
             {
                 error = $"The file '{fullPath}' was selected more than once.";
                 return false;

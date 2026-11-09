@@ -35,6 +35,6 @@ internal sealed record OperationalReadinessSnapshot(
                                      }
                                      : component)
                          .ToArray();
-        return new(false, SelectReason(components), components);
+        return new OperationalReadinessSnapshot(false, SelectReason(components), components);
     }
 }

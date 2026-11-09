@@ -137,7 +137,7 @@ public sealed class ShareOperationClaimRepositoryTests
             ShareCleanupState.Pending,
             false,
             null,
-            [new(Guid.NewGuid(), "file.bin", null)],
+            [new ShareFileEntryRecord(Guid.NewGuid(), "file.bin", null)],
             Guid.NewGuid());
 
     private sealed class ClaimFixture : IAsyncDisposable
@@ -150,9 +150,9 @@ public sealed class ShareOperationClaimRepositoryTests
         public ClaimFixture()
         {
             Directory.CreateDirectory(_root);
-            Options = new()
+            Options = new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_root, "metadata", "shadowdrop.db")
                 }

@@ -122,16 +122,16 @@ internal sealed class UploadRawCommandHandler
             if (options.Json)
             {
                 await UploadResultWriter.WriteAsync(_standardOut,
-                                                    new(UploadCommandStatus.UploadFailed,
-                                                        uploadedFileIds,
-                                                        null,
-                                                        null,
-                                                        null,
-                                                        null,
-                                                        null,
-                                                        null,
-                                                        null,
-                                                        uploadResult.Failures.Count > 0 ? uploadResult.Failures : null));
+                                                    new UploadCommandResult(UploadCommandStatus.UploadFailed,
+                                                                            uploadedFileIds,
+                                                                            null,
+                                                                            null,
+                                                                            null,
+                                                                            null,
+                                                                            null,
+                                                                            null,
+                                                                            null,
+                                                                            uploadResult.Failures.Count > 0 ? uploadResult.Failures : null));
             }
             else
             {
@@ -161,7 +161,7 @@ internal sealed class UploadRawCommandHandler
                 if (options.Json)
                 {
                     await UploadResultWriter.WriteAsync(_standardOut,
-                                                        new(UploadCommandStatus.CredentialDeliveryFailed, uploadedFileIds, null, null, null, null, null, null));
+                                                        new UploadCommandResult(UploadCommandStatus.CredentialDeliveryFailed, uploadedFileIds, null, null, null, null, null, null));
                 }
                 else
                 {
@@ -188,16 +188,16 @@ internal sealed class UploadRawCommandHandler
         }
 
         await UploadResultWriter.WriteAsync(_standardOut,
-                                            new(UploadCommandStatus.UploadFailed,
-                                                [],
-                                                null,
-                                                null,
-                                                null,
-                                                null,
-                                                null,
-                                                null,
-                                                null,
-                                                uploadResult.Failures));
+                                            new UploadCommandResult(UploadCommandStatus.UploadFailed,
+                                                                    [],
+                                                                    null,
+                                                                    null,
+                                                                    null,
+                                                                    null,
+                                                                    null,
+                                                                    null,
+                                                                    null,
+                                                                    uploadResult.Failures));
     }
 
     private async Task EmitSuccessAsync(UploadRawCommandOptions options, IReadOnlyList<String> uploadedFileIds, String shareKey)
@@ -206,8 +206,8 @@ internal sealed class UploadRawCommandHandler
         {
             var credentials = options.SecretsOut is null ? new UploadCredentials(shareKey, null) : null;
             await UploadResultWriter.WriteAsync(_standardOut,
-                                                new(UploadCommandStatus.Succeeded, uploadedFileIds, null, null, null, credentials, options.SecretsOut?.FullName,
-                                                    null));
+                                                new UploadCommandResult(UploadCommandStatus.Succeeded, uploadedFileIds, null, null, null, credentials, options.SecretsOut?.FullName,
+                                                                        null));
             return;
         }
 

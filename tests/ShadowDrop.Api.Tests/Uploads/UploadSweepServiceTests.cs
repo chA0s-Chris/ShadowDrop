@@ -47,7 +47,7 @@ public sealed class UploadSweepServiceTests
                                 Guid.NewGuid().ToString("N"));
         var options = new ShadowDropOptions
         {
-            Metadata = new()
+            Metadata = new MetadataOptions
             {
                 LiteDbPath = Path.Combine(root, "metadata", "shadowdrop.db")
             }
@@ -463,7 +463,7 @@ public sealed class UploadSweepServiceTests
             ShareCleanupState.Pending,
             false,
             null,
-            [new(fileId, "cipher.bin", null)]);
+            [new ShareFileEntryRecord(fileId, "cipher.bin", null)]);
 
     private sealed class AlwaysMissingBlobStorage : IBlobStorage
     {
@@ -572,24 +572,24 @@ public sealed class UploadSweepServiceTests
         public SweepFixture()
         {
             Directory.CreateDirectory(_root);
-            Options = new()
+            Options = new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_root, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_root, "storage")
                 },
-                Cleanup = new()
+                Cleanup = new CleanupOptions
                 {
                     UnreferencedUploadRetention = Retention
                 }
             };
-            Uploads = new(Options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
-            Shares = new(Options);
-            Claims = new(Options);
+            Uploads = new LiteDbUploadedFileMetadataRepository(Options, NullLogger<LiteDbUploadedFileMetadataRepository>.Instance);
+            Shares = new LiteDbShareMetadataRepository(Options);
+            Claims = new LiteDbShareOperationClaimRepository(Options);
             Blobs = new LocalBlobStorage(Options, NullLogger<LocalBlobStorage>.Instance);
         }
 
@@ -663,14 +663,14 @@ public sealed class UploadSweepServiceTests
             ILogger<UploadSweepService>? logger = null)
         {
             var effectiveUploads = uploads ?? Uploads;
-            return new(effectiveUploads,
-                       Shares,
-                       Claims,
-                       new(Claims, Shares, NullLogger<ShareCreationClaimReconciler>.Instance),
-                       blobStorage ?? Blobs,
-                       Options,
-                       new FrozenTimeProvider(nowUtc),
-                       logger ?? NullLogger<UploadSweepService>.Instance);
+            return new UploadSweepService(effectiveUploads,
+                                          Shares,
+                                          Claims,
+                                          new ShareCreationClaimReconciler(Claims, Shares, NullLogger<ShareCreationClaimReconciler>.Instance),
+                                          blobStorage ?? Blobs,
+                                          Options,
+                                          new FrozenTimeProvider(nowUtc),
+                                          logger ?? NullLogger<UploadSweepService>.Instance);
         }
 
         private static UploadedFileRecord CreateRecord(Guid fileId, String blobKey, String originalFileName) =>
@@ -685,7 +685,7 @@ public sealed class UploadSweepServiceTests
                 4,
                 1,
                 Convert.ToBase64String([1, 2, 3, 4]),
-                new('a', 64));
+                new String('a', 64));
 
         private void SetCompletionTimestamp(Guid fileId, DateTimeOffset? completedAtUtc)
         {

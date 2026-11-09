@@ -34,7 +34,7 @@ public sealed class CliApplicationTlsTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var services = CreateServices(standardOut, standardError, _ => new(new NeverCalledHandler()));
+        var services = CreateServices(standardOut, standardError, _ => new HttpClient(new NeverCalledHandler()));
 
         var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--cacert", "ca.pem", "--insecure"], services,
                                                         CancellationToken.None);
@@ -49,7 +49,7 @@ public sealed class CliApplicationTlsTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var services = CreateServices(standardOut, standardError, _ => new(new NeverCalledHandler()),
+        var services = CreateServices(standardOut, standardError, _ => new HttpClient(new NeverCalledHandler()),
                                       new Dictionary<String, String?>
                                       {
                                           ["SHADOWDROP_INSECURE"] = "1"
@@ -66,7 +66,7 @@ public sealed class CliApplicationTlsTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        var services = CreateServices(standardOut, standardError, _ => new(new NeverCalledHandler()));
+        var services = CreateServices(standardOut, standardError, _ => new HttpClient(new NeverCalledHandler()));
 
         // No --server-url is supplied, so the command fails before any network call, but the warning is emitted first.
         var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--insecure"], services, CancellationToken.None);
@@ -79,7 +79,7 @@ public sealed class CliApplicationTlsTests
                                                          StringWriter standardError,
                                                          Func<CliTlsOptions, HttpClient> httpClientFactory,
                                                          IReadOnlyDictionary<String, String?>? environment = null) =>
-        new(new(new StubConfigPathResolver(), new StubEnvironmentReader(environment ?? new Dictionary<String, String?>())),
+        new(new CliConfigurationResolver(new StubConfigPathResolver(), new StubEnvironmentReader(environment ?? new Dictionary<String, String?>())),
             httpClientFactory,
             standardOut,
             standardError,

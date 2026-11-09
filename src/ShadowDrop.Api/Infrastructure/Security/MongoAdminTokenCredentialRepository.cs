@@ -23,7 +23,7 @@ public sealed class MongoAdminTokenCredentialRepository : IAdminTokenCredentialR
     public async Task<AdminTokenCredential?> GetAsync(CancellationToken cancellationToken)
     {
         var document = await Collection.Find(x => x.Id == CredentialId).FirstOrDefaultAsync(cancellationToken);
-        return document is null ? null : new(document.TokenHashBase64, document.SaltBase64, document.Iterations);
+        return document is null ? null : new AdminTokenCredential(document.TokenHashBase64, document.SaltBase64, document.Iterations);
     }
 
     public async Task<Boolean> TryCreateAsync(AdminTokenCredential credential, CancellationToken cancellationToken)
@@ -31,7 +31,7 @@ public sealed class MongoAdminTokenCredentialRepository : IAdminTokenCredentialR
         ArgumentNullException.ThrowIfNull(credential);
         try
         {
-            await Collection.InsertOneAsync(new()
+            await Collection.InsertOneAsync(new MongoAdminTokenCredentialDocument
             {
                 Id = CredentialId,
                 TokenHashBase64 = credential.TokenHashBase64,

@@ -9,6 +9,7 @@ using NUnit.Framework;
 using ShadowDrop.Api;
 using ShadowDrop.Api.Infrastructure.Security;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -154,7 +155,7 @@ public sealed class UploadCredentialEndpointTests
         await using var fixture = new CredentialTestApiFactory();
         using var unauthenticated = fixture.CreateClient();
         using var wrongToken = fixture.CreateClient();
-        wrongToken.DefaultRequestHeaders.Authorization = new("Bearer", "wrong-token");
+        wrongToken.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
 
         foreach (var client in new[]
                  {
@@ -242,7 +243,7 @@ public sealed class UploadCredentialEndpointTests
         public HttpClient CreateAuthenticatedClient()
         {
             var client = CreateClient();
-            client.DefaultRequestHeaders.Authorization = new("Bearer", BootstrapToken);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", BootstrapToken);
             return client;
         }
 

@@ -20,7 +20,7 @@ public sealed class MultipartUploadRequestReaderTests
     [Test]
     public async Task ReadAsync_ShouldRejectOversizedMetadataWhileReading()
     {
-        var metadata = CreateValidMetadataPayload(new('a', 200));
+        var metadata = CreateValidMetadataPayload(new String('a', 200));
         var request = await CreateRequestAsync(metadata, [1, 2, 3, 4], null);
 
         var action = async () => await MultipartUploadRequestReader.ReadAsync(request, CancellationToken.None, 4096, 64);
@@ -149,52 +149,52 @@ public sealed class MultipartUploadRequestReaderTests
 
     private static IEnumerable<TestCaseData> ValidationCases()
     {
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             OriginalFileName = "  "
         }, "The original file name is required.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             PlaintextLength = -1
         }, "File lengths must be zero or greater.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             ChunkSize = 0
         }, "Chunk metadata must be positive.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             PlaintextLength = 0,
             EncryptedLength = 0
         }, "Zero-length uploads are not supported.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             ChunkCount = 2
         }, "Chunk metadata is internally inconsistent.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             EncryptedLength = 99
         }, "Encrypted length metadata is internally inconsistent.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             AlgorithmId = "unknown"
         }, "Unsupported encryption metadata was supplied.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             KdfSalt = "   "
         }, "The KDF salt is required.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             KdfSalt = "!!!not-base64!!!"
         }, "The KDF salt must be Base64 encoded.");
-        yield return new(CreateValidMetadataPayload() with
+        yield return new TestCaseData(CreateValidMetadataPayload() with
         {
             KdfSalt = Convert.ToBase64String(new Byte[16])
         }, "The KDF salt must be exactly 32 bytes.");
-        yield return new(CreateValidMetadataPayload() with
-                         {
-                             PlaintextSha256 = "NOT-HEX"
-                         },
-                         "The plaintext SHA-256 must be a lowercase hexadecimal digest.");
+        yield return new TestCaseData(CreateValidMetadataPayload() with
+                                      {
+                                          PlaintextSha256 = "NOT-HEX"
+                                      },
+                                      "The plaintext SHA-256 must be a lowercase hexadecimal digest.");
     }
 
     private static async Task<HttpRequest> CreateRawMetadataRequestAsync(String metadataJson)
@@ -250,7 +250,7 @@ public sealed class MultipartUploadRequestReaderTests
                chunkSize,
                chunkCount,
                Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-               new('a', 64));
+               new String('a', 64));
 
     public sealed record UploadMetadataPayload(
         Guid FileId,

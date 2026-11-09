@@ -16,7 +16,7 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     public LiteDbUploadCredentialRepository(ShadowDropOptions options)
     {
         _databasePath = options.Metadata.LiteDbPath;
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -58,12 +58,12 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     {
         if (fetched.Count <= pageSize)
         {
-            return new(fetched, null);
+            return new UploadCredentialPage(fetched, null);
         }
 
         var page = fetched[..pageSize];
         var last = page[^1];
-        return new(page, new(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
+        return new UploadCredentialPage(page, new UploadCredentialListCursor(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
     }
 
     public void Dispose() => _database.Dispose();
@@ -73,6 +73,8 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorDigestBase64);
         cancellationToken.ThrowIfCancellationRequested();
 
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindOne(x => x.SelectorDigestBase64 == selectorDigestBase64);
         return Task.FromResult(document is null ? null : Map(document));
     }
@@ -81,6 +83,8 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var document = _collection.FindById(credentialId);
         return Task.FromResult(document is null ? null : Map(document));
     }
@@ -93,6 +97,8 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
 
         // Credential counts stay small, so ordering in memory is acceptable here; only authentication lookups
         // must avoid scans (see the unique selector-digest index).
+        // A single LiteDB read needs no _syncRoot: the shared LiteDB connection runs each operation under its own lock, and _syncRoot makes the read-check-write sequences atomic.
+        // ReSharper disable once InconsistentlySynchronizedField
         var ordered = _collection.FindAll()
                                  .OrderByDescending(document => document.CreatedAtUnixTimeMilliseconds)
                                  .ThenByDescending(document => document.CredentialId);

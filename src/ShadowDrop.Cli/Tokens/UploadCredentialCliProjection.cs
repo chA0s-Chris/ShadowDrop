@@ -7,7 +7,8 @@ using System.Text.Json.Serialization;
 internal sealed record UploadCredentialCliProjection(
     [property: JsonPropertyName("credentialId")]
     Guid CredentialId,
-    [property: JsonPropertyName("name")] String Name,
+    [property: JsonPropertyName("name")]
+    String Name,
     [property: JsonPropertyName("createdAtUtc")]
     DateTimeOffset CreatedAtUtc,
     [property: JsonPropertyName("expiresAtUtc")]

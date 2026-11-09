@@ -13,7 +13,8 @@ using System.Text.Json.Serialization;
 /// <see cref="SecretsFile"/> carries the file path instead.
 /// </remarks>
 internal sealed record UploadCommandResult(
-    [property: JsonPropertyName("status")] String Status,
+    [property: JsonPropertyName("status")]
+    String Status,
     [property: JsonPropertyName("uploadedFileIds")]
     IReadOnlyList<String> UploadedFileIds,
     [property: JsonPropertyName("shareId")]

@@ -26,7 +26,7 @@ public sealed class UploadApiClientTests
             request.Method.Should().Be(HttpMethod.Get);
             request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/uploads/capabilities"));
             request.Headers.Authorization!.Parameter.Should().Be("upload-token");
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -45,8 +45,8 @@ public sealed class UploadApiClientTests
     public async Task ReserveFileIdAsync_ShouldRetryTransientStatus_AndSucceed()
     {
         var handler = new SequenceHttpMessageHandler(
-            _ => new(HttpStatusCode.ServiceUnavailable),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -65,7 +65,7 @@ public sealed class UploadApiClientTests
     [Test]
     public async Task ReserveFileIdAsync_ShouldNotRetryPermanentUnauthorizedFailure()
     {
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized));
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
@@ -81,13 +81,14 @@ public sealed class UploadApiClientTests
     {
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
+        var fileId = fixture.FileId;
         var handler = new SequenceHttpMessageHandler(
             _ => throw new HttpRequestException("temporary"),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
-                    fileId = fixture.FileId
+                    fileId
                 })
             });
         using var httpClient = new HttpClient(handler);
@@ -128,7 +129,10 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Server connection failed.");
@@ -141,18 +145,19 @@ public sealed class UploadApiClientTests
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
         var delays = new List<TimeSpan>();
+        var fileId = fixture.FileId;
         var handler = new SequenceHttpMessageHandler(
-            _ => new(HttpStatusCode.TooManyRequests),
+            _ => new HttpResponseMessage(HttpStatusCode.TooManyRequests),
             _ => throw new HttpRequestException("temporary"),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
-                    fileId = fixture.FileId
+                    fileId
                 })
             });
         using var httpClient = new HttpClient(handler);
-        var sut = new UploadApiClient(httpClient, (delay, cancellationToken) =>
+        var sut = new UploadApiClient(httpClient, (delay, _) =>
         {
             delays.Add(delay);
             return Task.CompletedTask;
@@ -170,7 +175,7 @@ public sealed class UploadApiClientTests
     [TestCase("{}")]
     public async Task ReserveFileIdAsync_ShouldFailClosed_WhenSuccessPayloadIsMalformed(String payload)
     {
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
         });
@@ -191,14 +196,17 @@ public sealed class UploadApiClientTests
     {
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
         });
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Upload failed; please verify file and try again.");
@@ -211,6 +219,8 @@ public sealed class UploadApiClientTests
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
         using var cancellationTokenSource = new CancellationTokenSource();
+        // The handler runs inside the awaited UploadAsync call below, before cancellationTokenSource is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var handler = new SequenceHttpMessageHandler(_ =>
         {
             cancellationTokenSource.Cancel();
@@ -219,7 +229,10 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture, shareSecret, and cancellationTokenSource are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, cancellationTokenSource.Token);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<TaskCanceledException>();
         handler.RequestCount.Should().Be(1);
@@ -304,7 +317,7 @@ public sealed class UploadApiClientTests
                 await Task.Delay(Timeout.Infinite, cancellationToken);
             }
 
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -320,7 +333,7 @@ public sealed class UploadApiClientTests
 
         public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
         {
-            _responses = new(responses);
+            _responses = new Queue<Func<HttpRequestMessage, HttpResponseMessage>>(responses);
         }
 
         public Int32 RequestCount { get; private set; }
@@ -354,12 +367,12 @@ public sealed class UploadApiClientTests
             var plaintextLength = fileInfo.Length;
             var chunkCount = 1L;
             var encryptedLength = plaintextLength + EncryptedChunk.AuthenticationTagLength;
-            Plan = new(
+            Plan = new UploadFilePlan(
                 fileInfo,
                 null,
                 FileId,
-                new(FileId, kdfSalt),
-                new(
+                new FileEncryptionContext(FileId, kdfSalt),
+                new UploadMetadataPayload(
                     FileId,
                     fileInfo.Name,
                     plaintextLength,

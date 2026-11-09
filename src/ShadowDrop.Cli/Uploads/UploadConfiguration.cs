@@ -45,6 +45,6 @@ internal static class UploadConfiguration
             return null;
         }
 
-        return new(serverUrl, configuration.UploadToken);
+        return new ResolvedUploadConfiguration(serverUrl, configuration.UploadToken);
     }
 }

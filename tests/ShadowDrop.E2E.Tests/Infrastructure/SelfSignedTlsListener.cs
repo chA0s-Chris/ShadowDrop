@@ -18,6 +18,7 @@ internal sealed class SelfSignedTlsListener : IAsyncDisposable
 {
     private static readonly Byte[] NotFoundResponse =
         "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray();
+
     private readonly Task _acceptLoop;
     private readonly CancellationTokenSource _cancellation = new();
 
@@ -52,7 +53,7 @@ internal sealed class SelfSignedTlsListener : IAsyncDisposable
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         var baseAddress = new Uri($"https://127.0.0.1:{port}/");
 
-        return new(listener, certificate, baseAddress);
+        return new SelfSignedTlsListener(listener, certificate, baseAddress);
     }
 
     private static X509Certificate2 CreateSelfSignedCertificate()

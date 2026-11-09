@@ -4,6 +4,7 @@ namespace ShadowDrop.Cli.Status;
 
 using ShadowDrop.Contracts;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 internal sealed record ServerStatusApiResponse(HttpStatusCode StatusCode, Object? Status, Int32? ProtocolVersion = null);
@@ -32,13 +33,13 @@ internal sealed class ServerStatusApiClient
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUrl, ResolvePath(mode)));
         if (!String.IsNullOrEmpty(bearerToken))
         {
-            request.Headers.Authorization = new("Bearer", bearerToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         }
 
         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, linkedCancellation.Token);
         if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.NotFound)
         {
-            return new(response.StatusCode, null);
+            return new ServerStatusApiResponse(response.StatusCode, null);
         }
 
         if (response.StatusCode == HttpStatusCode.ServiceUnavailable
@@ -47,7 +48,7 @@ internal sealed class ServerStatusApiClient
             var content = await response.Content.ReadAsByteArrayAsync(linkedCancellation.Token);
             if (content.Length == 0)
             {
-                return new(response.StatusCode, null);
+                return new ServerStatusApiResponse(response.StatusCode, null);
             }
 
             return CreateStatusResponse(response.StatusCode, content, mode);
@@ -55,7 +56,7 @@ internal sealed class ServerStatusApiClient
 
         if (response.StatusCode is not HttpStatusCode.OK and not HttpStatusCode.ServiceUnavailable)
         {
-            return new(response.StatusCode, null);
+            return new ServerStatusApiResponse(response.StatusCode, null);
         }
 
         var bytes = await response.Content.ReadAsByteArrayAsync(linkedCancellation.Token);
@@ -70,10 +71,10 @@ internal sealed class ServerStatusApiClient
         var protocolVersion = ReadProtocolVersion(content);
         if (!IsCompatible(protocolVersion))
         {
-            return new(statusCode, null, protocolVersion);
+            return new ServerStatusApiResponse(statusCode, null, protocolVersion);
         }
 
-        return new(statusCode, Deserialize(content.Span, mode), protocolVersion);
+        return new ServerStatusApiResponse(statusCode, Deserialize(content.Span, mode), protocolVersion);
     }
 
     private static Object Deserialize(ReadOnlySpan<Byte> content, ServerStatusMode mode)

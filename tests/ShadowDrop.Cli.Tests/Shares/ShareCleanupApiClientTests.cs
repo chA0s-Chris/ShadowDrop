@@ -15,7 +15,7 @@ public sealed class ShareCleanupApiClientTests
     [Test]
     public async Task CleanupAsync_ShouldPostToAdminEndpoint_WithBearerToken()
     {
-        var client = new ShareCleanupApiClient(new(new StubHttpMessageHandler(request =>
+        var client = new ShareCleanupApiClient(new HttpClient(new StubHttpMessageHandler(request =>
         {
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/admin/shares/cleanup"));
@@ -41,7 +41,7 @@ public sealed class ShareCleanupApiClientTests
     [TestCase(HttpStatusCode.InternalServerError, "Share cleanup failed.")]
     public async Task CleanupAsync_ShouldThrowMappedMessage_ForErrorStatusCodes(HttpStatusCode statusCode, String expectedMessage)
     {
-        var client = CreateClient(new(statusCode));
+        var client = CreateClient(new HttpResponseMessage(statusCode));
 
         var act = () => client.CleanupAsync(ServerUrl, "upload-token", CancellationToken.None);
 
@@ -51,7 +51,7 @@ public sealed class ShareCleanupApiClientTests
     [Test]
     public async Task CleanupAsync_ShouldThrowServerConnectionFailed_WhenTransportFails()
     {
-        var client = new ShareCleanupApiClient(new(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
+        var client = new ShareCleanupApiClient(new HttpClient(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
 
         var act = () => client.CleanupAsync(ServerUrl, "upload-token", CancellationToken.None);
 
@@ -71,7 +71,7 @@ public sealed class ShareCleanupApiClientTests
     }
 
     private static ShareCleanupApiClient CreateClient(HttpResponseMessage response) =>
-        new(new(new StubHttpMessageHandler(response)));
+        new(new HttpClient(new StubHttpMessageHandler(response)));
 
     private static HttpResponseMessage JsonResponse(String json) =>
         new(HttpStatusCode.OK)

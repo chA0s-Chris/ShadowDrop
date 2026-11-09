@@ -12,9 +12,6 @@ public sealed class SpectreUploadProgressReporterTests
 {
     private static readonly UploadProgressFile File = new("alpha.bin", 1, 1, 32);
 
-    private static SpectreUploadProgressReporter CreateReporter(TestConsole console, TestConsole errorConsole) =>
-        new(console, errorConsole, TimeProvider.System);
-
     [Test]
     public async Task RunFileAsync_ShouldReturnValueAndWriteSuccess_WhenUploadSucceeds()
     {
@@ -154,4 +151,7 @@ public sealed class SpectreUploadProgressReporterTests
 
         errorConsole.Output.Should().Contain("no files matched [pattern]");
     }
+
+    private static SpectreUploadProgressReporter CreateReporter(TestConsole console, TestConsole errorConsole) =>
+        new(console, errorConsole, TimeProvider.System);
 }

@@ -334,7 +334,7 @@ internal sealed class UploadCommandHandler
             var fileName = ResolveDisplayName(displayNameOverrides, result.File) ?? result.File.Name;
             var downloadUrl = DirectHttpDownloadUrlFactory.Create(serverUrl, shareToken, fileId, shareSecretHex);
             var curlCommand = DirectHttpCurlCommandFactory.Create(serverUrl, shareToken, fileId, shareSecretHex, fileName);
-            downloads.Add(new(fileId.ToString(), fileName, downloadUrl, curlCommand));
+            downloads.Add(new DirectHttpDownload(fileId.ToString(), fileName, downloadUrl, curlCommand));
         }
 
         return downloads.ToArray();

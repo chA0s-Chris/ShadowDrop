@@ -11,7 +11,7 @@ public sealed class ShareSecretTests
     [Test]
     public void DeriveContentKey_ShouldThrowObjectDisposedException_WhenShareSecretIsDisposed()
     {
-        using var secret = ShareSecret.Generate();
+        var secret = ShareSecret.Generate();
         var context = new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt());
         secret.Dispose();
 
@@ -60,7 +60,7 @@ public sealed class ShareSecretTests
     [Test]
     public void KeyMaterial_ShouldThrowObjectDisposedException_WhenSecretIsDisposed()
     {
-        using var secret = ShareSecret.Generate();
+        var secret = ShareSecret.Generate();
         secret.Dispose();
 
         var act = () => secret.KeyMaterial.ToArray();

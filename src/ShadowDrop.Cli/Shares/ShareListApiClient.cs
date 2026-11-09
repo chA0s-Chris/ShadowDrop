@@ -6,6 +6,7 @@ using ShadowDrop.Cli.Http;
 using ShadowDrop.Contracts;
 using System.Globalization;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
@@ -43,7 +44,7 @@ internal sealed class ShareListApiClient
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUrl, $"/api/admin/shares{query}"));
-        request.Headers.Authorization = new("Bearer", adminToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         using var deadline = new ControlPlaneTimeout(cancellationToken);
         try
         {

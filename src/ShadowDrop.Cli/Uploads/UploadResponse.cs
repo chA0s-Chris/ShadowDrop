@@ -4,4 +4,6 @@ namespace ShadowDrop.Cli.Uploads;
 
 using System.Text.Json.Serialization;
 
-internal sealed record UploadResponse([property: JsonPropertyName("fileId")] Guid FileId);
+internal sealed record UploadResponse(
+    [property: JsonPropertyName("fileId")]
+    Guid FileId);

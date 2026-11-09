@@ -16,14 +16,14 @@ public sealed class ShareCleanupCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)));
         var handler = new ShareCleanupCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
                                                                                 adminToken: "secret-admin-token"),
                                                      httpClient,
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareCleanupCommandOptions(null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -42,7 +42,7 @@ public sealed class ShareCleanupCommandHandlerTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareCleanupCommandOptions(null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -55,7 +55,7 @@ public sealed class ShareCleanupCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
         using var httpClient = new HttpClient(new StubHttpMessageHandler(_ =>
-                                                                             new(HttpStatusCode.OK)
+                                                                             new HttpResponseMessage(HttpStatusCode.OK)
                                                                              {
                                                                                  Content = new StringContent(
                                                                                      """
@@ -70,7 +70,7 @@ public sealed class ShareCleanupCommandHandlerTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareCleanupCommandOptions(null, null), CancellationToken.None);
 
         exitCode.Should().Be(0);
         standardOut.ToString().Trim().Should()

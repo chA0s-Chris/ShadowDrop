@@ -46,7 +46,7 @@ public sealed class ShareManifestContractTests
         {
             Files =
             [
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = "01234567-89ab-cdef-0123-456789abcdef",
                     FileName = "report.txt",

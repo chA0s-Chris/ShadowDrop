@@ -87,7 +87,7 @@ public sealed class MongoShareMetadataRepository : IShareMetadataRepository
         OwnerCredentialId = record.OwnerCredentialId,
         DownloadBearerToken = record.DownloadBearerToken is null
             ? null
-            : new()
+            : new MongoDownloadBearerTokenDocument
             {
                 TokenHashBase64 = record.DownloadBearerToken.TokenHashBase64,
                 ExpiresAtUnixTimeMilliseconds = record.DownloadBearerToken.ExpiresAtUtc.ToUnixTimeMilliseconds()
@@ -112,7 +112,7 @@ public sealed class MongoShareMetadataRepository : IShareMetadataRepository
             document.DirectHttpEnabled,
             document.DownloadBearerToken is null
                 ? null
-                : new(
+                : new DownloadBearerTokenRecord(
                     document.DownloadBearerToken.TokenHashBase64,
                     DateTimeOffset.FromUnixTimeMilliseconds(document.DownloadBearerToken.ExpiresAtUnixTimeMilliseconds)),
             document.Files.Select(file => new ShareFileEntryRecord(file.FileId, file.OriginalFileName, file.DisplayName)).ToList(),
@@ -223,16 +223,16 @@ public sealed class MongoShareMetadataRepository : IShareMetadataRepository
         var fetched = documents.Select(MapList).ToList();
         if (fetched.Count <= query.PageSize)
         {
-            return new(fetched, null);
+            return new ShareListRepositoryPage(fetched, null);
         }
 
         var shares = fetched.Take(query.PageSize).ToList();
         var last = shares[^1];
-        return new(shares,
-                   new(OperationalStatusProtocol.CurrentVersion,
-                       query.Statuses,
-                       last.CreatedAtUtc.ToUnixTimeMilliseconds(),
-                       last.ShareId));
+        return new ShareListRepositoryPage(shares,
+                                           new ShareListCursor(OperationalStatusProtocol.CurrentVersion,
+                                                               query.Statuses,
+                                                               last.CreatedAtUtc.ToUnixTimeMilliseconds(),
+                                                               last.ShareId));
     }
 
     public async Task<ShareStatusCounts> GetStatusCountsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
@@ -244,7 +244,7 @@ public sealed class MongoShareMetadataRepository : IShareMetadataRepository
         var pending = CountStatusAsync(ShareListStatuses.CleanupPending, now, cancellationToken);
         var failed = CountStatusAsync(ShareListStatuses.CleanupFailed, now, cancellationToken);
         await Task.WhenAll(active, expired, revoked, pending, failed);
-        return new(await active, await expired, await revoked, await pending, await failed);
+        return new ShareStatusCounts(await active, await expired, await revoked, await pending, await failed);
     }
 
     /// <summary>

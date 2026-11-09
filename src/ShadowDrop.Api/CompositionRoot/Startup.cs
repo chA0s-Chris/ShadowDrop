@@ -30,13 +30,13 @@ public static class Startup
             await app.Services.GetRequiredService<AdminTokenService>().InitializeAsync(cancellationToken);
         }
 
-        LogEffectiveConfiguration(app, logger, options);
+        LogEffectiveConfiguration(logger, options);
         await LogStartupStateSummaryAsync(app, logger, options, cancellationToken);
 
         return app;
     }
 
-    private static void LogEffectiveConfiguration(WebApplication app, ILogger logger, ShadowDropOptions options)
+    private static void LogEffectiveConfiguration(ILogger logger, ShadowDropOptions options)
     {
         var maxRequestBodySize = DependencyInjection.ResolveMaxRequestBodySize(options.Upload.MaxBytes);
         logger.Information(

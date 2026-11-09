@@ -232,17 +232,17 @@ internal static partial class MultipartUploadRequestReader
             throw new UploadValidationException("The plaintext SHA-256 must be a lowercase hexadecimal digest.");
         }
 
-        return new(request.FileId,
-                   request.OriginalFileName,
-                   request.PlaintextLength,
-                   request.EncryptedLength,
-                   request.ContentType,
-                   encryptionFormatVersion,
-                   algorithmId,
-                   request.ChunkSize,
-                   request.ChunkCount,
-                   request.KdfSalt,
-                   request.PlaintextSha256);
+        return new UploadPersistenceRequest(request.FileId,
+                                            request.OriginalFileName,
+                                            request.PlaintextLength,
+                                            request.EncryptedLength,
+                                            request.ContentType,
+                                            encryptionFormatVersion,
+                                            algorithmId,
+                                            request.ChunkSize,
+                                            request.ChunkCount,
+                                            request.KdfSalt,
+                                            request.PlaintextSha256);
     }
 
     private static void ValidateSectionContentType(String? contentType, String expectedContentType, String message)

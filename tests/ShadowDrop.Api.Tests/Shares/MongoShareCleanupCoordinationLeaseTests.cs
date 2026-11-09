@@ -85,7 +85,7 @@ public sealed class MongoShareCleanupCoordinationLeaseTests
 
         public ScriptedMongoLock(IReadOnlyCollection<Object> outcomes)
         {
-            _outcomes = new(outcomes);
+            _outcomes = new Queue<Object>(outcomes);
         }
 
         public Int32 ExtensionCalls { get; private set; }

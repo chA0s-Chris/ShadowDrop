@@ -12,7 +12,7 @@ using ShadowDrop.Api.Uploads;
 public sealed class S3BlobStorageTests
 {
     [Test]
-    public async Task ProviderContract_ShouldPass() => await BlobStorageContract.AssertAsync(CreateStorage(new()));
+    public async Task ProviderContract_ShouldPass() => await BlobStorageContract.AssertAsync(CreateStorage(new RecordingS3Client()));
 
     [TestCase(0)]
     [TestCase(37)]
@@ -131,16 +131,16 @@ public sealed class S3BlobStorageTests
     {
         var options = new ShadowDropOptions
         {
-            Storage = new()
+            Storage = new StorageOptions
             {
-                S3 = new()
+                S3 = new S3StorageOptions
                 {
                     BucketName = "bucket",
                     KeyPrefix = S3ObjectKey.NormalizePrefix(keyPrefix)
                 }
             }
         };
-        return new(options, client, NullLogger<S3BlobStorage>.Instance);
+        return new S3BlobStorage(options, client, NullLogger<S3BlobStorage>.Instance);
     }
 
     private class NonSeekableReadStream : MemoryStream

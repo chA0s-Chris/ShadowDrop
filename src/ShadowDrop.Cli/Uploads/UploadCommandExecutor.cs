@@ -29,7 +29,7 @@ internal sealed class UploadCommandExecutor
 
         if (plan.Files.IsEmpty)
         {
-            return new([], null, false);
+            return new UploadExecutionResult([], null, false);
         }
 
         var uploadApiClient = new UploadApiClient(_httpClient);
@@ -41,7 +41,7 @@ internal sealed class UploadCommandExecutor
         catch (UploadCommandException exception)
         {
             await progressReporter.ReportBatchErrorAsync(exception.Message, cancellationToken);
-            return new([], null, false, exception.Message);
+            return new UploadExecutionResult([], null, false, exception.Message);
         }
 
         var oversizedFiles = FindOversizedFiles(plan.Files, capabilities.MaxFilePayloadBytes);
@@ -49,12 +49,12 @@ internal sealed class UploadCommandExecutor
         {
             foreach (var error in oversizedFiles)
             {
-                await progressReporter.ReportFileFailureAsync(new(error.File.Name, error.FileNumber, plan.Files.Length, error.UploadSizeBytes ?? 0),
+                await progressReporter.ReportFileFailureAsync(new UploadProgressFile(error.File.Name, error.FileNumber, plan.Files.Length, error.UploadSizeBytes ?? 0),
                                                               error.ErrorMessage ?? "Upload failed.",
                                                               cancellationToken);
             }
 
-            return new(oversizedFiles, null, false);
+            return new UploadExecutionResult(oversizedFiles, null, false);
         }
 
         using var shareSecret = ShareSecret.Generate();
@@ -69,15 +69,15 @@ internal sealed class UploadCommandExecutor
             }
             catch (Exception exception) when (ClassifyUploadException(exception) is { } message)
             {
-                await progressReporter.ReportFileFailureAsync(new(file.File.Name, file.FileNumber, plan.Files.Length, file.EncryptedLength),
+                await progressReporter.ReportFileFailureAsync(new UploadProgressFile(file.File.Name, file.FileNumber, plan.Files.Length, file.EncryptedLength),
                                                               message,
                                                               cancellationToken);
-                results.Add(new(file.File, file.FileNumber, null, message));
+                results.Add(new UploadFileExecutionResult(file.File, file.FileNumber, null, message));
                 break;
             }
 
             var upload =
-                await progressReporter.RunFileAsync(new(file.File.Name, file.FileNumber, plan.Files.Length, uploadFilePlan.Metadata.EncryptedLength),
+                await progressReporter.RunFileAsync(new UploadProgressFile(file.File.Name, file.FileNumber, plan.Files.Length, uploadFilePlan.Metadata.EncryptedLength),
                                                     (progressSink, token) =>
                                                         uploadApiClient.UploadAsync(serverUrl,
                                                                                     uploadToken,
@@ -89,18 +89,18 @@ internal sealed class UploadCommandExecutor
                                                     cancellationToken);
             if (upload.ErrorMessage is null)
             {
-                results.Add(new(file.File, file.FileNumber, upload.Value, null));
+                results.Add(new UploadFileExecutionResult(file.File, file.FileNumber, upload.Value, null));
                 continue;
             }
 
-            results.Add(new(file.File, file.FileNumber, null, upload.ErrorMessage));
+            results.Add(new UploadFileExecutionResult(file.File, file.FileNumber, null, upload.ErrorMessage));
             break;
         }
 
         var allSucceeded = results.All(static result => result.UploadedFileId is not null);
-        return new(results,
-                   allSucceeded ? Convert.ToHexStringLower(shareSecret.KeyMaterial) : null,
-                   allSucceeded);
+        return new UploadExecutionResult(results,
+                                         allSucceeded ? Convert.ToHexStringLower(shareSecret.KeyMaterial) : null,
+                                         allSucceeded);
     }
 
     private static String? ClassifyUploadException(Exception exception) => exception switch
@@ -139,7 +139,7 @@ internal sealed class UploadCommandExecutor
                                                  file.ChunkCount,
                                                  Convert.ToBase64String(kdfSalt),
                                                  null);
-        return new(file.File, file.RecursiveRootPath, fileId, encryptionContext, metadata, LocalUploadPlanner.ChunkSize);
+        return new UploadFilePlan(file.File, file.RecursiveRootPath, fileId, encryptionContext, metadata, LocalUploadPlanner.ChunkSize);
     }
 
     private static IReadOnlyList<UploadFileExecutionResult> FindOversizedFiles(IReadOnlyList<LocalUploadFile> files, Int64 maxFilePayloadBytes)
@@ -149,12 +149,12 @@ internal sealed class UploadCommandExecutor
         {
             if (file.EncryptedLength > maxFilePayloadBytes)
             {
-                errors.Add(new(file.File,
-                               file.FileNumber,
-                               null,
-                               $"{file.File.Name} exceeds the maximum upload size. Upload size is {file.EncryptedLength} bytes; maximum is {maxFilePayloadBytes} bytes.",
-                               file.EncryptedLength,
-                               maxFilePayloadBytes));
+                errors.Add(new UploadFileExecutionResult(file.File,
+                                                         file.FileNumber,
+                                                         null,
+                                                         $"{file.File.Name} exceeds the maximum upload size. Upload size is {file.EncryptedLength} bytes; maximum is {maxFilePayloadBytes} bytes.",
+                                                         file.EncryptedLength,
+                                                         maxFilePayloadBytes));
             }
         }
 
@@ -222,7 +222,7 @@ internal sealed record UploadExecutionResult(
         List<UploadFailure> failures = [];
         if (batchErrorMessage is not null)
         {
-            failures.Add(new(null, null, batchErrorMessage, null, null));
+            failures.Add(new UploadFailure(null, null, batchErrorMessage, null, null));
         }
 
         failures.AddRange(files.Where(static result => result.UploadedFileId is null)

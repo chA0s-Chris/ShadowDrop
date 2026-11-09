@@ -39,16 +39,16 @@ public sealed class ShareListContractTests
         var page = new ShareListPageContract(
             1,
             [
-                new("00000000-0000-0000-0000-000000000001",
-                    DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
-                    DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
-                    null,
-                    [ShareListStatuses.Active, ShareListStatuses.CleanupPending],
-                    ShareListCleanupStates.Pending,
-                    null,
-                    [],
-                    2,
-                    42)
+                new ShareListItemContract("00000000-0000-0000-0000-000000000001",
+                                          DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
+                                          DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
+                                          null,
+                                          [ShareListStatuses.Active, ShareListStatuses.CleanupPending],
+                                          ShareListCleanupStates.Pending,
+                                          null,
+                                          [],
+                                          2,
+                                          42)
             ],
             null,
             1);

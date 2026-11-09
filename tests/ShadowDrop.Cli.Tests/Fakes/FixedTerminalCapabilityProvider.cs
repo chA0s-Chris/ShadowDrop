@@ -17,7 +17,7 @@ internal sealed class FixedTerminalCapabilityProvider : ITerminalCapabilityProvi
         _capabilities = capabilities;
     }
 
-    public static FixedTerminalCapabilityProvider Plain { get; } = new(new(IsRedirected: true, IsCiEnvironment: false, SupportsRichOutput: false));
+    public static FixedTerminalCapabilityProvider Plain { get; } = new(new TerminalCapabilities(IsRedirected: true, IsCiEnvironment: false, SupportsRichOutput: false));
 
     public TerminalCapabilities DetectForStandardError() => _capabilities;
 

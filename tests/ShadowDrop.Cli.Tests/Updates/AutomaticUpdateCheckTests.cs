@@ -11,7 +11,8 @@ using ShadowDrop.Tests.Fakes;
 public sealed class AutomaticUpdateCheckTests
 {
     private static readonly FixedTerminalCapabilityProvider Interactive =
-        new(new(false, false, true));
+        new(new TerminalCapabilities(false, false, true));
+
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-07-12T12:00:00Z");
 
     [Test]
@@ -33,7 +34,7 @@ public sealed class AutomaticUpdateCheckTests
     public async Task RunAsync_ShouldNotifyFromFreshCache_WithoutContactingReleaseSource()
     {
         var releaseClient = new StubUpdateReleaseClient("v1.5.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(23), "1.5.0"));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(23), "1.5.0"));
         var standardError = new StringWriter();
 
         await RunAsync(releaseClient, cache, standardError);
@@ -76,7 +77,7 @@ public sealed class AutomaticUpdateCheckTests
     public async Task RunAsync_ShouldRefreshExpiredCache()
     {
         var releaseClient = new StubUpdateReleaseClient("v1.5.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(24), "1.4.5"));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(24), "1.4.5"));
         var standardError = new StringWriter();
 
         await RunAsync(releaseClient, cache, standardError);
@@ -90,7 +91,7 @@ public sealed class AutomaticUpdateCheckTests
     public async Task RunAsync_ShouldStaySilent_WhenCachedLatestVersionIsNotNewer()
     {
         var releaseClient = new StubUpdateReleaseClient("v1.5.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(1), "1.4.0"));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(1), "1.4.0"));
         var standardError = new StringWriter();
 
         await RunAsync(releaseClient, cache, standardError);
@@ -103,7 +104,7 @@ public sealed class AutomaticUpdateCheckTests
     public async Task RunAsync_ShouldStaySilent_WhenFreshCacheRecordsAFailedCheck()
     {
         var releaseClient = new StubUpdateReleaseClient("v1.5.0");
-        var cache = new InMemoryUpdateCheckCache(new(Now - TimeSpan.FromHours(1), null));
+        var cache = new InMemoryUpdateCheckCache(new UpdateCheckRecord(Now - TimeSpan.FromHours(1), null));
         var standardError = new StringWriter();
 
         await RunAsync(releaseClient, cache, standardError);
@@ -131,7 +132,7 @@ public sealed class AutomaticUpdateCheckTests
         var releaseClient = new StubUpdateReleaseClient("v1.5.0");
         var cache = new InMemoryUpdateCheckCache();
         var standardError = new StringWriter();
-        var terminalCapabilityProvider = new FixedTerminalCapabilityProvider(new(isRedirected, isCiEnvironment, false));
+        var terminalCapabilityProvider = new FixedTerminalCapabilityProvider(new TerminalCapabilities(isRedirected, isCiEnvironment, false));
 
         await RunAsync(releaseClient, cache, standardError, terminalCapabilityProvider);
 

@@ -79,7 +79,7 @@ internal sealed class SpectreUploadProgressReporter
         {
             ProgressTask CreateTask()
             {
-                return context.AddTask(Markup.Escape(FormatDescription(file)), new()
+                return context.AddTask(Markup.Escape(FormatDescription(file)), new ProgressTaskSettings
                 {
                     MaxValue = file.TotalBytes > 0 ? file.TotalBytes : 1
                 });
@@ -124,11 +124,11 @@ internal sealed class SpectreUploadProgressReporter
         {
             _errorConsole.MarkupLineInterpolated(
                 $"[red]FAILED[/] {FormatFile(file)}: {failureMessage} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
-            return new(default, failureMessage);
+            return new UploadProgressResult<T>(default, failureMessage);
         }
 
         _console.MarkupLineInterpolated($"[green]SUCCESS[/] {FormatFile(file)} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
-        return new(value, null);
+        return new UploadProgressResult<T>(value, null);
     }
 
     private sealed class SynchronousProgress : IProgress<Int64>

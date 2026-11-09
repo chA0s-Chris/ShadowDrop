@@ -5,6 +5,7 @@ namespace ShadowDrop.Cli.Tokens;
 using ShadowDrop.Cli.Configuration;
 using ShadowDrop.Cli.Http;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -102,7 +103,7 @@ internal sealed class TokenApiClient
         ArgumentException.ThrowIfNullOrWhiteSpace(adminToken);
 
         var request = new HttpRequestMessage(method, new Uri(serverUrl, relativeUrl));
-        request.Headers.Authorization = new("Bearer", adminToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
         if (requestPayload is not null)
         {
             request.Content = new StringContent(requestPayload, Encoding.UTF8, "application/json");
@@ -113,11 +114,11 @@ internal sealed class TokenApiClient
 
     private static TokenCommandException MapError(HttpStatusCode statusCode, Operation operation) => statusCode switch
     {
-        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new("Admin token invalid or missing."),
-        HttpStatusCode.NotFound when operation is Operation.Inspect or Operation.Revoke => new("Upload credential not found."),
-        HttpStatusCode.NotFound => new("Upload credential management endpoint not found."),
-        HttpStatusCode.BadRequest => new("Upload credential request invalid."),
-        _ => new("Upload credential operation failed.")
+        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new TokenCommandException("Admin token invalid or missing."),
+        HttpStatusCode.NotFound when operation is Operation.Inspect or Operation.Revoke => new TokenCommandException("Upload credential not found."),
+        HttpStatusCode.NotFound => new TokenCommandException("Upload credential management endpoint not found."),
+        HttpStatusCode.BadRequest => new TokenCommandException("Upload credential request invalid."),
+        _ => new TokenCommandException("Upload credential operation failed.")
     };
 
     private async Task<TResult> SendAsync<TResult>(Uri serverUrl, String adminToken, HttpMethod method, String relativeUrl,

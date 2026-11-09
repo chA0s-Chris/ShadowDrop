@@ -37,7 +37,7 @@ internal sealed class NullDownloadProgressReporter : IDownloadProgressReporter
             }
         }
 
-        return new(downloaded, failed);
+        return new DownloadQueueSummary(downloaded, failed);
     }
 
     public async Task<Boolean> RunSingleAsync(String fileName,

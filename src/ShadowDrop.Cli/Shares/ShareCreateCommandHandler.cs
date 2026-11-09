@@ -116,7 +116,7 @@ internal sealed class ShareCreateCommandHandler
             if (options.Json)
             {
                 await UploadResultWriter.WriteAsync(_standardOut,
-                                                    new(UploadCommandStatus.ShareCreationFailed, fileIds, null, null, null, null, null, null));
+                                                    new UploadCommandResult(UploadCommandStatus.ShareCreationFailed, fileIds, null, null, null, null, null, null));
             }
 
             return 1;
@@ -131,8 +131,8 @@ internal sealed class ShareCreateCommandHandler
             if (options.Json)
             {
                 await UploadResultWriter.WriteAsync(_standardOut,
-                                                    new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
-                                                        shareUrl, null, null, null));
+                                                    new UploadCommandResult(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
+                                                                            shareUrl, null, null, null));
             }
             else
             {
@@ -158,8 +158,8 @@ internal sealed class ShareCreateCommandHandler
                 if (options.Json)
                 {
                     await UploadResultWriter.WriteAsync(_standardOut,
-                                                        new(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
-                                                            shareUrl, null, null, null));
+                                                        new UploadCommandResult(UploadCommandStatus.CredentialDeliveryFailed, fileIds, shareResult.ShareId, shareResult.ShareToken,
+                                                                                shareUrl, null, null, null));
                 }
                 else
                 {
@@ -170,24 +170,23 @@ internal sealed class ShareCreateCommandHandler
             }
         }
 
-        await EmitSuccessAsync(options, fileIds, shareResult, shareUrl, cancellationToken);
+        await EmitSuccessAsync(options, fileIds, shareResult, shareUrl);
         return 0;
     }
 
-    private async Task EmitSuccessAsync(ShareCreateCommandOptions options, IReadOnlyList<String> fileIds, CreateShareCliResult shareResult, String shareUrl,
-                                        CancellationToken cancellationToken)
+    private async Task EmitSuccessAsync(ShareCreateCommandOptions options, IReadOnlyList<String> fileIds, CreateShareCliResult shareResult, String shareUrl)
     {
         if (options.Json)
         {
             UploadCredentials? credentials = null;
             if (options.SecretsOut is null && !String.IsNullOrWhiteSpace(shareResult.DownloadBearerToken))
             {
-                credentials = new(null, shareResult.DownloadBearerToken);
+                credentials = new UploadCredentials(null, shareResult.DownloadBearerToken);
             }
 
             await UploadResultWriter.WriteAsync(_standardOut,
-                                                new(UploadCommandStatus.Succeeded, fileIds, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
-                                                    options.SecretsOut?.FullName, null));
+                                                new UploadCommandResult(UploadCommandStatus.Succeeded, fileIds, shareResult.ShareId, shareResult.ShareToken, shareUrl, credentials,
+                                                                        options.SecretsOut?.FullName, null));
             return;
         }
 

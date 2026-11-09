@@ -46,10 +46,8 @@ internal static class ProcessRunner
 
         ApplyEnvironment(startInfo, environment);
 
-        using var process = new Process
-        {
-            StartInfo = startInfo
-        };
+        using var process = new Process();
+        process.StartInfo = startInfo;
 
         var standardOutput = new StringBuilder();
         var standardError = new StringBuilder();
@@ -86,7 +84,7 @@ internal static class ProcessRunner
         // Block briefly so the asynchronous stdout/stderr readers flush before the buffers are read.
         process.WaitForExit();
 
-        return new(process.ExitCode, standardOutput.ToString(), standardError.ToString());
+        return new ProcessResult(process.ExitCode, standardOutput.ToString(), standardError.ToString());
     }
 
     public static void TryKill(Process process)

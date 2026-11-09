@@ -63,7 +63,10 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
             cancellation.Cancel);
         _ = await CompleteUploadAsync(repository, 100);
 
+        // The assertion below awaits the delegate before the repository and the token source are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => repository.GetStorageStatsAsync(cancellation.Token);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -113,7 +116,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
                                                         64,
                                                         1,
                                                         Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-                                                        new('a', 64));
+                                                        new String('a', 64));
         (await repository.TryCompleteReservationAsync(uploadedFileRecord, CancellationToken.None)).Should().BeTrue();
 
         var logRecords = collector.GetSnapshot();
@@ -128,7 +131,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
 
         foreach (var logRecord in logRecords)
         {
-            var values = logRecord.StructuredState!.Select(pair => pair.Value);
+            var values = logRecord.StructuredState!.Select(pair => pair.Value).ToArray();
             values.Should().NotContain(value => value != null && value.Contains(uploadedFileRecord.KdfSaltBase64));
             values.Should().NotContain(value => value != null && value.Contains(uploadedFileRecord.PlaintextSha256!));
         }
@@ -167,7 +170,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
                                             64,
                                             1,
                                             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-                                            new('a', 64));
+                                            new String('a', 64));
         (await repository.TryCompleteReservationAsync(record, CancellationToken.None)).Should().BeTrue();
         return fileId;
     }
@@ -206,11 +209,11 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

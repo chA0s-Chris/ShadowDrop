@@ -13,17 +13,11 @@ public sealed class CreateShareApiClientTests
 {
     private static readonly Uri ServerUrl = new("https://shadowdrop.test");
 
-    private static CreateShareCliRequest Request => new(DateTimeOffset.Parse("2026-06-30T00:00:00Z"),
-                                                        [new(Guid.NewGuid(), "file.bin")],
-                                                        false,
-                                                        false,
-                                                        null);
-
     [Test]
     public async Task CreateAsync_ShouldReturnResult_WhenServerReturnsCreated()
     {
         const String body = """{"shareToken":"abc","downloadBearerToken":"tok"}""";
-        var client = new CreateShareApiClient(new(new StubHttpMessageHandler(request =>
+        var client = new CreateShareApiClient(new HttpClient(new StubHttpMessageHandler(request =>
         {
             request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/shares"));
             request.Headers.Authorization!.Parameter.Should().Be("upload-token");
@@ -52,7 +46,7 @@ public sealed class CreateShareApiClientTests
     [TestCase(HttpStatusCode.InternalServerError, "Server connection failed.")]
     public async Task CreateAsync_ShouldThrowMappedMessage_ForErrorStatusCodes(HttpStatusCode statusCode, String expectedMessage)
     {
-        var client = CreateClient(new(statusCode));
+        var client = CreateClient(new HttpResponseMessage(statusCode));
 
         var act = () => client.CreateAsync(ServerUrl, "upload-token", Request, CancellationToken.None);
 
@@ -62,7 +56,7 @@ public sealed class CreateShareApiClientTests
     [Test]
     public async Task CreateAsync_ShouldThrowServerConnectionFailed_WhenTransportFails()
     {
-        var client = new CreateShareApiClient(new(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
+        var client = new CreateShareApiClient(new HttpClient(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
 
         var act = () => client.CreateAsync(ServerUrl, "upload-token", Request, CancellationToken.None);
 
@@ -72,7 +66,7 @@ public sealed class CreateShareApiClientTests
     [Test]
     public async Task CreateAsync_ShouldValidateArguments()
     {
-        var client = CreateClient(new(HttpStatusCode.Created));
+        var client = CreateClient(new HttpResponseMessage(HttpStatusCode.Created));
 
         await FluentActions.Awaiting(() => client.CreateAsync(null!, "token", Request, CancellationToken.None))
                            .Should().ThrowAsync<ArgumentNullException>();
@@ -82,8 +76,14 @@ public sealed class CreateShareApiClientTests
                            .Should().ThrowAsync<ArgumentNullException>();
     }
 
+    private static CreateShareCliRequest Request => new(DateTimeOffset.Parse("2026-06-30T00:00:00Z"),
+                                                        [new CreateShareCliFileRequest(Guid.NewGuid(), "file.bin")],
+                                                        false,
+                                                        false,
+                                                        null);
+
     private static CreateShareApiClient CreateClient(HttpResponseMessage response) =>
-        new(new(new StubHttpMessageHandler(response)));
+        new(new HttpClient(new StubHttpMessageHandler(response)));
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, String body) =>
         new(statusCode)

@@ -43,6 +43,6 @@ internal static class AdminConfiguration
             return null;
         }
 
-        return new(serverUrl, configuration.AdminToken);
+        return new ResolvedAdminConfiguration(serverUrl, configuration.AdminToken);
     }
 }

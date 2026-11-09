@@ -12,7 +12,7 @@ internal sealed class TerminalCapabilityProvider : ITerminalCapabilityProvider
     {
         var isCi = !String.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI"));
         var isDumbTerminal = String.Equals(Environment.GetEnvironmentVariable("TERM"), "dumb", StringComparison.OrdinalIgnoreCase);
-        return new(isRedirected, isCi, SupportsRichOutput: !isRedirected && !isCi && !isDumbTerminal);
+        return new TerminalCapabilities(isRedirected, isCi, SupportsRichOutput: !isRedirected && !isCi && !isDumbTerminal);
     }
 
     public TerminalCapabilities DetectForStandardError() => Detect(Console.IsErrorRedirected);

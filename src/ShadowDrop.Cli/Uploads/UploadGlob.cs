@@ -54,7 +54,7 @@ internal sealed class UploadGlob
             segments.Add(segment);
         }
 
-        glob = new(segments.ToImmutable());
+        glob = new UploadGlob(segments.ToImmutable());
         error = null;
         return true;
     }
@@ -112,7 +112,7 @@ internal sealed class UploadGlob
                     return false;
                 }
 
-                tokens.Add(new(GlobTokenKind.Literal, rawSegment[index]));
+                tokens.Add(new GlobToken(GlobTokenKind.Literal, rawSegment[index]));
                 continue;
             }
 
@@ -126,14 +126,14 @@ internal sealed class UploadGlob
                     return false;
                 }
 
-                tokens.Add(new(GlobTokenKind.Star));
+                tokens.Add(new GlobToken(GlobTokenKind.Star));
                 continue;
             }
 
-            tokens.Add(character == '?' ? new(GlobTokenKind.Question) : new(GlobTokenKind.Literal, character));
+            tokens.Add(character == '?' ? new GlobToken(GlobTokenKind.Question) : new GlobToken(GlobTokenKind.Literal, character));
         }
 
-        segment = new(false, tokens.ToImmutable());
+        segment = new GlobSegment(false, tokens.ToImmutable());
         error = null;
         return true;
     }

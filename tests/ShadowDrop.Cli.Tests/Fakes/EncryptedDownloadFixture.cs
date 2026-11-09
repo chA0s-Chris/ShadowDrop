@@ -5,6 +5,7 @@ namespace ShadowDrop.Tests.Fakes;
 using ShadowDrop.Contracts;
 using ShadowDrop.Crypto;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
@@ -58,17 +59,17 @@ internal sealed class EncryptedDownloadFixture
             var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
             var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
                                                                      contentKey,
-                                                                     new(CryptoVersion.V1,
-                                                                         CryptoAlgorithm.Aes256Gcm,
-                                                                         fileId,
-                                                                         chunkSize,
-                                                                         chunkIndex,
-                                                                         chunkPlaintext.Length,
-                                                                         chunkIndex == chunkCount - 1));
+                                                                     new ChunkMetadata(CryptoVersion.V1,
+                                                                                       CryptoAlgorithm.Aes256Gcm,
+                                                                                       fileId,
+                                                                                       chunkSize,
+                                                                                       chunkIndex,
+                                                                                       chunkPlaintext.Length,
+                                                                                       chunkIndex == chunkCount - 1));
             encryptedChunks.Add(encryptedChunk.Ciphertext);
         }
 
-        return new(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
+        return new EncryptedDownloadFixture(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
     }
 
     public HttpResponseMessage CreateDownloadResponse()
@@ -78,7 +79,7 @@ internal sealed class EncryptedDownloadFixture
         {
             Content = new ByteArrayContent(responseBody)
         };
-        response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
         response.Content.Headers.ContentLength = responseBody.LongLength;
         response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, "0");
         response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, (EncryptedChunks.Length - 1).ToString());
@@ -110,7 +111,7 @@ internal sealed class EncryptedDownloadFixture
         {
             Files = files.Length == 0 ? [CreateManifestFile()] : files
         };
-        return new(HttpStatusCode.OK)
+        return new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(JsonSerializer.Serialize(manifest), Encoding.UTF8, "application/json")
         };

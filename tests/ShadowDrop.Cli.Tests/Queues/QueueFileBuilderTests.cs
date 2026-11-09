@@ -20,7 +20,7 @@ public sealed class QueueFileBuilderTests
             DownloadBearerToken = "bearer-xyz"
         };
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token-abc", manifest, credentials);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token-abc", manifest, credentials);
 
         queue.Credentials.Should().NotBeNull();
         queue.Credentials.ShareKey.Should().Be("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
@@ -32,7 +32,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "report.txt", 4096));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token-abc", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token-abc", manifest, null);
 
         queue.Credentials.Should().BeNull();
         queue.QueueVersion.Should().Be(FormatConstants.QueueVersion);
@@ -58,7 +58,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", fileName, 1));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be(expected);
     }
@@ -70,7 +70,7 @@ public sealed class QueueFileBuilderTests
         var manifest = Manifest((fileId, "report.txt", 4096), (fileId, "report.txt", 4096));
         var prepared = Prepared((fileId, "report.txt", "report.txt"));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         act.Should().Throw<QueueBuildException>()
            .WithMessage($"The share manifest announced duplicate file id '{fileId}'.");
@@ -83,7 +83,7 @@ public sealed class QueueFileBuilderTests
         var manifest = Manifest((fileId, "renamed.txt", 4096));
         var prepared = Prepared((fileId, "report.txt", "report.txt"));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         act.Should().Throw<QueueBuildException>()
            .WithMessage("The share manifest announced 'renamed.txt' for a file queued as 'report.txt'.");
@@ -99,7 +99,7 @@ public sealed class QueueFileBuilderTests
             (includedFileId, "reports/report.txt", "report.txt"),
             (omittedFileId, "data.bin", "data.bin"));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         act.Should().Throw<QueueBuildException>()
            .WithMessage($"The share manifest omitted uploaded file id '{omittedFileId}'.");
@@ -113,7 +113,7 @@ public sealed class QueueFileBuilderTests
         var manifest = Manifest((unexpectedFileId, "report.txt", 4096));
         var prepared = Prepared((preparedFileId, "report.txt", "report.txt"));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         act.Should().Throw<QueueBuildException>()
            .WithMessage($"The share manifest announced file id '{unexpectedFileId}', which was not part of this upload.");
@@ -126,7 +126,7 @@ public sealed class QueueFileBuilderTests
             ("11111111-1111-1111-1111-111111111111", "payload.bin.shadowdrop-partial", 1),
             ("22222222-2222-2222-2222-222222222222", "payload.bin", 2));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         act.Should()
            .Throw<QueueBuildException>()
@@ -142,7 +142,7 @@ public sealed class QueueFileBuilderTests
             ("22222222-2222-2222-2222-222222222222", "report.txt", 2),
             ("33333333-3333-3333-3333-333333333333", "report.txt", 3));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         queue.Files!.Select(QueueOutputPath.Resolve).Should().Equal("report.txt", "report (2).txt", "report (3).txt");
     }
@@ -152,7 +152,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b*c?.txt", 1));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("a_b_c_.txt");
     }
@@ -162,7 +162,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "a:b.txt", 1));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         queue.Files!.Single().OutputPath.Should().Be("a_b.txt");
     }
@@ -172,7 +172,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "dir\\sub\\file.txt", 1));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("file.txt");
     }
@@ -182,7 +182,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", "../../etc/passwd", 1));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         QueueOutputPath.Resolve(queue.Files!.Single()).Should().Be("passwd");
     }
@@ -190,7 +190,7 @@ public sealed class QueueFileBuilderTests
     [Test]
     public void Build_ShouldThrow_WhenManifestIsEmpty()
     {
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", new()
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", new ShareManifestContract
         {
             Files = []
         }, null);
@@ -205,7 +205,7 @@ public sealed class QueueFileBuilderTests
     {
         var manifest = Manifest(("11111111-1111-1111-1111-111111111111", fileName, 1));
 
-        var act = () => QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var act = () => QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         act.Should().Throw<QueueBuildException>();
     }
@@ -217,7 +217,7 @@ public sealed class QueueFileBuilderTests
             ("11111111-1111-1111-1111-111111111111", "Report.txt", 1),
             ("22222222-2222-2222-2222-222222222222", "report.txt", 2));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null);
 
         queue.Files!.Select(QueueOutputPath.Resolve).Should().Equal("Report.txt", "report (2).txt");
     }
@@ -229,7 +229,7 @@ public sealed class QueueFileBuilderTests
         var manifest = Manifest((fileId, "report.txt", 4096));
         var prepared = Prepared((fileId, "reports/report.txt", "report.txt"));
 
-        var queue = QueueFileBuilder.Build(new("https://shadowdrop.test/"), "token", manifest, null, prepared);
+        var queue = QueueFileBuilder.Build(new Uri("https://shadowdrop.test/"), "token", manifest, null, prepared);
 
         QueueOutputPath.Resolve(queue.Files.Should().ContainSingle().Subject).Should().Be("reports/report.txt");
     }

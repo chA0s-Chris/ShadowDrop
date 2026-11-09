@@ -46,7 +46,7 @@ public sealed class ShareSecret : IDisposable
         }
 
         var keyMaterial = bytes.ToArray();
-        return new(keyMaterial);
+        return new ShareSecret(keyMaterial);
     }
 
     /// <summary>

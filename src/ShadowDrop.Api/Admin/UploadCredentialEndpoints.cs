@@ -36,10 +36,10 @@ public static class UploadCredentialEndpoints
 
         try
         {
-            var result = await uploadCredentialService.CreateAsync(new(request.Name,
-                                                                       request.ExpiresAtUtc,
-                                                                       request.MaxEncryptedFileBytes,
-                                                                       request.MaxEncryptedShareBytes), cancellationToken);
+            var result = await uploadCredentialService.CreateAsync(new UploadCredentialCreationRequest(request.Name,
+                                                                                                       request.ExpiresAtUtc,
+                                                                                                       request.MaxEncryptedFileBytes,
+                                                                                                       request.MaxEncryptedShareBytes), cancellationToken);
             return Results.Created($"/api/admin/upload-credentials/{result.Credential.CredentialId}",
                                    new CreateUploadCredentialResult(UploadCredentialProjection.FromRecord(result.Credential),
                                                                     result.Token));

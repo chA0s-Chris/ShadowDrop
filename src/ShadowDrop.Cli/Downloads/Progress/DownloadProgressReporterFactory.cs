@@ -33,7 +33,7 @@ internal sealed class DownloadProgressReporterFactory
         : this(standardOut, standardError, timeProvider, new TerminalCapabilityProvider()) { }
 
     private static IAnsiConsole CreateConsole(TextWriter writer) =>
-        AnsiConsole.Create(new()
+        AnsiConsole.Create(new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer)
         });

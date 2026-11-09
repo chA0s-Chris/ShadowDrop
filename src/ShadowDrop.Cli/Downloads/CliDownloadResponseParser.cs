@@ -29,7 +29,7 @@ public static class CliDownloadResponseParser
         {
             FirstChunkIndex = ReadRequiredInt64Header(response, DownloadHeaderConstants.FirstChunkIndexHeaderName),
             LastChunkIndex = ReadRequiredInt64Header(response, DownloadHeaderConstants.LastChunkIndexHeaderName),
-            RequestedRange = new()
+            RequestedRange = new RequestedPlaintextRangeContract
             {
                 Start = ReadRequiredInt64Header(response, DownloadHeaderConstants.PlaintextRangeStartHeaderName),
                 End = ReadRequiredInt64Header(response, DownloadHeaderConstants.PlaintextRangeEndHeaderName)
@@ -46,7 +46,7 @@ public static class CliDownloadResponseParser
             throw new InvalidDataException("The streamed CLI download response declared an unexpected body length.");
         }
 
-        return new(metadata, new LengthValidatingReadStream(response.Content.ReadAsStream(), expectedEncryptedLength));
+        return new CliDownloadResponse(metadata, new LengthValidatingReadStream(response.Content.ReadAsStream(), expectedEncryptedLength));
     }
 
     private static Int64 GetChunkCount(CliDownloadMetadataContract metadata)
@@ -173,17 +173,17 @@ public static class CliDownloadResponseParser
             throw new InvalidDataException("The streamed CLI download response contains an out-of-bounds chunk span.");
         }
 
-        var expectedFinalChunkPlaintextLength = checked((Int32)(metadata.TotalPlaintextSize - ((chunkCount - 1) * (Int64)metadata.ChunkSize)));
+        var expectedFinalChunkPlaintextLength = checked((Int32)(metadata.TotalPlaintextSize - ((chunkCount - 1) * metadata.ChunkSize)));
         if (metadata.FinalChunkPlaintextLength != expectedFinalChunkPlaintextLength)
         {
             throw new InvalidDataException("The streamed CLI download response contains inconsistent final chunk metadata.");
         }
 
-        var firstChunkStart = checked(metadata.FirstChunkIndex * (Int64)metadata.ChunkSize);
+        var firstChunkStart = checked(metadata.FirstChunkIndex * metadata.ChunkSize);
         var lastChunkPlaintextLength = metadata.LastChunkIndex == chunkCount - 1
             ? metadata.FinalChunkPlaintextLength
             : metadata.ChunkSize;
-        var lastChunkEnd = checked((metadata.LastChunkIndex * (Int64)metadata.ChunkSize) + lastChunkPlaintextLength);
+        var lastChunkEnd = checked((metadata.LastChunkIndex * metadata.ChunkSize) + lastChunkPlaintextLength);
         if (metadata.RequestedRange.Start < firstChunkStart || metadata.RequestedRange.End > lastChunkEnd)
         {
             throw new InvalidDataException("The streamed CLI download response contains inconsistent plaintext and chunk metadata.");

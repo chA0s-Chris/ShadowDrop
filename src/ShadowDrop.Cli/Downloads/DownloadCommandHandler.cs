@@ -320,14 +320,14 @@ internal sealed class DownloadCommandHandler
                                                            String? expectedPlaintextSha256)
     {
         var fileId = ParseFileId(file.FileId);
-        return new(ResumeMarkerVersion,
-                   ShareDownloadUriFactory.NormalizeServerUrl(serverUrl).AbsoluteUri,
-                   shareToken,
-                   fileId.ToString("D"),
-                   file.FileName,
-                   file.Length,
-                   file.KdfSalt,
-                   expectedPlaintextSha256 ?? file.PlaintextSha256);
+        return new DownloadResumeMarker(ResumeMarkerVersion,
+                                        ShareDownloadUriFactory.NormalizeServerUrl(serverUrl).AbsoluteUri,
+                                        shareToken,
+                                        fileId.ToString("D"),
+                                        file.FileName,
+                                        file.Length,
+                                        file.KdfSalt,
+                                        expectedPlaintextSha256 ?? file.PlaintextSha256);
     }
 
     private static Byte[] DecodeBase64(String? base64Value, String errorMessage)
@@ -552,7 +552,7 @@ internal sealed class DownloadCommandHandler
             throw new DownloadCommandException("Server URL invalid or missing.");
         }
 
-        return new(serverUrl, RequireQueueValue(queue.ShareToken));
+        return new ShareReference(serverUrl, RequireQueueValue(queue.ShareToken));
     }
 
     private static ShareManifestFileContract SelectQueuedFile(ShareManifestContract manifest, QueueFileEntry entry)
@@ -671,7 +671,7 @@ internal sealed class DownloadCommandHandler
                                                        downloadUri,
                                                        destination,
                                                        shareSecret,
-                                                       new(fileId, kdfSalt),
+                                                       new FileEncryptionContext(fileId, kdfSalt),
                                                        bearerToken,
                                                        durablePlaintextLength,
                                                        totalPlaintextSize,
@@ -863,7 +863,7 @@ internal sealed class DownloadCommandHandler
         // A full share URL carries its own server; a bare token is paired with the configured server.
         if (resolvedServerUrl is not null)
         {
-            return new(resolvedServerUrl, resolvedToken);
+            return new ShareReference(resolvedServerUrl, resolvedToken);
         }
 
         var configuration = ResolveConfiguration(serverUrlOverride);
@@ -873,7 +873,7 @@ internal sealed class DownloadCommandHandler
             throw new DownloadCommandException("Server URL invalid or missing.");
         }
 
-        return new(serverUrl, resolvedToken);
+        return new ShareReference(serverUrl, resolvedToken);
     }
 
     private sealed record ShareReference(Uri ServerUrl, String ShareToken);

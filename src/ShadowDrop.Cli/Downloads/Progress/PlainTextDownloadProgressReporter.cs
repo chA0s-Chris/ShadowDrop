@@ -84,7 +84,7 @@ internal sealed class PlainTextDownloadProgressReporter
         var totalElapsed = _timeProvider.GetElapsedTime(queueStart);
         await _standardOut.WriteLineAsync(
             $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
-        return new(downloaded, failed);
+        return new DownloadQueueSummary(downloaded, failed);
     }
 
     public async Task<Boolean> RunSingleAsync(String fileName,

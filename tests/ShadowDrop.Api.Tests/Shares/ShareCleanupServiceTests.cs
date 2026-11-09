@@ -83,7 +83,7 @@ public sealed class ShareCleanupServiceTests
                                     ShareCleanupState.Pending,
                                     false,
                                     null,
-                                    [new(firstFileId, "first.bin", null), new(secondFileId, "second.bin", null)]);
+                                    [new ShareFileEntryRecord(firstFileId, "first.bin", null), new ShareFileEntryRecord(secondFileId, "second.bin", null)]);
         var shares = new InMemoryShareRepository(share);
         var uploads = new FailSecondMetadataDeleteUploadedFileRepository(
             [CreateUploadedFileRecord(firstFileId), CreateUploadedFileRecord(secondFileId)]);
@@ -222,8 +222,8 @@ public sealed class ShareCleanupServiceTests
                                     null,
                                     ShareCleanupState.Pending,
                                     false,
-                                    new(secretMaterial, DateTimeOffset.Parse("2026-06-01T00:00:00Z")),
-                                    [new(uploadedFile.FileId, "cipher.bin", null)]);
+                                    new DownloadBearerTokenRecord(secretMaterial, DateTimeOffset.Parse("2026-06-01T00:00:00Z")),
+                                    [new ShareFileEntryRecord(uploadedFile.FileId, "cipher.bin", null)]);
         await shareRepository.CreateAsync(share, CancellationToken.None);
         var logger = new CapturingLogger<ShareCleanupService>();
         var sut = new ShareCleanupService(shareRepository,
@@ -387,7 +387,7 @@ public sealed class ShareCleanupServiceTests
                                     ShareCleanupState.Pending,
                                     false,
                                     null,
-                                    [new(firstFileId, "first.bin", null), new(secondFileId, "second.bin", null)]);
+                                    [new ShareFileEntryRecord(firstFileId, "first.bin", null), new ShareFileEntryRecord(secondFileId, "second.bin", null)]);
         await shares.CreateAsync(share, CancellationToken.None);
         var sut = new ShareCleanupService(shares,
                                           uploads,
@@ -477,7 +477,7 @@ public sealed class ShareCleanupServiceTests
                                     ShareCleanupState.Pending,
                                     false,
                                     null,
-                                    [new(firstFileId, "first.bin", null), new(secondFileId, "second.bin", null)]);
+                                    [new ShareFileEntryRecord(firstFileId, "first.bin", null), new ShareFileEntryRecord(secondFileId, "second.bin", null)]);
         var shares = new InMemoryShareRepository(share);
         var uploads = new FailSecondMetadataDeleteUploadedFileRepository(
             [CreateUploadedFileRecord(firstFileId), CreateUploadedFileRecord(secondFileId)]);
@@ -573,18 +573,18 @@ public sealed class ShareCleanupServiceTests
     {
         var fileId = Guid.NewGuid();
         var shareRepository = new InMemoryShareRepository(CreateShareRecord(fileId, DateTimeOffset.Parse("2026-06-01T00:00:00Z")));
-        var uploadRepository = new InMemoryUploadedFileRepository(new(fileId,
-                                                                      "blob-key",
-                                                                      "cipher.bin",
-                                                                      1,
-                                                                      1,
-                                                                      MediaTypeNames.Application.Octet,
-                                                                      "1",
-                                                                      "AES-256-GCM",
-                                                                      1,
-                                                                      1,
-                                                                      "salt",
-                                                                      "sha"));
+        var uploadRepository = new InMemoryUploadedFileRepository(new UploadedFileRecord(fileId,
+                                                                                         "blob-key",
+                                                                                         "cipher.bin",
+                                                                                         1,
+                                                                                         1,
+                                                                                         MediaTypeNames.Application.Octet,
+                                                                                         "1",
+                                                                                         "AES-256-GCM",
+                                                                                         1,
+                                                                                         1,
+                                                                                         "salt",
+                                                                                         "sha"));
         var blobStorage = new BlockingBlobStorage();
         var cleanupService = CreateService(shareRepository, uploadRepository, blobStorage, DateTimeOffset.Parse("2026-06-02T00:00:00Z"));
         var collector = new FakeLogCollector();
@@ -747,7 +747,7 @@ public sealed class ShareCleanupServiceTests
                                             4,
                                             1,
                                             Convert.ToBase64String([1, 2, 3, 4]),
-                                            new('a', 64));
+                                            new String('a', 64));
         (await repository.TryCompleteReservationAsync(record, CancellationToken.None)).Should().BeTrue();
         return record;
     }
@@ -762,20 +762,20 @@ public sealed class ShareCleanupServiceTests
 
     /// <summary>
     /// A sweep with nothing to reclaim. These tests are about the share phase, the run lease, and run status;
-    /// <see cref="UploadSweepServiceTests"/> covers reclamation itself.
+    /// <see cref="Uploads.UploadSweepServiceTests"/> covers reclamation itself.
     /// </summary>
     private static UploadSweepService CreateIdleSweepService()
     {
         var shares = new SignalingShareRepository();
         var claims = new InMemoryShareOperationClaimRepository();
-        return new(new NoSweepCandidatesUploadedFileRepository(),
-                   shares,
-                   claims,
-                   new(claims, shares, NullLogger<ShareCreationClaimReconciler>.Instance),
-                   new AlwaysMissingBlobStorage(),
-                   new(),
-                   TimeProvider.System,
-                   NullLogger<UploadSweepService>.Instance);
+        return new UploadSweepService(new NoSweepCandidatesUploadedFileRepository(),
+                                      shares,
+                                      claims,
+                                      new ShareCreationClaimReconciler(claims, shares, NullLogger<ShareCreationClaimReconciler>.Instance),
+                                      new AlwaysMissingBlobStorage(),
+                                      new ShadowDropOptions(),
+                                      TimeProvider.System,
+                                      NullLogger<UploadSweepService>.Instance);
     }
 
     private static ShareCleanupService CreateService(IShareMetadataRepository shareRepository,
@@ -799,7 +799,7 @@ public sealed class ShareCleanupServiceTests
             ShareCleanupState.Pending,
             false,
             null,
-            [new(fileId, "cipher.bin", null)]);
+            [new ShareFileEntryRecord(fileId, "cipher.bin", null)]);
 
     private static UploadedFileRecord CreateUploadedFileRecord(Guid fileId) =>
         new(fileId,
@@ -1278,11 +1278,11 @@ public sealed class ShareCleanupServiceTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }
