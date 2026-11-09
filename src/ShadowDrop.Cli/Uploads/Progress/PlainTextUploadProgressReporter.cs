@@ -92,7 +92,7 @@ internal sealed class PlainTextUploadProgressReporter : IUploadProgressReporter
             var value = await uploadAsync(sink, cancellationToken);
             var elapsed = _timeProvider.GetElapsedTime(start);
             await _standardError.WriteLineAsync($"SUCCESS {FormatFile(file)} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
-            return new(value, null);
+            return new UploadProgressResult<T>(value, null);
         }
         catch (Exception exception)
         {
@@ -104,7 +104,7 @@ internal sealed class PlainTextUploadProgressReporter : IUploadProgressReporter
 
             var elapsed = _timeProvider.GetElapsedTime(start);
             await _standardError.WriteLineAsync($"FAILED {FormatFile(file)}: {message} ({FormatStats(transferredBytes, file.TotalBytes, elapsed)})");
-            return new(default, message);
+            return new UploadProgressResult<T>(default, message);
         }
     }
 

@@ -9,9 +9,9 @@ internal interface IReadinessCheck
     async Task<OperationalReadinessSnapshot> GetStatusAsync(CancellationToken cancellationToken)
     {
         var ready = await IsReadyAsync(cancellationToken);
-        return new(ready,
-                   ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable,
-                   []);
+        return new OperationalReadinessSnapshot(ready,
+                                                ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable,
+                                                []);
     }
 
     Task<Boolean> IsReadyAsync(CancellationToken cancellationToken);

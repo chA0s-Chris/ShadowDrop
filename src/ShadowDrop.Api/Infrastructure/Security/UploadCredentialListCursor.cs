@@ -33,7 +33,7 @@ public sealed record UploadCredentialListCursor(Int64 CreatedAtUnixTimeMilliseco
             return false;
         }
 
-        cursor = new(createdAtMilliseconds, credentialId);
+        cursor = new UploadCredentialListCursor(createdAtMilliseconds, credentialId);
         return true;
     }
 

@@ -274,7 +274,7 @@ public sealed class ChunkEncryptionServiceTests
         Int32 plaintextChunkLength,
         Boolean isFinal = false)
     {
-        return new(
+        return new ChunkMetadata(
             CryptoVersion.V1,
             CryptoAlgorithm.Aes256Gcm,
             context.FileId,

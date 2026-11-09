@@ -33,7 +33,7 @@ internal sealed class SequenceHttpMessageHandler : HttpMessageHandler
 
     public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
     {
-        _responses = new(responses);
+        _responses = new Queue<Func<HttpRequestMessage, HttpResponseMessage>>(responses);
     }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

@@ -391,7 +391,7 @@ internal partial class BuildPipeline
         var standardError = new StringBuilder();
 
         using var process = new Process();
-        process.StartInfo = new()
+        process.StartInfo = new ProcessStartInfo
         {
             FileName = fileName,
             WorkingDirectory = workingDirectory.ToString(),
@@ -742,7 +742,7 @@ internal partial class BuildPipeline
             RunDocker(runArguments);
 
             var hostPort = GetContainerHostPort(containerName);
-            WaitForHealthyContainer(containerName, new($"http://127.0.0.1:{hostPort}/health/ready"));
+            WaitForHealthyContainer(containerName, new Uri($"http://127.0.0.1:{hostPort}/health/ready"));
             AssertContainerLogsDoNotContainStartupErrors(containerName);
         }
         finally

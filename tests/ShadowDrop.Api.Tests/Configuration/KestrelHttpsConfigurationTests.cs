@@ -107,9 +107,9 @@ public sealed class KestrelHttpsConfigurationTests
             using var certificate = CreateSelfSignedCertificate(rsa);
             await File.WriteAllTextAsync(certificatePath, certificate.ExportCertificatePem());
             var privateKeyPem = rsa.ExportEncryptedPkcs8PrivateKeyPem(password,
-                                                                      new(PbeEncryptionAlgorithm.Aes256Cbc,
-                                                                          HashAlgorithmName.SHA256,
-                                                                          100_000));
+                                                                      new PbeParameters(PbeEncryptionAlgorithm.Aes256Cbc,
+                                                                                        HashAlgorithmName.SHA256,
+                                                                                        100_000));
             await File.WriteAllTextAsync(privateKeyPath, privateKeyPem);
 
             await using var host = CreateHost(root, new Dictionary<String, String?>
@@ -370,7 +370,7 @@ public sealed class KestrelHttpsConfigurationTests
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature, false));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
-                                              [new("1.3.6.1.5.5.7.3.1")],
+                                              [new Oid("1.3.6.1.5.5.7.3.1")],
                                               false));
         var subjectAlternativeName = new SubjectAlternativeNameBuilder();
         subjectAlternativeName.AddIpAddress(IPAddress.Loopback);

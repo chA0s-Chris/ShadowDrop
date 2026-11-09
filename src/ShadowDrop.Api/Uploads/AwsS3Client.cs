@@ -53,7 +53,7 @@ internal sealed class AwsS3Client : IS3Client, IDisposable
 
     public Task AbortMultipartUploadAsync(String bucketName, String objectKey, String uploadId,
                                           CancellationToken cancellationToken) =>
-        _client.AbortMultipartUploadAsync(new()
+        _client.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
         {
             BucketName = bucketName,
             Key = objectKey,
@@ -62,7 +62,7 @@ internal sealed class AwsS3Client : IS3Client, IDisposable
 
     public async Task CheckBucketAsync(String bucketName, CancellationToken cancellationToken)
     {
-        _ = await _client.ListObjectsV2Async(new()
+        _ = await _client.ListObjectsV2Async(new ListObjectsV2Request
         {
             BucketName = bucketName,
             MaxKeys = 0
@@ -72,7 +72,7 @@ internal sealed class AwsS3Client : IS3Client, IDisposable
     public Task CompleteMultipartUploadAsync(String bucketName, String objectKey, String uploadId,
                                              IReadOnlyCollection<S3UploadedPart> parts,
                                              CancellationToken cancellationToken) =>
-        _client.CompleteMultipartUploadAsync(new()
+        _client.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
         {
             BucketName = bucketName,
             Key = objectKey,
@@ -101,13 +101,13 @@ internal sealed class AwsS3Client : IS3Client, IDisposable
     {
         try
         {
-            var response = await _client.GetObjectAsync(new()
+            var response = await _client.GetObjectAsync(new GetObjectRequest
             {
                 BucketName = bucketName,
                 Key = objectKey,
-                ByteRange = new($"bytes={start}-")
+                ByteRange = new ByteRange($"bytes={start}-")
             }, cancellationToken);
-            return new(response.ResponseStream, response);
+            return new S3ReadResponse(response.ResponseStream, response);
         }
         catch (AmazonS3Exception exception) when (IsNotFound(exception))
         {
@@ -155,7 +155,7 @@ internal sealed class AwsS3Client : IS3Client, IDisposable
     public async Task<String> UploadPartAsync(String bucketName, String objectKey, String uploadId, Int32 partNumber,
                                               Stream content, Int64 contentLength, CancellationToken cancellationToken)
     {
-        var response = await _client.UploadPartAsync(new()
+        var response = await _client.UploadPartAsync(new UploadPartRequest
         {
             BucketName = bucketName,
             Key = objectKey,

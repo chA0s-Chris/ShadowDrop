@@ -39,7 +39,7 @@ public sealed class MongoReadinessCheckTests
         var readinessCheck = CreateCheck(static async cancellationToken =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            return new();
+            return new BsonDocument();
         }, TimeSpan.FromMilliseconds(20));
 
         var act = async () => await readinessCheck.IsReadyAsync(CancellationToken.None);
@@ -66,9 +66,9 @@ public sealed class MongoReadinessCheckTests
 
     private static CompositeReadinessCheck CreateCheck(Func<CancellationToken, Task<BsonDocument>> ping, TimeSpan? checkTimeout = null) =>
         new([
-            new MongoOperationalDependencyProbe(new StubMongoHelper(new StubMongoDatabase(ping)), new()
+            new MongoOperationalDependencyProbe(new StubMongoHelper(new StubMongoDatabase(ping)), new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     Provider = MetadataProvider.MongoDb
                 }

@@ -26,7 +26,7 @@ public sealed class UploadApiClientTests
             request.Method.Should().Be(HttpMethod.Get);
             request.RequestUri.Should().Be(new Uri(ServerUrl, "/api/uploads/capabilities"));
             request.Headers.Authorization!.Parameter.Should().Be("upload-token");
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -45,8 +45,8 @@ public sealed class UploadApiClientTests
     public async Task ReserveFileIdAsync_ShouldRetryTransientStatus_AndSucceed()
     {
         var handler = new SequenceHttpMessageHandler(
-            _ => new(HttpStatusCode.ServiceUnavailable),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable),
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -65,7 +65,7 @@ public sealed class UploadApiClientTests
     [Test]
     public async Task ReserveFileIdAsync_ShouldNotRetryPermanentUnauthorizedFailure()
     {
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized));
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
@@ -83,7 +83,7 @@ public sealed class UploadApiClientTests
         using var fixture = new UploadFilePlanFixture();
         var handler = new SequenceHttpMessageHandler(
             _ => throw new HttpRequestException("temporary"),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -142,9 +142,9 @@ public sealed class UploadApiClientTests
         using var fixture = new UploadFilePlanFixture();
         var delays = new List<TimeSpan>();
         var handler = new SequenceHttpMessageHandler(
-            _ => new(HttpStatusCode.TooManyRequests),
+            _ => new HttpResponseMessage(HttpStatusCode.TooManyRequests),
             _ => throw new HttpRequestException("temporary"),
-            _ => new(HttpStatusCode.OK)
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -170,7 +170,7 @@ public sealed class UploadApiClientTests
     [TestCase("{}")]
     public async Task ReserveFileIdAsync_ShouldFailClosed_WhenSuccessPayloadIsMalformed(String payload)
     {
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
         });
@@ -191,7 +191,7 @@ public sealed class UploadApiClientTests
     {
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
-        var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
         });
@@ -304,7 +304,7 @@ public sealed class UploadApiClientTests
                 await Task.Delay(Timeout.Infinite, cancellationToken);
             }
 
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -320,7 +320,7 @@ public sealed class UploadApiClientTests
 
         public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
         {
-            _responses = new(responses);
+            _responses = new Queue<Func<HttpRequestMessage, HttpResponseMessage>>(responses);
         }
 
         public Int32 RequestCount { get; private set; }
@@ -354,12 +354,12 @@ public sealed class UploadApiClientTests
             var plaintextLength = fileInfo.Length;
             var chunkCount = 1L;
             var encryptedLength = plaintextLength + EncryptedChunk.AuthenticationTagLength;
-            Plan = new(
+            Plan = new UploadFilePlan(
                 fileInfo,
                 null,
                 FileId,
-                new(FileId, kdfSalt),
-                new(
+                new FileEncryptionContext(FileId, kdfSalt),
+                new UploadMetadataPayload(
                     FileId,
                     fileInfo.Name,
                     plaintextLength,

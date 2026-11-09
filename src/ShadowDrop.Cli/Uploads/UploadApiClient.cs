@@ -7,6 +7,7 @@ using ShadowDrop.Cli.Http;
 using ShadowDrop.Cli.Uploads.Progress;
 using ShadowDrop.Crypto;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 
 internal sealed class UploadApiClient
@@ -29,7 +30,7 @@ internal sealed class UploadApiClient
 
     public async Task<UploadCapabilitiesResponse> GetCapabilitiesAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Get, new(serverUrl, "/api/uploads/capabilities"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Get, new Uri(serverUrl, "/api/uploads/capabilities"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -64,7 +65,7 @@ internal sealed class UploadApiClient
 
     public async Task<Guid> ReserveFileIdAsync(Uri serverUrl, String uploadToken, CancellationToken cancellationToken)
         => await SendWithRetryAsync(
-            (_, _) => CreateRequest(HttpMethod.Post, new(serverUrl, "/api/uploads/reservations"), uploadToken),
+            (_, _) => CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads/reservations"), uploadToken),
             static async (response, responseCancellation) =>
             {
                 if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
@@ -106,7 +107,7 @@ internal sealed class UploadApiClient
         => await SendWithRetryAsync(
             (requestCancellation, reportActivity) =>
             {
-                var request = CreateRequest(HttpMethod.Post, new(serverUrl, "/api/uploads"), uploadToken);
+                var request = CreateRequest(HttpMethod.Post, new Uri(serverUrl, "/api/uploads"), uploadToken);
                 request.Content = CreateMultipartContent(plan, shareSecret, progressSink?.Bytes, requestCancellation, reportActivity);
                 return request;
             },
@@ -154,15 +155,15 @@ internal sealed class UploadApiClient
     private static HttpRequestMessage CreateRequest(HttpMethod method, Uri requestUri, String uploadToken)
     {
         var request = new HttpRequestMessage(method, requestUri);
-        request.Headers.Authorization = new("Bearer", uploadToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", uploadToken);
         return request;
     }
 
     private static UploadCommandException CreateUploadFailure(HttpStatusCode statusCode) => statusCode switch
     {
-        HttpStatusCode.BadRequest => new("Upload failed; please verify file and try again."),
-        HttpStatusCode.RequestEntityTooLarge => new("Upload failed; please verify file and try again."),
-        _ => new("Server connection failed.")
+        HttpStatusCode.BadRequest => new UploadCommandException("Upload failed; please verify file and try again."),
+        HttpStatusCode.RequestEntityTooLarge => new UploadCommandException("Upload failed; please verify file and try again."),
+        _ => new UploadCommandException("Server connection failed.")
     };
 
     private static TimeSpan GetDelay(Int32 attempt) => TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1));
@@ -187,7 +188,7 @@ internal sealed class UploadApiClient
         var multipartContent = new MultipartFormDataContent();
         var metadataBytes = JsonSerializer.SerializeToUtf8Bytes(plan.Metadata, CliJsonSerializerContext.Default.UploadMetadataPayload);
         var metadataContent = new ByteArrayContent(metadataBytes);
-        metadataContent.Headers.ContentType = new("application/json");
+        metadataContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         multipartContent.Add(metadataContent, "metadata");
 
         var encryptedContent =
@@ -200,7 +201,7 @@ internal sealed class UploadApiClient
                                      progress,
                                      cancellationToken,
                                      reportActivity);
-        encryptedContent.Headers.ContentType = new("application/octet-stream");
+        encryptedContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
         multipartContent.Add(encryptedContent, "content", "cipher.bin");
         return multipartContent;
     }

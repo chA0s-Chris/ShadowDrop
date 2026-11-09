@@ -24,7 +24,7 @@ internal sealed class NullUploadProgressReporter : IUploadProgressReporter
 
         try
         {
-            return new(await uploadAsync(null, cancellationToken), null);
+            return new UploadProgressResult<T>(await uploadAsync(null, cancellationToken), null);
         }
         catch (Exception exception)
         {
@@ -34,7 +34,7 @@ internal sealed class NullUploadProgressReporter : IUploadProgressReporter
                 throw;
             }
 
-            return new(default, message);
+            return new UploadProgressResult<T>(default, message);
         }
     }
 }

@@ -52,6 +52,6 @@ internal static class FakeConfiguration
             values["SHADOWDROP_ADMIN_TOKEN"] = adminToken;
         }
 
-        return new(new FakeConfigPathResolver(configFilePath), new FakeEnvironmentReader(values));
+        return new CliConfigurationResolver(new FakeConfigPathResolver(configFilePath), new FakeEnvironmentReader(values));
     }
 }

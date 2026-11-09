@@ -13,14 +13,33 @@ public sealed class UploadSelectionCliTests
 {
     private String _rootDirectory;
 
+    [SetUp]
+    public void SetUp()
+    {
+        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                      "artifacts",
+                                      "upload-selection-cli-tests",
+                                      Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_rootDirectory);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_rootDirectory))
+        {
+            Directory.Delete(_rootDirectory, true);
+        }
+    }
+
     [Test]
     public async Task Help_ShouldDescribeRecursiveSelectionForBothUploadCommands()
     {
         var uploadOut = new StringWriter();
         var rawOut = new StringWriter();
 
-        (await CliApplication.InvokeAsync(["upload", "--help"], CreateServices(uploadOut, new()), CancellationToken.None)).Should().Be(0);
-        (await CliApplication.InvokeAsync(["upload", "raw", "--help"], CreateServices(rawOut, new()), CancellationToken.None)).Should().Be(0);
+        (await CliApplication.InvokeAsync(["upload", "--help"], CreateServices(uploadOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
+        (await CliApplication.InvokeAsync(["upload", "raw", "--help"], CreateServices(rawOut, new StringWriter()), CancellationToken.None)).Should().Be(0);
 
         foreach (var help in new[]
                  {
@@ -75,7 +94,7 @@ public sealed class UploadSelectionCliTests
                 "**/skip.pdf"
             };
 
-        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Server URL invalid or missing.")
@@ -106,7 +125,7 @@ public sealed class UploadSelectionCliTests
                 listPath
             };
 
-        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain("Server URL invalid or missing.")
@@ -120,7 +139,7 @@ public sealed class UploadSelectionCliTests
         await File.WriteAllTextAsync(listPath, "missing.bin\n");
         var standardError = new StringWriter();
 
-        var exitCode = await CliApplication.InvokeAsync(["upload", "--files-from", listPath], CreateServices(new(), standardError),
+        var exitCode = await CliApplication.InvokeAsync(["upload", "--files-from", listPath], CreateServices(new StringWriter(), standardError),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -142,7 +161,7 @@ public sealed class UploadSelectionCliTests
             ? ["upload", "raw", root, "--recursive"]
             : ["upload", root, "--recursive"];
 
-        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain(linkPath)
@@ -168,7 +187,7 @@ public sealed class UploadSelectionCliTests
             ? ["upload", "raw", root, "--recursive", option]
             : ["upload", root, "--recursive", option];
 
-        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain(expectedError)
@@ -180,7 +199,7 @@ public sealed class UploadSelectionCliTests
     {
         var standardError = new StringWriter();
         var reader = new ThrowingTextReader();
-        var services = CreateServices(new(), standardError) with
+        var services = CreateServices(new StringWriter(), standardError) with
         {
             StandardInput = reader
         };
@@ -206,7 +225,7 @@ public sealed class UploadSelectionCliTests
             ? ["upload", "raw", visible, root, "--recursive"]
             : ["upload", visible, root, "--recursive"];
 
-        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new(), standardError), CancellationToken.None);
+        var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), standardError), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardError.ToString().Should().Contain(linkPath)
@@ -226,7 +245,7 @@ public sealed class UploadSelectionCliTests
         {
             var invocation = CliApplication.InvokeAsync(
                 ["upload", "nested", "--recursive", "--display-name", $"nested{Path.DirectorySeparatorChar}mapped.bin=Mapped.bin"],
-                CreateServices(new(), standardError),
+                CreateServices(new StringWriter(), standardError),
                 CancellationToken.None);
             Directory.SetCurrentDirectory(previousDirectory);
             (await invocation).Should().Be(1);
@@ -245,7 +264,7 @@ public sealed class UploadSelectionCliTests
     {
         CreateFile("relative.bin");
         var standardError = new StringWriter();
-        var services = CreateServices(new(), standardError) with
+        var services = CreateServices(new StringWriter(), standardError) with
         {
             StandardInput = new StringReader("relative.bin\n")
         };
@@ -266,28 +285,9 @@ public sealed class UploadSelectionCliTests
                      .And.NotContain("File is missing");
     }
 
-    [SetUp]
-    public void SetUp()
-    {
-        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
-                                      "artifacts",
-                                      "upload-selection-cli-tests",
-                                      Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_rootDirectory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_rootDirectory))
-        {
-            Directory.Delete(_rootDirectory, true);
-        }
-    }
-
     private static CliApplicationServices CreateServices(StringWriter standardOut, StringWriter standardError) =>
         new(FakeConfiguration.Resolver(),
-            _ => new(new NeverCalledHandler()),
+            _ => new HttpClient(new NeverCalledHandler()),
             standardOut,
             standardError,
             new FakeInteractiveSession(),

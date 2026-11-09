@@ -18,16 +18,16 @@ public sealed record UploadedFileProjection(
     public static UploadedFileProjection FromRecord(UploadedFileRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        return new(record.FileId,
-                   record.OriginalFileName,
-                   record.PlaintextLength,
-                   record.EncryptedLength,
-                   record.ContentType,
-                   record.EncryptionFormatVersion,
-                   record.AlgorithmId,
-                   record.ChunkSize,
-                   record.ChunkCount,
-                   record.KdfSaltBase64,
-                   record.PlaintextSha256);
+        return new UploadedFileProjection(record.FileId,
+                                          record.OriginalFileName,
+                                          record.PlaintextLength,
+                                          record.EncryptedLength,
+                                          record.ContentType,
+                                          record.EncryptionFormatVersion,
+                                          record.AlgorithmId,
+                                          record.ChunkSize,
+                                          record.ChunkCount,
+                                          record.KdfSaltBase64,
+                                          record.PlaintextSha256);
     }
 }

@@ -3,6 +3,7 @@
 namespace ShadowDrop.Cli.Downloads;
 
 using ShadowDrop.Contracts;
+using System.Net.Http.Headers;
 
 /// <summary>
 /// Builds HTTP requests for streamed CLI downloads.
@@ -25,7 +26,7 @@ public static class CliDownloadRequestFactory
         var request = new HttpRequestMessage(HttpMethod.Get, AppendCliMode(downloadUri));
         if (!String.IsNullOrWhiteSpace(bearerToken))
         {
-            request.Headers.Authorization = new("Bearer", bearerToken);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
         }
 
         if (requestedRange is not null)
@@ -35,7 +36,7 @@ public static class CliDownloadRequestFactory
                 throw new ArgumentOutOfRangeException(nameof(requestedRange), "The requested plaintext range must be non-empty and non-negative.");
             }
 
-            request.Headers.Range = new(requestedRange.Start, checked(requestedRange.End - 1));
+            request.Headers.Range = new RangeHeaderValue(requestedRange.Start, checked(requestedRange.End - 1));
         }
 
         return request;

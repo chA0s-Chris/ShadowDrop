@@ -34,10 +34,10 @@ internal sealed class OperationalStatusService
         _cleanupRunStatus = cleanupRunStatus;
         _timeProvider = timeProvider;
         _processStartedAtUtc = timeProvider.GetUtcNow();
-        _capabilities = new(options.ApiExposure.EnablePublicDownloads,
-                            options.ApiExposure.EnableAdminOperations,
-                            options.ApiExposure.EnablePublicDownloads,
-                            options.ApiExposure.UploadsEnabled);
+        _capabilities = new StatusCapabilitiesContract(options.ApiExposure.EnablePublicDownloads,
+                                                       options.ApiExposure.EnableAdminOperations,
+                                                       options.ApiExposure.EnablePublicDownloads,
+                                                       options.ApiExposure.UploadsEnabled);
         _metadataProvider = options.Metadata.Provider == MetadataProvider.LiteDb ? "litedb" : "mongodb";
         _storageProvider = options.Storage.Provider switch
         {
@@ -60,28 +60,28 @@ internal sealed class OperationalStatusService
             : [];
         var cleanup = _cleanupRunStatus.Snapshot;
 
-        return new(OperationalStatusProtocol.CurrentVersion,
-                   true,
-                   collection.Readiness.Ready,
-                   collection.Readiness.Reason,
-                   _capabilities,
-                   ResolveBuildVersion(),
-                   Math.Max(0, (Int64)(now - _processStartedAtUtc).TotalSeconds),
-                   collection.Readiness.Components
-                             .Select(component => new StatusComponentContract(component.Name, component.State, component.Reason))
-                             .ToArray(),
-                   new(_metadataProvider, _storageProvider),
-                   new(storage?.CompletedFileCount, storage?.TotalEncryptedBytes),
-                   collection.Statistics is null ? null : Map(collection.Statistics.Shares),
-                   new(cleanup.LastRunAtUtc, cleanup.LastOutcome),
-                   new(null),
-                   warnings);
+        return new AdminServerStatusContract(OperationalStatusProtocol.CurrentVersion,
+                                             true,
+                                             collection.Readiness.Ready,
+                                             collection.Readiness.Reason,
+                                             _capabilities,
+                                             ResolveBuildVersion(),
+                                             Math.Max(0, (Int64)(now - _processStartedAtUtc).TotalSeconds),
+                                             collection.Readiness.Components
+                                                       .Select(component => new StatusComponentContract(component.Name, component.State, component.Reason))
+                                                       .ToArray(),
+                                             new StatusProvidersContract(_metadataProvider, _storageProvider),
+                                             new StatusStorageContract(storage?.CompletedFileCount, storage?.TotalEncryptedBytes),
+                                             collection.Statistics is null ? null : Map(collection.Statistics.Shares),
+                                             new StatusCleanupContract(cleanup.LastRunAtUtc, cleanup.LastOutcome),
+                                             new StatusResumableSessionsContract(null),
+                                             warnings);
     }
 
     public async Task<PublicServerStatusContract> GetPublicAsync(CancellationToken cancellationToken)
     {
         var readiness = await CollectReadinessAsync(cancellationToken);
-        return new(OperationalStatusProtocol.CurrentVersion, true, readiness.Ready, readiness.Reason, _capabilities);
+        return new PublicServerStatusContract(OperationalStatusProtocol.CurrentVersion, true, readiness.Ready, readiness.Reason, _capabilities);
     }
 
     public async Task<UploadServerStatusContract> GetUploadAsync(
@@ -90,14 +90,14 @@ internal sealed class OperationalStatusService
     {
         ArgumentNullException.ThrowIfNull(authorizationContext);
         var readiness = await CollectReadinessAsync(cancellationToken);
-        return new(OperationalStatusProtocol.CurrentVersion,
-                   true,
-                   readiness.Ready,
-                   readiness.Reason,
-                   _capabilities,
-                   new(authorizationContext.MaxEncryptedFileBytes,
-                       authorizationContext.MaxEncryptedShareBytes,
-                       authorizationContext.ExpiresAtUtc));
+        return new UploadServerStatusContract(OperationalStatusProtocol.CurrentVersion,
+                                              true,
+                                              readiness.Ready,
+                                              readiness.Reason,
+                                              _capabilities,
+                                              new StatusEffectiveLimitsContract(authorizationContext.MaxEncryptedFileBytes,
+                                                                                authorizationContext.MaxEncryptedShareBytes,
+                                                                                authorizationContext.ExpiresAtUtc));
     }
 
     private static StatusSharesContract Map(ShareStatusCounts shares) =>
@@ -138,25 +138,25 @@ internal sealed class OperationalStatusService
         var readiness = await readinessTask;
         if (synchronousFailureReason is not null)
         {
-            return new(readiness.WithComponentFailure("metadata", synchronousFailureReason), null);
+            return new OperationalStatusCollection(readiness.WithComponentFailure("metadata", synchronousFailureReason), null);
         }
 
         if (statisticsTask is null)
         {
-            return new(readiness, null);
+            return new OperationalStatusCollection(readiness, null);
         }
 
         try
         {
-            return new(readiness, await statisticsTask);
+            return new OperationalStatusCollection(readiness, await statisticsTask);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new(readiness.WithComponentFailure("metadata", OperationalStatusReasons.DependencyTimeout), null);
+            return new OperationalStatusCollection(readiness.WithComponentFailure("metadata", OperationalStatusReasons.DependencyTimeout), null);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return new(readiness.WithComponentFailure("metadata", OperationalStatusReasons.DependencyUnavailable), null);
+            return new OperationalStatusCollection(readiness.WithComponentFailure("metadata", OperationalStatusReasons.DependencyUnavailable), null);
         }
     }
 
@@ -170,7 +170,7 @@ internal sealed class OperationalStatusService
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return new(false, OperationalStatusReasons.DependencyTimeout, []);
+            return new OperationalReadinessSnapshot(false, OperationalStatusReasons.DependencyTimeout, []);
         }
     }
 

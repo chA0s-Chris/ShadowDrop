@@ -23,6 +23,25 @@ public sealed class UploadDryRunCliTests
 
     private String _rootDirectory;
 
+    [SetUp]
+    public void SetUp()
+    {
+        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                      "artifacts",
+                                      "upload-dry-run-tests",
+                                      Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_rootDirectory);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_rootDirectory))
+        {
+            Directory.Delete(_rootDirectory, true);
+        }
+    }
+
     [Test]
     public async Task InvokeAsync_ShouldEmitCompleteJsonPlan_WithoutReadingConfigurationCreatingHttpOrWritingOutputs()
     {
@@ -112,7 +131,7 @@ public sealed class UploadDryRunCliTests
                                                             "--json",
                                                             "--no-banner"
                                                         ],
-                                                        CreateServices(standardOut, new()),
+                                                        CreateServices(standardOut, new StringWriter()),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(0);
@@ -145,7 +164,7 @@ public sealed class UploadDryRunCliTests
                                                             "--json",
                                                             "--no-banner"
                                                         ],
-                                                        CreateServices(standardOut, new()),
+                                                        CreateServices(standardOut, new StringWriter()),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -179,8 +198,8 @@ public sealed class UploadDryRunCliTests
         var jsonOut = new StringWriter();
         var plainError = new StringWriter();
 
-        var jsonExit = await CliApplication.InvokeAsync([.. arguments, "--json"], CreateServices(jsonOut, new()), CancellationToken.None);
-        var plainExit = await CliApplication.InvokeAsync(arguments, CreateServices(new(), plainError), CancellationToken.None);
+        var jsonExit = await CliApplication.InvokeAsync([.. arguments, "--json"], CreateServices(jsonOut, new StringWriter()), CancellationToken.None);
+        var plainExit = await CliApplication.InvokeAsync(arguments, CreateServices(new StringWriter(), plainError), CancellationToken.None);
 
         jsonExit.Should().Be(1);
         plainExit.Should().Be(1);
@@ -201,7 +220,7 @@ public sealed class UploadDryRunCliTests
         var standardOut = new StringWriter();
 
         var exitCode = await CliApplication.InvokeAsync(["upload", "--interactive", "--dry-run", "--json", "--no-banner"],
-                                                        CreateServices(standardOut, new()),
+                                                        CreateServices(standardOut, new StringWriter()),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -269,7 +288,7 @@ public sealed class UploadDryRunCliTests
                  })
         {
             var standardOut = new StringWriter();
-            var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(standardOut, new()), CancellationToken.None);
+            var exitCode = await CliApplication.InvokeAsync(arguments, CreateServices(standardOut, new StringWriter()), CancellationToken.None);
 
             exitCode.Should().Be(1);
             using var document = JsonDocument.Parse(standardOut.ToString());
@@ -324,7 +343,7 @@ public sealed class UploadDryRunCliTests
                                                             "--dry-run",
                                                             "--no-banner"
                                                         ],
-                                                        CreateServices(standardOut, new()),
+                                                        CreateServices(standardOut, new StringWriter()),
                                                         CancellationToken.None);
 
         exitCode.Should().Be(0);
@@ -332,25 +351,6 @@ public sealed class UploadDryRunCliTests
                    .And.Contain($"queue-destination:nested/upload.bin{Environment.NewLine}")
                    .And.Contain($"intended-queue-file:{queuePath}{Environment.NewLine}");
         File.Exists(queuePath).Should().BeFalse();
-    }
-
-    [SetUp]
-    public void SetUp()
-    {
-        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
-                                      "artifacts",
-                                      "upload-dry-run-tests",
-                                      Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_rootDirectory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_rootDirectory))
-        {
-            Directory.Delete(_rootDirectory, true);
-        }
     }
 
     private static CliApplicationServices CreateServices(StringWriter standardOut,

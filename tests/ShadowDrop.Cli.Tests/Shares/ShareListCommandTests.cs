@@ -28,7 +28,7 @@ public sealed class ShareListCommandTests
                                                   standardOut,
                                                   standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(null, null, null, null, null, true), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareListCommandOptions(null, null, null, null, null, true), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -74,7 +74,7 @@ public sealed class ShareListCommandTests
                                                   standardOut,
                                                   standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(status is null ? null : [status], pageSize, null, null, null, true),
+        var exitCode = await handler.ExecuteAsync(new ShareListCommandOptions(status is null ? null : [status], pageSize, null, null, null, true),
                                                   CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -157,16 +157,16 @@ public sealed class ShareListCommandTests
     private static ShareListPageContract Page() =>
         new(1,
             [
-                new("00000000-0000-0000-0000-000000000001",
-                    DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
-                    DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
-                    null,
-                    [ShareListStatuses.Active, ShareListStatuses.CleanupPending],
-                    ShareListCleanupStates.Pending,
-                    null,
-                    [],
-                    2,
-                    42)
+                new ShareListItemContract("00000000-0000-0000-0000-000000000001",
+                                          DateTimeOffset.Parse("2026-08-03T10:00:00Z"),
+                                          DateTimeOffset.Parse("2026-08-04T10:00:00Z"),
+                                          null,
+                                          [ShareListStatuses.Active, ShareListStatuses.CleanupPending],
+                                          ShareListCleanupStates.Pending,
+                                          null,
+                                          [],
+                                          2,
+                                          42)
             ],
             "opaque",
             1);

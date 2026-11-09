@@ -35,7 +35,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(databaseDirectory);
 
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -414,7 +414,7 @@ public sealed class LiteDbShareMetadataRepository : IShareMetadataRepository, ID
 
         Int64 Count(String status)
         {
-            return CreateListQuery(new(nowUtc, [status], 1, null)).Count();
+            return CreateListQuery(new ShareListQuery(nowUtc, [status], 1, null)).Count();
         }
 
         return Task.FromResult(new ShareStatusCounts(Count(ShareListStatuses.Active),

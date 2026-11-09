@@ -16,7 +16,7 @@ internal sealed class TempWorkspace : IDisposable
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
-        return new(path);
+        return new TempWorkspace(path);
     }
 
     public String CreateSubdirectory(String name)

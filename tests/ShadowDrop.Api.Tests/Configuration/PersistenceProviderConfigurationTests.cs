@@ -148,7 +148,7 @@ public sealed class PersistenceProviderConfigurationTests
                                                       BlobStorageProvider blobProvider,
                                                       String root)
     {
-        return new()
+        return new Dictionary<String, String?>
         {
             ["ShadowDrop:Metadata:Provider"] = metadataProvider.ToString(),
             ["ShadowDrop:Metadata:LiteDbPath"] = Path.Combine(root, "metadata", "shadowdrop.db"),

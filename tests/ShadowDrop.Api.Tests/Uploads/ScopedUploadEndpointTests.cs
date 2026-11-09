@@ -65,7 +65,7 @@ public sealed class ScopedUploadEndpointTests
         var aggregateResponse = await client.PostAsJsonAsync(
             "/api/shares/",
             new CreateShareRequest(DateTimeOffset.UtcNow.AddDays(1),
-                                   [new(firstFile), new(secondFile)],
+                                   [new CreateShareFileRequest(firstFile), new CreateShareFileRequest(secondFile)],
                                    GenerateDownloadBearerToken: false));
         aggregateResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
@@ -262,12 +262,12 @@ public sealed class ScopedUploadEndpointTests
         });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return new(document.RootElement.GetProperty("credential").GetProperty("credentialId").GetGuid(),
-                   document.RootElement.GetProperty("token").GetString()!);
+        return new Credential(document.RootElement.GetProperty("credential").GetProperty("credentialId").GetGuid(),
+                              document.RootElement.GetProperty("token").GetString()!);
     }
 
     private static CreateShareRequest CreateShareRequest(Guid fileId) =>
-        new(DateTimeOffset.UtcNow.AddDays(1), [new(fileId)], GenerateDownloadBearerToken: false);
+        new(DateTimeOffset.UtcNow.AddDays(1), [new CreateShareFileRequest(fileId)], GenerateDownloadBearerToken: false);
 
     private static MultipartFormDataContent CreateUploadContent(Guid fileId)
     {
@@ -358,7 +358,7 @@ public sealed class ScopedUploadEndpointTests
         public HttpClient CreateClientWithToken(String token)
         {
             var client = CreateClient();
-            client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             return client;
         }
 

@@ -45,7 +45,7 @@ internal sealed class ProductArtifacts : IDisposable
             var apiAssemblyPath = RequireAssembly(apiOutput, "ShadowDrop.Api.dll");
             var cliAssemblyPath = RequireAssembly(cliOutput, "ShadowDrop.Cli.dll");
 
-            return new(workspace, apiAssemblyPath, cliAssemblyPath);
+            return new ProductArtifacts(workspace, apiAssemblyPath, cliAssemblyPath);
         }
         catch
         {

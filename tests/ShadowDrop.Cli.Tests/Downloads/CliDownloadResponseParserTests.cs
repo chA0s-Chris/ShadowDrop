@@ -7,14 +7,15 @@ using NUnit.Framework;
 using ShadowDrop.Cli.Downloads;
 using ShadowDrop.Contracts;
 using System.Net;
+using System.Net.Http.Headers;
 
 public sealed class CliDownloadResponseParserTests
 {
     [Test]
     public void CreateGetRequest_ShouldAppendCliModeAndRangeHeader()
     {
-        var request = CliDownloadRequestFactory.CreateGetRequest(new("https://example.test/d/token/files/123"),
-                                                                 requestedRange: new()
+        var request = CliDownloadRequestFactory.CreateGetRequest(new Uri("https://example.test/d/token/files/123"),
+                                                                 requestedRange: new RequestedPlaintextRangeContract
                                                                  {
                                                                      Start = 64,
                                                                      End = 120
@@ -47,7 +48,7 @@ public sealed class CliDownloadResponseParserTests
         using var response = CreateResponse();
 
         var result = CliDownloadResponseParser.Parse(response,
-                                                     new()
+                                                     new RequestedPlaintextRangeContract
                                                      {
                                                          Start = 64,
                                                          End = 120
@@ -104,7 +105,7 @@ public sealed class CliDownloadResponseParserTests
     public void Parse_ShouldThrowInvalidDataException_WhenMediaTypeIsUnexpected()
     {
         using var response = CreateResponse();
-        response.Content.Headers.ContentType = new("application/json");
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
         var act = () => CliDownloadResponseParser.Parse(response);
 
@@ -192,7 +193,7 @@ public sealed class CliDownloadResponseParserTests
         {
             Content = new ByteArrayContent(body)
         };
-        response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
         if (declaredContentLength is not null)
         {
             response.Content.Headers.ContentLength = declaredContentLength;
@@ -214,7 +215,7 @@ public sealed class CliDownloadResponseParserTests
         {
             Content = content
         };
-        response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+        response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
         if (declaredContentLength is not null)
         {
             response.Content.Headers.ContentLength = declaredContentLength;

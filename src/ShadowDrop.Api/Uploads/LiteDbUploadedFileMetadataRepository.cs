@@ -33,7 +33,7 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(databaseDirectory);
 
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -249,8 +249,8 @@ public sealed class LiteDbUploadedFileMetadataRepository : IUploadedFileMetadata
                                                                 .Find(Query.In("_id", fileIds.Distinct().Select(id => new BsonValue(id))))
                                                                 .Where(document => !document.IsReserved)
                                                                 .Select(document => new UploadedFileListProjection(document.FileId,
-                                                                            document.EncryptedLength,
-                                                                            document.RetentionState))
+                                                                                                                   document.EncryptedLength,
+                                                                                                                   document.RetentionState))
                                                                 .ToList();
         return Task.FromResult(projections);
     }

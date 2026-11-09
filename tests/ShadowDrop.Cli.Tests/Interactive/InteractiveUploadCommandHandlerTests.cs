@@ -72,7 +72,7 @@ public sealed class InteractiveUploadCommandHandlerTests
         var workingDirectory = Path.Combine(Path.GetTempPath(), $"shadowdrop-interactive-{Guid.NewGuid():N}");
         var options = Options() with
         {
-            QueueOut = new(Path.Combine(Path.GetTempPath(), $"interactive-{Guid.NewGuid():N}.queue.json")),
+            QueueOut = new FileInfo(Path.Combine(Path.GetTempPath(), $"interactive-{Guid.NewGuid():N}.queue.json")),
 
             // Relative to the captured working directory, which does not exist: the error proves both values were
             // carried through and combined by the shared handler.
@@ -99,7 +99,7 @@ public sealed class InteractiveUploadCommandHandlerTests
         var configPath = Path.Combine(Path.GetTempPath(), $"config-{Guid.NewGuid():N}.json");
         await File.WriteAllTextAsync(configPath, "{ not valid json");
         var standardError = new StringWriter();
-        var handler = CreateHandler(new(), new NeverCalledHandler(),
+        var handler = CreateHandler(new FakeInteractiveSession(), new NeverCalledHandler(),
                                     FakeConfiguration.Resolver(configFilePath: configPath), standardError);
         try
         {
@@ -211,13 +211,13 @@ public sealed class InteractiveUploadCommandHandlerTests
                                                                  TextWriter? standardError = null)
     {
         var errorWriter = standardError ?? new StringWriter();
-        return new(resolver ?? FakeConfiguration.Resolver(),
-                   new(handler),
-                   session,
-                   new StringWriter(),
-                   errorWriter,
-                   TimeProvider.System,
-                   new PlainUploadProgressReporterFactory(errorWriter, TimeProvider.System));
+        return new InteractiveUploadCommandHandler(resolver ?? FakeConfiguration.Resolver(),
+                                                   new HttpClient(handler),
+                                                   session,
+                                                   new StringWriter(),
+                                                   errorWriter,
+                                                   TimeProvider.System,
+                                                   new PlainUploadProgressReporterFactory(errorWriter, TimeProvider.System));
     }
 
     private static String MissingFilePath() => Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");

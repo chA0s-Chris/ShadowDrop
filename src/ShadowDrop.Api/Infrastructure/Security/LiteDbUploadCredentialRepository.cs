@@ -16,7 +16,7 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     public LiteDbUploadCredentialRepository(ShadowDropOptions options)
     {
         _databasePath = options.Metadata.LiteDbPath;
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared
@@ -58,12 +58,12 @@ public sealed class LiteDbUploadCredentialRepository : IUploadCredentialReposito
     {
         if (fetched.Count <= pageSize)
         {
-            return new(fetched, null);
+            return new UploadCredentialPage(fetched, null);
         }
 
         var page = fetched[..pageSize];
         var last = page[^1];
-        return new(page, new(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
+        return new UploadCredentialPage(page, new UploadCredentialListCursor(last.CreatedAtUtc.ToUnixTimeMilliseconds(), last.CredentialId));
     }
 
     public void Dispose() => _database.Dispose();

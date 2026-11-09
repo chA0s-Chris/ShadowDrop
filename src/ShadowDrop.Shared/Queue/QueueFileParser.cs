@@ -75,7 +75,7 @@ public static partial class QueueFileParser
         if (!String.IsNullOrWhiteSpace(queueFile.ShadowDrop) &&
             !String.Equals(queueFile.ShadowDrop, FormatConstants.ShadowDropVersion, StringComparison.Ordinal))
         {
-            errors.Add(new("shadowDrop", $"The shadowDrop value must be '{FormatConstants.ShadowDropVersion}'."));
+            errors.Add(new QueueFileValidationError("shadowDrop", $"The shadowDrop value must be '{FormatConstants.ShadowDropVersion}'."));
         }
 
         if (!String.IsNullOrWhiteSpace(queueFile.QueueVersion) &&
@@ -83,10 +83,10 @@ public static partial class QueueFileParser
         {
             // The queue format break is deliberate and unmigrated, so the guidance to recreate the queue belongs
             // here rather than in one command: every caller of this parser surfaces the same actionable message.
-            errors.Add(new("queueVersion",
-                           $"The queueVersion value must be '{FormatConstants.QueueVersion}'. Queue files created by earlier "
-                           + "ShadowDrop versions are not supported; recreate the queue with 'shadowdrop queue create' or "
-                           + "'shadowdrop upload --queue-out'."));
+            errors.Add(new QueueFileValidationError("queueVersion",
+                                                    $"The queueVersion value must be '{FormatConstants.QueueVersion}'. Queue files created by earlier "
+                                                    + "ShadowDrop versions are not supported; recreate the queue with 'shadowdrop queue create' or "
+                                                    + "'shadowdrop upload --queue-out'."));
         }
 
         ValidateServerUrl(queueFile.ServerUrl, "serverUrl", errors);
@@ -100,7 +100,7 @@ public static partial class QueueFileParser
 
         if (queueFile.Files is null || queueFile.Files.Count == 0)
         {
-            errors.Add(new("files", "The files collection must contain at least one entry."));
+            errors.Add(new QueueFileValidationError("files", "The files collection must contain at least one entry."));
             return errors;
         }
 
@@ -138,11 +138,11 @@ public static partial class QueueFileParser
         var effectiveOutputPath = QueueOutputPath.Resolve(entry);
         if (!QueueOutputPath.TryValidate(effectiveOutputPath, valueName, hasExplicitOutputPath, out var error))
         {
-            errors.Add(new(path, error));
+            errors.Add(new QueueFileValidationError(path, error));
             return;
         }
 
-        outputPaths.Add(new(path, effectiveOutputPath));
+        outputPaths.Add(new ValidatedOutputPath(path, effectiveOutputPath));
     }
 
     private static void ValidateEntry(QueueFileEntry? entry,
@@ -154,7 +154,7 @@ public static partial class QueueFileParser
 
         if (entry is null)
         {
-            errors.Add(new(prefix, "The file entry is required."));
+            errors.Add(new QueueFileValidationError(prefix, "The file entry is required."));
             return;
         }
 
@@ -163,11 +163,11 @@ public static partial class QueueFileParser
 
         if (entry.Length is null)
         {
-            errors.Add(new($"{prefix}.length", "The length value is required."));
+            errors.Add(new QueueFileValidationError($"{prefix}.length", "The length value is required."));
         }
         else if (entry.Length < 0)
         {
-            errors.Add(new($"{prefix}.length", "The file length must be zero or greater."));
+            errors.Add(new QueueFileValidationError($"{prefix}.length", "The file length must be zero or greater."));
         }
 
         ValidateOptionalSha256(entry.PlaintextSha256, $"{prefix}.plaintextSha256", errors);
@@ -184,7 +184,7 @@ public static partial class QueueFileParser
         var match = Sha256Regex().Match(value);
         if (!match.Success || match.Index != 0 || match.Length != value.Length)
         {
-            errors.Add(new(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
+            errors.Add(new QueueFileValidationError(path, "The plaintextSha256 value must be a 64-character lowercase hexadecimal SHA-256 digest."));
         }
     }
 
@@ -195,14 +195,14 @@ public static partial class QueueFileParser
             return;
         }
 
-        errors.Add(new(outputPaths[index].Path, error));
+        errors.Add(new QueueFileValidationError(outputPaths[index].Path, error));
     }
 
     private static void ValidateRequiredString(String? value, String path, List<QueueFileValidationError> errors)
     {
         if (String.IsNullOrWhiteSpace(value))
         {
-            errors.Add(new(path, $"The {path.Split('.').Last()} value is required."));
+            errors.Add(new QueueFileValidationError(path, $"The {path.Split('.').Last()} value is required."));
         }
     }
 
@@ -210,25 +210,25 @@ public static partial class QueueFileParser
     {
         if (String.IsNullOrWhiteSpace(serverUrl))
         {
-            errors.Add(new(path, $"The {path.Split('.').Last()} value is required."));
+            errors.Add(new QueueFileValidationError(path, $"The {path.Split('.').Last()} value is required."));
             return;
         }
 
         if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            errors.Add(new(path, "The serverUrl value must be an absolute HTTP or HTTPS URL."));
+            errors.Add(new QueueFileValidationError(path, "The serverUrl value must be an absolute HTTP or HTTPS URL."));
             return;
         }
 
         if (!String.IsNullOrEmpty(uri.UserInfo))
         {
-            errors.Add(new(path, "The serverUrl value must not include user information."));
+            errors.Add(new QueueFileValidationError(path, "The serverUrl value must not include user information."));
         }
 
         if (!String.IsNullOrEmpty(uri.Query) || !String.IsNullOrEmpty(uri.Fragment))
         {
-            errors.Add(new(path, "The serverUrl value must not include query string or fragment components."));
+            errors.Add(new QueueFileValidationError(path, "The serverUrl value must not include query string or fragment components."));
         }
     }
 
@@ -243,7 +243,7 @@ public static partial class QueueFileParser
         var match = Sha256Regex().Match(value);
         if (!match.Success || match.Index != 0 || match.Length != value.Length)
         {
-            errors.Add(new("credentials.shareKey", "The shareKey value must be 64-character lowercase hexadecimal share-key material."));
+            errors.Add(new QueueFileValidationError("credentials.shareKey", "The shareKey value must be 64-character lowercase hexadecimal share-key material."));
         }
     }
 

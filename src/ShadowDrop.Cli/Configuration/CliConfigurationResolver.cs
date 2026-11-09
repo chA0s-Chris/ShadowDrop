@@ -27,7 +27,7 @@ internal sealed class CliConfigurationResolver
                                         _environmentReader.GetEnvironmentVariable("SHADOWDROP_UPLOAD_TOKEN"),
                                         configFile?.UploadToken)?.Trim();
 
-        return new(serverUrl, uploadToken);
+        return new CliResolvedConfiguration(serverUrl, uploadToken);
     }
 
     /// <summary>
@@ -45,7 +45,7 @@ internal sealed class CliConfigurationResolver
                                        _environmentReader.GetEnvironmentVariable("SHADOWDROP_ADMIN_TOKEN"),
                                        configFile?.AdminToken)?.Trim();
 
-        return new(serverUrl, adminToken);
+        return new CliResolvedAdminConfiguration(serverUrl, adminToken);
     }
 
     /// <summary>
@@ -63,7 +63,7 @@ internal sealed class CliConfigurationResolver
         var caCertPath = FirstNonEmpty(caCertOverride, _environmentReader.GetEnvironmentVariable("SHADOWDROP_CACERT"))?.Trim();
         var insecure = insecureFlag || EnvironmentValue.IsTruthy(_environmentReader.GetEnvironmentVariable("SHADOWDROP_INSECURE"));
 
-        return new(caCertPath, insecure);
+        return new CliTlsOptions(caCertPath, insecure);
     }
 
     private static String? FirstNonEmpty(params String?[] values) => values.FirstOrDefault(static value => !String.IsNullOrWhiteSpace(value));

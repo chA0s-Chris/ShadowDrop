@@ -59,7 +59,7 @@ public sealed class ShareMetadataRepositoryStatsTests
             ShareCleanupState.Pending,
             DirectHttpEnabled: false,
             DownloadBearerToken: null,
-            [new(Guid.NewGuid(), "cipher.bin", null)]);
+            [new ShareFileEntryRecord(Guid.NewGuid(), "cipher.bin", null)]);
 
     private sealed class StatsFixture : IAsyncDisposable
     {
@@ -76,11 +76,11 @@ public sealed class ShareMetadataRepositoryStatsTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

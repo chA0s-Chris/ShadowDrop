@@ -17,7 +17,7 @@ public sealed class LiteDbAdminTokenCredentialRepository : IAdminTokenCredential
     public LiteDbAdminTokenCredentialRepository(ShadowDropOptions options)
     {
         _databasePath = options.Metadata.LiteDbPath;
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared

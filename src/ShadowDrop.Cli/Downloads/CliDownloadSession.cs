@@ -172,15 +172,15 @@ public sealed class CliDownloadSession : IDisposable
                 ? metadata.FinalChunkPlaintextLength
                 : metadata.ChunkSize;
             var encryptedChunk = await ReadChunkAsync(encryptedStream, plaintextChunkLength, cancellationToken);
-            var decryptedChunk = ChunkEncryptionService.DecryptChunk(new(encryptedChunk),
+            var decryptedChunk = ChunkEncryptionService.DecryptChunk(new EncryptedChunk(encryptedChunk),
                                                                      _contentKey,
-                                                                     new(CryptoVersion.V1,
-                                                                         CryptoAlgorithm.Aes256Gcm,
-                                                                         _encryptionContext.FileId,
-                                                                         metadata.ChunkSize,
-                                                                         chunkIndex,
-                                                                         plaintextChunkLength,
-                                                                         chunkIndex == chunkCount - 1));
+                                                                     new ChunkMetadata(CryptoVersion.V1,
+                                                                                       CryptoAlgorithm.Aes256Gcm,
+                                                                                       _encryptionContext.FileId,
+                                                                                       metadata.ChunkSize,
+                                                                                       chunkIndex,
+                                                                                       plaintextChunkLength,
+                                                                                       chunkIndex == chunkCount - 1));
 
             var chunkPlaintextStart = checked(chunkIndex * (Int64)metadata.ChunkSize);
             var chunkPlaintextEnd = checked(chunkPlaintextStart + plaintextChunkLength);
@@ -215,14 +215,14 @@ public sealed class CliDownloadSession : IDisposable
 
         if (DurablePlaintextLength >= TotalPlaintextSize.Value)
         {
-            return new()
+            return new RequestedPlaintextRangeContract
             {
                 Start = TotalPlaintextSize.Value,
                 End = TotalPlaintextSize.Value
             };
         }
 
-        return new()
+        return new RequestedPlaintextRangeContract
         {
             Start = DurablePlaintextLength,
             End = TotalPlaintextSize.Value
@@ -245,7 +245,7 @@ public sealed class CliDownloadSession : IDisposable
         }
     }
 
-    /// <inheritdoc />
+    /// <inheritdoc/>
     public void Dispose()
     {
         if (_disposed)

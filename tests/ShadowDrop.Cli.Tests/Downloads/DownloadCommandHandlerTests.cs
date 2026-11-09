@@ -17,6 +17,7 @@ using ShadowDrop.Crypto;
 using ShadowDrop.Queue;
 using ShadowDrop.Tests.Fakes;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -27,6 +28,17 @@ public sealed class DownloadCommandHandlerTests
     private const String ValidShareKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     private readonly List<String> _scratchDirectories = [];
+
+    [TearDown]
+    public void DeleteScratchDirectories()
+    {
+        foreach (var directory in _scratchDirectories.Where(Directory.Exists))
+        {
+            Directory.Delete(directory, true);
+        }
+
+        _scratchDirectories.Clear();
+    }
 
     [Test]
     public void DecodeShareKey_ShouldReturn32Bytes_WhenValueIsValidHex() => DownloadCommandHandler.DecodeShareKey(ValidShareKey).Should().HaveCount(32);
@@ -49,17 +61,6 @@ public sealed class DownloadCommandHandlerTests
         var act = () => DownloadCommandHandler.DecodeShareKey("zz");
 
         act.Should().Throw<DownloadCommandException>().WithMessage("Share key invalid or missing.");
-    }
-
-    [TearDown]
-    public void DeleteScratchDirectories()
-    {
-        foreach (var directory in _scratchDirectories.Where(Directory.Exists))
-        {
-            Directory.Delete(directory, true);
-        }
-
-        _scratchDirectories.Clear();
     }
 
     [Test]
@@ -117,14 +118,14 @@ public sealed class DownloadCommandHandlerTests
         using var httpClient = fixture.CreateClient();
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
-        var queuePath = fixture.CreateQueueFile(new()
+        var queuePath = fixture.CreateQueueFile(new QueueFixture
         {
             ShareToken = share.ShareToken,
             ServerUrl = fixture.BaseAddress.ToString(),
             Entries =
             [
-                new(upload.FileIds[0].ToString(), "stable.bin", 72, "stable.bin"),
-                new(Guid.NewGuid().ToString(), "missing.bin", 88, "missing.bin")
+                new QueueFileEntryFixture(upload.FileIds[0].ToString(), "stable.bin", 72, "stable.bin"),
+                new QueueFileEntryFixture(Guid.NewGuid().ToString(), "missing.bin", 88, "missing.bin")
             ]
         });
         var standardOut = new StringWriter();
@@ -157,7 +158,7 @@ public sealed class DownloadCommandHandlerTests
             var firstOutputPath = Path.Combine(rootDirectory, "broken.bin");
             var secondOutputPath = Path.Combine(rootDirectory, "good.bin");
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -165,14 +166,14 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = duplicatedFileId.ToString(),
                         FileName = "broken.bin",
                         Length = fixture.Plaintext.LongLength,
                         OutputPath = "broken.bin"
                     },
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -452,7 +453,7 @@ public sealed class DownloadCommandHandlerTests
         {
             var queuePath = Path.Combine(rootDirectory, "queue.json");
             await File.WriteAllTextAsync(queuePath,
-                                         QueueFileParser.Serialize(new()
+                                         QueueFileParser.Serialize(new QueueFile
                                          {
                                              ShadowDrop = "1.0",
                                              QueueVersion = "2.0",
@@ -460,7 +461,7 @@ public sealed class DownloadCommandHandlerTests
                                              ShareToken = "shared-token",
                                              Files =
                                              [
-                                                 new()
+                                                 new QueueFileEntry
                                                  {
                                                      FileId = fixture.FileId.ToString(),
                                                      FileName = fixture.FileName,
@@ -560,7 +561,7 @@ public sealed class DownloadCommandHandlerTests
         try
         {
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -568,14 +569,14 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = "broken.bin",
                         Length = fixture.Plaintext.LongLength,
                         OutputPath = "broken.bin"
                     },
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -661,7 +662,7 @@ public sealed class DownloadCommandHandlerTests
         {
             var outputPath = Path.Combine(rootDirectory, "payload.bin");
             var queuePath = CreateQueueFile(rootDirectory, fixture, ComputeSha256(fixture.Plaintext));
-            using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)));
+            using var handler = new SequenceHttpMessageHandler(_ => fixture.CreateManifestResponse(plaintextSha256: new String('0', 64)));
             using var httpClient = new HttpClient(handler);
             var standardError = new StringWriter();
 
@@ -958,7 +959,7 @@ public sealed class DownloadCommandHandlerTests
             var outputPath = Path.Combine(rootDirectory, "payload.bin");
             var queuePath = Path.Combine(rootDirectory, "queue.json");
             var configPath = Path.Combine(rootDirectory, "config.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -966,7 +967,7 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -1016,7 +1017,7 @@ public sealed class DownloadCommandHandlerTests
     {
         var fixture = DownloadHttpFixture.Create();
         using var handler = new SequenceHttpMessageHandler(
-            _ => fixture.CreateManifestResponse(plaintextSha256: new('0', 64)),
+            _ => fixture.CreateManifestResponse(plaintextSha256: new String('0', 64)),
             _ => fixture.CreateDownloadResponse());
         using var httpClient = new HttpClient(handler);
         var standardOut = new StringWriter();
@@ -1071,13 +1072,13 @@ public sealed class DownloadCommandHandlerTests
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
         var outputPath = Path.Combine(outputsDirectory, "stable.bin");
-        var queuePath = fixture.CreateQueueFile(new()
+        var queuePath = fixture.CreateQueueFile(new QueueFixture
         {
             ShareToken = share.ShareToken,
             ServerUrl = fixture.BaseAddress.ToString(),
             Entries =
             [
-                new(upload.FileIds[0].ToString().ToUpperInvariant(), "stable.bin", 72, "stable.bin")
+                new QueueFileEntryFixture(upload.FileIds[0].ToString().ToUpperInvariant(), "stable.bin", 72, "stable.bin")
             ]
         });
         var standardOut = new StringWriter();
@@ -1168,7 +1169,7 @@ public sealed class DownloadCommandHandlerTests
                            range.Ranges.Should().ContainSingle();
                            range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
                            range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
-                           return fixture.CreateDownloadResponse(new()
+                           return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                            {
                                Start = fixture.ChunkSize,
                                End = fixture.Plaintext.LongLength
@@ -1240,7 +1241,7 @@ public sealed class DownloadCommandHandlerTests
                            range.Ranges.Should().ContainSingle();
                            range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
                            range.Ranges.Single().To.Should().Be(fixture.Plaintext.LongLength - 1);
-                           return fixture.CreateDownloadResponse(new()
+                           return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                            {
                                Start = fixture.ChunkSize,
                                End = fixture.Plaintext.LongLength
@@ -1302,7 +1303,7 @@ public sealed class DownloadCommandHandlerTests
                    {
                        // The resumed run asks only for the bytes it still needs, exactly as a queue download would.
                        request.Headers.Range!.Ranges.Single().From.Should().Be(fixture.ChunkSize);
-                       return fixture.CreateDownloadResponse(new()
+                       return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                        {
                            Start = fixture.ChunkSize,
                            End = fixture.Plaintext.LongLength
@@ -1364,14 +1365,14 @@ public sealed class DownloadCommandHandlerTests
         using var httpClient = fixture.CreateClient();
         var outputsDirectory = Path.Combine(fixture.RootDirectory, "downloads");
         Directory.CreateDirectory(outputsDirectory);
-        var queuePath = fixture.CreateQueueFile(new()
+        var queuePath = fixture.CreateQueueFile(new QueueFixture
         {
             ShareToken = share.ShareToken,
             ServerUrl = fixture.BaseAddress.ToString(),
             Entries =
             [
-                new(upload.FileIds[0].ToString(), "alpha.bin", 64, "alpha.bin"),
-                new(upload.FileIds[1].ToString(), "beta.bin", 80, "beta.bin")
+                new QueueFileEntryFixture(upload.FileIds[0].ToString(), "alpha.bin", 64, "alpha.bin"),
+                new QueueFileEntryFixture(upload.FileIds[1].ToString(), "beta.bin", 80, "beta.bin")
             ]
         });
         var standardOut = new StringWriter();
@@ -1415,7 +1416,7 @@ public sealed class DownloadCommandHandlerTests
                                      }
                                      """);
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new('a', 64)],
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new String('a', 64)],
                                                         CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
@@ -1437,7 +1438,7 @@ public sealed class DownloadCommandHandlerTests
         var exitCode = await CliApplication.InvokeAsync(["download", "--interactive", "--output-root", "downloads"],
                                                         CreateServices(standardOut,
                                                                        standardError,
-                                                                       httpClient: new(new NeverCalledHandler()),
+                                                                       httpClient: new HttpClient(new NeverCalledHandler()),
                                                                        interactiveSession: interactiveSession),
                                                         CancellationToken.None);
 
@@ -1500,7 +1501,7 @@ public sealed class DownloadCommandHandlerTests
                                      }
                                      """);
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new('a', 64)],
+        var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--share-key", new String('a', 64)],
                                                         CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
@@ -1523,7 +1524,7 @@ public sealed class DownloadCommandHandlerTests
         try
         {
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -1531,7 +1532,7 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = Guid.NewGuid().ToString(),
                         FileName = "report.txt",
@@ -1547,7 +1548,7 @@ public sealed class DownloadCommandHandlerTests
             var exitCode = await CliApplication.InvokeAsync(["download", "--queue", queuePath, "--output-root", outputRoot, "--share-key", ValidShareKey],
                                                             CreateServices(standardOut,
                                                                            standardError,
-                                                                           httpClient: new(new NeverCalledHandler())),
+                                                                           httpClient: new HttpClient(new NeverCalledHandler())),
                                                             CancellationToken.None);
 
             exitCode.Should().Be(1);
@@ -1567,7 +1568,7 @@ public sealed class DownloadCommandHandlerTests
     [Test]
     public async Task InvokeAsync_ShouldReportManifestReadFailuresAsCommandErrors()
     {
-        using var handler = new SequenceHttpMessageHandler(_ => new(HttpStatusCode.OK)
+        using var handler = new SequenceHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StreamContent(new ThrowingReadStream(new IOException("Simulated manifest read failure.")))
         });
@@ -1575,7 +1576,7 @@ public sealed class DownloadCommandHandlerTests
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
 
-        var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--server-url", "https://shadowdrop.test", "--share-key", new('a', 64)],
+        var exitCode = await CliApplication.InvokeAsync(["download", "share-token", "--server-url", "https://shadowdrop.test", "--share-key", new String('a', 64)],
                                                         CreateServices(standardOut, standardError, httpClient: httpClient),
                                                         CancellationToken.None);
 
@@ -1657,7 +1658,7 @@ public sealed class DownloadCommandHandlerTests
         {
             Environment.CurrentDirectory = rootDirectory;
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -1665,7 +1666,7 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -1730,7 +1731,7 @@ public sealed class DownloadCommandHandlerTests
                 {
                     request.Headers.Range.Should().NotBeNull();
                     request.Headers.Range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
-                    return fixture.CreateDownloadResponse(new()
+                    return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                     {
                         Start = fixture.ChunkSize,
                         End = fixture.Plaintext.LongLength
@@ -1794,7 +1795,7 @@ public sealed class DownloadCommandHandlerTests
                 {
                     request.Headers.Range.Should().NotBeNull();
                     request.Headers.Range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
-                    return fixture.CreateDownloadResponse(new()
+                    return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                     {
                         Start = fixture.ChunkSize,
                         End = fixture.Plaintext.LongLength
@@ -1849,7 +1850,7 @@ public sealed class DownloadCommandHandlerTests
                 {
                     request.Headers.Range.Should().NotBeNull();
                     request.Headers.Range.Ranges.Single().From.Should().Be(fixture.ChunkSize);
-                    return fixture.CreateDownloadResponse(new()
+                    return fixture.CreateDownloadResponse(new RequestedPlaintextRangeContract
                     {
                         Start = fixture.ChunkSize,
                         End = fixture.Plaintext.LongLength
@@ -1885,7 +1886,7 @@ public sealed class DownloadCommandHandlerTests
             var firstOutputPath = Path.Combine(rootDirectory, "first.bin");
             var secondOutputPath = Path.Combine(rootDirectory, "second.bin");
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -1893,14 +1894,14 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString().ToUpperInvariant(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
                         OutputPath = "first.bin"
                     },
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -2054,7 +2055,7 @@ public sealed class DownloadCommandHandlerTests
             var firstOutputPath = Path.Combine(rootDirectory, "first.bin");
             var secondOutputPath = Path.Combine(rootDirectory, "second.bin");
             var queuePath = Path.Combine(rootDirectory, "queue.json");
-            var queueJson = QueueFileParser.Serialize(new()
+            var queueJson = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -2062,14 +2063,14 @@ public sealed class DownloadCommandHandlerTests
                 ShareToken = "shared-token",
                 Files =
                 [
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
                         Length = fixture.Plaintext.LongLength,
                         OutputPath = "first.bin"
                     },
-                    new()
+                    new QueueFileEntry
                     {
                         FileId = fixture.FileId.ToString(),
                         FileName = fixture.FileName,
@@ -2195,11 +2196,11 @@ public sealed class DownloadCommandHandlerTests
         {
             Files =
             [
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = Guid.NewGuid().ToString()
                 },
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = wanted.ToString(),
                     FileName = "wanted.bin"
@@ -2217,11 +2218,11 @@ public sealed class DownloadCommandHandlerTests
         {
             Files =
             [
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = Guid.NewGuid().ToString()
                 },
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = Guid.NewGuid().ToString()
                 }
@@ -2258,7 +2259,7 @@ public sealed class DownloadCommandHandlerTests
     public void SelectFileById_ShouldThrow_WhenFileNotFound()
     {
         var act = () => DownloadCommandHandler.SelectFileById([
-            new()
+            new ShareManifestFileContract
             {
                 FileId = Guid.NewGuid().ToString()
             }
@@ -2280,7 +2281,7 @@ public sealed class DownloadCommandHandlerTests
     {
         var queuePath = Path.Combine(rootDirectory, "queue.json");
         var paths = outputPaths.Length == 0 ? ["payload.bin"] : outputPaths;
-        var queueJson = QueueFileParser.Serialize(new()
+        var queueJson = QueueFileParser.Serialize(new QueueFile
         {
             ShadowDrop = "1.0",
             QueueVersion = "2.0",
@@ -2309,7 +2310,7 @@ public sealed class DownloadCommandHandlerTests
                                                          HttpClient? httpClient = null,
                                                          FakeInteractiveSession? interactiveSession = null,
                                                          ITerminalCapabilityProvider? terminalCapabilityProvider = null) =>
-        new(new(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
+        new(new CliConfigurationResolver(new StubConfigPathResolver(configPath), new StubEnvironmentReader(environmentValues ?? new Dictionary<String, String?>())),
             httpClient ?? new HttpClient(new NeverCalledHandler()),
             standardOut,
             standardError,
@@ -2477,7 +2478,7 @@ public sealed class DownloadCommandHandlerTests
         public String CreateQueueFile(QueueFixture fixture)
         {
             var queuePath = Path.Combine(_rootDirectory, $"queue-{Guid.NewGuid():N}.json");
-            var json = QueueFileParser.Serialize(new()
+            var json = QueueFileParser.Serialize(new QueueFile
             {
                 ShadowDrop = "1.0",
                 QueueVersion = "2.0",
@@ -2522,7 +2523,7 @@ public sealed class DownloadCommandHandlerTests
             var shareKey = root.GetProperty("credentials").GetProperty("shareKey").GetString()!;
             var shareToken = root.GetProperty("shareToken").GetString()!;
             var downloadBearerToken = root.GetProperty("credentials").GetProperty("downloadBearerToken").GetString();
-            return new(fileIds, shareKey, new(shareToken, downloadBearerToken));
+            return new UploadFixture(fileIds, shareKey, new ShareFixture(shareToken, downloadBearerToken));
         }
 
         public void WriteConfig(String serverUrl, String uploadToken) =>
@@ -2597,17 +2598,17 @@ public sealed class DownloadCommandHandlerTests
                 var chunkPlaintext = plaintext.Skip(checked((Int32)(chunkIndex * chunkSize))).Take(chunkSize).ToArray();
                 var encryptedChunk = ChunkEncryptionService.EncryptChunk(chunkPlaintext,
                                                                          contentKey,
-                                                                         new(CryptoVersion.V1,
-                                                                             CryptoAlgorithm.Aes256Gcm,
-                                                                             fileId,
-                                                                             chunkSize,
-                                                                             chunkIndex,
-                                                                             chunkPlaintext.Length,
-                                                                             chunkIndex == chunkCount - 1));
+                                                                         new ChunkMetadata(CryptoVersion.V1,
+                                                                                           CryptoAlgorithm.Aes256Gcm,
+                                                                                           fileId,
+                                                                                           chunkSize,
+                                                                                           chunkIndex,
+                                                                                           chunkPlaintext.Length,
+                                                                                           chunkIndex == chunkCount - 1));
                 encryptedChunks.Add(encryptedChunk.Ciphertext);
             }
 
-            return new(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
+            return new DownloadHttpFixture(fileId, keyMaterial, kdfSalt, plaintext, chunkSize, encryptedChunks.ToArray());
         }
 
         public HttpResponseMessage CreateCancellingDownloadResponse(Int32 bytesBeforeCancellation, CancellationTokenSource cancellation)
@@ -2615,7 +2616,7 @@ public sealed class DownloadCommandHandlerTests
             var response = CreateDownloadResponse();
             var contentLength = response.Content.Headers.ContentLength;
             response.Content = new StreamContent(new CancellingReadStream(response.Content.ReadAsStream(), bytesBeforeCancellation, cancellation));
-            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
             response.Content.Headers.ContentLength = contentLength;
             return response;
         }
@@ -2636,7 +2637,7 @@ public sealed class DownloadCommandHandlerTests
             {
                 Content = new ByteArrayContent(responseBody)
             };
-            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
             response.Content.Headers.ContentLength = responseBody.LongLength;
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.FirstChunkIndexHeaderName, chunkRange.FirstChunkIndex.ToString());
             response.Headers.TryAddWithoutValidation(DownloadHeaderConstants.LastChunkIndexHeaderName, chunkRange.LastChunkIndex.ToString());
@@ -2653,7 +2654,7 @@ public sealed class DownloadCommandHandlerTests
             var response = CreateDownloadResponse();
             var contentLength = response.Content.Headers.ContentLength;
             response.Content = new StreamContent(new InterruptingReadStream(response.Content.ReadAsStream(), bytesBeforeFailure));
-            response.Content.Headers.ContentType = new(DownloadHeaderConstants.CliDownloadContentType);
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue(DownloadHeaderConstants.CliDownloadContentType);
             response.Content.Headers.ContentLength = contentLength;
             return response;
         }
@@ -2683,7 +2684,7 @@ public sealed class DownloadCommandHandlerTests
             {
                 Files = files
             };
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(manifest), Encoding.UTF8, "application/json")
             };
@@ -2785,7 +2786,7 @@ public sealed class DownloadCommandHandlerTests
 
         public SequenceHttpMessageHandler(params Func<HttpRequestMessage, HttpResponseMessage>[] responses)
         {
-            _responses = new(responses);
+            _responses = new Queue<Func<HttpRequestMessage, HttpResponseMessage>>(responses);
         }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

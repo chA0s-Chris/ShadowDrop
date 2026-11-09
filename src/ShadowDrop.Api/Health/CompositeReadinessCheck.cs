@@ -51,7 +51,7 @@ internal sealed class CompositeReadinessCheck : IReadinessCheck
         var results = await Task.WhenAll(_probes.Select(probe => ProbeAsync(probe, deadline.Token, cancellationToken)));
         var components = results.SelectMany(static result => result).OrderBy(static component => component.Name, StringComparer.Ordinal).ToArray();
         var ready = components.All(component => component.State == OperationalComponentStates.Ready);
-        return new(ready, OperationalReadinessSnapshot.SelectReason(components), components);
+        return new OperationalReadinessSnapshot(ready, OperationalReadinessSnapshot.SelectReason(components), components);
     }
 
     public async Task<Boolean> IsReadyAsync(CancellationToken cancellationToken) =>

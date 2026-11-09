@@ -75,10 +75,10 @@ public sealed class UploadCredentialService
             throw new UploadCredentialProviderUnavailableException(exception);
         }
 
-        return new(credential.CredentialId,
-                   credential.MaxEncryptedFileBytes,
-                   credential.MaxEncryptedShareBytes,
-                   credential.ExpiresAtUtc);
+        return new UploadCredentialAuthorizationContext(credential.CredentialId,
+                                                        credential.MaxEncryptedFileBytes,
+                                                        credential.MaxEncryptedShareBytes,
+                                                        credential.ExpiresAtUtc);
     }
 
     public async Task<UploadCredentialCreationResult> CreateAsync(UploadCredentialCreationRequest request, CancellationToken cancellationToken)
@@ -132,7 +132,7 @@ public sealed class UploadCredentialService
             {
                 _logger.LogInformation("Upload credential created. CredentialId: {CredentialId}; Name: {Name}",
                                        record.CredentialId, record.Name);
-                return new(record, tokenParts.Token);
+                return new UploadCredentialCreationResult(record, tokenParts.Token);
             }
         }
     }

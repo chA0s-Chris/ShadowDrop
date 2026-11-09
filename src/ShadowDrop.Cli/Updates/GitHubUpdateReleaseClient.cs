@@ -25,7 +25,7 @@ internal sealed class GitHubUpdateReleaseClient : IUpdateReleaseClient
     private readonly TimeProvider _timeProvider;
 
     public GitHubUpdateReleaseClient()
-        : this(new Lazy<HttpClient>(static () => new()), TimeProvider.System) { }
+        : this(new Lazy<HttpClient>(static () => new HttpClient()), TimeProvider.System) { }
 
     public GitHubUpdateReleaseClient(HttpClient httpClient, TimeProvider? timeProvider = null)
         : this(new Lazy<HttpClient>(() => httpClient), timeProvider ?? TimeProvider.System) { }

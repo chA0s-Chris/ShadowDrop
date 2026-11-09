@@ -98,7 +98,7 @@ public sealed class CreateShareService
                         throw new CreateShareValidationException("The aggregate encrypted share size is invalid.", exception);
                     }
 
-                    files.Add(new(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
+                    files.Add(new ShareFileEntryRecord(fileRequest.FileId, uploadedFile.OriginalFileName, DisplayNameNormalizer.Normalize(fileRequest.DisplayName)));
                 }
 
                 if (authorizationContext.MaxEncryptedShareBytes is { } maxEncryptedShareBytes
@@ -118,8 +118,8 @@ public sealed class CreateShareService
                                                   ?? throw new InvalidOperationException(
                                                       "A generated download bearer token requires an expiration timestamp.");
 
-                    downloadBearerTokenRecord = new(TokenHashing.ComputeHashBase64(downloadBearerToken),
-                                                    bearerTokenExpiresAtUtc.ToUniversalTime());
+                    downloadBearerTokenRecord = new DownloadBearerTokenRecord(TokenHashing.ComputeHashBase64(downloadBearerToken),
+                                                                              bearerTokenExpiresAtUtc.ToUniversalTime());
                 }
 
                 var record = new ShareRecord(shareId,
@@ -151,7 +151,7 @@ public sealed class CreateShareService
                     record.DirectHttpEnabled,
                     downloadBearerToken is not null);
 
-                return new(shareId, shareToken, downloadBearerToken);
+                return new CreateShareResult(shareId, shareToken, downloadBearerToken);
             }
             catch (Exception exception)
             {
@@ -225,7 +225,7 @@ public sealed class CreateShareService
             throw new CreateShareValidationException("Download bearer token expiration requires token generation.");
         }
 
-        return new(files, downloadBearerTokenExpiresAtUtc);
+        return new ValidatedCreateShareRequest(files, downloadBearerTokenExpiresAtUtc);
     }
 
     /// <summary>

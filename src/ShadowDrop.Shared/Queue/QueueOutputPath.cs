@@ -18,6 +18,7 @@ public static class QueueOutputPath
     /// The only directory separator a queue destination may use.
     /// </summary>
     public const Char DirectorySeparator = '/';
+
     private const String PartialFileSuffix = ".shadowdrop-partial";
 
     // A fixed, OS-independent set so a path accepted on one platform stays writable on another. Combines the
@@ -28,6 +29,7 @@ public static class QueueOutputPath
         '<', '>', ':', '"', '|', '?', '*',
         .. Enumerable.Range(0, 32).Select(static value => (Char)value)
     ];
+
     private const String ResumeMarkerSuffix = ".json";
 
     private static readonly HashSet<String> WindowsReservedDeviceNames = new(StringComparer.OrdinalIgnoreCase)

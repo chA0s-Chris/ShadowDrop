@@ -73,11 +73,11 @@ public sealed class ShareInspectionService
                 }
             }
 
-            files[index] = new(shareFile.FileId.ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant(),
-                               ciphertextBytes,
-                               retentionState,
-                               includeFilenames ? shareFile.OriginalFileName : null,
-                               includeFilenames ? shareFile.DisplayName : null);
+            files[index] = new ShareInspectionFileContract(shareFile.FileId.ToString("D", CultureInfo.InvariantCulture).ToLowerInvariant(),
+                                                           ciphertextBytes,
+                                                           retentionState,
+                                                           includeFilenames ? shareFile.OriginalFileName : null,
+                                                           includeFilenames ? shareFile.DisplayName : null);
         }
 
         var summary = ShareSummaryMapper.Map(share.ShareId,
@@ -90,18 +90,18 @@ public sealed class ShareInspectionService
                                              share.Files.Count,
                                              retainedBytes,
                                              nowUtc);
-        return new(OperationalStatusProtocol.CurrentVersion,
-                   summary.ShareId,
-                   summary.CreatedAtUtc,
-                   summary.ExpiresAtUtc,
-                   summary.RevokedAtUtc,
-                   summary.Statuses,
-                   summary.CleanupState,
-                   summary.LastCleanupAttemptAtUtc,
-                   summary.CleanupFailureCategories,
-                   summary.FileCount,
-                   summary.CiphertextBytes,
-                   files);
+        return new ShareInspectionContract(OperationalStatusProtocol.CurrentVersion,
+                                           summary.ShareId,
+                                           summary.CreatedAtUtc,
+                                           summary.ExpiresAtUtc,
+                                           summary.RevokedAtUtc,
+                                           summary.Statuses,
+                                           summary.CleanupState,
+                                           summary.LastCleanupAttemptAtUtc,
+                                           summary.CleanupFailureCategories,
+                                           summary.FileCount,
+                                           summary.CiphertextBytes,
+                                           files);
     }
 
     private static String MapRetentionState(BlobRetentionState state) => state switch

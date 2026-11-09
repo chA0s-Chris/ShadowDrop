@@ -84,10 +84,10 @@ internal sealed class TokenCreateCommandHandler
         {
             result = await new TokenApiClient(_httpClient).CreateAsync(configuration.ServerUrl,
                                                                        configuration.AdminToken,
-                                                                       new(name,
-                                                                           expiresAtUtc,
-                                                                           options.MaxFileBytes,
-                                                                           options.MaxShareBytes),
+                                                                       new CreateUploadCredentialCliRequest(name,
+                                                                                                            expiresAtUtc,
+                                                                                                            options.MaxFileBytes,
+                                                                                                            options.MaxShareBytes),
                                                                        cancellationToken);
         }
         catch (TokenCommandException exception)

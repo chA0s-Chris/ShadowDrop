@@ -149,7 +149,7 @@ public sealed class CliApplicationTests
             request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
             request.Headers.Authorization.Parameter.Should().Be("admin-token");
-            return new(HttpStatusCode.NoContent);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token"),
                                                   // ReSharper disable once AccessToDisposedClosure
@@ -185,7 +185,7 @@ public sealed class CliApplicationTests
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri($"https://shadowdrop.test/api/admin/upload-credentials/{credentialId}/revoke"));
             request.Headers.Authorization!.Parameter.Should().Be("admin-token", "token commands must use the dedicated admin token");
-            return new(HttpStatusCode.NoContent);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         }));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
                                                   // ReSharper disable once AccessToDisposedClosure
@@ -240,7 +240,7 @@ public sealed class CliApplicationTests
         var shareId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var services = new CliApplicationServices(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token", adminToken: "admin-token"),
                                                   // ReSharper disable once AccessToDisposedClosure
                                                   _ => httpClient,
@@ -337,8 +337,8 @@ public sealed class CliApplicationTests
     private static CliApplicationServices CreateServices(StringWriter standardOut,
                                                          StringWriter standardError,
                                                          ICliInteractiveSession? interactiveSession = null) =>
-        new(new(new StubConfigPathResolver(), new StubEnvironmentReader()),
-            _ => new(new NeverCalledHandler()),
+        new(new CliConfigurationResolver(new StubConfigPathResolver(), new StubEnvironmentReader()),
+            _ => new HttpClient(new NeverCalledHandler()),
             standardOut,
             standardError,
             interactiveSession ?? new FakeInteractiveSession(),

@@ -113,7 +113,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
                                                         64,
                                                         1,
                                                         Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-                                                        new('a', 64));
+                                                        new String('a', 64));
         (await repository.TryCompleteReservationAsync(uploadedFileRecord, CancellationToken.None)).Should().BeTrue();
 
         var logRecords = collector.GetSnapshot();
@@ -167,7 +167,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
                                             64,
                                             1,
                                             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-                                            new('a', 64));
+                                            new String('a', 64));
         (await repository.TryCompleteReservationAsync(record, CancellationToken.None)).Should().BeTrue();
         return fileId;
     }
@@ -206,11 +206,11 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

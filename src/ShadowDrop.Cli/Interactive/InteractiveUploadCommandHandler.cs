@@ -136,7 +136,7 @@ internal sealed class InteractiveUploadCommandHandler
         var expirationChoice = _interactiveSession.PromptSelection("Select the share expiration:", choices, static choice => choice.Label);
         var directHttp = _interactiveSession.PromptConfirmation("Enable direct HTTP downloads?", false);
         var generateDownloadToken = !directHttp && _interactiveSession.PromptConfirmation("Require a download bearer token?", false);
-        return new(expirationChoice.ExpiresIn, expirationChoice.Label, directHttp, generateDownloadToken);
+        return new SharePromptResult(expirationChoice.ExpiresIn, expirationChoice.Label, directHttp, generateDownloadToken);
     }
 
     private IReadOnlyList<FileInfo> ResolveFiles(UploadCommandOptions options)
@@ -151,7 +151,7 @@ internal sealed class InteractiveUploadCommandHandler
         {
             var path = _interactiveSession.PromptText("Path to a file to upload:", validate: static value =>
                                                           String.IsNullOrWhiteSpace(value) ? "Enter a local file path." : null);
-            selectedFiles.Add(new(path));
+            selectedFiles.Add(new FileInfo(path));
         } while (_interactiveSession.PromptConfirmation("Add another file?", false));
 
         return selectedFiles;

@@ -84,7 +84,7 @@ internal static class AutomaticUpdateCheck
             // Failed attempts are recorded below so automatic checks stay within the interval regardless.
         }
 
-        updateServices.Cache.Write(new(now, latestVersionText));
+        updateServices.Cache.Write(new UpdateCheckRecord(now, latestVersionText));
         return latestVersionText;
     }
 }

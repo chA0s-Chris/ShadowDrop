@@ -16,14 +16,14 @@ public sealed class RevokeShareApiClientTests
     public async Task RevokeAsync_ShouldPostToAdminEndpoint_WithBearerToken()
     {
         var shareId = Guid.NewGuid();
-        var client = new RevokeShareApiClient(new(new StubHttpMessageHandler(request =>
+        var client = new RevokeShareApiClient(new HttpClient(new StubHttpMessageHandler(request =>
         {
             request.Method.Should().Be(HttpMethod.Post);
             request.RequestUri.Should().Be(new Uri(ServerUrl, $"/api/admin/shares/{shareId}/revoke"));
             request.Headers.Authorization.Should().NotBeNull();
             request.Headers.Authorization.Scheme.Should().Be("Bearer");
             request.Headers.Authorization.Parameter.Should().Be("upload-token");
-            return new(HttpStatusCode.NoContent);
+            return new HttpResponseMessage(HttpStatusCode.NoContent);
         })));
 
         await client.RevokeAsync(ServerUrl, "upload-token", shareId, CancellationToken.None);
@@ -36,7 +36,7 @@ public sealed class RevokeShareApiClientTests
     [TestCase(HttpStatusCode.InternalServerError, "Share revocation failed.")]
     public async Task RevokeAsync_ShouldThrowMappedMessage_ForErrorStatusCodes(HttpStatusCode statusCode, String expectedMessage)
     {
-        var client = CreateClient(new(statusCode));
+        var client = CreateClient(new HttpResponseMessage(statusCode));
 
         var act = () => client.RevokeAsync(ServerUrl, "upload-token", Guid.NewGuid(), CancellationToken.None);
 
@@ -46,7 +46,7 @@ public sealed class RevokeShareApiClientTests
     [Test]
     public async Task RevokeAsync_ShouldThrowServerConnectionFailed_WhenTransportFails()
     {
-        var client = new RevokeShareApiClient(new(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
+        var client = new RevokeShareApiClient(new HttpClient(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
 
         var act = () => client.RevokeAsync(ServerUrl, "upload-token", Guid.NewGuid(), CancellationToken.None);
 
@@ -57,7 +57,7 @@ public sealed class RevokeShareApiClientTests
     [TestCase(HttpStatusCode.NoContent)]
     public async Task RevokeAsync_ShouldTreatSuccessStatusCodesAsSuccess(HttpStatusCode statusCode)
     {
-        var client = CreateClient(new(statusCode));
+        var client = CreateClient(new HttpResponseMessage(statusCode));
 
         await FluentActions.Awaiting(() => client.RevokeAsync(ServerUrl, "upload-token", Guid.NewGuid(), CancellationToken.None))
                            .Should().NotThrowAsync();
@@ -66,7 +66,7 @@ public sealed class RevokeShareApiClientTests
     [Test]
     public async Task RevokeAsync_ShouldValidateArguments()
     {
-        var client = CreateClient(new(HttpStatusCode.NoContent));
+        var client = CreateClient(new HttpResponseMessage(HttpStatusCode.NoContent));
 
         await FluentActions.Awaiting(() => client.RevokeAsync(null!, "token", Guid.NewGuid(), CancellationToken.None))
                            .Should().ThrowAsync<ArgumentNullException>();
@@ -77,5 +77,5 @@ public sealed class RevokeShareApiClientTests
     }
 
     private static RevokeShareApiClient CreateClient(HttpResponseMessage response) =>
-        new(new(new StubHttpMessageHandler(response)));
+        new(new HttpClient(new StubHttpMessageHandler(response)));
 }

@@ -16,7 +16,7 @@ public sealed class HealthProbeTests
     {
         using var client = CreateClient((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
 
-        var exitCode = await HealthProbe.RunAsync(client, new("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
+        var exitCode = await HealthProbe.RunAsync(client, new Uri("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
 
         exitCode.Should().Be(HealthProbe.HealthyExitCode);
     }
@@ -26,7 +26,7 @@ public sealed class HealthProbeTests
     {
         using var client = CreateClient((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
 
-        var exitCode = await HealthProbe.RunAsync(client, new("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
+        var exitCode = await HealthProbe.RunAsync(client, new Uri("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
 
         exitCode.Should().Be(HealthProbe.UnhealthyExitCode);
     }
@@ -36,7 +36,7 @@ public sealed class HealthProbeTests
     {
         using var client = CreateClient((_, _) => throw new HttpRequestException("connection refused"));
 
-        var exitCode = await HealthProbe.RunAsync(client, new("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
+        var exitCode = await HealthProbe.RunAsync(client, new Uri("http://localhost/health/ready"), TimeSpan.FromSeconds(1), CancellationToken.None);
 
         exitCode.Should().Be(HealthProbe.UnhealthyExitCode);
     }
@@ -47,12 +47,12 @@ public sealed class HealthProbeTests
         using var client = CreateClient(async (_, cancellationToken) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            return new(HttpStatusCode.OK);
+            return new HttpResponseMessage(HttpStatusCode.OK);
         });
 
         // ReSharper disable once AccessToDisposedClosure
         var act = async () => await HealthProbe.RunAsync(client,
-                                                         new("http://localhost/health/ready"),
+                                                         new Uri("http://localhost/health/ready"),
                                                          TimeSpan.FromMilliseconds(10),
                                                          CancellationToken.None);
 
@@ -122,7 +122,7 @@ public sealed class HealthProbeTests
         var listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{port}/");
         listener.Start();
-        endpoint = new($"http://127.0.0.1:{port}/health/ready");
+        endpoint = new Uri($"http://127.0.0.1:{port}/health/ready");
 
         _ = Task.Run(async () =>
         {

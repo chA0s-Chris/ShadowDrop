@@ -17,9 +17,9 @@ internal sealed record CliUpdateServices(
     public static CliUpdateServices CreateDefault()
     {
         var environmentReader = new EnvironmentReader();
-        return new(new GitHubUpdateReleaseClient(),
-                   new FileUpdateCheckCache(new(environmentReader)),
-                   new InstallationGuidanceProvider(),
-                   environmentReader);
+        return new CliUpdateServices(new GitHubUpdateReleaseClient(),
+                                     new FileUpdateCheckCache(new UpdateCheckCachePathResolver(environmentReader)),
+                                     new InstallationGuidanceProvider(),
+                                     environmentReader);
     }
 }

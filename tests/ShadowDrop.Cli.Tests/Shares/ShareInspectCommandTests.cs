@@ -30,7 +30,7 @@ public sealed class ShareInspectCommandTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("80000000-0000-0000-0000-000000000001", null, null, false, false),
+        var exitCode = await handler.ExecuteAsync(new ShareInspectCommandOptions("80000000-0000-0000-0000-000000000001", null, null, false, false),
                                                   CancellationToken.None);
 
         exitCode.Should().Be(0);
@@ -69,7 +69,7 @@ public sealed class ShareInspectCommandTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(shareId, null, null, false, true), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareInspectCommandOptions(shareId, null, null, false, true), CancellationToken.None);
 
         exitCode.Should().Be(1);
         requests.Should().Be(0);
@@ -132,7 +132,7 @@ public sealed class ShareInspectCommandTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("80000000-0000-0000-0000-000000000001", null, null, false, true),
+        var exitCode = await handler.ExecuteAsync(new ShareInspectCommandOptions("80000000-0000-0000-0000-000000000001", null, null, false, true),
                                                   CancellationToken.None);
 
         exitCode.Should().Be(1);
@@ -158,7 +158,7 @@ public sealed class ShareInspectCommandTests
                                                      standardOut,
                                                      standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("80000000-0000-0000-0000-000000000001", null, null, false, true),
+        var exitCode = await handler.ExecuteAsync(new ShareInspectCommandOptions("80000000-0000-0000-0000-000000000001", null, null, false, true),
                                                   CancellationToken.None);
 
         exitCode.Should().Be(6);
@@ -178,7 +178,7 @@ public sealed class ShareInspectCommandTests
             [],
             1,
             42,
-            [new("a0000000-0000-0000-0000-000000000001", 42, ShareFileRetentionStates.Retained, null, null)]);
+            [new ShareInspectionFileContract("a0000000-0000-0000-0000-000000000001", 42, ShareFileRetentionStates.Retained, null, null)]);
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, ShareInspectionContract inspection) =>
         new(statusCode)

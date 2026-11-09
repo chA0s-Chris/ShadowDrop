@@ -8,6 +8,7 @@ using ShadowDrop.Api.Configuration;
 using ShadowDrop.Api.Health;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Status;
+using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
 
 public sealed class OperationalStatusServiceTests
@@ -46,7 +47,7 @@ public sealed class OperationalStatusServiceTests
         cleanup.Record(timeProvider.GetUtcNow(), CleanupRunStatus.Success);
         var service = CreateService(new ManualReadinessCheck(true),
                                     new ManualStatisticsProvider(
-                                        new OperationalStatisticsSnapshot(new(2, 350, true), new(1, 2, 3, 4, 5))),
+                                        new OperationalStatisticsSnapshot(new UploadedFileStorageStats(2, 350, true), new ShareStatusCounts(1, 2, 3, 4, 5))),
                                     cleanup,
                                     timeProvider);
         timeProvider.UtcNow = timeProvider.UtcNow.AddSeconds(42);
@@ -88,7 +89,7 @@ public sealed class OperationalStatusServiceTests
     {
         var service = CreateService(new ManualReadinessCheck(true),
                                     new ManualStatisticsProvider(
-                                        new OperationalStatisticsSnapshot(new(null, null, false), new(0, 0, 0, 0, 0))));
+                                        new OperationalStatisticsSnapshot(new UploadedFileStorageStats(null, null, false), new ShareStatusCounts(0, 0, 0, 0, 0))));
 
         var status = await service.GetAdminAsync(CancellationToken.None);
 
@@ -100,9 +101,9 @@ public sealed class OperationalStatusServiceTests
     [Test]
     public async Task GetPublicAsync_ShouldWorkWithoutOptionalStatistics_WhenEveryCapabilityIsDisabled()
     {
-        var service = CreateService(new ManualReadinessCheck(true), null, options: new()
+        var service = CreateService(new ManualReadinessCheck(true), null, options: new ShadowDropOptions
         {
-            ApiExposure = new()
+            ApiExposure = new ApiExposureOptions
             {
                 EnableAdminOperations = false,
                 EnableUploads = false,
@@ -125,8 +126,8 @@ public sealed class OperationalStatusServiceTests
         TimeSpan? collectionTimeout = null) =>
         new(readinessCheck,
             statisticsProvider is null ? [] : [statisticsProvider],
-            cleanupRunStatus ?? new(),
-            options ?? new(),
+            cleanupRunStatus ?? new CleanupRunStatus(),
+            options ?? new ShadowDropOptions(),
             timeProvider ?? TimeProvider.System)
         {
             CollectionTimeout = collectionTimeout ?? OperationalStatusService.DefaultCollectionTimeout
@@ -146,10 +147,10 @@ public sealed class OperationalStatusServiceTests
                                 _ready,
                                 _ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable,
                                 [
-                                    new("metadata",
-                                        _ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
-                                        _ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable),
-                                    new("storage", OperationalComponentStates.Ready, OperationalStatusReasons.None)
+                                    new OperationalComponentSnapshot("metadata",
+                                                                     _ready ? OperationalComponentStates.Ready : OperationalComponentStates.NotReady,
+                                                                     _ready ? OperationalStatusReasons.None : OperationalStatusReasons.DependencyUnavailable),
+                                    new OperationalComponentSnapshot("storage", OperationalComponentStates.Ready, OperationalStatusReasons.None)
                                 ]));
 
         public Task<Boolean> IsReadyAsync(CancellationToken cancellationToken) => Task.FromResult(_ready);

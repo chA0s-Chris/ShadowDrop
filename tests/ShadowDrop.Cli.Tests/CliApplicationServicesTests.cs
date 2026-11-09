@@ -44,5 +44,5 @@ public sealed class CliApplicationServicesTests
         httpClient.Should().NotBeNull();
     }
 
-    private static CliConfigurationResolver CreateResolver() => new(new(), new EnvironmentReader());
+    private static CliConfigurationResolver CreateResolver() => new(new CliConfigPathResolver(), new EnvironmentReader());
 }

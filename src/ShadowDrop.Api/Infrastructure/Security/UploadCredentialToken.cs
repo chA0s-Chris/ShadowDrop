@@ -22,7 +22,7 @@ public static class UploadCredentialToken
     {
         var selector = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(SelectorByteCount));
         var secret = Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(SecretByteCount));
-        return new($"{Prefix}.{selector}.{secret}", selector, secret);
+        return new UploadCredentialTokenParts($"{Prefix}.{selector}.{secret}", selector, secret);
     }
 
     public static Boolean TryParse(String? token, out String selector, out String secret)

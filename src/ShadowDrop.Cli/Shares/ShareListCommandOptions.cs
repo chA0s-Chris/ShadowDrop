@@ -3,7 +3,7 @@
 namespace ShadowDrop.Cli.Shares;
 
 /// <summary>
-/// Carries the parsed <c>share list</c> options. <c>Statuses</c> is <see langword="null" /> when <c>--status</c> was
+/// Carries the parsed <c>share list</c> options. <c>Statuses</c> is <see langword="null"/> when <c>--status</c> was
 /// omitted entirely and empty when it was supplied without a value; the latter is rejected rather than read as
 /// "every share".
 /// </summary>

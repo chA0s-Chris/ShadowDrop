@@ -86,7 +86,7 @@ internal static class ProcessRunner
         // Block briefly so the asynchronous stdout/stderr readers flush before the buffers are read.
         process.WaitForExit();
 
-        return new(process.ExitCode, standardOutput.ToString(), standardError.ToString());
+        return new ProcessResult(process.ExitCode, standardOutput.ToString(), standardError.ToString());
     }
 
     public static void TryKill(Process process)

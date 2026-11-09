@@ -34,10 +34,10 @@ public sealed class EncryptedFileContentTests
             using var shareSecret = ShareSecret.Generate();
             const Int32 chunkCount = 3;
             var encryptedLength = plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength);
-            using var content = new EncryptedFileContent(new(linkPath),
+            using var content = new EncryptedFileContent(new FileInfo(linkPath),
                                                          null,
                                                          shareSecret,
-                                                         new(fileId, kdfSalt),
+                                                         new FileEncryptionContext(fileId, kdfSalt),
                                                          chunkSize,
                                                          encryptedLength,
                                                          null,
@@ -48,7 +48,7 @@ public sealed class EncryptedFileContentTests
 
             var ciphertext = sink.ToArray();
             ciphertext.Length.Should().Be(encryptedLength);
-            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new(fileId, kdfSalt));
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new FileEncryptionContext(fileId, kdfSalt));
             using var decrypted = new MemoryStream();
             var ciphertextOffset = 0;
             for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
@@ -56,15 +56,15 @@ public sealed class EncryptedFileContentTests
                 var plaintextChunkLength = Math.Min(chunkSize, plaintextLength - (chunkIndex * chunkSize));
                 var encryptedChunkLength = plaintextChunkLength + EncryptedChunk.AuthenticationTagLength;
                 // Binding the AAD is what makes this fail when the chunk count came from the link's own size.
-                decrypted.Write(ChunkEncryptionService.DecryptChunk(new(ciphertext.AsSpan(ciphertextOffset, encryptedChunkLength).ToArray()),
+                decrypted.Write(ChunkEncryptionService.DecryptChunk(new EncryptedChunk(ciphertext.AsSpan(ciphertextOffset, encryptedChunkLength).ToArray()),
                                                                     contentKey,
-                                                                    new(CryptoVersion.V1,
-                                                                        CryptoAlgorithm.Aes256Gcm,
-                                                                        fileId,
-                                                                        chunkSize,
-                                                                        chunkIndex,
-                                                                        plaintextChunkLength,
-                                                                        chunkIndex == chunkCount - 1)));
+                                                                    new ChunkMetadata(CryptoVersion.V1,
+                                                                                      CryptoAlgorithm.Aes256Gcm,
+                                                                                      fileId,
+                                                                                      chunkSize,
+                                                                                      chunkIndex,
+                                                                                      plaintextChunkLength,
+                                                                                      chunkIndex == chunkCount - 1)));
                 ciphertextOffset += encryptedChunkLength;
             }
 
@@ -97,10 +97,10 @@ public sealed class EncryptedFileContentTests
             using var shareSecret = ShareSecret.Generate();
             var chunkCount = ((plaintextLength - 1) / chunkSize) + 1;
             var encryptedLength = plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength);
-            using var content = new EncryptedFileContent(new(filePath),
+            using var content = new EncryptedFileContent(new FileInfo(filePath),
                                                          null,
                                                          shareSecret,
-                                                         new(fileId, kdfSalt),
+                                                         new FileEncryptionContext(fileId, kdfSalt),
                                                          chunkSize,
                                                          encryptedLength,
                                                          null,
@@ -111,7 +111,7 @@ public sealed class EncryptedFileContentTests
 
             var ciphertext = sink.ToArray();
             ciphertext.Length.Should().Be(encryptedLength);
-            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new(fileId, kdfSalt));
+            using var contentKey = ChunkEncryptionService.DeriveContentKey(shareSecret, new FileEncryptionContext(fileId, kdfSalt));
             using var decrypted = new MemoryStream();
             var ciphertextOffset = 0;
             for (var chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++)
@@ -120,15 +120,15 @@ public sealed class EncryptedFileContentTests
                 var encryptedChunkLength = plaintextChunkLength + EncryptedChunk.AuthenticationTagLength;
                 // Decrypting binds the expected AAD, so this throws unless the uploader marked exactly the
                 // last chunk as final — including a full-sized last chunk when the length is an exact multiple.
-                decrypted.Write(ChunkEncryptionService.DecryptChunk(new(ciphertext.AsSpan(ciphertextOffset, encryptedChunkLength).ToArray()),
+                decrypted.Write(ChunkEncryptionService.DecryptChunk(new EncryptedChunk(ciphertext.AsSpan(ciphertextOffset, encryptedChunkLength).ToArray()),
                                                                     contentKey,
-                                                                    new(CryptoVersion.V1,
-                                                                        CryptoAlgorithm.Aes256Gcm,
-                                                                        fileId,
-                                                                        chunkSize,
-                                                                        chunkIndex,
-                                                                        plaintextChunkLength,
-                                                                        chunkIndex == chunkCount - 1)));
+                                                                    new ChunkMetadata(CryptoVersion.V1,
+                                                                                      CryptoAlgorithm.Aes256Gcm,
+                                                                                      fileId,
+                                                                                      chunkSize,
+                                                                                      chunkIndex,
+                                                                                      plaintextChunkLength,
+                                                                                      chunkIndex == chunkCount - 1)));
                 ciphertextOffset += encryptedChunkLength;
             }
 
@@ -156,14 +156,14 @@ public sealed class EncryptedFileContentTests
             File.WriteAllBytes(filePath, Enumerable.Range(0, 512).Select(static value => (Byte)value).ToArray());
             var kdfSalt = FileEncryptionContext.GenerateKdfSalt();
             using var shareSecret = ShareSecret.Generate();
-            using var content = new EncryptedFileContent(new(filePath),
+            using var content = new EncryptedFileContent(new FileInfo(filePath),
                                                          null,
                                                          shareSecret,
-                                                         new(fileId, kdfSalt),
+                                                         new FileEncryptionContext(fileId, kdfSalt),
                                                          128,
                                                          new FileInfo(filePath).Length + (4 * 16),
                                                          null,
-                                                         new(true));
+                                                         new CancellationToken(true));
             using var sink = new MemoryStream();
 
             var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
@@ -198,8 +198,8 @@ public sealed class EncryptedFileContentTests
             File.Delete(link);
             File.CreateSymbolicLink(link, outside);
             using var shareSecret = ShareSecret.Generate();
-            using var content = new EncryptedFileContent(new(link), rootDirectory, shareSecret,
-                                                         new(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt()),
+            using var content = new EncryptedFileContent(new FileInfo(link), rootDirectory, shareSecret,
+                                                         new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt()),
                                                          4, 19, null, CancellationToken.None);
 
             var act = async () => await content.CopyToAsync(Stream.Null);
@@ -234,7 +234,7 @@ public sealed class EncryptedFileContentTests
 
         try
         {
-            using var content = new EncryptedFileContent(new(filePath), null, shareSecret, context, 4, 58, null, CancellationToken.None, () => activityCount++);
+            using var content = new EncryptedFileContent(new FileInfo(filePath), null, shareSecret, context, 4, 58, null, CancellationToken.None, () => activityCount++);
             await content.CopyToAsync(Stream.Null);
 
             activityCount.Should().Be(3);
@@ -261,10 +261,10 @@ public sealed class EncryptedFileContentTests
             using var shareSecret = ShareSecret.Generate();
             var encryptedLength = 300 + (3 * EncryptedChunk.AuthenticationTagLength);
             var progress = new CapturingProgress();
-            using var content = new EncryptedFileContent(new(filePath),
+            using var content = new EncryptedFileContent(new FileInfo(filePath),
                                                          null,
                                                          shareSecret,
-                                                         new(fileId, kdfSalt),
+                                                         new FileEncryptionContext(fileId, kdfSalt),
                                                          chunkSize,
                                                          encryptedLength,
                                                          progress,

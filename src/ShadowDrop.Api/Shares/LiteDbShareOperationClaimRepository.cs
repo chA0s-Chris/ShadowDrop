@@ -20,7 +20,7 @@ public sealed class LiteDbShareOperationClaimRepository : IShareOperationClaimRe
         var databaseDirectory = Path.GetDirectoryName(_databasePath)
                                 ?? throw new InvalidOperationException("The metadata database path must include a directory.");
         FileSystemAccessPermissions.EnsureOwnerOnlyDirectory(databaseDirectory);
-        _database = new(new ConnectionString
+        _database = new LiteDatabase(new ConnectionString
         {
             Filename = _databasePath,
             Connection = ConnectionType.Shared

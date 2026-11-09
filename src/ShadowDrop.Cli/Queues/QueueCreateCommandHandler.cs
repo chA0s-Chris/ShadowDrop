@@ -104,7 +104,7 @@ internal sealed class QueueCreateCommandHandler
                 return 1;
             }
 
-            credentials = new()
+            credentials = new QueueCredentials
             {
                 ShareKey = shareKeyHex,
                 DownloadBearerToken = options.BearerToken

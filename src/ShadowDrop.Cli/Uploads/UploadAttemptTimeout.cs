@@ -11,7 +11,7 @@ internal sealed class UploadAttemptTimeout : IDisposable
 
     public UploadAttemptTimeout(CancellationToken callerCancellation, TimeProvider timeProvider)
     {
-        _inactivityCancellation = new(InactivityTimeout, timeProvider);
+        _inactivityCancellation = new CancellationTokenSource(InactivityTimeout, timeProvider);
         _linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation, _inactivityCancellation.Token);
     }
 

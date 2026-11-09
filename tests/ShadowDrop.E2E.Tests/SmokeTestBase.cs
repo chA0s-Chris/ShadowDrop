@@ -41,6 +41,6 @@ public abstract class SmokeTestBase
 
         var path = Path.Combine(directory, name);
         File.WriteAllBytes(path, bytes);
-        return new(path);
+        return new FileInfo(path);
     }
 }

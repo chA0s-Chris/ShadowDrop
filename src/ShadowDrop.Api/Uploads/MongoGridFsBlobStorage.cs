@@ -14,7 +14,7 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
     public MongoGridFsBlobStorage(IMongoHelper mongo, ShadowDropOptions options, ILogger<MongoGridFsBlobStorage> logger)
     {
         _logger = logger;
-        _bucket = new(mongo.Database, new()
+        _bucket = new GridFSBucket<Guid>(mongo.Database, new GridFSBucketOptions
         {
             BucketName = options.Storage.GridFsBucketName
         });
@@ -50,7 +50,7 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
         var fileId = ParseBlobKey(blobKey);
         try
         {
-            return await _bucket.OpenDownloadStreamAsync(fileId, new()
+            return await _bucket.OpenDownloadStreamAsync(fileId, new GridFSDownloadOptions
             {
                 Seekable = true
             }, cancellationToken);
@@ -73,7 +73,7 @@ public sealed class MongoGridFsBlobStorage : IBlobStorage
             await encryptedContent.CopyToAsync(countingStream, cancellationToken);
             await countingStream.FlushAsync(cancellationToken);
             await upload.CloseAsync(cancellationToken);
-            return new(blobKey, countingStream.BytesWritten);
+            return new UploadBlobDescriptor(blobKey, countingStream.BytesWritten);
         }
         catch (Exception exception)
         {

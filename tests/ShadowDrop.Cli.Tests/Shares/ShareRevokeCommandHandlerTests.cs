@@ -22,7 +22,7 @@ public sealed class ShareRevokeCommandHandlerTests
                                                     standardOut,
                                                     standardError);
 
-        var exitCode = await handler.ExecuteAsync(new("not-a-guid", null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareRevokeCommandOptions("not-a-guid", null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -34,14 +34,14 @@ public sealed class ShareRevokeCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)));
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
                                                                                adminToken: "secret-admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareRevokeCommandOptions(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -60,7 +60,7 @@ public sealed class ShareRevokeCommandHandlerTests
                                                     standardOut,
                                                     standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareRevokeCommandOptions(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -72,14 +72,14 @@ public sealed class ShareRevokeCommandHandlerTests
     {
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
                                                                                adminToken: "secret-admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareRevokeCommandOptions(Guid.NewGuid().ToString(), null, null), CancellationToken.None);
 
         exitCode.Should().Be(1);
         standardOut.ToString().Should().BeEmpty();
@@ -93,14 +93,14 @@ public sealed class ShareRevokeCommandHandlerTests
         var shareId = Guid.NewGuid();
         var standardOut = new StringWriter();
         var standardError = new StringWriter();
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
         var handler = new ShareRevokeCommandHandler(FakeConfiguration.Resolver("https://shadowdrop.test", "upload-token",
                                                                                adminToken: "admin-token"),
                                                     httpClient,
                                                     standardOut,
                                                     standardError);
 
-        var exitCode = await handler.ExecuteAsync(new(shareId.ToString(), null, null), CancellationToken.None);
+        var exitCode = await handler.ExecuteAsync(new ShareRevokeCommandOptions(shareId.ToString(), null, null), CancellationToken.None);
 
         exitCode.Should().Be(0);
         standardOut.ToString().Trim().Should().Be($"share-revoked:{shareId}");

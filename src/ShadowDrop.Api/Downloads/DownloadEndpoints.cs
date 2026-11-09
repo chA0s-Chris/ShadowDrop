@@ -59,7 +59,7 @@ public static class DownloadEndpoints
             DownloadLookupStatus.Forbidden => new StatusDownloadResult(StatusCodes.Status403Forbidden),
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
             DownloadLookupStatus.InvalidRequest or DownloadLookupStatus.InvalidRange => new StatusDownloadResult(StatusCodes.Status400BadRequest,
-                "{\"error\":\"Invalid download request.\"}"),
+                                                                                                                 "{\"error\":\"Invalid download request.\"}"),
             DownloadLookupStatus.RangeNotSatisfiable => new StatusDownloadResult(StatusCodes.Status416RangeNotSatisfiable),
             _ => new StatusDownloadResult(StatusCodes.Status500InternalServerError)
         };
@@ -107,7 +107,7 @@ public static class DownloadEndpoints
             return null;
         }
 
-        return new(range.From.Value, range.To.Value);
+        return new RequestedByteRange(range.From.Value, range.To.Value);
     }
 
     private static RequestedByteRange? ParseDirectHttpRangeHeader(String rangeHeader)
@@ -135,7 +135,7 @@ public static class DownloadEndpoints
             return null;
         }
 
-        return new(range.From, range.To);
+        return new RequestedByteRange(range.From, range.To);
     }
 
     private static String SanitizeFileName(String? value)
@@ -171,7 +171,7 @@ public static class DownloadEndpoints
 
     private static void SetNoStoreCacheControl(HttpContext httpContext)
     {
-        httpContext.Response.GetTypedHeaders().CacheControl = new()
+        httpContext.Response.GetTypedHeaders().CacheControl = new CacheControlHeaderValue
         {
             NoStore = true
         };
@@ -206,13 +206,13 @@ public static class DownloadEndpoints
                 return null;
             }
 
-            return new(DownloadRequestMode.DirectHttp,
-                       token,
-                       fileId,
-                       authorizationBearerToken,
-                       headerKeyMaterial,
-                       queryKeyMaterial,
-                       requestedRange);
+            return new DownloadRequest(DownloadRequestMode.DirectHttp,
+                                       token,
+                                       fileId,
+                                       authorizationBearerToken,
+                                       headerKeyMaterial,
+                                       queryKeyMaterial,
+                                       requestedRange);
         }
 
         if (!String.Equals(mode, DownloadHeaderConstants.StreamedCliMode, StringComparison.OrdinalIgnoreCase)
@@ -230,13 +230,13 @@ public static class DownloadEndpoints
             return null;
         }
 
-        return new(DownloadRequestMode.Cli,
-                   token,
-                   fileId,
-                   authorizationBearerToken,
-                   headerKeyMaterial,
-                   queryKeyMaterial,
-                   cliRange);
+        return new DownloadRequest(DownloadRequestMode.Cli,
+                                   token,
+                                   fileId,
+                                   authorizationBearerToken,
+                                   headerKeyMaterial,
+                                   queryKeyMaterial,
+                                   cliRange);
     }
 
     private static String? TryGetBearerToken(HttpRequest request)

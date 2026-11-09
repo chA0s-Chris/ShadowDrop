@@ -17,15 +17,15 @@ public sealed class OperationalStatusContractTests
             true,
             true,
             OperationalStatusReasons.None,
-            new(true, true, true, true),
+            new StatusCapabilitiesContract(true, true, true, true),
             "1.2.3",
             42,
-            [new("metadata", OperationalComponentStates.Ready, OperationalStatusReasons.None)],
-            new("litedb", "filesystem"),
-            new(2, 100),
-            new(1, 2, 3, 4, 5),
-            new(DateTimeOffset.Parse("2026-08-02T12:00:00Z"), "success"),
-            new(null),
+            [new StatusComponentContract("metadata", OperationalComponentStates.Ready, OperationalStatusReasons.None)],
+            new StatusProvidersContract("litedb", "filesystem"),
+            new StatusStorageContract(2, 100),
+            new StatusSharesContract(1, 2, 3, 4, 5),
+            new StatusCleanupContract(DateTimeOffset.Parse("2026-08-02T12:00:00Z"), "success"),
+            new StatusResumableSessionsContract(null),
             []);
 
         var json = JsonSerializer.Serialize(status, OperationalStatusJsonSerializerContext.Default.AdminServerStatusContract);

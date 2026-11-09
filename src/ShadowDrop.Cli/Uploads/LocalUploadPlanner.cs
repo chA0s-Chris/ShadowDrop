@@ -27,7 +27,7 @@ internal static class LocalUploadPlanner
         var duplicateErrors = FindDuplicates(materialized);
         if (!duplicateErrors.IsEmpty)
         {
-            return new(null, duplicateErrors);
+            return new LocalUploadPlanningResult(null, duplicateErrors);
         }
 
         var files = ImmutableArray.CreateBuilder<LocalUploadFile>(materialized.Length);
@@ -43,7 +43,7 @@ internal static class LocalUploadPlanner
                 file.Refresh();
                 if (!file.Exists)
                 {
-                    errors.Add(new(file, selection.Origin, fileNumber, "File is missing."));
+                    errors.Add(new LocalUploadPlanningError(file, selection.Origin, fileNumber, "File is missing."));
                     continue;
                 }
 
@@ -54,7 +54,7 @@ internal static class LocalUploadPlanner
                 var target = file.ResolveLinkTarget(true) as FileInfo ?? file;
                 if (target.Length <= 0)
                 {
-                    errors.Add(new(file, selection.Origin, fileNumber, "File is empty."));
+                    errors.Add(new LocalUploadPlanningError(file, selection.Origin, fileNumber, "File is empty."));
                     continue;
                 }
 
@@ -66,28 +66,28 @@ internal static class LocalUploadPlanner
 
                 var chunkCount = checked(((plaintextLength - 1) / ChunkSize) + 1);
                 var encryptedLength = checked(plaintextLength + (chunkCount * EncryptedChunk.AuthenticationTagLength));
-                files.Add(new(file,
-                              selection.Origin,
-                              selection.DirectoryRelativePath,
-                              selection.RecursiveRootPath,
-                              fileNumber,
-                              plaintextLength,
-                              chunkCount,
-                              encryptedLength));
+                files.Add(new LocalUploadFile(file,
+                                              selection.Origin,
+                                              selection.DirectoryRelativePath,
+                                              selection.RecursiveRootPath,
+                                              fileNumber,
+                                              plaintextLength,
+                                              chunkCount,
+                                              encryptedLength));
             }
             catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
             {
-                errors.Add(new(file, selection.Origin, fileNumber, "File is unreadable."));
+                errors.Add(new LocalUploadPlanningError(file, selection.Origin, fileNumber, "File is unreadable."));
             }
             catch (OverflowException)
             {
-                errors.Add(new(file, selection.Origin, fileNumber, $"{file.Name} exceeds the maximum upload size."));
+                errors.Add(new LocalUploadPlanningError(file, selection.Origin, fileNumber, $"{file.Name} exceeds the maximum upload size."));
             }
         }
 
         return errors.Count > 0
-            ? new(null, errors.ToImmutable())
-            : new(new(files.ToImmutable(), excludedFileCount), []);
+            ? new LocalUploadPlanningResult(null, errors.ToImmutable())
+            : new LocalUploadPlanningResult(new LocalUploadPlan(files.ToImmutable(), excludedFileCount), []);
     }
 
     public static async Task<UploadExecutionResult> ReportFailureAsync(LocalUploadPlanningResult result,
@@ -101,16 +101,16 @@ internal static class LocalUploadPlanner
         List<UploadFileExecutionResult> failures = [];
         foreach (var error in result.Errors)
         {
-            await progressReporter.ReportFileFailureAsync(new(error.File.Name,
-                                                              error.FileNumber,
-                                                              selectedFileCount,
-                                                              error.EncryptedLength ?? 0),
+            await progressReporter.ReportFileFailureAsync(new UploadProgressFile(error.File.Name,
+                                                                                 error.FileNumber,
+                                                                                 selectedFileCount,
+                                                                                 error.EncryptedLength ?? 0),
                                                           FormatError(error.Message, error.Origin),
                                                           cancellationToken);
-            failures.Add(new(error.File, error.FileNumber, null, FormatError(error.Message, error.Origin), error.EncryptedLength));
+            failures.Add(new UploadFileExecutionResult(error.File, error.FileNumber, null, FormatError(error.Message, error.Origin), error.EncryptedLength));
         }
 
-        return new(failures, null, false);
+        return new UploadExecutionResult(failures, null, false);
     }
 
     internal static String FormatError(String message, UploadSelectionOrigin origin)
@@ -140,13 +140,13 @@ internal static class LocalUploadPlanner
             }
             catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
             {
-                errors.Add(new(file, selections[index].Origin, index + 1, "File path is invalid."));
+                errors.Add(new LocalUploadPlanningError(file, selections[index].Origin, index + 1, "File path is invalid."));
                 continue;
             }
 
             if (!paths.Add(fullPath))
             {
-                errors.Add(new(file, selections[index].Origin, index + 1, "File was selected more than once."));
+                errors.Add(new LocalUploadPlanningError(file, selections[index].Origin, index + 1, "File was selected more than once."));
             }
         }
 

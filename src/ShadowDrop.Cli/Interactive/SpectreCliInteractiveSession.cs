@@ -11,7 +11,7 @@ internal sealed class SpectreCliInteractiveSession : ICliInteractiveSession
     public SpectreCliInteractiveSession(TextWriter standardError)
     {
         ArgumentNullException.ThrowIfNull(standardError);
-        _console = AnsiConsole.Create(new()
+        _console = AnsiConsole.Create(new AnsiConsoleSettings
         {
             Interactive = InteractionSupport.Yes,
             Out = new AnsiConsoleOutput(standardError)

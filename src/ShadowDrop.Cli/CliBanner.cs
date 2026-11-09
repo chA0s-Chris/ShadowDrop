@@ -40,7 +40,7 @@ internal static class CliBanner
 
         // Capability selection already happened above; force Ansi/color support instead of letting Spectre
         // re-detect it from the destination writer, which would misdetect a StringWriter or piped stream as plain.
-        var console = AnsiConsole.Create(new()
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
             Ansi = AnsiSupport.Yes,
             ColorSystem = ColorSystemSupport.TrueColor,

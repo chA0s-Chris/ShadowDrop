@@ -32,17 +32,69 @@ public abstract class MongoPersistenceIntegrationTests
     private IMongoHelper _mongo;
     private ServiceProvider _services;
 
-    protected abstract String MongoImage { get; }
+    [OneTimeSetUp]
+    public async Task StartMongoAsync()
+    {
+        var builder = new MongoDbBuilder()
+                      .WithImage(MongoImage)
+                      // Work around the TCMalloc rseq crash affecting MongoDB 8.x on Linux 6.19+ hosts by letting glibc
+                      // register rseq first. Remove this when SERVER-121912 is fixed in every tested MongoDB image.
+                      // Source: https://jira.mongodb.org/browse/SERVER-121912
+                      .WithEnvironment("GLIBC_TUNABLES", "glibc.pthread.rseq=1");
+        if (UseReplicaSet)
+        {
+            builder = builder.WithReplicaSet();
+        }
 
-    protected virtual Boolean UseReplicaSet => false;
+        _container = builder.Build();
+        await _container.StartAsync();
+
+        var options = new ShadowDropOptions
+        {
+            Metadata = new MetadataOptions
+            {
+                Provider = MetadataProvider.MongoDb
+            },
+            Storage = new StorageOptions
+            {
+                Provider = BlobStorageProvider.MongoGridFs,
+                GridFsBucketName = "shadowdrop_test_blobs"
+            },
+            Mongo = new MongoPersistenceOptions
+            {
+                ConnectionString = _container.GetConnectionString(),
+                DatabaseName = $"shadowdrop_{Guid.NewGuid():N}"
+            }
+        };
+        MongoSerialization.EnsureConfigured();
+        _services = CreateMongoServiceProvider(options);
+        _mongo = _services.GetRequiredService<IMongoHelper>();
+        await _mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
+        await _services.GetRequiredService<IMongoConfiguratorRunner>().RunConfiguratorsAsync();
+    }
+
+    [OneTimeTearDown]
+    public async Task StopMongoAsync()
+    {
+        if (_services is not null)
+        {
+            await _mongo.Database.Client.DropDatabaseAsync(_mongo.Database.DatabaseNamespace.DatabaseName);
+            await _services.DisposeAsync();
+        }
+
+        if (_container is not null)
+        {
+            await _container.DisposeAsync();
+        }
+    }
 
     [Test]
     public async Task AdminCredentialRepository_ShouldAllowOnlyOneConcurrentBootstrapWinner()
     {
         var repository = _services.GetRequiredService<MongoAdminTokenCredentialRepository>();
         var attempts = await Task.WhenAll(
-            repository.TryCreateAsync(new("hash-a", "salt-a", 1), CancellationToken.None),
-            repository.TryCreateAsync(new("hash-b", "salt-b", 2), CancellationToken.None));
+            repository.TryCreateAsync(new AdminTokenCredential("hash-a", "salt-a", 1), CancellationToken.None),
+            repository.TryCreateAsync(new AdminTokenCredential("hash-b", "salt-b", 2), CancellationToken.None));
         attempts.Count(x => x).Should().Be(1);
         (await repository.GetAsync(CancellationToken.None)).Should().NotBeNull();
     }
@@ -60,12 +112,12 @@ public abstract class MongoPersistenceIntegrationTests
                 Directory.CreateDirectory(root);
                 var options = new ShadowDropOptions
                 {
-                    Metadata = new()
+                    Metadata = new MetadataOptions
                     {
                         Provider = metadataProvider,
                         LiteDbPath = Path.Combine(root, "metadata", "shadowdrop.db")
                     },
-                    Storage = new()
+                    Storage = new StorageOptions
                     {
                         Provider = blobProvider,
                         LocalRoot = Path.Combine(root, "blobs"),
@@ -162,7 +214,7 @@ public abstract class MongoPersistenceIntegrationTests
         {
             var options = new ShadowDropOptions
             {
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(root, "blobs")
                 }
@@ -280,7 +332,7 @@ public abstract class MongoPersistenceIntegrationTests
         {
             var options = new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(root, "metadata", "shadowdrop.db")
                 }
@@ -385,8 +437,8 @@ public abstract class MongoPersistenceIntegrationTests
                                        null,
                                        ShareCleanupState.Pending,
                                        false,
-                                       new($"bearer-hash-{Guid.NewGuid():N}", DateTimeOffset.Parse("2026-08-05T11:00:00Z")),
-                                       [new(fileId, "file.bin", "display.bin")],
+                                       new DownloadBearerTokenRecord($"bearer-hash-{Guid.NewGuid():N}", DateTimeOffset.Parse("2026-08-05T11:00:00Z")),
+                                       [new ShareFileEntryRecord(fileId, "file.bin", "display.bin")],
                                        Guid.NewGuid());
 
         (await repository.TryAcquireAsync(operationId,
@@ -483,62 +535,6 @@ public abstract class MongoPersistenceIntegrationTests
         (await repository.TryRecordCleanupAttemptAsync(Guid.NewGuid(), ShareCleanupState.Failed, firstRevokedAt, [], CancellationToken.None)).Should()
             .BeFalse();
         (await repository.GetAsync(shareId, CancellationToken.None))!.CleanupState.Should().Be(ShareCleanupState.Failed);
-    }
-
-    [OneTimeSetUp]
-    public async Task StartMongoAsync()
-    {
-        var builder = new MongoDbBuilder()
-                      .WithImage(MongoImage)
-                      // Work around the TCMalloc rseq crash affecting MongoDB 8.x on Linux 6.19+ hosts by letting glibc
-                      // register rseq first. Remove this when SERVER-121912 is fixed in every tested MongoDB image.
-                      // Source: https://jira.mongodb.org/browse/SERVER-121912
-                      .WithEnvironment("GLIBC_TUNABLES", "glibc.pthread.rseq=1");
-        if (UseReplicaSet)
-        {
-            builder = builder.WithReplicaSet();
-        }
-
-        _container = builder.Build();
-        await _container.StartAsync();
-
-        var options = new ShadowDropOptions
-        {
-            Metadata = new()
-            {
-                Provider = MetadataProvider.MongoDb
-            },
-            Storage = new()
-            {
-                Provider = BlobStorageProvider.MongoGridFs,
-                GridFsBucketName = "shadowdrop_test_blobs"
-            },
-            Mongo = new()
-            {
-                ConnectionString = _container.GetConnectionString(),
-                DatabaseName = $"shadowdrop_{Guid.NewGuid():N}"
-            }
-        };
-        MongoSerialization.EnsureConfigured();
-        _services = CreateMongoServiceProvider(options);
-        _mongo = _services.GetRequiredService<IMongoHelper>();
-        await _mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
-        await _services.GetRequiredService<IMongoConfiguratorRunner>().RunConfiguratorsAsync();
-    }
-
-    [OneTimeTearDown]
-    public async Task StopMongoAsync()
-    {
-        if (_services is not null)
-        {
-            await _mongo.Database.Client.DropDatabaseAsync(_mongo.Database.DatabaseNamespace.DatabaseName);
-            await _services.DisposeAsync();
-        }
-
-        if (_container is not null)
-        {
-            await _container.DisposeAsync();
-        }
     }
 
     [Test]
@@ -791,7 +787,7 @@ public abstract class MongoPersistenceIntegrationTests
         {
             var options = new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(root, "metadata", "shadowdrop.db")
                 }
@@ -887,6 +883,10 @@ public abstract class MongoPersistenceIntegrationTests
         (await repository.GetAsync(fileId, CancellationToken.None))!.RetentionState.Should().Be(BlobRetentionState.Deleted);
     }
 
+    protected abstract String MongoImage { get; }
+
+    protected virtual Boolean UseReplicaSet => false;
+
     private static async Task AssertShareMetadataContractAsync(IShareMetadataRepository repository)
     {
         var now = DateTimeOffset.FromUnixTimeMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
@@ -897,7 +897,7 @@ public abstract class MongoPersistenceIntegrationTests
         var ownerCredentialId = Guid.NewGuid();
         var record = new ShareRecord(
             shareId, token, now, now.AddMinutes(-1), null, ShareCleanupState.Pending, false, null,
-            [new(fileId, "file.bin", null)], ownerCredentialId);
+            [new ShareFileEntryRecord(fileId, "file.bin", null)], ownerCredentialId);
 
         await repository.CreateAsync(record, CancellationToken.None);
         await repository.CreateAsync(record, CancellationToken.None);
@@ -924,27 +924,27 @@ public abstract class MongoPersistenceIntegrationTests
             ShareListStatuses.Active,
             ShareListStatuses.CleanupPending
         };
-        var baselineOverlapping = await repository.CountMatchingAsync(new(now, overlappingFilters, 1, null), CancellationToken.None);
+        var baselineOverlapping = await repository.CountMatchingAsync(new ShareListQuery(now, overlappingFilters, 1, null), CancellationToken.None);
 
         // Create the group far enough in the future to be unambiguously newest, so cursor paging over it is
         // deterministic no matter what the rest of the shared fixture already holds.
         var tiedCreatedAt = now.AddDays(30);
         foreach (var tiedId in tiedIds)
         {
-            await repository.CreateAsync(new(tiedId,
-                                             $"ordering-{Guid.NewGuid():N}",
-                                             tiedCreatedAt,
-                                             now.AddDays(60),
-                                             null,
-                                             ShareCleanupState.Pending,
-                                             false,
-                                             null,
-                                             [new(Guid.NewGuid(), "private-name.bin", null)]),
+            await repository.CreateAsync(new ShareRecord(tiedId,
+                                                         $"ordering-{Guid.NewGuid():N}",
+                                                         tiedCreatedAt,
+                                                         now.AddDays(60),
+                                                         null,
+                                                         ShareCleanupState.Pending,
+                                                         false,
+                                                         null,
+                                                         [new ShareFileEntryRecord(Guid.NewGuid(), "private-name.bin", null)]),
                                          CancellationToken.None);
         }
 
         var expectedOrder = tiedIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal).ToArray();
-        var listed = await repository.GetListPageAsync(new(now, [], 20, null), CancellationToken.None);
+        var listed = await repository.GetListPageAsync(new ShareListQuery(now, [], 20, null), CancellationToken.None);
         listed.Shares.Where(share => tiedIds.Contains(share.ShareId)).Select(share => share.ShareId).Should().Equal(expectedOrder);
 
         // Continuation must resume strictly after the last (CreatedAtUtc, ShareId) pair, including part-way through
@@ -956,7 +956,7 @@ public abstract class MongoPersistenceIntegrationTests
             ShareListCursor? cursor = null;
             do
             {
-                var page = await repository.GetListPageAsync(new(now, statuses, 2, cursor), CancellationToken.None);
+                var page = await repository.GetListPageAsync(new ShareListQuery(now, statuses, 2, cursor), CancellationToken.None);
                 walked.AddRange(page.Shares.Select(share => share.ShareId));
                 cursor = page.NextCursor;
             } while (cursor is not null && !tiedIds.All(walked.Contains));
@@ -965,7 +965,7 @@ public abstract class MongoPersistenceIntegrationTests
             return walked.Where(tiedIds.Contains).ToList();
         }
 
-        var firstPage = await repository.GetListPageAsync(new(now, [], 2, null), CancellationToken.None);
+        var firstPage = await repository.GetListPageAsync(new ShareListQuery(now, [], 2, null), CancellationToken.None);
         firstPage.Shares.Select(share => share.ShareId).Should().Equal(expectedOrder[..2]);
         firstPage.NextCursor.Should().NotBeNull();
 
@@ -975,13 +975,13 @@ public abstract class MongoPersistenceIntegrationTests
         (await WalkTiedGroupAsync([ShareListStatuses.Active])).Should().Equal(expectedOrder);
 
         // Every tied share matches both filters, so an OR-combined query has to count each of them exactly once.
-        (await repository.CountMatchingAsync(new(now, overlappingFilters, 1, null), CancellationToken.None))
+        (await repository.CountMatchingAsync(new ShareListQuery(now, overlappingFilters, 1, null), CancellationToken.None))
             .Should().Be(baselineOverlapping + tiedIds.Length);
 
         // The exact total is independent of page size and cursor position.
-        var unpagedTotal = await repository.CountMatchingAsync(new(now, [], 200, null), CancellationToken.None);
-        (await repository.CountMatchingAsync(new(now, [], 2, firstPage.NextCursor), CancellationToken.None)).Should().Be(unpagedTotal);
-        (await repository.CountMatchingAsync(new(now, [], 1, null), CancellationToken.None)).Should().Be(unpagedTotal);
+        var unpagedTotal = await repository.CountMatchingAsync(new ShareListQuery(now, [], 200, null), CancellationToken.None);
+        (await repository.CountMatchingAsync(new ShareListQuery(now, [], 2, firstPage.NextCursor), CancellationToken.None)).Should().Be(unpagedTotal);
+        (await repository.CountMatchingAsync(new ShareListQuery(now, [], 1, null), CancellationToken.None)).Should().Be(unpagedTotal);
     }
 
     private static async Task AssertUploadedFileMetadataContractAsync(IUploadedFileMetadataRepository repository)
@@ -1051,21 +1051,21 @@ public abstract class MongoPersistenceIntegrationTests
 
     private static ShareRecord CreateShare(Guid shareId, String token, Guid fileId, DateTimeOffset? expiresAtUtc = null) =>
         new(shareId, token, DateTimeOffset.UtcNow, expiresAtUtc ?? DateTimeOffset.UtcNow.AddHours(1), null, ShareCleanupState.Pending,
-            false, null, [new(fileId, "file.bin", null)]);
+            false, null, [new ShareFileEntryRecord(fileId, "file.bin", null)]);
 
     private static UploadSweepService CreateSweepService(IServiceProvider services, ShadowDropOptions? options = null)
     {
         var shares = services.GetRequiredService<MongoShareMetadataRepository>();
         var claims = services.GetRequiredService<MongoShareOperationClaimRepository>();
         var loggerFactory = services.GetRequiredService<ILoggerFactory>();
-        return new(services.GetRequiredService<MongoUploadedFileMetadataRepository>(),
-                   shares,
-                   claims,
-                   new(claims, shares, loggerFactory.CreateLogger<ShareCreationClaimReconciler>()),
-                   services.GetRequiredService<MongoGridFsBlobStorage>(),
-                   options ?? new(),
-                   TimeProvider.System,
-                   loggerFactory.CreateLogger<UploadSweepService>());
+        return new UploadSweepService(services.GetRequiredService<MongoUploadedFileMetadataRepository>(),
+                                      shares,
+                                      claims,
+                                      new ShareCreationClaimReconciler(claims, shares, loggerFactory.CreateLogger<ShareCreationClaimReconciler>()),
+                                      services.GetRequiredService<MongoGridFsBlobStorage>(),
+                                      options ?? new ShadowDropOptions(),
+                                      TimeProvider.System,
+                                      loggerFactory.CreateLogger<UploadSweepService>());
     }
 
     private static UploadedFileRecord CreateUploadedFile(Guid fileId, String blobKey, Int64 length) =>
@@ -1074,7 +1074,7 @@ public abstract class MongoPersistenceIntegrationTests
     private static ShadowDropOptions OptionsWithRetention(TimeSpan retention) =>
         new()
         {
-            Cleanup = new()
+            Cleanup = new CleanupOptions
             {
                 UnreferencedUploadRetention = retention
             }
@@ -1120,16 +1120,16 @@ public abstract class MongoPersistenceIntegrationTests
     {
         var options = new ShadowDropOptions
         {
-            Metadata = new()
+            Metadata = new MetadataOptions
             {
                 Provider = MetadataProvider.MongoDb
             },
-            Storage = new()
+            Storage = new StorageOptions
             {
                 Provider = BlobStorageProvider.MongoGridFs,
                 GridFsBucketName = "shadowdrop_test_blobs"
             },
-            Mongo = new()
+            Mongo = new MongoPersistenceOptions
             {
                 ConnectionString = _container.GetConnectionString(),
                 DatabaseName = $"shadowdrop_sweep_{Guid.NewGuid():N}"
@@ -1139,7 +1139,7 @@ public abstract class MongoPersistenceIntegrationTests
         var mongo = services.GetRequiredService<IMongoHelper>();
         await mongo.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1));
         await services.GetRequiredService<IMongoConfiguratorRunner>().RunConfiguratorsAsync();
-        return new(services, mongo);
+        return new IsolatedMongoScope(services, mongo);
     }
 
     private UploadSweepService CreateSweepService(ShadowDropOptions? options = null) =>

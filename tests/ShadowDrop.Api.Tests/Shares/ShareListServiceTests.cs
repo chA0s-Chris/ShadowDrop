@@ -16,10 +16,10 @@ public sealed class ShareListServiceTests
     [TestCase(200)]
     public async Task GetAsync_ShouldAcceptDocumentedPageSizes(Int32 pageSize)
     {
-        var shares = new RecordingShareRepository(new([], null), 0);
+        var shares = new RecordingShareRepository(new ShareListRepositoryPage([], null), 0);
         var service = new ShareListService(shares, new RecordingFileRepository([]), TimeProvider.System);
 
-        _ = await service.GetAsync(StringValues.Empty, new(pageSize.ToString()), StringValues.Empty, CancellationToken.None);
+        _ = await service.GetAsync(StringValues.Empty, new StringValues(pageSize.ToString()), StringValues.Empty, CancellationToken.None);
 
         shares.Query!.PageSize.Should().Be(pageSize);
     }
@@ -27,15 +27,15 @@ public sealed class ShareListServiceTests
     [Test]
     public async Task GetAsync_ShouldDefaultPageSize_AndBindCursorOnlyToNormalizedFilters()
     {
-        var shares = new RecordingShareRepository(new([], null), 0);
+        var shares = new RecordingShareRepository(new ShareListRepositoryPage([], null), 0);
         var service = new ShareListService(shares, new RecordingFileRepository([]), TimeProvider.System);
         var cursor = new ShareListCursor(OperationalStatusProtocol.CurrentVersion,
                                          [ShareListStatuses.Active],
                                          DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                                          Guid.NewGuid()).Encode();
 
-        _ = await service.GetAsync(new(ShareListStatuses.Active), StringValues.Empty, new(cursor), CancellationToken.None);
-        var mismatch = () => service.GetAsync(new(ShareListStatuses.Expired), new("200"), new(cursor), CancellationToken.None);
+        _ = await service.GetAsync(new StringValues(ShareListStatuses.Active), StringValues.Empty, new StringValues(cursor), CancellationToken.None);
+        var mismatch = () => service.GetAsync(new StringValues(ShareListStatuses.Expired), new StringValues("200"), new StringValues(cursor), CancellationToken.None);
 
         shares.Query!.PageSize.Should().Be(ShareListPagination.DefaultPageSize);
         (await mismatch.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidCursor);
@@ -58,19 +58,19 @@ public sealed class ShareListServiceTests
                                             ShareCleanupFailureCategories.Unknown
                                         ],
                                         [retainedId, deletedId]);
-        var shares = new RecordingShareRepository(new([share], null), 1);
+        var shares = new RecordingShareRepository(new ShareListRepositoryPage([share], null), 1);
         var files = new RecordingFileRepository([
-            new(retainedId, 100, BlobRetentionState.Retained),
-            new(deletedId, 900, BlobRetentionState.Deleted)
+            new UploadedFileListProjection(retainedId, 100, BlobRetentionState.Retained),
+            new UploadedFileListProjection(deletedId, 900, BlobRetentionState.Deleted)
         ]);
         var time = new CountingTimeProvider(now);
         var service = new ShareListService(shares, files, time);
 
-        var page = await service.GetAsync(new([
+        var page = await service.GetAsync(new StringValues([
                                               ShareListStatuses.CleanupFailed, ShareListStatuses.Revoked,
                                               ShareListStatuses.CleanupFailed
                                           ]),
-                                          new("1"),
+                                          new StringValues("1"),
                                           StringValues.Empty,
                                           CancellationToken.None);
 
@@ -89,13 +89,13 @@ public sealed class ShareListServiceTests
     [Test]
     public async Task GetAsync_ShouldValidateRequestBeforeCursor_AndFailOnMissingBatchMetadata()
     {
-        var service = new ShareListService(new RecordingShareRepository(new([], null), 0),
+        var service = new ShareListService(new RecordingShareRepository(new ShareListRepositoryPage([], null), 0),
                                            new RecordingFileRepository([]),
                                            new CountingTimeProvider(DateTimeOffset.Parse("2026-08-03T12:00:00Z")));
 
-        var invalid = () => service.GetAsync(new("unknown"), new("0"), new("bad"), CancellationToken.None);
-        var removedStatus = () => service.GetAsync(new("cleanup-completed"), StringValues.Empty, StringValues.Empty, CancellationToken.None);
-        var tooLarge = () => service.GetAsync(StringValues.Empty, new("201"), StringValues.Empty, CancellationToken.None);
+        var invalid = () => service.GetAsync(new StringValues("unknown"), new StringValues("0"), new StringValues("bad"), CancellationToken.None);
+        var removedStatus = () => service.GetAsync(new StringValues("cleanup-completed"), StringValues.Empty, StringValues.Empty, CancellationToken.None);
+        var tooLarge = () => service.GetAsync(StringValues.Empty, new StringValues("201"), StringValues.Empty, CancellationToken.None);
 
         (await invalid.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
         (await removedStatus.Should().ThrowAsync<OperationalValidationException>()).Which.Reason.Should().Be(OperationalErrorReasons.InvalidRequest);
@@ -104,7 +104,7 @@ public sealed class ShareListServiceTests
         var fileId = Guid.NewGuid();
         var share = new ShareListRecord(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1), null,
                                         ShareCleanupState.Pending, null, [], [fileId]);
-        var incomplete = new ShareListService(new RecordingShareRepository(new([share], null), 1),
+        var incomplete = new ShareListService(new RecordingShareRepository(new ShareListRepositoryPage([share], null), 1),
                                               new RecordingFileRepository([]),
                                               TimeProvider.System);
         var act = () => incomplete.GetAsync(StringValues.Empty, StringValues.Empty, StringValues.Empty, CancellationToken.None);

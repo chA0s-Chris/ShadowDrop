@@ -91,7 +91,7 @@ internal sealed class SpectreDownloadProgressReporter : IDownloadProgressReporte
         {
             var overall = totalBytes is null
                 ? null
-                : context.AddTask("Overall queue", new()
+                : context.AddTask("Overall queue", new ProgressTaskSettings
                 {
                     // Floor at 1 so an all-zero-length queue (valid) doesn't produce MaxValue = 0 and broken percentage/ETA columns.
                     MaxValue = totalBytes.Value > 0 ? totalBytes.Value : 1
@@ -168,7 +168,7 @@ internal sealed class SpectreDownloadProgressReporter : IDownloadProgressReporte
         var totalElapsed = _timeProvider.GetElapsedTime(queueStart);
         _console.MarkupLineInterpolated(
             $"SUMMARY downloaded {downloaded}/{total} files, failed {failed} {(failed == 1 ? "file" : "files")} ({FormatStats(totalDownloadedBytes, totalElapsed)})");
-        return new(downloaded, failed);
+        return new DownloadQueueSummary(downloaded, failed);
     }
 
     public async Task<Boolean> RunSingleAsync(String fileName,

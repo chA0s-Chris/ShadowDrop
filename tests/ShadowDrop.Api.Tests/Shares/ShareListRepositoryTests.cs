@@ -37,7 +37,7 @@ public sealed class ShareListRepositoryTests
         // share-list total for the equivalent single-status query evaluated at the same instant.
         async Task<Int64> TotalAsync(String status)
         {
-            return await repository.CountMatchingAsync(new(now, [status], 1, null), CancellationToken.None);
+            return await repository.CountMatchingAsync(new ShareListQuery(now, [status], 1, null), CancellationToken.None);
         }
 
         counts.Active.Should().Be(await TotalAsync(ShareListStatuses.Active));
@@ -108,7 +108,7 @@ public sealed class ShareListRepositoryTests
                         }
 
                         limits.Clear();
-                        var result = await repository.GetListPageAsync(new(now, statuses, pageSize, cursor),
+                        var result = await repository.GetListPageAsync(new ShareListQuery(now, statuses, pageSize, cursor),
                                                                        CancellationToken.None);
 
                         limits.Should().NotBeEmpty(because);
@@ -151,7 +151,7 @@ public sealed class ShareListRepositoryTests
             ShareListCursor? cursor = null;
             do
             {
-                var page = await repository.GetListPageAsync(new(now, statuses, 3, cursor), CancellationToken.None);
+                var page = await repository.GetListPageAsync(new ShareListQuery(now, statuses, 3, cursor), CancellationToken.None);
                 walked.AddRange(page.Shares.Select(share => share.ShareId));
                 cursor = page.NextCursor;
             } while (cursor is not null);
@@ -210,7 +210,7 @@ public sealed class ShareListRepositoryTests
         // The four-row window is nothing but the newest tie group, and that whole group is deleted before its
         // re-read. There is no returned share to continue from, so the older group stays reachable only if the
         // window is read again below the vanished timestamp.
-        var page = await repository.GetListPageAsync(new(now, [], 3, null), CancellationToken.None);
+        var page = await repository.GetListPageAsync(new ShareListQuery(now, [], 3, null), CancellationToken.None);
         page.Shares.Select(share => share.ShareId)
             .Should().Equal(survivorIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
         page.NextCursor.Should().BeNull();
@@ -269,12 +269,12 @@ public sealed class ShareListRepositoryTests
 
         // The four-row window ends inside the middle group, which vanishes before its re-read: the page comes back
         // short, but the oldest group is still there and must stay reachable.
-        var page = await repository.GetListPageAsync(new(now, [], 3, null), CancellationToken.None);
+        var page = await repository.GetListPageAsync(new ShareListQuery(now, [], 3, null), CancellationToken.None);
         page.Shares.Select(share => share.ShareId)
             .Should().Equal(newestIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
         page.NextCursor.Should().NotBeNull();
 
-        var next = await repository.GetListPageAsync(new(now, [], 3, page.NextCursor), CancellationToken.None);
+        var next = await repository.GetListPageAsync(new ShareListQuery(now, [], 3, page.NextCursor), CancellationToken.None);
         next.Shares.Select(share => share.ShareId)
             .Should().Equal(oldestIds.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal));
         next.NextCursor.Should().BeNull();
@@ -378,7 +378,7 @@ public sealed class ShareListRepositoryTests
             ShareListCursor? cursor = null;
             do
             {
-                var page = await repository.GetListPageAsync(new(now, statuses, 3, cursor), CancellationToken.None);
+                var page = await repository.GetListPageAsync(new ShareListQuery(now, statuses, 3, cursor), CancellationToken.None);
                 walked.AddRange(page.Shares.Select(share => share.ShareId));
                 cursor = page.NextCursor;
             } while (cursor is not null);
@@ -390,8 +390,8 @@ public sealed class ShareListRepositoryTests
         // canonical (CreatedAtUtc, ShareId) descending order.
         (await WalkAsync([])).Should().Equal(expected);
         (await WalkAsync([ShareListStatuses.Active])).Should().Equal(expected);
-        (await repository.CountMatchingAsync(new(now, [], 3, null), CancellationToken.None)).Should().Be(9);
-        (await repository.CountMatchingAsync(new(now, [ShareListStatuses.Active], 3, null), CancellationToken.None)).Should().Be(9);
+        (await repository.CountMatchingAsync(new ShareListQuery(now, [], 3, null), CancellationToken.None)).Should().Be(9);
+        (await repository.CountMatchingAsync(new ShareListQuery(now, [ShareListStatuses.Active], 3, null), CancellationToken.None)).Should().Be(9);
     }
 
     [Test]
@@ -419,7 +419,7 @@ public sealed class ShareListRepositoryTests
                }))
         {
             var collection = database.GetCollection("shares");
-            var document = collection.FindById(new(shareId));
+            var document = collection.FindById(new BsonValue(shareId));
             document.Remove("LastCleanupAttemptAtUnixTimeMilliseconds");
             document.Remove("CleanupFailureCategories");
             document["CleanupState"] = "ARCHIVED";
@@ -428,7 +428,7 @@ public sealed class ShareListRepositoryTests
 
         using var reopened = new LiteDbShareMetadataRepository(fixture.Options);
         var record = await reopened.GetAsync(shareId, CancellationToken.None);
-        var page = await reopened.GetListPageAsync(new(now, [], 50, null), CancellationToken.None);
+        var page = await reopened.GetListPageAsync(new ShareListQuery(now, [], 50, null), CancellationToken.None);
         var listed = page.Shares.Single(share => share.ShareId == shareId);
 
         record!.LastCleanupAttemptAtUtc.Should().BeNull();
@@ -437,7 +437,7 @@ public sealed class ShareListRepositoryTests
         listed.LastCleanupAttemptAtUtc.Should().BeNull();
         listed.CleanupFailureCategories.Should().BeEmpty();
         listed.CleanupState.Should().Be(ShareCleanupState.Pending);
-        (await reopened.CountMatchingAsync(new(now, [ShareListStatuses.CleanupPending], 50, null), CancellationToken.None))
+        (await reopened.CountMatchingAsync(new ShareListQuery(now, [ShareListStatuses.CleanupPending], 50, null), CancellationToken.None))
             .Should().Be(1);
     }
 
@@ -484,15 +484,15 @@ public sealed class ShareListRepositoryTests
             await repository.CreateAsync(CreateShare(id, created, now.AddDays(1), null), CancellationToken.None);
         }
 
-        var first = await repository.GetListPageAsync(new(now, [], 2, null), CancellationToken.None);
-        var second = await repository.GetListPageAsync(new(now, [], 2, first.NextCursor), CancellationToken.None);
+        var first = await repository.GetListPageAsync(new ShareListQuery(now, [], 2, null), CancellationToken.None);
+        var second = await repository.GetListPageAsync(new ShareListQuery(now, [], 2, first.NextCursor), CancellationToken.None);
 
         var expected = ids.OrderByDescending(id => id.ToString("D"), StringComparer.Ordinal).ToArray();
         first.Shares.Select(share => share.ShareId).Should().Equal(expected[..2]);
         second.Shares.Select(share => share.ShareId).Should().Equal(expected[2..]);
         first.NextCursor.Should().NotBeNull();
         second.NextCursor.Should().BeNull();
-        (await repository.CountMatchingAsync(new(now, [], 2, first.NextCursor), CancellationToken.None)).Should().Be(3);
+        (await repository.CountMatchingAsync(new ShareListQuery(now, [], 2, first.NextCursor), CancellationToken.None)).Should().Be(3);
     }
 
     private static ShareRecord CreateShare(Guid id, DateTimeOffset created, DateTimeOffset expires, DateTimeOffset? revoked) =>
@@ -504,7 +504,7 @@ public sealed class ShareListRepositoryTests
             ShareCleanupState.Pending,
             false,
             null,
-            [new(Guid.NewGuid(), "secret-name.bin", null)]);
+            [new ShareFileEntryRecord(Guid.NewGuid(), "secret-name.bin", null)]);
 
     private sealed class RepositoryFixture : IAsyncDisposable
     {
@@ -516,13 +516,13 @@ public sealed class ShareListRepositoryTests
         public RepositoryFixture()
         {
             Directory.CreateDirectory(_root);
-            Options = new()
+            Options = new ShadowDropOptions
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_root, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_root, "storage")
                 }

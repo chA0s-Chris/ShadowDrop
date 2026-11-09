@@ -5,25 +5,36 @@ namespace ShadowDrop.Cli.Uploads;
 using System.Text.Json.Serialization;
 
 internal sealed record UploadMetadataPayload(
-    [property: JsonPropertyName("fileId"), JsonPropertyOrder(0)]
+    [property: JsonPropertyName("fileId")]
+    [property: JsonPropertyOrder(0)]
     Guid FileId,
-    [property: JsonPropertyName("originalFileName"), JsonPropertyOrder(1)]
+    [property: JsonPropertyName("originalFileName")]
+    [property: JsonPropertyOrder(1)]
     String OriginalFileName,
-    [property: JsonPropertyName("plaintextLength"), JsonPropertyOrder(2)]
+    [property: JsonPropertyName("plaintextLength")]
+    [property: JsonPropertyOrder(2)]
     Int64 PlaintextLength,
-    [property: JsonPropertyName("encryptedLength"), JsonPropertyOrder(3)]
+    [property: JsonPropertyName("encryptedLength")]
+    [property: JsonPropertyOrder(3)]
     Int64 EncryptedLength,
-    [property: JsonPropertyName("contentType"), JsonPropertyOrder(4)]
+    [property: JsonPropertyName("contentType")]
+    [property: JsonPropertyOrder(4)]
     String ContentType,
-    [property: JsonPropertyName("encryptionFormatVersion"), JsonPropertyOrder(5)]
+    [property: JsonPropertyName("encryptionFormatVersion")]
+    [property: JsonPropertyOrder(5)]
     String EncryptionFormatVersion,
-    [property: JsonPropertyName("algorithmId"), JsonPropertyOrder(6)]
+    [property: JsonPropertyName("algorithmId")]
+    [property: JsonPropertyOrder(6)]
     String AlgorithmId,
-    [property: JsonPropertyName("chunkSize"), JsonPropertyOrder(7)]
+    [property: JsonPropertyName("chunkSize")]
+    [property: JsonPropertyOrder(7)]
     Int32 ChunkSize,
-    [property: JsonPropertyName("chunkCount"), JsonPropertyOrder(8)]
+    [property: JsonPropertyName("chunkCount")]
+    [property: JsonPropertyOrder(8)]
     Int64 ChunkCount,
-    [property: JsonPropertyName("kdfSalt"), JsonPropertyOrder(9)]
+    [property: JsonPropertyName("kdfSalt")]
+    [property: JsonPropertyOrder(9)]
     String KdfSalt,
-    [property: JsonPropertyName("plaintextSha256"), JsonPropertyOrder(10)]
+    [property: JsonPropertyName("plaintextSha256")]
+    [property: JsonPropertyOrder(10)]
     String? PlaintextSha256);

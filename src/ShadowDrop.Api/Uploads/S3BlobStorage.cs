@@ -67,7 +67,7 @@ public sealed class S3BlobStorage : IBlobStorage
                 {
                     var eTag = await _client.UploadPartAsync(_bucketName, objectKey, uploadId, partNumber, content,
                                                              currentCount, cancellationToken);
-                    parts.Add(new(partNumber, eTag));
+                    parts.Add(new S3UploadedPart(partNumber, eTag));
                 }
 
                 writtenLength += currentCount;
@@ -78,7 +78,7 @@ public sealed class S3BlobStorage : IBlobStorage
 
             await _client.CompleteMultipartUploadAsync(_bucketName, objectKey, uploadId, parts, cancellationToken);
             uploadId = null;
-            return new(blobKey, writtenLength);
+            return new UploadBlobDescriptor(blobKey, writtenLength);
         }
         catch
         {
@@ -142,7 +142,7 @@ public sealed class S3BlobStorage : IBlobStorage
             {
                 using var content = OpenBuffer(buffer, first.Count);
                 await _client.PutObjectAsync(_bucketName, objectKey, content, first.Count, cancellationToken);
-                descriptor = new(blobKey, first.Count);
+                descriptor = new UploadBlobDescriptor(blobKey, first.Count);
             }
             else
             {

@@ -12,6 +12,25 @@ public sealed class UploadInputResolverTests
 {
     private String _rootDirectory;
 
+    [SetUp]
+    public void SetUp()
+    {
+        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
+                                      "artifacts",
+                                      "upload-input-resolver-tests",
+                                      Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_rootDirectory);
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        if (Directory.Exists(_rootDirectory))
+        {
+            Directory.Delete(_rootDirectory, true);
+        }
+    }
+
     [Test]
     public void Resolve_ShouldExcludeOutOfTreeAndDanglingFileLinksWithDiagnostics()
     {
@@ -234,25 +253,6 @@ public sealed class UploadInputResolverTests
         result.Selections.Should().ContainSingle()
               .Which.File.Name.Should().Be("visible.bin");
         result.ExcludedFileCount.Should().Be(0);
-    }
-
-    [SetUp]
-    public void SetUp()
-    {
-        _rootDirectory = Path.Combine(TestContext.CurrentContext.WorkDirectory,
-                                      "artifacts",
-                                      "upload-input-resolver-tests",
-                                      Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_rootDirectory);
-    }
-
-    [TearDown]
-    public void TearDown()
-    {
-        if (Directory.Exists(_rootDirectory))
-        {
-            Directory.Delete(_rootDirectory, true);
-        }
     }
 
     [TestCase("**/*.pdf", "report.pdf")]

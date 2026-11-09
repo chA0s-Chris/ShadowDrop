@@ -85,13 +85,13 @@ public sealed class UploadPersistenceService
                 record.ChunkCount,
                 record.ContentType);
 
-            return new(record.FileId,
-                       record.PlaintextLength,
-                       record.EncryptedLength,
-                       record.ChunkSize,
-                       record.ChunkCount,
-                       record.EncryptionFormatVersion,
-                       record.AlgorithmId);
+            return new UploadResult(record.FileId,
+                                    record.PlaintextLength,
+                                    record.EncryptedLength,
+                                    record.ChunkSize,
+                                    record.ChunkCount,
+                                    record.EncryptionFormatVersion,
+                                    record.AlgorithmId);
         }
         catch (Exception exception)
         {

@@ -83,7 +83,7 @@ internal sealed class CliSemanticVersion : IComparable<CliSemanticVersion>
             }
         }
 
-        version = new(major, minor, patch, prereleaseIdentifiers);
+        version = new CliSemanticVersion(major, minor, patch, prereleaseIdentifiers);
         return true;
     }
 

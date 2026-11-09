@@ -159,7 +159,7 @@ public sealed record ShareListCursor(
             return false;
         }
 
-        cursor = new(protocolVersion, statuses, createdAtMilliseconds, shareId);
+        cursor = new ShareListCursor(protocolVersion, statuses, createdAtMilliseconds, shareId);
         return true;
     }
 

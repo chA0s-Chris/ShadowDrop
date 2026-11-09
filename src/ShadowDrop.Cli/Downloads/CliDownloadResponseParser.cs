@@ -29,7 +29,7 @@ public static class CliDownloadResponseParser
         {
             FirstChunkIndex = ReadRequiredInt64Header(response, DownloadHeaderConstants.FirstChunkIndexHeaderName),
             LastChunkIndex = ReadRequiredInt64Header(response, DownloadHeaderConstants.LastChunkIndexHeaderName),
-            RequestedRange = new()
+            RequestedRange = new RequestedPlaintextRangeContract
             {
                 Start = ReadRequiredInt64Header(response, DownloadHeaderConstants.PlaintextRangeStartHeaderName),
                 End = ReadRequiredInt64Header(response, DownloadHeaderConstants.PlaintextRangeEndHeaderName)
@@ -46,7 +46,7 @@ public static class CliDownloadResponseParser
             throw new InvalidDataException("The streamed CLI download response declared an unexpected body length.");
         }
 
-        return new(metadata, new LengthValidatingReadStream(response.Content.ReadAsStream(), expectedEncryptedLength));
+        return new CliDownloadResponse(metadata, new LengthValidatingReadStream(response.Content.ReadAsStream(), expectedEncryptedLength));
     }
 
     private static Int64 GetChunkCount(CliDownloadMetadataContract metadata)

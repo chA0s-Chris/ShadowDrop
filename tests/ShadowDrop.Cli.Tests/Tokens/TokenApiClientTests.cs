@@ -16,12 +16,12 @@ public sealed class TokenApiClientTests
     [Test]
     public async Task CreateAndListAsync_ShouldReportMissingManagementEndpoint()
     {
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
         var apiClient = new TokenApiClient(httpClient);
 
         var create = async () =>
             // ReSharper disable once AccessToDisposedClosure
-            await apiClient.CreateAsync(ServerUrl, "admin-token", new("automation", null, null, null), CancellationToken.None);
+            await apiClient.CreateAsync(ServerUrl, "admin-token", new CreateUploadCredentialCliRequest("automation", null, null, null), CancellationToken.None);
         var list = async () =>
             // ReSharper disable once AccessToDisposedClosure
             await apiClient.ListAsync(ServerUrl, "admin-token", null, null, CancellationToken.None);
@@ -40,7 +40,7 @@ public sealed class TokenApiClientTests
         {
             capturedRequest = request;
             capturedPayload = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-            return new(HttpStatusCode.Created)
+            return new HttpResponseMessage(HttpStatusCode.Created)
             {
                 Content = new StringContent(CredentialJson(credentialId, true))
             };
@@ -48,7 +48,7 @@ public sealed class TokenApiClientTests
 
         var result = await new TokenApiClient(httpClient).CreateAsync(ServerUrl,
                                                                       "admin-token",
-                                                                      new("automation", null, 1024, null),
+                                                                      new CreateUploadCredentialCliRequest("automation", null, 1024, null),
                                                                       CancellationToken.None);
 
         capturedRequest!.Method.Should().Be(HttpMethod.Post);
@@ -64,7 +64,7 @@ public sealed class TokenApiClientTests
     [Test]
     public async Task InspectAndRevokeAsync_ShouldReportCredentialNotFound()
     {
-        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NotFound)));
+        using var httpClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound)));
         var apiClient = new TokenApiClient(httpClient);
 
         var inspect = async () =>
@@ -85,7 +85,7 @@ public sealed class TokenApiClientTests
         using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
         {
             capturedRequest = request;
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent($$"""{"credentials":[{{CredentialJson(Guid.NewGuid(), false)}}],"nextCursor":"abc"}""")
             };
@@ -106,7 +106,7 @@ public sealed class TokenApiClientTests
         using var httpClient = new HttpClient(new StubHttpMessageHandler(request =>
         {
             capturedRequest = request;
-            return new(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("""{"credentials":[],"nextCursor":null}""")
             };
@@ -120,8 +120,8 @@ public sealed class TokenApiClientTests
     [Test]
     public async Task RevokeAsync_ShouldAcceptNoContent_AndMapAuthenticationFailures()
     {
-        using var successClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.NoContent)));
-        using var unauthorizedClient = new HttpClient(new StubHttpMessageHandler(_ => new(HttpStatusCode.Unauthorized)));
+        using var successClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NoContent)));
+        using var unauthorizedClient = new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)));
 
         await new TokenApiClient(successClient).RevokeAsync(ServerUrl, "admin-token", Guid.NewGuid(), CancellationToken.None);
         var revokeUnauthorized = async () =>

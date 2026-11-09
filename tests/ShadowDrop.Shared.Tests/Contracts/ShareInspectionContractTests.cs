@@ -24,7 +24,7 @@ public sealed class ShareInspectionContractTests
             [],
             1,
             42,
-            [new("a0000000-0000-0000-0000-000000000001", 42, ShareFileRetentionStates.Retained, null, null)]);
+            [new ShareInspectionFileContract("a0000000-0000-0000-0000-000000000001", 42, ShareFileRetentionStates.Retained, null, null)]);
 
         var typeInfo = OperationalStatusJsonSerializerContext.Default.ShareInspectionContract;
         var json = JsonSerializer.Serialize(inspection, typeInfo);

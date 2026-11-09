@@ -62,7 +62,7 @@ internal static class QueueFileBuilder
                 ? ResolveCollisionSafeName(file.FileName, usedNames)
                 : ResolvePreparedDestination(file, preparedDestinations, unmatchedPreparedFileIds);
             outputPaths.Add(outputPath);
-            entries.Add(new()
+            entries.Add(new QueueFileEntry
             {
                 FileId = file.FileId,
                 FileName = file.FileName,
@@ -83,7 +83,7 @@ internal static class QueueFileBuilder
             throw new QueueBuildException(conflictError);
         }
 
-        return new()
+        return new QueueFile
         {
             ShadowDrop = FormatConstants.ShadowDropVersion,
             QueueVersion = FormatConstants.QueueVersion,

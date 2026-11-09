@@ -79,11 +79,11 @@ public sealed class CliHttpClientFactoryTests
     [Test]
     public void CreateHandler_ShouldAcceptAnyCertificate_WhenInsecure()
     {
-        using var handler = (HttpClientHandler)CliHttpClientFactory.CreateHandler(new(null, true));
+        using var handler = (HttpClientHandler)CliHttpClientFactory.CreateHandler(new CliTlsOptions(null, true));
         using var root = TestCertificateAuthority.CreateSelfSignedRoot();
 
         handler.ServerCertificateCustomValidationCallback.Should().NotBeNull();
-        handler.ServerCertificateCustomValidationCallback!(new(), root, null, SslPolicyErrors.RemoteCertificateChainErrors).Should().BeTrue();
+        handler.ServerCertificateCustomValidationCallback!(new HttpRequestMessage(), root, null, SslPolicyErrors.RemoteCertificateChainErrors).Should().BeTrue();
     }
 
     [Test]
@@ -99,7 +99,7 @@ public sealed class CliHttpClientFactoryTests
     {
         var missingPath = Path.Combine(Path.GetTempPath(), $"shadowdrop-missing-{Guid.NewGuid():N}.pem");
 
-        var act = () => CliHttpClientFactory.CreateHandler(new(missingPath, false));
+        var act = () => CliHttpClientFactory.CreateHandler(new CliTlsOptions(missingPath, false));
 
         act.Should().Throw<CliTlsConfigurationException>().WithMessage("*was not found*");
     }
@@ -111,7 +111,7 @@ public sealed class CliHttpClientFactoryTests
 
         try
         {
-            var act = () => CliHttpClientFactory.CreateHandler(new(invalidPath, false));
+            var act = () => CliHttpClientFactory.CreateHandler(new CliTlsOptions(invalidPath, false));
 
             act.Should().Throw<CliTlsConfigurationException>().WithMessage("*not a valid PEM-encoded certificate*");
         }
@@ -130,10 +130,10 @@ public sealed class CliHttpClientFactoryTests
 
         try
         {
-            using var handler = (HttpClientHandler)CliHttpClientFactory.CreateHandler(new(caCertPath, false));
+            using var handler = (HttpClientHandler)CliHttpClientFactory.CreateHandler(new CliTlsOptions(caCertPath, false));
 
             handler.ServerCertificateCustomValidationCallback.Should().NotBeNull();
-            handler.ServerCertificateCustomValidationCallback!(new(), leaf, null, SslPolicyErrors.RemoteCertificateChainErrors).Should().BeTrue();
+            handler.ServerCertificateCustomValidationCallback!(new HttpRequestMessage(), leaf, null, SslPolicyErrors.RemoteCertificateChainErrors).Should().BeTrue();
         }
         finally
         {

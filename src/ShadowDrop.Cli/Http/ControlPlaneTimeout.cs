@@ -16,7 +16,7 @@ internal sealed class ControlPlaneTimeout : IDisposable
 
     public ControlPlaneTimeout(CancellationToken callerCancellation, TimeProvider? timeProvider = null)
     {
-        _deadlineCancellation = new(TotalTimeout, timeProvider ?? TimeProvider.System);
+        _deadlineCancellation = new CancellationTokenSource(TotalTimeout, timeProvider ?? TimeProvider.System);
         _linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(callerCancellation, _deadlineCancellation.Token);
     }
 

@@ -7,4 +7,5 @@ using System.Text.Json.Serialization;
 internal sealed record CreateUploadCredentialCliResult(
     [property: JsonPropertyName("credential")]
     UploadCredentialCliProjection Credential,
-    [property: JsonPropertyName("token")] String Token);
+    [property: JsonPropertyName("token")]
+    String Token);

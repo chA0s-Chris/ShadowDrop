@@ -110,7 +110,7 @@ public sealed class LocalBlobStorage : IBlobStorage
             FileSystemAccessPermissions.EnsureOwnerOnlyFile(blobPath);
 
             _logger.LogDebug("Blob saved. BlobKey: {BlobKey}; Bytes: {Bytes}", blobKey, writtenLength);
-            return new(blobKey, writtenLength);
+            return new UploadBlobDescriptor(blobKey, writtenLength);
         }
         catch (Exception exception)
         {

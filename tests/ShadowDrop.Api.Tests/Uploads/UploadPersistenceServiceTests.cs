@@ -345,7 +345,7 @@ public sealed class UploadPersistenceServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new('a', 64));
+            new String('a', 64));
 
     private static UploadPersistenceRequest CreateRequest(Guid fileId) =>
         new(fileId,
@@ -358,7 +358,7 @@ public sealed class UploadPersistenceServiceTests
             64,
             2,
             Convert.ToBase64String(Enumerable.Range(0, 32).Select(value => (Byte)value).ToArray()),
-            new('a', 64));
+            new String('a', 64));
 
     private static async Task<UploadPersistenceRequest> CreateReservedRequestAsync(IUploadedFileMetadataRepository repository)
     {
@@ -472,7 +472,7 @@ public sealed class UploadPersistenceServiceTests
             SaveCallCount++;
             SaveStarted.TrySetResult();
             await AllowSaveToFinish.Task.WaitAsync(cancellationToken);
-            return new($"blob/{fileId:N}.blob", encryptedContent.Length);
+            return new UploadBlobDescriptor($"blob/{fileId:N}.blob", encryptedContent.Length);
         }
     }
 
@@ -528,11 +528,11 @@ public sealed class UploadPersistenceServiceTests
         public ShadowDropOptions CreateOptions() =>
             new()
             {
-                Metadata = new()
+                Metadata = new MetadataOptions
                 {
                     LiteDbPath = Path.Combine(_rootDirectory, "metadata", "shadowdrop.db")
                 },
-                Storage = new()
+                Storage = new StorageOptions
                 {
                     LocalRoot = Path.Combine(_rootDirectory, "storage")
                 }

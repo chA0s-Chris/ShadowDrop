@@ -23,13 +23,13 @@ public sealed class ShareManifestClientTests
         {
             Files =
             [
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = Guid.NewGuid().ToString()
                 }
             ]
         };
-        var client = new ShareManifestClient(new(new StubHttpMessageHandler(request =>
+        var client = new ShareManifestClient(new HttpClient(new StubHttpMessageHandler(request =>
         {
             captured.Scheme = request.Headers.Authorization?.Scheme;
             captured.Parameter = request.Headers.Authorization?.Parameter;
@@ -49,7 +49,7 @@ public sealed class ShareManifestClientTests
         {
             Files =
             [
-                new()
+                new ShareManifestFileContract
                 {
                     FileId = Guid.NewGuid().ToString(),
                     FileName = "a.bin",
@@ -94,7 +94,7 @@ public sealed class ShareManifestClientTests
     [TestCase(HttpStatusCode.InternalServerError, "Server connection failed.")]
     public async Task GetAsync_ShouldThrowMappedMessage_ForErrorStatusCodes(HttpStatusCode statusCode, String expectedMessage)
     {
-        var client = CreateClient(new(statusCode));
+        var client = CreateClient(new HttpResponseMessage(statusCode));
 
         var act = () => client.GetAsync(ServerUrl, "share", null, CancellationToken.None);
 
@@ -104,7 +104,7 @@ public sealed class ShareManifestClientTests
     [Test]
     public async Task GetAsync_ShouldThrowServerConnectionFailed_WhenTransportFails()
     {
-        var client = new ShareManifestClient(new(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
+        var client = new ShareManifestClient(new HttpClient(StubHttpMessageHandler.Throwing(new HttpRequestException("boom"))));
 
         var act = () => client.GetAsync(ServerUrl, "share", null, CancellationToken.None);
 
@@ -112,7 +112,7 @@ public sealed class ShareManifestClientTests
     }
 
     private static ShareManifestClient CreateClient(HttpResponseMessage response) =>
-        new(new(new StubHttpMessageHandler(response)));
+        new(new HttpClient(new StubHttpMessageHandler(response)));
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, String body) =>
         new(statusCode)

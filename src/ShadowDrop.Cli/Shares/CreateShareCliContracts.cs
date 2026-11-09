@@ -7,7 +7,8 @@ using System.Text.Json.Serialization;
 internal sealed record CreateShareCliRequest(
     [property: JsonPropertyName("expiresAtUtc")]
     DateTimeOffset ExpiresAtUtc,
-    [property: JsonPropertyName("files")] IReadOnlyList<CreateShareCliFileRequest> Files,
+    [property: JsonPropertyName("files")]
+    IReadOnlyList<CreateShareCliFileRequest> Files,
     [property: JsonPropertyName("directHttpEnabled")]
     Boolean DirectHttpEnabled,
     [property: JsonPropertyName("generateDownloadBearerToken")]
@@ -16,7 +17,8 @@ internal sealed record CreateShareCliRequest(
     DateTimeOffset? DownloadBearerTokenExpiresAtUtc);
 
 internal sealed record CreateShareCliFileRequest(
-    [property: JsonPropertyName("fileId")] Guid FileId,
+    [property: JsonPropertyName("fileId")]
+    Guid FileId,
     [property: JsonPropertyName("displayName")]
     String? DisplayName = null);
 

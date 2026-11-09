@@ -82,7 +82,7 @@ public static class ChunkEncryptionService
         try
         {
             HKDF.DeriveKey(HashAlgorithmName.SHA256, secret.KeyMaterial, keyMaterial, context.KdfSaltBytes, info);
-            return new(keyMaterial);
+            return new ContentKey(keyMaterial);
         }
         finally
         {
@@ -130,7 +130,7 @@ public static class ChunkEncryptionService
         var output = new Byte[ciphertext.Length + AesGcmTagLength];
         ciphertext.CopyTo(output, 0);
         tag.CopyTo(output, ciphertext.Length);
-        return new(output, true);
+        return new EncryptedChunk(output, true);
     }
 
     /// <summary>
@@ -169,7 +169,7 @@ public static class ChunkEncryptionService
         var offsetInFirstChunk = (Int32)(plaintextOffset % chunkSize);
         var endOffsetInLastChunk = (Int32)(finalOffset % chunkSize);
 
-        return new(firstChunkIndex, lastChunkIndex, offsetInFirstChunk, endOffsetInLastChunk);
+        return new ChunkRange(firstChunkIndex, lastChunkIndex, offsetInFirstChunk, endOffsetInLastChunk);
     }
 
     private static void BuildAad(ChunkMetadata metadata, Span<Byte> destination)

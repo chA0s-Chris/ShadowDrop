@@ -55,7 +55,7 @@ public sealed class RecursiveLinkBoundaryTests
         File.CreateSymbolicLink(link, Path.Combine(_rootDirectory, "top", "target.bin"));
 
         RecursiveLinkBoundary.TryResolveDirectoryRoot(root, out var resolvedRoot).Should().BeTrue();
-        RecursiveLinkBoundary.TryValidateFile(new(link), resolvedRoot).Should().BeTrue();
+        RecursiveLinkBoundary.TryValidateFile(new FileInfo(link), resolvedRoot).Should().BeTrue();
     }
 
     [Test]
@@ -67,7 +67,7 @@ public sealed class RecursiveLinkBoundaryTests
         File.CreateSymbolicLink(first, second);
         File.CreateSymbolicLink(second, first);
 
-        RecursiveLinkBoundary.TryValidateFile(new(first), root).Should().BeFalse();
+        RecursiveLinkBoundary.TryValidateFile(new FileInfo(first), root).Should().BeFalse();
     }
 
     // The escape needs an existing file at the lexically collapsed path, because a resolver that folds
@@ -83,7 +83,7 @@ public sealed class RecursiveLinkBoundaryTests
         var link = Path.Combine(root, "linked.bin");
         File.CreateSymbolicLink(link, Path.Combine(root, "sub", "..", "secret.bin"));
 
-        RecursiveLinkBoundary.TryValidateFile(new(link), root).Should().BeFalse();
+        RecursiveLinkBoundary.TryValidateFile(new FileInfo(link), root).Should().BeFalse();
     }
 
     [Test]
@@ -95,7 +95,7 @@ public sealed class RecursiveLinkBoundaryTests
         var filesystemRoot = Path.GetPathRoot(link);
 
         filesystemRoot.Should().NotBeNullOrEmpty();
-        RecursiveLinkBoundary.TryValidateFile(new(link), filesystemRoot).Should().BeTrue();
+        RecursiveLinkBoundary.TryValidateFile(new FileInfo(link), filesystemRoot).Should().BeTrue();
     }
 
     private String CreateDirectory(String relativePath)

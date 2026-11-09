@@ -117,14 +117,14 @@ internal sealed record CliApplicationServices(
         // detection implementation rather than two independently constructed providers. The provider re-reads
         // the environment on each call, so this is a single source of truth, not caching.
         var terminalCapabilityProvider = new TerminalCapabilityProvider();
-        return new(new(new(), new EnvironmentReader()),
-                   CliHttpClientFactory.CreateClient,
-                   Console.Out,
-                   Console.Error,
-                   new SpectreCliInteractiveSession(Console.Error),
-                   TimeProvider.System,
-                   new DownloadProgressReporterFactory(Console.Out, Console.Error, TimeProvider.System, terminalCapabilityProvider),
-                   new UploadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
-                   terminalCapabilityProvider);
+        return new CliApplicationServices(new CliConfigurationResolver(new CliConfigPathResolver(), new EnvironmentReader()),
+                                          CliHttpClientFactory.CreateClient,
+                                          Console.Out,
+                                          Console.Error,
+                                          new SpectreCliInteractiveSession(Console.Error),
+                                          TimeProvider.System,
+                                          new DownloadProgressReporterFactory(Console.Out, Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                                          new UploadProgressReporterFactory(Console.Error, TimeProvider.System, terminalCapabilityProvider),
+                                          terminalCapabilityProvider);
     }
 }

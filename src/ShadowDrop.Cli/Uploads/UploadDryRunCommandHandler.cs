@@ -42,8 +42,8 @@ internal sealed class UploadDryRunCommandHandler
     private static UploadDryRunResult BuildInvalidResult(IReadOnlyList<UploadDryRunError> errors) =>
         new(UploadDryRunStatus.Invalid,
             [],
-            new(0, 0, 0, 0),
-            new(null, null),
+            new UploadDryRunTotals(0, 0, 0, 0),
+            new UploadDryRunIntendedOutputs(null, null),
             UncheckedValidations,
             errors.Select(static error => new UploadDryRunErrorResult(error.Message, error.Origin.Source, error.Origin.RecordNumber)).ToArray());
 
@@ -56,20 +56,20 @@ internal sealed class UploadDryRunCommandHandler
         {
             QueueDestination? destination = null;
             plan.QueueDestinations?.TryGetValue(file.File.FullName, out destination);
-            files.Add(new(file.File.FullName,
-                          file.PlaintextLength,
-                          file.EncryptedLength,
-                          destination?.Path));
+            files.Add(new UploadDryRunFile(file.File.FullName,
+                                           file.PlaintextLength,
+                                           file.EncryptedLength,
+                                           destination?.Path));
             plaintextBytes = checked(plaintextBytes + file.PlaintextLength);
             encryptedBytes = checked(encryptedBytes + file.EncryptedLength);
         }
 
-        return new(UploadDryRunStatus.Valid,
-                   files,
-                   new(files.Count, plan.LocalPlan.ExcludedFileCount, plaintextBytes, encryptedBytes),
-                   new(plan.QueueOut?.FullName, plan.SecretsOut?.FullName),
-                   UncheckedValidations,
-                   []);
+        return new UploadDryRunResult(UploadDryRunStatus.Valid,
+                                      files,
+                                      new UploadDryRunTotals(files.Count, plan.LocalPlan.ExcludedFileCount, plaintextBytes, encryptedBytes),
+                                      new UploadDryRunIntendedOutputs(plan.QueueOut?.FullName, plan.SecretsOut?.FullName),
+                                      UncheckedValidations,
+                                      []);
     }
 
     private async Task<Int32> ExecuteAsync(UploadDryRunPlanningResult planningResult,
