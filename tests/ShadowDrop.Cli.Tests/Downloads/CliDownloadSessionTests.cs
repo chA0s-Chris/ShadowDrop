@@ -18,13 +18,13 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var httpClient =
-            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
-            {
-                BaseAddress = new Uri("https://shadowdrop.test/")
-            };
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")));
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         using var destination = new NonSeekableWriteStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
 
+        // The synchronous Throw assertion below invokes the delegate before httpClient, destination, and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => new CliDownloadSession(httpClient,
                                                new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"),
                                                destination,
@@ -32,6 +32,7 @@ public sealed class CliDownloadSessionTests
                                                fixture.CreateFileEncryptionContext(),
                                                durablePlaintextLength: fixture.ChunkSize,
                                                totalPlaintextSize: fixture.Plaintext.LongLength);
+        // ReSharper restore AccessToDisposedClosure
 
         act.Should().Throw<ArgumentException>()
            .WithMessage("*resumed download requires a seekable destination stream*")
@@ -43,10 +44,8 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var httpClient =
-            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")))
-            {
-                BaseAddress = new Uri("https://shadowdrop.test/")
-            };
+            new HttpClient(new StubHttpMessageHandler(_ => throw new InvalidOperationException("The session must not send a request during construction.")));
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         using var destination = new MemoryStream(fixture.Plaintext.Take(fixture.ChunkSize).ToArray());
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         List<Int64> reportedValues = [];
@@ -72,15 +71,15 @@ public sealed class CliDownloadSessionTests
         var fixture = DownloadFixture.Create();
         var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateInterruptedResponse(firstChunkEncryptedLength + 7));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var firstAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await firstAttempt.Should().ThrowAsync<IOException>();
@@ -90,6 +89,8 @@ public sealed class CliDownloadSessionTests
 
         destination.SetLength(fixture.ChunkSize + lengthDelta);
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var resumedAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await resumedAttempt.Should().ThrowAsync<InvalidOperationException>()
@@ -104,10 +105,8 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateSuccessResponse());
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
@@ -129,7 +128,7 @@ public sealed class CliDownloadSessionTests
         var fixture = DownloadFixture.Create();
         var firstChunkEncryptedLength = fixture.EncryptedChunks[0].Length;
         var callCount = 0;
-        using var handler = new StubHttpMessageHandler(request =>
+        using var handler = new StubHttpMessageHandler(_ =>
         {
             callCount++;
             if (callCount == 1)
@@ -143,15 +142,15 @@ public sealed class CliDownloadSessionTests
                 End = fixture.Plaintext.LongLength
             });
         });
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var firstAttempt = async () => await session.DownloadAsync(CancellationToken.None);
 
         await firstAttempt.Should().ThrowAsync<IOException>();
@@ -177,15 +176,15 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateRelabeledTruncatedResponse(1));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await session.DownloadAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<CryptographicException>();
@@ -198,15 +197,15 @@ public sealed class CliDownloadSessionTests
     {
         var fixture = DownloadFixture.Create();
         using var handler = new StubHttpMessageHandler(_ => fixture.CreateResponseWithTrailingData(4));
-        using var httpClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri("https://shadowdrop.test/")
-        };
+        using var httpClient = new HttpClient(handler);
+        httpClient.BaseAddress = new Uri("https://shadowdrop.test/");
         await using var destination = new MemoryStream();
         using var shareSecret = ShareSecret.FromBytes(fixture.KeyMaterial);
         using var session = new CliDownloadSession(httpClient, new Uri(httpClient.BaseAddress, "d/share-token/files/file-id"), destination, shareSecret,
                                                    fixture.CreateFileEncryptionContext());
 
+        // The awaited ThrowAsync assertion below runs the delegate before session is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await session.DownloadAsync(CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidDataException>();

@@ -63,7 +63,10 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
             cancellation.Cancel);
         _ = await CompleteUploadAsync(repository, 100);
 
+        // The assertion below awaits the delegate before the repository and the token source are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => repository.GetStorageStatsAsync(cancellation.Token);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
@@ -128,7 +131,7 @@ public sealed class UploadedFileMetadataRepositoryStatsTests
 
         foreach (var logRecord in logRecords)
         {
-            var values = logRecord.StructuredState!.Select(pair => pair.Value);
+            var values = logRecord.StructuredState!.Select(pair => pair.Value).ToArray();
             values.Should().NotContain(value => value != null && value.Contains(uploadedFileRecord.KdfSaltBase64));
             values.Should().NotContain(value => value != null && value.Contains(uploadedFileRecord.PlaintextSha256!));
         }

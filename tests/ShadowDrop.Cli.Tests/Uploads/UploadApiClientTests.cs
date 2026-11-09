@@ -81,13 +81,14 @@ public sealed class UploadApiClientTests
     {
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
+        var fileId = fixture.FileId;
         var handler = new SequenceHttpMessageHandler(
             _ => throw new HttpRequestException("temporary"),
             _ => new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
-                    fileId = fixture.FileId
+                    fileId
                 })
             });
         using var httpClient = new HttpClient(handler);
@@ -128,7 +129,10 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Server connection failed.");
@@ -141,6 +145,7 @@ public sealed class UploadApiClientTests
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
         var delays = new List<TimeSpan>();
+        var fileId = fixture.FileId;
         var handler = new SequenceHttpMessageHandler(
             _ => new HttpResponseMessage(HttpStatusCode.TooManyRequests),
             _ => throw new HttpRequestException("temporary"),
@@ -148,11 +153,11 @@ public sealed class UploadApiClientTests
             {
                 Content = JsonContent.Create(new
                 {
-                    fileId = fixture.FileId
+                    fileId
                 })
             });
         using var httpClient = new HttpClient(handler);
-        var sut = new UploadApiClient(httpClient, (delay, cancellationToken) =>
+        var sut = new UploadApiClient(httpClient, (delay, _) =>
         {
             delays.Add(delay);
             return Task.CompletedTask;
@@ -198,7 +203,10 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture and shareSecret are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, CancellationToken.None);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<UploadCommandException>()
                  .WithMessage("Upload failed; please verify file and try again.");
@@ -211,6 +219,8 @@ public sealed class UploadApiClientTests
         using var shareSecret = ShareSecret.Generate();
         using var fixture = new UploadFilePlanFixture();
         using var cancellationTokenSource = new CancellationTokenSource();
+        // The handler runs inside the awaited UploadAsync call below, before cancellationTokenSource is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var handler = new SequenceHttpMessageHandler(_ =>
         {
             cancellationTokenSource.Cancel();
@@ -219,7 +229,10 @@ public sealed class UploadApiClientTests
         using var httpClient = new HttpClient(handler);
         var sut = new UploadApiClient(httpClient);
 
+        // The awaited ThrowAsync assertion below runs the delegate before fixture, shareSecret, and cancellationTokenSource are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => sut.UploadAsync(ServerUrl, "token", fixture.Plan, shareSecret, null, cancellationTokenSource.Token);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<TaskCanceledException>();
         handler.RequestCount.Should().Be(1);

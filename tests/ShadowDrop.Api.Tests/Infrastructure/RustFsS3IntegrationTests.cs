@@ -115,12 +115,16 @@ public sealed class RustFsS3IntegrationTests
     [OneTimeTearDown]
     public async Task StopDependenciesAsync()
     {
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the Mongo service provider.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_mongoServices is not null)
         {
             await _mongo.Database.Client.DropDatabaseAsync(_mongo.Database.DatabaseNamespace.DatabaseName);
             await _mongoServices.DisposeAsync();
         }
 
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the Mongo container.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_mongoContainer is not null)
         {
             await _mongoContainer.DisposeAsync();
@@ -128,6 +132,8 @@ public sealed class RustFsS3IntegrationTests
 
         _administrationClient.Dispose();
         _storageClient.Dispose();
+        // NUnit runs this teardown even when StartDependenciesAsync throws before building the RustFS container.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_container is not null)
         {
             await _container.DisposeAsync();

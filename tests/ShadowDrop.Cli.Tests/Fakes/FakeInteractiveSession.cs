@@ -14,8 +14,6 @@ internal sealed class FakeInteractiveSession : ICliInteractiveSession
 
     public List<String> Errors { get; } = [];
 
-    public List<String> Messages { get; } = [];
-
     public List<(String Title, IReadOnlyList<(String Label, String Value)> Rows)> Summaries { get; } = [];
 
     public List<(String Prompt, Boolean Secret)> TextPrompts { get; } = [];
@@ -80,7 +78,7 @@ internal sealed class FakeInteractiveSession : ICliInteractiveSession
 
     public void ShowError(String message) => Errors.Add(message);
 
-    public void ShowMessage(String message) => Messages.Add(message);
+    public void ShowMessage(String message) { }
 
     public void ShowSummary(String title, IReadOnlyList<(String Label, String Value)> rows) => Summaries.Add((title, rows));
 }

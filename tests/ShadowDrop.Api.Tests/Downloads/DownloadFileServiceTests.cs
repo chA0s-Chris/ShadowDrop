@@ -208,6 +208,8 @@ public sealed class DownloadFileServiceTests
 
         plaintext.ToArray().Should().Equal(payload.Plaintext);
         encryptedStream.Position.Should().Be(payload.Ciphertext.LongLength);
+        // Disposing explicitly is the action under test; the using still cleans up when an earlier assertion fails.
+        // ReSharper disable once DisposeOnUsingVariable
         await plaintextStream.DisposeAsync();
         encryptedStream.DisposeCount.Should().Be(1);
         encryptedStream.WasDisposed.Should().BeTrue();
@@ -350,7 +352,7 @@ public sealed class DownloadFileServiceTests
         logRecords.Should().ContainSingle();
         logRecords[0].Level.Should().Be(LogLevel.Warning);
         logRecords[0].StructuredState.Should().Contain(pair => pair.Key == "ShareId" && pair.Value == shareId.ToString());
-        var values = logRecords[0].StructuredState!.Select(pair => pair.Value);
+        var values = logRecords[0].StructuredState!.Select(pair => pair.Value).ToArray();
         values.Should().NotContain(value => value != null && value.Contains(wrongBearerToken));
         values.Should().NotContain(value => value != null && value.Contains(correctBearerToken));
     }
@@ -555,7 +557,7 @@ public sealed class DownloadFileServiceTests
                                                                 null,
                                                                 null,
                                                                 null,
-                                                                new RequestedByteRange(0, Math.Min(plaintextLength, (Int64)chunkSize) - 1)),
+                                                                new RequestedByteRange(0, Math.Min(plaintextLength, chunkSize) - 1)),
                                             CancellationToken.None);
 
         result.Status.Should().Be(DownloadLookupStatus.InvalidRequest);
@@ -885,12 +887,12 @@ public sealed class DownloadFileServiceTests
             .GetMethod("CreateAsync",
                        BindingFlags.Public | BindingFlags.Static,
                        null,
-                       [typeof(Stream), typeof(UploadedFileRecord), typeof(Byte[]), typeof(CancellationToken)],
+                       [typeof(Stream), typeof(UploadedFileRecord), typeof(Byte[]), typeof(RequestedPlaintextRangeContract), typeof(CancellationToken)],
                        null);
         createAsyncMethod.Should().NotBeNull();
 
         var createTask = (Task)createAsyncMethod.Invoke(null,
-                                                        [encryptedContent, uploadedFile, shareSecret, cancellationToken])!;
+                                                        [encryptedContent, uploadedFile, shareSecret, null, cancellationToken])!;
         await createTask;
 
         return (Stream)createTask.GetType().GetProperty(nameof(Task<>.Result))!.GetValue(createTask)!;

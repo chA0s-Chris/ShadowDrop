@@ -2,7 +2,6 @@
 // This file is licensed under the MIT license. See LICENSE in the project root for more information.
 namespace ShadowDrop.Api.Downloads;
 
-using Microsoft.Net.Http.Headers;
 using ShadowDrop.Api.Shares;
 using ShadowDrop.Api.Uploads;
 using ShadowDrop.Contracts;
@@ -278,7 +277,7 @@ public sealed class DownloadFileService
             throw new InvalidDataException("Chunked metadata must declare a positive chunk size.");
         }
 
-        var fullChunksLength = checked((uploadedFile.ChunkCount - 1) * (Int64)uploadedFile.ChunkSize);
+        var fullChunksLength = checked((uploadedFile.ChunkCount - 1) * uploadedFile.ChunkSize);
         var remainingPlaintextLength = checked(uploadedFile.PlaintextLength - fullChunksLength);
         var finalChunkLength = remainingPlaintextLength == 0
             ? uploadedFile.ChunkSize
@@ -317,24 +316,6 @@ public sealed class DownloadFileService
         }
 
         return checked(chunkCount * uploadedFile.ChunkSize);
-    }
-
-    private static ParsedRangeHeader ParseRequestedByteRange(String rangeHeader)
-    {
-        if (!RangeHeaderValue.TryParse(rangeHeader, out var parsedRange)
-            || !String.Equals(parsedRange.Unit.ToString(), "bytes", StringComparison.OrdinalIgnoreCase)
-            || parsedRange.Ranges.Count != 1)
-        {
-            return new ParsedRangeHeader(null, true);
-        }
-
-        var range = parsedRange.Ranges.Single();
-        if (range.From is null && range.To is null)
-        {
-            return new ParsedRangeHeader(null, true);
-        }
-
-        return new ParsedRangeHeader(new RequestedByteRange(range.From, range.To), false);
     }
 
     private static RangeResolution ResolveCliRequestedRange(Int64 totalPlaintextLength, RequestedByteRange? requestedRange)
@@ -686,12 +667,6 @@ public sealed class DownloadFileService
         public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
                                                                          UploadedFileRecord uploadedFile,
                                                                          Byte[] shareSecret,
-                                                                         CancellationToken cancellationToken) =>
-            await CreateAsync(encryptedContent, uploadedFile, shareSecret, null, cancellationToken);
-
-        public static async Task<DirectHttpDecryptingStream> CreateAsync(Stream encryptedContent,
-                                                                         UploadedFileRecord uploadedFile,
-                                                                         Byte[] shareSecret,
                                                                          RequestedPlaintextRangeContract? requestedRange,
                                                                          CancellationToken cancellationToken)
         {
@@ -965,7 +940,6 @@ public sealed class DownloadFileService
         }
     }
 
-    private sealed record ParsedRangeHeader(RequestedByteRange? Range, Boolean IsMalformed);
 
     private sealed record RangeResolution(DownloadLookupStatus Status, RequestedPlaintextRangeContract? RequestedRange, Boolean IsPartial);
 

@@ -35,8 +35,10 @@ internal sealed class ScopedUploadStatusAuthorizationFilter : IEndpointFilter
         var requestCancellation = context.HttpContext.RequestAborted;
         using var deadlineCancellation = CancellationTokenSource.CreateLinkedTokenSource(requestCancellation);
         deadlineCancellation.CancelAfter(_authenticationTimeout);
+        // Read the token now: the task can start after a timeout has already disposed its source.
+        var deadlineToken = deadlineCancellation.Token;
         var authenticationTask = Task.Run(
-            () => _credentialService.AuthenticateAsync(token, deadlineCancellation.Token),
+            () => _credentialService.AuthenticateAsync(token, deadlineToken),
             CancellationToken.None);
         ObserveLateFault(authenticationTask);
 

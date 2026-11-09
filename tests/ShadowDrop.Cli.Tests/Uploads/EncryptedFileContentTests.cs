@@ -166,7 +166,10 @@ public sealed class EncryptedFileContentTests
                                                          new CancellationToken(true));
             using var sink = new MemoryStream();
 
+            // The awaited ThrowAsync assertion below runs the delegate before content and sink are disposed.
+            // ReSharper disable AccessToDisposedClosure
             var act = async () => await content.CopyToAsync(sink, null, CancellationToken.None);
+            // ReSharper restore AccessToDisposedClosure
 
             await act.Should().ThrowAsync<OperationCanceledException>();
         }
@@ -202,6 +205,8 @@ public sealed class EncryptedFileContentTests
                                                          new FileEncryptionContext(Guid.NewGuid(), FileEncryptionContext.GenerateKdfSalt()),
                                                          4, 19, null, CancellationToken.None);
 
+            // The awaited ThrowAsync assertion below runs the delegate before content is disposed.
+            // ReSharper disable once AccessToDisposedClosure
             var act = async () => await content.CopyToAsync(Stream.Null);
 
             // Deliberately not wrapped in HttpRequestException: only an IOException would be, and the upload

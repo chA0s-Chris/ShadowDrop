@@ -77,12 +77,16 @@ public abstract class MongoPersistenceIntegrationTests
     [OneTimeTearDown]
     public async Task StopMongoAsync()
     {
+        // NUnit runs this teardown even when StartMongoAsync throws before assigning the service provider.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_services is not null)
         {
             await _mongo.Database.Client.DropDatabaseAsync(_mongo.Database.DatabaseNamespace.DatabaseName);
             await _services.DisposeAsync();
         }
 
+        // NUnit runs this teardown even when StartMongoAsync throws before building the container.
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (_container is not null)
         {
             await _container.DisposeAsync();

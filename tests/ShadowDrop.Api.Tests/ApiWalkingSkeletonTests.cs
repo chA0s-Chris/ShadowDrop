@@ -116,6 +116,7 @@ public sealed class ApiWalkingSkeletonTests
         invalid.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         success.StatusCode.Should().Be(HttpStatusCode.OK);
 
+        var bootstrapToken = fixture.BootstrapToken;
         var audits = sink.Events
                          .Where(logEvent => Scalar(logEvent, "Operation") == "admin-share-list")
                          .ToArray();
@@ -128,7 +129,7 @@ public sealed class ApiWalkingSkeletonTests
                                                                                             && !message.Contains(
                                                                                                 "leaked-status-value", StringComparison.Ordinal)
                                                                                             && !message.Contains(
-                                                                                                fixture.BootstrapToken, StringComparison.Ordinal));
+                                                                                                bootstrapToken, StringComparison.Ordinal));
     }
 
     [Test]
@@ -1840,6 +1841,8 @@ public sealed class ApiWalkingSkeletonTests
     {
         using var fixture = new TestApiFactory(withBootstrapToken: false);
 
+        // The assertion below invokes the delegate before the fixture is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Action act = () => fixture.CreateClient();
 
         act.Should().Throw<InvalidOperationException>();
@@ -1850,6 +1853,8 @@ public sealed class ApiWalkingSkeletonTests
     {
         using var fixture = new TestApiFactory(bootstrapToken: UploadCredentialToken.Create().Token);
 
+        // The assertion below invokes the delegate before the fixture is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Action act = () => fixture.CreateClient();
 
         act.Should().Throw<InvalidOperationException>();
@@ -2379,8 +2384,6 @@ public sealed class ApiWalkingSkeletonTests
 
     private sealed class AdminTokenCredentialDocument
     {
-        public Int32 Id { get; set; }
-
         public Int32 Iterations { get; set; }
 
         public String SaltBase64 { get; set; } = String.Empty;
@@ -2390,7 +2393,7 @@ public sealed class ApiWalkingSkeletonTests
 
     /// <summary>
     /// Captures emitted log events. The API registers Serilog with <c>writeToProviders: false</c>, so an
-    /// <see cref="ILoggerProvider"/> would never be called; <c>ReadFrom.Services</c> does pick up sinks from DI.
+    /// <see cref="Microsoft.Extensions.Logging.ILoggerProvider"/> would never be called; <c>ReadFrom.Services</c> does pick up sinks from DI.
     /// </summary>
     private sealed class CapturingLogSink : ILogEventSink
     {

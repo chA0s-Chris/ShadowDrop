@@ -39,7 +39,6 @@ internal sealed class S3SeekableReadStream : Stream
     public override ValueTask DisposeAsync()
     {
         Dispose(true);
-        GC.SuppressFinalize(this);
         return ValueTask.CompletedTask;
     }
 

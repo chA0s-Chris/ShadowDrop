@@ -176,6 +176,8 @@ public sealed class UploadPersistenceServiceTests
         var sut = new UploadPersistenceService(blobStorage, repository, NullLogger<UploadPersistenceService>.Instance);
         var request = CreateRequest(Guid.NewGuid());
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         Func<Task> act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
@@ -193,6 +195,8 @@ public sealed class UploadPersistenceServiceTests
         var request = await CreateReservedRequestAsync(repository);
         await using var content = new CancelingStream(CreateCiphertext());
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(request, content, CancellationToken.None);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -217,7 +221,7 @@ public sealed class UploadPersistenceServiceTests
         var logRecords = collector.GetSnapshot();
         logRecords.Should().Contain(logRecord => logRecord.Level == LogLevel.Information && logRecord.Message.Contains("Upload completed"));
         var completionRecord = logRecords.Single(logRecord => logRecord.Message.Contains("Upload completed"));
-        var values = completionRecord.StructuredState!.Select(pair => pair.Value);
+        var values = completionRecord.StructuredState!.Select(pair => pair.Value).ToArray();
         values.Should().NotContain(value => value != null && value.Contains(request.KdfSaltBase64));
         values.Should().NotContain(value => value != null && value.Contains(request.PlaintextSha256!));
         values.Should().NotContain(value => value != null && value.Contains(request.OriginalFileName));
@@ -242,6 +246,8 @@ public sealed class UploadPersistenceServiceTests
         var blobPath = Path.Combine(options.Storage.LocalRoot, storedRecord.BlobKey);
         var originalBlob = await File.ReadAllBytesAsync(blobPath);
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(request, duplicateContent, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadValidationException>()
@@ -263,6 +269,8 @@ public sealed class UploadPersistenceServiceTests
         var firstUploadTask = sut.PersistAsync(request, firstContent, CancellationToken.None);
         await blobStorage.SaveStarted.Task;
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var secondAttempt = async () => await sut.PersistAsync(request, secondContent, CancellationToken.None);
 
         await secondAttempt.Should().ThrowAsync<UploadValidationException>()
@@ -288,6 +296,8 @@ public sealed class UploadPersistenceServiceTests
         var expiredReservationId = await repository.ReserveFileIdAsync(CancellationToken.None);
         ExpireReservation(options.Metadata.LiteDbPath, expiredReservationId);
 
+        // The assertion below awaits the delegate before the content stream is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var act = async () => await sut.PersistAsync(CreateRequest(expiredReservationId), content, CancellationToken.None);
 
         await act.Should().ThrowAsync<UploadValidationException>()

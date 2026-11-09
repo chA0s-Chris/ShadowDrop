@@ -170,12 +170,11 @@ internal sealed class ShareCreateCommandHandler
             }
         }
 
-        await EmitSuccessAsync(options, fileIds, shareResult, shareUrl, cancellationToken);
+        await EmitSuccessAsync(options, fileIds, shareResult, shareUrl);
         return 0;
     }
 
-    private async Task EmitSuccessAsync(ShareCreateCommandOptions options, IReadOnlyList<String> fileIds, CreateShareCliResult shareResult, String shareUrl,
-                                        CancellationToken cancellationToken)
+    private async Task EmitSuccessAsync(ShareCreateCommandOptions options, IReadOnlyList<String> fileIds, CreateShareCliResult shareResult, String shareUrl)
     {
         if (options.Json)
         {

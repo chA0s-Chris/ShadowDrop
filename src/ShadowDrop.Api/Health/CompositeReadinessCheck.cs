@@ -48,6 +48,8 @@ internal sealed class CompositeReadinessCheck : IReadinessCheck
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(Timeout);
 
+        // Task.WhenAll enumerates the projection immediately, so every probe reads the token before deadline is disposed.
+        // ReSharper disable once AccessToDisposedClosure
         var results = await Task.WhenAll(_probes.Select(probe => ProbeAsync(probe, deadline.Token, cancellationToken)));
         var components = results.SelectMany(static result => result).OrderBy(static component => component.Name, StringComparer.Ordinal).ToArray();
         var ready = components.All(component => component.State == OperationalComponentStates.Ready);

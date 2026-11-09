@@ -134,6 +134,9 @@ internal sealed class ApiServerProcess : IAsyncDisposable
 
     private async Task WaitForHealthyAsync(CancellationToken cancellationToken)
     {
+        // One client per server start polls only this process's readiness endpoint and is disposed afterwards;
+        // starts happen a handful of times per test run, so socket exhaustion cannot occur.
+        // ReSharper disable once ShortLivedHttpClient
         using var client = new HttpClient();
         client.Timeout = TimeSpan.FromSeconds(2);
 

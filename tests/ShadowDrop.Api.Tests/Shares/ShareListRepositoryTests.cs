@@ -37,6 +37,8 @@ public sealed class ShareListRepositoryTests
         // share-list total for the equivalent single-status query evaluated at the same instant.
         async Task<Int64> TotalAsync(String status)
         {
+            // Every call is awaited below, before the repository is disposed at the end of the test.
+            // ReSharper disable once AccessToDisposedClosure
             return await repository.CountMatchingAsync(new ShareListQuery(now, [status], 1, null), CancellationToken.None);
         }
 
@@ -151,6 +153,8 @@ public sealed class ShareListRepositoryTests
             ShareListCursor? cursor = null;
             do
             {
+                // Every walk is awaited below, before the repository is disposed at the end of the test.
+                // ReSharper disable once AccessToDisposedClosure
                 var page = await repository.GetListPageAsync(new ShareListQuery(now, statuses, 3, cursor), CancellationToken.None);
                 walked.AddRange(page.Shares.Select(share => share.ShareId));
                 cursor = page.NextCursor;
@@ -180,14 +184,17 @@ public sealed class ShareListRepositoryTests
         void DeleteWindowBeforeTrailingRead(Int32 limit)
         {
             queries++;
-            if (queries != 2 || subject is null)
+            // The hook must see the repository assigned after its construction; it stays null for earlier queries.
+            // ReSharper disable once AccessToModifiedClosure
+            var current = subject;
+            if (queries != 2 || current is null)
             {
                 return;
             }
 
             foreach (var id in doomedIds)
             {
-                subject.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+                current.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
             }
         }
 
@@ -235,14 +242,17 @@ public sealed class ShareListRepositoryTests
         void DeleteDoomedBeforeTrailingRead(Int32 limit)
         {
             queries++;
-            if (queries != 2 || subject is null)
+            // The hook must see the repository assigned after its construction; it stays null for earlier queries.
+            // ReSharper disable once AccessToModifiedClosure
+            var current = subject;
+            if (queries != 2 || current is null)
             {
                 return;
             }
 
             foreach (var id in doomedIds)
             {
-                subject.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
+                current.TryDeleteAsync(id, CancellationToken.None).GetAwaiter().GetResult();
             }
         }
 
@@ -378,6 +388,8 @@ public sealed class ShareListRepositoryTests
             ShareListCursor? cursor = null;
             do
             {
+                // Every walk is awaited below, before the repository is disposed at the end of the test.
+                // ReSharper disable once AccessToDisposedClosure
                 var page = await repository.GetListPageAsync(new ShareListQuery(now, statuses, 3, cursor), CancellationToken.None);
                 walked.AddRange(page.Shares.Select(share => share.ShareId));
                 cursor = page.NextCursor;

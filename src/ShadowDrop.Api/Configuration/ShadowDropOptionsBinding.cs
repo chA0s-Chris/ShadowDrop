@@ -138,6 +138,8 @@ public static class ShadowDropOptionsBinding
 
         s3.BucketName = s3.BucketName.Trim();
         s3.Region = s3.Region.Trim();
+        // Nothing enforces the annotation at runtime: configuration binding and code that constructs the options can leave it null.
+        // ReSharper disable once ConditionalAccessQualifierIsNonNullableAccordingToAPIContract
         s3.ServiceEndpoint = s3.ServiceEndpoint?.Trim() ?? String.Empty;
         s3.KeyPrefix = S3ObjectKey.NormalizePrefix(s3.KeyPrefix);
     }

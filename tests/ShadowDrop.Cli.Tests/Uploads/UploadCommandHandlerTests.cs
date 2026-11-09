@@ -2509,8 +2509,8 @@ public sealed class UploadCommandHandlerTests
                            .Select(path => Guid.Parse(Path.GetFileNameWithoutExtension(path)))
                            .ToArray()
                 : [];
-            return ids.Select(id => repository.GetAsync(id, CancellationToken.None).GetAwaiter().GetResult()!)
-                      .Where(static record => record is not null)
+            return ids.Select(id => repository.GetAsync(id, CancellationToken.None).GetAwaiter().GetResult())
+                      .OfType<UploadedFileRecord>()
                       .OrderBy(static record => record.OriginalFileName, StringComparer.Ordinal)
                       .ThenBy(static record => record.FileId)
                       .ToArray();

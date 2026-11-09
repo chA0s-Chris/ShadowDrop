@@ -45,7 +45,10 @@ public sealed class ShareMetadataRepositoryStatsTests
         var now = DateTimeOffset.Parse("2026-06-01T00:00:00Z");
         await repository.CreateAsync(CreateShare(now.AddDays(1)), CancellationToken.None);
 
+        // The assertion below awaits the delegate before the repository and the token source are disposed.
+        // ReSharper disable AccessToDisposedClosure
         var act = () => repository.GetStatusCountsAsync(now, cancellation.Token);
+        // ReSharper restore AccessToDisposedClosure
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }

@@ -762,7 +762,7 @@ public sealed class ShareCleanupServiceTests
 
     /// <summary>
     /// A sweep with nothing to reclaim. These tests are about the share phase, the run lease, and run status;
-    /// <see cref="UploadSweepServiceTests"/> covers reclamation itself.
+    /// <see cref="Uploads.UploadSweepServiceTests"/> covers reclamation itself.
     /// </summary>
     private static UploadSweepService CreateIdleSweepService()
     {

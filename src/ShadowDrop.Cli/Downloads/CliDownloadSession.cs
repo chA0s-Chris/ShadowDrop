@@ -182,7 +182,7 @@ public sealed class CliDownloadSession : IDisposable
                                                                                        plaintextChunkLength,
                                                                                        chunkIndex == chunkCount - 1));
 
-            var chunkPlaintextStart = checked(chunkIndex * (Int64)metadata.ChunkSize);
+            var chunkPlaintextStart = checked(chunkIndex * metadata.ChunkSize);
             var chunkPlaintextEnd = checked(chunkPlaintextStart + plaintextChunkLength);
             var writeStart = Math.Max(chunkPlaintextStart, metadata.RequestedRange.Start);
             var writeEnd = Math.Min(chunkPlaintextEnd, metadata.RequestedRange.End);

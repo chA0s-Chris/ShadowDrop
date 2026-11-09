@@ -46,10 +46,8 @@ internal static class ProcessRunner
 
         ApplyEnvironment(startInfo, environment);
 
-        using var process = new Process
-        {
-            StartInfo = startInfo
-        };
+        using var process = new Process();
+        process.StartInfo = startInfo;
 
         var standardOutput = new StringBuilder();
         var standardError = new StringBuilder();
