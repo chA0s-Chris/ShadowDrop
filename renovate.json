@@ -1,28 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
-  ],
-  "addLabels": [
-    "renovate"
-  ],
-  "major": {
-    "dependencyDashboardApproval": true
-  },
-  "description": [
-    "ignorePaths mirrors the config:recommended defaults but drops **/tests/**.",
-    "Custom managers cannot see files under tests/ while that entry is active,",
-    "which would silently disable the pinned test-image manager below.",
-    "Re-check this list when config:recommended changes its own defaults."
-  ],
-  "ignorePaths": [
-    "**/node_modules/**",
-    "**/bower_components/**",
-    "**/vendor/**",
-    "**/examples/**",
-    "**/__tests__/**",
-    "**/test/**",
-    "**/__fixtures__/**"
+    "github>chA0s-Chris/repo-baseline//renovate/default"
   ],
   "customManagers": [
     {
@@ -37,20 +16,6 @@
   ],
   "packageRules": [
     {
-      "description": "Restore old NuGet update behavior for bare versions",
-      "matchManagers": [
-        "nuget"
-      ],
-      "rangeStrategy": "bump"
-    },
-    {
-      "description": "Allow FluentAssertions updates within v7 only",
-      "matchPackageNames": [
-        "FluentAssertions"
-      ],
-      "allowedVersions": "<8"
-    },
-    {
       "description": "Keep the minimum-version compatibility image on MongoDB 5.0 patches",
       "matchDepNames": [
         "mongo-5"
@@ -63,29 +28,6 @@
         "rustfs"
       ],
       "allowedVersions": "/^1\\.0\\.0-beta\\.\\d+$/"
-    },
-    {
-      "groupName": "Test SDK/MTP",
-      "matchPackageNames": [
-        "Microsoft.NET.Test.Sdk",
-        "Microsoft.TestPlatform.TestHost",
-        "Microsoft.Testing.Platform",
-        "Microsoft.Testing.Extensions.CodeCoverage"
-      ]
-    },
-    {
-      "groupName": "NUnit",
-      "matchPackageNames": [
-        "NUnit",
-        "NUnit.Analyzers",
-        "NUnit3TestAdapter"
-      ]
-    },
-    {
-      "groupName": "GitHub Actions",
-      "matchManagers": [
-        "github-actions"
-      ]
     }
   ]
 }
