@@ -6,9 +6,13 @@ using Microsoft.Net.Http.Headers;
 using ShadowDrop.Api.Configuration;
 using ShadowDrop.Contracts;
 using System.Globalization;
+using System.Text;
 
 public static class DownloadEndpoints
 {
+    // Matches the common file system limit for a single file name and keeps every encoded header well below reverse-proxy
+    // header buffers such as nginx's default proxy_buffer_size.
+    private const Int32 MaxHeaderValueUtf8ByteCount = 255;
     private const String PlaintextEndExclusiveQueryParameterName = "plaintextEndExclusive";
     private const String PlaintextStartQueryParameterName = "plaintextStart";
 
@@ -22,19 +26,6 @@ public static class DownloadEndpoints
         }
 
         return app;
-    }
-
-    private static Boolean ContainsControlCharacter(String value)
-    {
-        foreach (var character in value)
-        {
-            if (Char.IsControl(character) || character is >= '\u0080' and <= '\u009F')
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static async Task<IResult> DownloadAsync(String token,
@@ -65,12 +56,15 @@ public static class DownloadEndpoints
         };
     }
 
+    // The mirrored metadata headers carry percent-encoded UTF-8 because Kestrel rejects non-ASCII response header characters.
+    private static String EncodeMirroredHeaderValue(String sanitizedValue) => Uri.EscapeDataString(sanitizedValue);
+
     private static String FormatInvariantHeaderValue(Int64 value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static String FormatInvariantHeaderValue(Int32 value) => value.ToString(CultureInfo.InvariantCulture);
 
     private static String GetResponseContentType(String? contentType) =>
-        !String.IsNullOrWhiteSpace(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
+        !String.IsNullOrWhiteSpace(contentType) && IsKestrelSafeHeaderValue(contentType) && MediaTypeHeaderValue.TryParse(contentType, out _)
             ? contentType
             : "application/octet-stream";
 
@@ -90,6 +84,21 @@ public static class DownloadEndpoints
             DownloadLookupStatus.NotFound => new StatusDownloadResult(StatusCodes.Status404NotFound),
             _ => new StatusDownloadResult(StatusCodes.Status500InternalServerError)
         };
+    }
+
+    // MediaTypeHeaderValue accepts non-ASCII and control characters inside quoted parameters, but Kestrel only accepts visible ASCII,
+    // space, and horizontal tab in a response header value.
+    private static Boolean IsKestrelSafeHeaderValue(String value)
+    {
+        foreach (var character in value)
+        {
+            if (character is (< ' ' and not '\t') or > '~')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static RequestedByteRange? ParseCliRangeHeader(String rangeHeader)
@@ -144,6 +153,10 @@ public static class DownloadEndpoints
         return sanitized.Length == 0 ? "download" : sanitized;
     }
 
+    /// <summary>
+    /// Removes control characters (C0, DEL, and C1) and limits the value to <see cref="MaxHeaderValueUtf8ByteCount"/> UTF-8 bytes
+    /// without splitting a character. Ill-formed UTF-16 is replaced with U+FFFD so the result always round-trips through UTF-8.
+    /// </summary>
     private static String SanitizeHeaderValue(String? value)
     {
         if (String.IsNullOrWhiteSpace(value))
@@ -151,22 +164,26 @@ public static class DownloadEndpoints
             return String.Empty;
         }
 
-        var sanitized = ContainsControlCharacter(value)
-            ? String.Create(value.Length, value, static (destination, source) =>
+        var builder = new StringBuilder(Math.Min(value.Length, MaxHeaderValueUtf8ByteCount));
+        Span<Char> utf16Buffer = stackalloc Char[2];
+        var utf8ByteCount = 0;
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (Rune.IsControl(rune))
             {
-                var index = 0;
-                foreach (var character in source)
-                {
-                    if (!Char.IsControl(character))
-                    {
-                        destination[index++] = character;
-                    }
-                }
+                continue;
+            }
 
-                destination[index..].Clear();
-            }).TrimEnd('\0')
-            : value;
-        return sanitized.Length > 500 ? sanitized[..500] : sanitized;
+            utf8ByteCount += rune.Utf8SequenceLength;
+            if (utf8ByteCount > MaxHeaderValueUtf8ByteCount)
+            {
+                break;
+            }
+
+            builder.Append(utf16Buffer[..rune.EncodeToUtf16(utf16Buffer)]);
+        }
+
+        return builder.ToString();
     }
 
     private static void SetNoStoreCacheControl(HttpContext httpContext)
@@ -265,8 +282,9 @@ public static class DownloadEndpoints
                 : StatusCodes.Status200OK;
             httpContext.Response.ContentType = GetResponseContentType(_resolution.ResponseContentType);
             httpContext.Response.ContentLength = _resolution.ResponseContentLength;
-            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = sanitizedFileName;
-            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] = SanitizeHeaderValue(_resolution.FileContentType);
+            httpContext.Response.Headers[DownloadHeaderConstants.FileNameHeaderName] = EncodeMirroredHeaderValue(sanitizedFileName);
+            httpContext.Response.Headers[DownloadHeaderConstants.FileContentTypeHeaderName] =
+                EncodeMirroredHeaderValue(SanitizeHeaderValue(_resolution.FileContentType));
             httpContext.Response.Headers[DownloadHeaderConstants.ModeHeaderName] = _resolution.Mode == DownloadMode.DirectHttp
                 ? "direct-http"
                 : DownloadHeaderConstants.StreamedCliMode;

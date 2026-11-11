@@ -17,7 +17,7 @@ and the file system). Each scenario then:
 - runs the real CLI as a child process;
 - byte-compares every downloaded file against the original input.
 
-Seven scenarios are covered:
+Nine scenarios are covered:
 
 1. **Queue download (upload-relative paths)** — uploads three files, one of them nested, with explicit
    `--server-url`, `--upload-token`, and `--queue-out`, parses the printed `share-key:`, downloads the generated
@@ -33,6 +33,8 @@ Seven scenarios are covered:
 5. **Scoped upload credential lifecycle** — creates a scoped credential, uploads and shares with it, revokes it, verifies new uploads are rejected, and confirms the share created before revocation still downloads correctly.
 6. **Untrusted self-signed TLS** — connects to a self-signed HTTPS listener without a custom CA and verifies the CLI rejects the certificate before sending an HTTP request.
 7. **Trusted self-signed TLS** — supplies the listener certificate through `--cacert` and verifies the CLI completes the TLS handshake and reaches the HTTP endpoint.
+8. **Non-ASCII file name (CLI)** — uploads a file whose name contains non-ASCII characters and downloads it with the CLI, guarding against Kestrel rejecting non-ASCII response header characters (#252).
+9. **Non-ASCII file name (direct HTTP)** — the same file name uploaded with `--direct-http` and downloaded with `curl`.
 
 Each test is isolated, `[NonParallelizable]`, deterministic, and cleans up its temporary files, directories,
 and child processes even when it fails.

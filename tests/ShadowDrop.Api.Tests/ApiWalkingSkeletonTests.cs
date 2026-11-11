@@ -33,6 +33,7 @@ using JsonSerializer = System.Text.Json.JsonSerializer;
 public sealed class ApiWalkingSkeletonTests
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const String VisibleAsciiPattern = @"^[\x21-\x7E]*$";
 
     [Test]
     public async Task HealthEndpoint_ShouldBeAvailableWithoutAuthentication()
@@ -985,7 +986,7 @@ public sealed class ApiWalkingSkeletonTests
         response.Headers.CacheControl.Should().BeNull();
         response.Headers.AcceptRanges.Should().BeEmpty();
         response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
-        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application%2Foctet-stream");
         response.Headers.GetValues(DownloadHeaderConstants.ModeHeaderName).Should().ContainSingle("cli");
         response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
         response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
@@ -1033,7 +1034,7 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType.Should().NotBeNull();
         response.Content.Headers.ContentType.MediaType.Should().Be(DownloadHeaderConstants.CliDownloadContentType);
-        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application%2Foctet-stream");
         (await response.Content.ReadAsByteArrayAsync()).Should().Equal(CreateCiphertext());
     }
 
@@ -1190,7 +1191,7 @@ public sealed class ApiWalkingSkeletonTests
         response.Headers.AcceptRanges.Should().BeEmpty();
         response.Content.Headers.ContentRange.Should().BeNull();
         response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Should().ContainSingle("renamed.bin");
-        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application/octet-stream");
+        response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Should().ContainSingle("application%2Foctet-stream");
         response.Headers.GetValues(DownloadHeaderConstants.FirstChunkIndexHeaderName).Should().ContainSingle("0");
         response.Headers.GetValues(DownloadHeaderConstants.LastChunkIndexHeaderName).Should().ContainSingle("1");
         response.Headers.GetValues(DownloadHeaderConstants.PlaintextRangeStartHeaderName).Should().ContainSingle("0");
@@ -1654,7 +1655,7 @@ public sealed class ApiWalkingSkeletonTests
         uploadResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var share = await CreateShareAsync(client,
                                            fixture.BootstrapToken,
-                                           CreateValidShareRequest(reservedFileId, false, true));
+                                           CreateValidShareRequest(reservedFileId, false, true, displayName: null));
         client.DefaultRequestHeaders.Add(DownloadKeyConstants.HeaderName, payload.KeyMaterialBase64);
 
         var response = await client.GetAsync($"/d/{share.ShareToken}/files/{reservedFileId}");
@@ -1662,7 +1663,8 @@ public sealed class ApiWalkingSkeletonTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.Should().NotContain(h => h.Key.Equals("X-Injected-Header", StringComparison.OrdinalIgnoreCase),
                                              "control characters in filename must not allow header injection");
-        var sanitizedFileName = response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Single();
+        var sanitizedFileName = Uri.UnescapeDataString(response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Single());
+        sanitizedFileName.Should().Be("maliciousX-Injected-Header: evilfile.bin");
         sanitizedFileName.Should().NotContain("\r").And.NotContain("\n",
                                                                    "filename with CR/LF must be sanitized before being written to response headers");
         sanitizedFileName.Any(Char.IsControl).Should().BeFalse("all control characters, including C1 controls, must be removed from mirrored filename headers");
@@ -1708,11 +1710,49 @@ public sealed class ApiWalkingSkeletonTests
                                         "download should succeed even when stored content-type is malformed");
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream",
                                                                     "invalid content-type should fallback to application/octet-stream to prevent 500 error");
-        var sanitizedContentType = response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Single();
+        var sanitizedContentType = Uri.UnescapeDataString(response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Single());
         sanitizedContentType.Any(Char.IsControl).Should()
                             .BeFalse("X-ShadowDrop-File-Content-Type header should remove all control characters before being written");
         sanitizedContentType.Should().Be("text/plain;charset=utf-8",
                                          "sanitizer should remove control characters while preserving safe content");
+    }
+
+    [TestCaseSource(nameof(MirroredFileNameCases))]
+    public async Task PublicDownloadEndpoint_ShouldPercentEncodeSanitizedFileName(String displayName, String expectedFileName, Boolean directHttp)
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+
+        var response = await DownloadSharedFileAsync(fixture, client, directHttp, displayName);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var fileNameHeader = response.Headers.GetValues(DownloadHeaderConstants.FileNameHeaderName).Single();
+        fileNameHeader.Should().MatchRegex(VisibleAsciiPattern, "Kestrel rejects non-ASCII response header characters");
+        Uri.UnescapeDataString(fileNameHeader).Should().Be(expectedFileName);
+        if (directHttp)
+        {
+            response.Content.Headers.ContentDisposition.Should().NotBeNull();
+            response.Content.Headers.ContentDisposition.FileNameStar.Should().Be(expectedFileName);
+        }
+    }
+
+    [TestCaseSource(nameof(UnsafeStoredContentTypeCases))]
+    public async Task PublicDownloadEndpoint_ShouldFallBackAndPercentEncode_WhenStoredContentTypeIsNotHeaderSafe(String storedContentType,
+                                                                                                                 String expectedMirroredContentType,
+                                                                                                                 Boolean directHttp)
+    {
+        await using var fixture = new TestApiFactory(enablePublicDownloads: true);
+        using var client = fixture.CreateClient();
+
+        var response = await DownloadSharedFileAsync(fixture, client, directHttp, storedContentType: storedContentType);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType.Should().NotBeNull();
+        response.Content.Headers.ContentType.MediaType.Should().Be(directHttp ? "application/octet-stream" : DownloadHeaderConstants.CliDownloadContentType,
+                                                                   "a stored content type Kestrel would reject must not reach the Content-Type header");
+        var contentTypeHeader = response.Headers.GetValues(DownloadHeaderConstants.FileContentTypeHeaderName).Single();
+        contentTypeHeader.Should().MatchRegex(VisibleAsciiPattern, "Kestrel rejects non-ASCII response header characters");
+        Uri.UnescapeDataString(contentTypeHeader).Should().Be(expectedMirroredContentType);
     }
 
     [Test]
@@ -2014,6 +2054,80 @@ public sealed class ApiWalkingSkeletonTests
                                         "disposal of a failed factory must restore environment variables so subsequent factories can start");
     }
 
+    private static IEnumerable<TestCaseData> MirroredFileNameCases()
+    {
+        var longUtf8Name = String.Concat(Enumerable.Repeat("ñ", 200));
+        return InBothDownloadModes(("mañana.bin", "mañana.bin"),
+                                   ("日本語ファイル.bin", "日本語ファイル.bin"),
+                                   ("📄 report.pdf", "📄 report.pdf"),
+                                   // A two-byte character must not be split: 127 × 2 bytes fit into 255 bytes, the 128th does not.
+                                   (longUtf8Name, longUtf8Name[..127]),
+                                   // The four-byte surrogate pair would end at byte 257, so it is dropped as a whole instead of being split.
+                                   ($"{new String('a', 253)}😀.bin", new String('a', 253)),
+                                   // A name that is empty after sanitization falls back to "download".
+                                   ("\u0001\u0002", "download"));
+    }
+
+    private static IEnumerable<TestCaseData> UnsafeStoredContentTypeCases() =>
+        InBothDownloadModes(("text/plain; charset=\"ñ\"", "text/plain; charset=\"ñ\""),
+                            // MediaTypeHeaderValue accepts these quoted control characters, Kestrel does not.
+                            ("text/plain; charset=\"a\u0001b\"", "text/plain; charset=\"ab\""),
+                            ("text/plain; charset=\"a\u007Fb\"", "text/plain; charset=\"ab\""));
+
+    private static IEnumerable<TestCaseData> InBothDownloadModes(params (String Stored, String Expected)[] cases)
+    {
+        foreach (var directHttp in new[]
+                 {
+                     false,
+                     true
+                 })
+        {
+            foreach (var (stored, expected) in cases)
+            {
+                yield return new TestCaseData(stored, expected, directHttp);
+            }
+        }
+    }
+
+    private static async Task<HttpResponseMessage> DownloadSharedFileAsync(TestApiFactory fixture,
+                                                                           HttpClient client,
+                                                                           Boolean directHttp,
+                                                                           String displayName = "renamed.bin",
+                                                                           String? storedContentType = null)
+    {
+        Guid fileId;
+        String? keyMaterialBase64 = null;
+        if (directHttp)
+        {
+            var directHttpFixture = await UploadDirectHttpFileAsync(client, fixture.BootstrapToken);
+            fileId = directHttpFixture.FileId;
+            keyMaterialBase64 = directHttpFixture.KeyMaterialBase64;
+        }
+        else
+        {
+            fileId = await UploadValidFileAsync(client, fixture.BootstrapToken);
+        }
+
+        if (storedContentType is not null)
+        {
+            OverwriteStoredUploadContentType(fixture.MetadataDatabasePath, fileId, storedContentType);
+        }
+
+        var share = await CreateShareAsync(client,
+                                           fixture.BootstrapToken,
+                                           CreateValidShareRequest(fileId, false, directHttp, displayName: displayName));
+        using var request = new HttpRequestMessage(HttpMethod.Get,
+                                                   directHttp
+                                                       ? $"/d/{share.ShareToken}/files/{fileId}"
+                                                       : $"/d/{share.ShareToken}/files/{fileId}?mode=cli");
+        if (keyMaterialBase64 is not null)
+        {
+            request.Headers.Add(DownloadKeyConstants.HeaderName, keyMaterialBase64);
+        }
+
+        return await client.SendAsync(request);
+    }
+
     private static String? Scalar(LogEvent logEvent, String name) =>
         logEvent.Properties.TryGetValue(name, out var value) && value is ScalarValue { Value: { } scalar }
             ? scalar.ToString()
@@ -2030,9 +2144,10 @@ public sealed class ApiWalkingSkeletonTests
     private static CreateShareRequest CreateValidShareRequest(Guid fileId,
                                                               Boolean generateDownloadBearerToken,
                                                               Boolean directHttpEnabled = false,
-                                                              DateTimeOffset? expiresAtUtc = null) =>
+                                                              DateTimeOffset? expiresAtUtc = null,
+                                                              String? displayName = "renamed.bin") =>
         new(expiresAtUtc ?? DateTimeOffset.UtcNow.AddDays(1),
-            [new CreateShareFileRequest(fileId, "renamed.bin")],
+            [new CreateShareFileRequest(fileId, displayName)],
             directHttpEnabled,
             generateDownloadBearerToken,
             generateDownloadBearerToken ? DateTimeOffset.UtcNow.AddHours(12) : null);

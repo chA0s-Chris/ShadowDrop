@@ -9,8 +9,19 @@ public static class DownloadHeaderConstants
 {
     public const String ChunkSizeHeaderName = "X-ShadowDrop-Chunk-Size";
     public const String CliDownloadContentType = "application/vnd.shadowdrop.cli-download";
+
+    /// <summary>
+    /// The stored content type of the downloaded file. The value is percent-encoded UTF-8 (as produced by
+    /// <see cref="Uri.EscapeDataString(String)"/>), so decode it with <see cref="Uri.UnescapeDataString(String)"/>.
+    /// </summary>
     public const String FileContentTypeHeaderName = "X-ShadowDrop-File-Content-Type";
+
+    /// <summary>
+    /// The file name of the downloaded file. The value is percent-encoded UTF-8 (as produced by
+    /// <see cref="Uri.EscapeDataString(String)"/>), so decode it with <see cref="Uri.UnescapeDataString(String)"/>.
+    /// </summary>
     public const String FileNameHeaderName = "X-ShadowDrop-File-Name";
+
     public const String FinalChunkPlaintextLengthHeaderName = "X-ShadowDrop-Final-Chunk-Plaintext-Length";
     public const String FirstChunkIndexHeaderName = "X-ShadowDrop-First-Chunk-Index";
     public const String LastChunkIndexHeaderName = "X-ShadowDrop-Last-Chunk-Index";
