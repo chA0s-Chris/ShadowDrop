@@ -48,36 +48,49 @@ jobs:
           path: artifacts/publish/health-probe/
           if-no-files-found: error
 
+  # Builds inside Microsoft's NativeAOT cross-build images instead of on the runner. The runner's own
+  # libc is not usable: ubuntu-latest installs the amd64v3 package variant, whose crt1.o carries an
+  # x86-64-v3 ISA note that the linker copies into the binary and that glibc enforces at startup. The
+  # images link against an Ubuntu 18.04 sysroot (/crossrootfs/<arch>) without such markers, which also
+  # keeps the glibc requirement low. Both run on an x86_64 host; arm64 is a cross build there.
   publish-cli-linux:
+    strategy:
+      matrix:
+        include:
+          # renovate: datasource=docker depName=mcr.microsoft.com/dotnet-buildtools/prereqs versioning=loose
+          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-amd64@sha256:3d9b12839eb1352678e577c3fada879ea1e92fe5923da4d260786e7b6d7b0075
+            runtime: linux-x64
+            target: PublishCliLinuxX64
+          # renovate: datasource=docker depName=mcr.microsoft.com/dotnet-buildtools/prereqs versioning=loose
+          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64@sha256:15c15aac729f136bc69c32bdb2582324a226f19bcabf24cb4d283b1bacbc2ff9
+            runtime: linux-arm64
+            target: PublishCliLinuxArm64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Install Native AOT cross-linker prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang \
-            zlib1g-dev \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            binutils-aarch64-linux-gnu
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-
+      # The images ship no .NET SDK; build.sh installs the one pinned in global.json.
       - name: Publish Linux CLI
-        run: bash build.sh PublishCliLinux --release-version "${{ inputs.version }}"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env RELEASE_VERSION \
+            ${{ matrix.image }} \
+            bash -lc '
+              git config --global --add safe.directory /workspace &&
+              bash build.sh ${{ matrix.target }} --release-version "$RELEASE_VERSION"
+            '
 
-      - name: Upload Linux CLI artifacts
+      - name: Upload Linux CLI artifact
         uses: actions/upload-artifact@v7
         with:
-          name: shadowdrop-cli-linux
-          path: artifacts/publish/cli/*/shadowdrop-*-linux-*
+          name: shadowdrop-cli-${{ matrix.runtime }}
+          path: artifacts/publish/cli/*/shadowdrop-*-${{ matrix.runtime }}
           if-no-files-found: error
 
   publish-cli-linux-musl:

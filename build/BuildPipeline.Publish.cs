@@ -6,6 +6,7 @@ using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tools.DotNet;
 using Serilog;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -45,6 +46,11 @@ internal partial class BuildPipeline
     private const String DockerImageRepository = "shadowdrop";
     private static readonly TimeSpan DockerSmokeTestTimeout = TimeSpan.FromSeconds(60);
 
+    private static readonly String[] LinuxArm64CliRuntimeIdentifiers =
+    [
+        "linux-arm64"
+    ];
+
     private static readonly String[] LinuxCliRuntimeIdentifiers =
     [
         "linux-x64",
@@ -59,6 +65,11 @@ internal partial class BuildPipeline
     private static readonly String[] LinuxMuslX64CliRuntimeIdentifiers =
     [
         "linux-musl-x64"
+    ];
+
+    private static readonly String[] LinuxX64CliRuntimeIdentifiers =
+    [
+        "linux-x64"
     ];
 
     private static readonly String[] MacOsCliRuntimeIdentifiers =
@@ -186,6 +197,18 @@ internal partial class BuildPipeline
                   PublishCliArtifacts(LinuxCliRuntimeIdentifiers);
               });
 
+    // The release workflow builds each glibc RID in its own NativeAOT cross-build image, so the two targets
+    // stay separate; PublishCliLinux remains the local target that covers both for the Docker staging.
+    private Target PublishCliLinuxArm64 => target =>
+        target.DependsOn(Restore)
+              .After(Clean, RestoreTools)
+              .Executes(() =>
+              {
+                  Log.Information("Publishing Linux arm64 CLI artifact...");
+
+                  PublishCliArtifacts(LinuxArm64CliRuntimeIdentifiers);
+              });
+
     private Target PublishCliLinuxMuslArm64 => target =>
         target.DependsOn(Restore)
               .After(Clean, RestoreTools)
@@ -204,6 +227,16 @@ internal partial class BuildPipeline
                   Log.Information("Publishing Linux musl x64 CLI artifact...");
 
                   PublishCliArtifacts(LinuxMuslX64CliRuntimeIdentifiers);
+              });
+
+    private Target PublishCliLinuxX64 => target =>
+        target.DependsOn(Restore)
+              .After(Clean, RestoreTools)
+              .Executes(() =>
+              {
+                  Log.Information("Publishing Linux x64 CLI artifact...");
+
+                  PublishCliArtifacts(LinuxX64CliRuntimeIdentifiers);
               });
 
     private Target PublishCliMacOs => target =>
@@ -260,8 +293,9 @@ internal partial class BuildPipeline
               });
 
     // Unlike EnsurePublishApiArtifacts, this never republishes as a local-dev fallback: producing the
-    // linux-arm64 artifact needs a cross-linker (gcc-aarch64-linux-gnu) that a typical machine lacks, so
-    // a silent republish would fail far less clearly than naming the target that produces the artifacts.
+    // linux-arm64 artifact needs a cross-linker that a typical machine lacks (release builds use the sysroot
+    // of the NativeAOT cross-build image; the host's gcc-aarch64-linux-gnu is only a local fallback), so a
+    // silent republish would fail far less clearly than naming the target that produces the artifacts.
     private Target StageCliDockerArtifacts => target =>
         target.After(Clean, RestoreTools, PublishCliLinux)
               .Executes(StageCliDockerArtifactsCore);
@@ -297,6 +331,21 @@ internal partial class BuildPipeline
             UnixFileMode.GroupExecute |
             UnixFileMode.OtherRead |
             UnixFileMode.OtherExecute);
+    }
+
+    // The sysroot only exists inside the NativeAOT cross-build images, which is how the release workflow
+    // finds it without a build parameter; local runs fall through to the host toolchain. Alpine builds
+    // (musl) link natively and never look for one.
+    private static String? GetCliCrossSysRoot(String runtimeIdentifier)
+    {
+        var sysRoot = runtimeIdentifier switch
+        {
+            "linux-x64" => "/crossrootfs/x64",
+            "linux-arm64" => "/crossrootfs/arm64",
+            _ => null
+        };
+
+        return sysRoot is not null && Directory.Exists(sysRoot) ? sysRoot : null;
     }
 
     private static String GetCliPublishedExecutableName(String runtimeIdentifier)
@@ -363,6 +412,22 @@ internal partial class BuildPipeline
 
     private static Boolean IsWindowsRuntime(String runtimeIdentifier) =>
         runtimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
+
+    // Runs `<tool> -n <artifact>`. The tool being absent is reported as null; any other failure,
+    // including a non-zero exit, throws so the guard cannot pass on output it never obtained.
+    private static String? ReadElfNotes(String tool, String artifactPath)
+    {
+        const Int32 noSuchFileOrDirectory = 2;
+
+        try
+        {
+            return RunProcess(tool, ["-n", artifactPath], RootDirectory, logProcessOutput: false).StandardOutput;
+        }
+        catch (Win32Exception e) when (e.NativeErrorCode == noSuchFileOrDirectory)
+        {
+            return null;
+        }
+    }
 
     private static ProcessResult RunDocker(IReadOnlyCollection<String> arguments,
                                            Boolean ignoreExitCode = false,
@@ -667,8 +732,20 @@ internal partial class BuildPipeline
                      .SetInformationalVersion(SemanticVersion)
                      .EnableContinuousIntegrationBuild();
 
-                if (runtimeIdentifier == "linux-arm64")
+                var crossSysRoot = GetCliCrossSysRoot(runtimeIdentifier);
+                if (crossSysRoot is not null)
+                {
+                    // The NativeAOT cross-build images link against their own sysroot with lld. The host's
+                    // libc is deliberately not used: a distribution that ships x86-64-v3 C runtime objects
+                    // taints the binary with an ISA requirement that glibc enforces at startup.
+                    s = s.SetProperty("SysRoot", crossSysRoot)
+                         .SetProperty("LinkerFlavor", "lld")
+                         .SetProperty("ObjCopyName", "llvm-objcopy");
+                }
+                else if (runtimeIdentifier == "linux-arm64")
+                {
                     s = s.SetProperty("ObjCopyName", "aarch64-linux-gnu-objcopy");
+                }
 
                 return s;
             });
@@ -679,6 +756,13 @@ internal partial class BuildPipeline
                 throw new FileNotFoundException(
                     $"CLI publish for '{runtimeIdentifier}' did not produce '{publishedExecutable}'.");
             }
+
+            // Runs before the copy so that a tainted binary never reaches the versioned release directory,
+            // where the Docker staging would pick it up. It also covers local and musl builds on purpose.
+            // Without llvm-readelf or readelf the guard fails instead of skipping, so a host without
+            // binutils must install them to publish x64 Linux artifacts.
+            if (runtimeIdentifier is "linux-x64" or "linux-musl-x64")
+                ElfIsaGuard.Verify(publishedExecutable, ReadElfNotes);
 
             var artifact = releaseDirectory / GetCliArtifactName(runtimeIdentifier);
             File.Copy(publishedExecutable, artifact, true);
