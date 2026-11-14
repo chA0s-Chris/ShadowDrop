@@ -12,6 +12,16 @@
       "matchStrings": [
         "// renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+public const String \\w+ = \"(?<packageName>[^\"]+):(?<currentValue>[^\"]+)\";"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Pin the NativeAOT cross-build images of the release workflow by tag and digest",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/release-artifacts\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+- image: [^:\\s]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ]
     }
   ],
   "packageRules": [

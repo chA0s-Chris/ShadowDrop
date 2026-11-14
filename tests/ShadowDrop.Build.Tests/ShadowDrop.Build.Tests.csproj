@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Nuke project is not built by the solution and cannot be referenced as a library, so the
+       Nuke-independent pieces under test are compiled straight into this assembly. -->
+  <ItemGroup>
+    <Compile Include="..\..\build\ElfIsaGuard.cs" Link="Build\ElfIsaGuard.cs" />
+  </ItemGroup>
+</Project>
