@@ -58,7 +58,7 @@ jobs:
       matrix:
         include:
           # renovate: datasource=docker depName=mcr.microsoft.com/dotnet-buildtools/prereqs versioning=loose
-          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-amd64@sha256:3d9b12839eb1352678e577c3fada879ea1e92fe5923da4d260786e7b6d7b0075
+          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-amd64@sha256:c919cc2b6229e52951407e404c7e371473ae0f99214641b0e9312c950dadf4d6
             runtime: linux-x64
             target: PublishCliLinuxX64
           # renovate: datasource=docker depName=mcr.microsoft.com/dotnet-buildtools/prereqs versioning=loose
