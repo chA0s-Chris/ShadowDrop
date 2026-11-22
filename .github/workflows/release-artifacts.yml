@@ -62,7 +62,7 @@ jobs:
             runtime: linux-x64
             target: PublishCliLinuxX64
           # renovate: datasource=docker depName=mcr.microsoft.com/dotnet-buildtools/prereqs versioning=loose
-          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64@sha256:15c15aac729f136bc69c32bdb2582324a226f19bcabf24cb4d283b1bacbc2ff9
+          - image: mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64@sha256:d177ceef473879e961ca9b33bc797f012941cade934146b0f19f682b2013794d
             runtime: linux-arm64
             target: PublishCliLinuxArm64
     runs-on: ubuntu-latest
